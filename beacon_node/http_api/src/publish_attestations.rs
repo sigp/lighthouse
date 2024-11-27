@@ -206,7 +206,10 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
             &chain.slot_clock,
         );
 
-    let fc_result = chain.apply_attestation_to_fork_choice(&attestation);
+    let fc_result = chain.apply_attestation_to_fork_choice(
+        attestation.attestation().data().clone(),
+        attestation.indexed_attestation().attesting_indices_to_vec(),
+    );
     let naive_aggregation_result = chain.add_to_naive_aggregation_pool(attestation.attestation());
 
     if let Err(e) = &fc_result {

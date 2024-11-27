@@ -463,10 +463,12 @@ impl ForkChoiceTest {
             &self.harness.chain,
         );
 
-        let result = self
-            .harness
-            .chain
-            .apply_attestation_to_fork_choice(&verified_attestation);
+        let result = self.harness.chain.apply_attestation_to_fork_choice(
+            verified_attestation.attestation().data().clone(),
+            verified_attestation
+                .indexed_attestation()
+                .attesting_indices_to_vec(),
+        );
 
         comparison_func(result);
 

@@ -258,8 +258,8 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
 
     pub fn committee_index(&self) -> Option<u64> {
         match self {
-            AttestationRef::Base(att) => Some(att.data.index),
-            AttestationRef::Electra(att) => att.committee_index(),
+            Self::Base(att) => Some(att.data.index),
+            Self::Electra(att) => att.committee_index(),
         }
     }
 
@@ -279,6 +279,13 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
                 .filter(|(_i, bit)| *bit)
                 .map(|(i, _bit)| i)
                 .collect::<Vec<_>>(),
+        }
+    }
+
+    pub fn attesting_indices_to_vec(&self) -> Vec<u64> {
+        match self {
+            Self::Base(_att) => todo!(),
+            Self::Electra(_att) => todo!(),
         }
     }
 }
@@ -358,62 +365,6 @@ impl<E: EthSpec> AttestationElectra<E> {
 
             Ok(())
         }
-    }
-
-    pub fn to_single_attestation(
-        &self,
-        committees: &[BeaconCommittee],
-    ) -> Result<SingleAttestation, Error> {
-        let committee_indices = self.get_committee_indices();
-
-        if committee_indices.len() != 1 {
-            return Err(Error::InvalidCommitteeLength);
-        }
-
-        let aggregation_bits = self.get_aggregation_bits();
-
-        if aggregation_bits.len() != 1 {
-            return Err(Error::InvalidAggregationBit);
-        }
-
-        let committee_index = *committee_indices
-            .first()
-            .ok_or(Error::InvalidCommitteeIndex)?;
-
-        let aggregation_bit = *aggregation_bits
-            .first()
-            .ok_or(Error::InvalidAggregationBit)?;
-
-        let beacon_committee = committees
-            .get(committee_index as usize)
-            .ok_or(Error::InvalidCommitteeIndex)?;
-
-        let attester_indices = beacon_committee
-            .committee
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &index)| {
-                if aggregation_bit as usize == i {
-                    return Some(index);
-                }
-                None
-            })
-            .collect::<Vec<_>>();
-
-        if attester_indices.len() != 1 {
-            return Err(Error::InvalidAggregationBit);
-        };
-
-        let attester_index = *attester_indices
-            .first()
-            .ok_or(Error::InvalidAggregationBit)?;
-
-        Ok(SingleAttestation {
-            committee_index,
-            attester_index,
-            data: self.data.clone(),
-            signature: self.signature.clone(),
-        })
     }
 }
 

@@ -2226,14 +2226,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - `VerifiedAggregatedAttestation`
     pub fn apply_attestation_to_fork_choice(
         &self,
-        verified: &impl VerifiedAttestation<T>,
+        attestation_data: AttestationData,
+        attesting_indices: Vec<u64>,
     ) -> Result<(), Error> {
         self.canonical_head
             .fork_choice_write_lock()
             .on_attestation(
                 self.slot()?,
-                verified.indexed_attestation().data().clone(),
-                verified.indexed_attestation().attesting_indices_to_vec(),
+                attestation_data,
+                attesting_indices,
                 AttestationFromBlock::False,
             )
             .map_err(Into::into)

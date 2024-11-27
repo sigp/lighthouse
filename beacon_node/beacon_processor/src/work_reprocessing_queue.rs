@@ -739,8 +739,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             "hint" => "system may be overloaded",
                             "parent_root" => ?parent_root,
                             "block_root" => ?block_root,
-                            "failed_count" => failed_to_send_count,
-                            "sent_count" => sent_count,
+                            "failed_count" => ?failed_to_send_count,
+                            "sent_count" => ?sent_count,
                         );
                     }
                 }
@@ -782,8 +782,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             "Ignored scheduled sampling requests for block";
                             "hint" => "system may be overloaded",
                             "block_root" => ?block_root,
-                            "failed_count" => failed_to_send_count,
-                            "sent_count" => sent_count,
+                            "failed_count" => ?failed_to_send_count,
+                            "sent_count" => ?sent_count,
                         );
                     }
                 }

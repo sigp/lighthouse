@@ -1201,14 +1201,15 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     pub fn register_gossip_unaggregated_attestation<S: SlotClock>(
         &self,
         seen_timestamp: Duration,
-        indexed_attestation: &IndexedAttestation<E>,
+        attestation_data: &AttestationData,
+        attesting_indices: Vec<u64>,
         slot_clock: &S,
     ) {
         self.register_unaggregated_attestation(
             "gossip",
             seen_timestamp,
-            indexed_attestation.data(),
-            indexed_attestation.attesting_indices(),
+            attestation_data,
+            attesting_indices,
             slot_clock,
         )
     }
