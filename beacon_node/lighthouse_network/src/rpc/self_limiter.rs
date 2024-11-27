@@ -4,18 +4,18 @@ use std::{
     time::Duration,
 };
 
+use super::{
+    config::OutboundRateLimiterConfig,
+    rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
+    BehaviourAction, Protocol, RPCSend, ReqId, RequestType,
+};
+use crate::rpc::rate_limiter::RateLimiterItem;
 use futures::FutureExt;
 use libp2p::{swarm::NotifyHandler, PeerId};
 use slog::{crit, debug, Logger};
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
 use types::EthSpec;
-
-use super::{
-    config::OutboundRateLimiterConfig,
-    rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
-    BehaviourAction, Protocol, RPCSend, ReqId, RequestType,
-};
 
 /// A request that was rate limited or waiting on rate limited requests for the same peer and
 /// protocol.
@@ -183,6 +183,27 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                     true
                 }
             });
+
+        self.ready_requests.retain(|event| {
+            if let BehaviourAction::NotifyHandler {
+                peer_id: req_peer_id,
+                handler: _,
+                event: RPCSend::Request(request_id, request),
+            } = event
+            {
+                if req_peer_id == &peer_id {
+                    failed_requests.push((*request_id, request.protocol()));
+                    // Remove the entry
+                    false
+                } else {
+                    // Keep the entry
+                    true
+                }
+            } else {
+                unreachable!()
+            }
+        });
+
         failed_requests
     }
 
