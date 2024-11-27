@@ -1,7 +1,7 @@
 matrix:
 - name: Markdown
   sources:
-  - './book/**/*.md|!./book/**/setup.md|!./book/**/help_*.md'
+  - './book/**/*.md|!./book/**/setup.md|!./book/**/help_*.md|!./book/**/mainnet-validator.md|!./book/**/graffiti.md|!./book/**/suggested*.md'
   default_encoding: utf-8
   aspell:
     lang: en
@@ -10,6 +10,7 @@ matrix:
     - wordlist.txt
     encoding: utf-8
   pipeline:
+  - pyspelling.filters.url:
   - pyspelling.filters.markdown:
   - pyspelling.filters.html:
       comments: false
