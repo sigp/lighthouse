@@ -157,6 +157,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // Determine if backfill is enabled or not.
         // If, for some reason a backfill has already been completed (or we've used a trusted
         // genesis root) then backfill has been completed.
+        // TODO(tracing) BACKFILL SYNC SPAN
+        // let span = span!(Level::INFO, "BackFillSync", service = "backfill_sync");
+        // let _enter = span.enter();
+
         let anchor_info = beacon_chain.store.get_anchor_info();
         let (state, current_start) =
             if anchor_info.block_backfill_complete(beacon_chain.genesis_backfill_slot) {

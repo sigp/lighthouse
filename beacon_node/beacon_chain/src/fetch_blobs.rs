@@ -50,6 +50,11 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
+    // let block_root_str = format!("{:?}", block_root);
+    // let log = chain
+    //     .log
+    //     .new(o!("service" => "fetch_engine_blobs", "block_root" => block_root_str));
+
     let versioned_hashes = if let Some(kzg_commitments) = block
         .message()
         .body()
@@ -73,7 +78,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
 
-    debug!(num_expected_blobs, "Fetching blobs from the EL",);
+    debug!(num_expected_blobs, "Fetching blobs from the EL");
     let response = execution_layer
         .get_blobs(versioned_hashes)
         .await
@@ -159,7 +164,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         None
     };
 
-    debug!(num_fetched_blobs, "Processing engine blobs",);
+    debug!(num_fetched_blobs, "Processing engine blobs");
 
     let availability_processing_status = chain
         .process_engine_blobs(

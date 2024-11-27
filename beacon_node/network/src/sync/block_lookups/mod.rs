@@ -349,8 +349,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 if !imported {
                     debug!(
                         ?block_root,
-                        r#type = component_type,
-                        "Lookup child component ignored"
+                        component_type, "Lookup child component ignored"
                     );
                 }
             }

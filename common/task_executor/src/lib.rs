@@ -113,15 +113,6 @@ impl TaskExecutor {
         }
     }
 
-    /// Clones the task executor adding a service name.
-    pub fn clone_task_executor(&self) -> Self {
-        TaskExecutor {
-            handle_provider: self.handle_provider.clone(),
-            exit: self.exit.clone(),
-            signal_tx: self.signal_tx.clone(),
-        }
-    }
-
     /// A convenience wrapper for `Self::spawn` which ignores a `Result` as long as both `Ok`/`Err`
     /// are of type `()`.
     ///
@@ -327,9 +318,9 @@ impl TaskExecutor {
                         "Completed block_on task"
                     );
                     Some(output)
-                },
+                }
                 _ = exit => {
-                                        debug!(
+                    debug!(
                         name,
                         "Cancelled block_on task"
                     );

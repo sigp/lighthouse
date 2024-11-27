@@ -2321,6 +2321,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .await;
 
     let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
+
     let temp2 = tempdir().unwrap();
     let store = get_store(&temp2);
     let spec = test_spec::<E>();

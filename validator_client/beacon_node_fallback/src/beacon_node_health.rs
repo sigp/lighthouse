@@ -296,7 +296,7 @@ pub async fn check_node_health(
         Err(e) => {
             warn!(
                 error = %e,
-                "Unable connect to beacon node",
+                "Unable connect to beacon node"
             );
 
             return Err(CandidateError::Offline);

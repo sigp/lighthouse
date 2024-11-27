@@ -72,6 +72,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
             request.passwords.len(),
         )));
     }
+
     // Import slashing protection data before keystores, so that new keystores don't start signing
     // without it. Do not return early on failure, propagate the failure to each key.
     let slashing_protection_status =

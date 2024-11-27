@@ -309,7 +309,11 @@ pub fn migrate_db<E: EthSpec>(
         spec.clone(),
     )?;
 
-    info!(?from, ?to, "Migrating database schema");
+    info!(
+        from = from.as_u64(),
+        to = to.as_u64(),
+        "Migrating database schema"
+    );
 
     let genesis_state_root = genesis_state.canonical_root()?;
     migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(

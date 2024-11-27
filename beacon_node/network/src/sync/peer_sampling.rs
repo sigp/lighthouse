@@ -377,8 +377,9 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     }
                 }
             }
-            Err(_) => {
+            Err(err) => {
                 debug!(
+                    error = ?err,
                     block_root = %self.block_root,
                     ?column_indexes,
                     "Sample download error"

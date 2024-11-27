@@ -1833,7 +1833,7 @@ impl<E: EthSpec> Network<E> {
                 send_back_addr,
                 connection_id: _,
             } => {
-                trace!(our_addr = %local_addr, from = %send_back_addr, "Incoming connection",);
+                trace!(our_addr = %local_addr, from = %send_back_addr, "Incoming connection");
                 None
             }
             SwarmEvent::IncomingConnectionError {

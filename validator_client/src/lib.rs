@@ -382,7 +382,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         // Perform some potentially long-running initialization tasks.
         let (genesis_time, genesis_validators_root) = tokio::select! {
-            tuple = init_from_beacon_node(&beacon_nodes, &proposer_nodes, &context) => tuple?,
+            tuple = init_from_beacon_node(&beacon_nodes, &proposer_nodes) => tuple?,
             () = context.executor.exit() => return Err("Shutting down".to_string())
         };
 
@@ -559,7 +559,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         };
 
         // Wait until genesis has occurred.
-        wait_for_genesis(&self.beacon_nodes, self.genesis_time, &self.context).await?;
+        wait_for_genesis(&self.beacon_nodes, self.genesis_time).await?;
 
         duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 
@@ -614,7 +614,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 async fn init_from_beacon_node<E: EthSpec>(
     beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     proposer_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
-    _context: &RuntimeContext<E>,
 ) -> Result<(u64, Hash256), String> {
     loop {
         beacon_nodes.update_all_candidates().await;
@@ -698,7 +697,6 @@ async fn init_from_beacon_node<E: EthSpec>(
 async fn wait_for_genesis<E: EthSpec>(
     beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     genesis_time: u64,
-    _context: &RuntimeContext<E>,
 ) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

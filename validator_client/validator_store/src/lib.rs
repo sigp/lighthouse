@@ -579,8 +579,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // Make sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot() > current_slot {
             warn!(
-                block_slot = %block.slot().as_u64(),
-                current_slot = %current_slot.as_u64(),
+                block_slot = block.slot().as_u64(),
+                current_slot = current_slot.as_u64(),
                 "Not signing block with slot greater than current slot"
             );
             return Err(Error::GreaterThanCurrentSlot {
@@ -637,7 +637,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
                     msg = "Carefully consider running with --init-slashing-protection (see --help)",
-                    public_key = ?pk,
+                    public_key = format!("{:?}", pk),
                     "Not signing block for unregistered validator"
                 );
                 validator_metrics::inc_counter_vec(
@@ -647,7 +647,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
             }
             Err(e) => {
-                crit!(error = format!("{:?}", e), "Not signing slashable block",);
+                crit!(error = format!("{:?}", e), "Not signing slashable block");
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_BLOCKS_TOTAL,
                     &[validator_metrics::SLASHABLE],
@@ -724,7 +724,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
                     msg = "Carefully consider running with --init-slashing-protection (see --help)",
-                    public_key = ?pk,
+                    public_key = format!("{:?}", pk),
                     "Not signing attestation for unregistered validator"
                 );
                 validator_metrics::inc_counter_vec(
@@ -735,8 +735,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             }
             Err(e) => {
                 crit!(
-                    attestation = ?attestation.data(),
-                    error = ?e,
+                    attestation = format!("{:?}", attestation.data()),
+                    error = format!("{:?}", e),
                     "Not signing slashable attestation"
                 );
                 validator_metrics::inc_counter_vec(

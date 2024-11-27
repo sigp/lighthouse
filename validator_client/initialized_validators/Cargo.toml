@@ -10,6 +10,7 @@ account_utils = { workspace = true }
 eth2_keystore = { workspace = true }
 metrics = { workspace = true }
 lockfile = { workspace = true }
+logging = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
 tracing = { workspace = true }

@@ -11,6 +11,7 @@ use clap_utils::{
 };
 use cli::LighthouseSubcommands;
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
+use environment::tracing_common;
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
@@ -21,14 +22,11 @@ use logging::MetricsLayer;
 use malloc_utils::configure_memory_allocator;
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
-use std::process;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
 use tracing::{info, warn};
-use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
@@ -123,15 +121,11 @@ fn main() {
                 .display_order(0),
         )
         .arg(
-            Arg::new("logfile")
-                .long("logfile")
-                .value_name("FILE")
+            Arg::new("logfile-dir")
+                .long("logfile-dir")
+                .value_name("DIR")
                 .help(
-                    "File path where the log file will be stored. Once it grows to the \
-                    value specified in `--logfile-max-size` a new log file is generated where \
-                    future logs are stored. \
-                    Once the number of log files exceeds the value specified in \
-                    `--logfile-max-number` the oldest log file will be overwritten.")
+                    "Directory path where the log file will be stored")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
@@ -532,7 +526,7 @@ fn run<E: EthSpec>(
     let logfile_restricted = !matches.get_flag("logfile-no-restricted-perms");
 
     // Construct the path to the log file.
-    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile-dir")?;
     if log_path.is_none() {
         log_path = match matches.subcommand() {
             Some(("beacon_node", _)) => Some(
@@ -563,71 +557,39 @@ fn run<E: EthSpec>(
         }
     };
 
-    let logger_config = LoggerConfig {
-        path: log_path.clone(),
-        debug_level: String::from(debug_level),
-        logfile_debug_level: String::from(logfile_debug_level),
-        log_format: log_format.map(String::from),
-        logfile_format: logfile_format.map(String::from),
-        log_color,
-        disable_log_timestamp,
-        max_log_size: logfile_max_size * 1_024 * 1_024,
-        max_log_number: logfile_max_number,
-        compression: logfile_compress,
-        is_restricted: logfile_restricted,
-        sse_logging,
-    };
-
-    let (libp2p_non_blocking_writer, _libp2p_guard, discv5_non_blocking_writer, _discv5_guard) =
-        logging::create_tracing_layer(log_path.clone());
-    let libp2p_layer = tracing_subscriber::fmt::layer()
-        .with_writer(libp2p_non_blocking_writer)
-        .with_line_number(true);
-
-    let discv5_layer = tracing_subscriber::fmt::layer()
-        .with_writer(discv5_non_blocking_writer)
-        .with_line_number(true);
-
-    let logfile_prefix = matches.subcommand_name().unwrap_or("lighthouse");
-
-    let (builder, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt) =
-        environment_builder.init_tracing(logger_config.clone(), logfile_prefix);
-
-    let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_lowercase().as_str()))
-        .unwrap();
-
-    let stdout_level = match logger_config.debug_level.to_lowercase().as_str() {
-        "error" => LevelFilter::ERROR,
-        "warn" => LevelFilter::WARN,
-        "info" => LevelFilter::INFO,
-        "debug" => LevelFilter::DEBUG,
-        "trace" => LevelFilter::TRACE,
-        _ => {
-            eprintln!("Unsupported log level");
-            process::exit(1)
-        }
-    };
-
-    let file_level = match logger_config.logfile_debug_level.to_lowercase().as_str() {
-        "error" => LevelFilter::ERROR,
-        "warn" => LevelFilter::WARN,
-        "info" => LevelFilter::INFO,
-        "debug" => LevelFilter::DEBUG,
-        "trace" => LevelFilter::TRACE,
-        _ => {
-            eprintln!("Unsupported log level");
-            process::exit(1)
-        }
-    };
+    let (
+        builder,
+        filter_layer,
+        libp2p_discv5_layer,
+        file_logging_layer,
+        stdout_logging_layer,
+        sse_logging_layer_opt,
+        logger_config,
+    ) = tracing_common::construct_logger(
+        LoggerConfig {
+            path: log_path.clone(),
+            debug_level: tracing_common::parse_level(debug_level),
+            logfile_debug_level: tracing_common::parse_level(logfile_debug_level),
+            log_format: log_format.map(String::from),
+            logfile_format: logfile_format.map(String::from),
+            log_color,
+            disable_log_timestamp,
+            max_log_size: logfile_max_size * 1_024 * 1_024,
+            max_log_number: logfile_max_number,
+            compression: logfile_compress,
+            is_restricted: logfile_restricted,
+            sse_logging,
+        },
+        matches,
+        environment_builder,
+    );
 
     let logging = tracing_subscriber::registry()
         .with(filter_layer)
-        .with(libp2p_layer)
-        .with(discv5_layer)
-        .with(file_logging_layer.with_filter(file_level))
-        .with(stdout_logging_layer.with_filter(stdout_level))
-        .with(MetricsLayer);
+        .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
+        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
+        .with(MetricsLayer)
+        .with(libp2p_discv5_layer);
 
     let logging_result = if let Some(sse_logging_layer) = sse_logging_layer_opt {
         logging.with(sse_logging_layer).try_init()

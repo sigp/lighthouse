@@ -23,7 +23,6 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);
-
             migrate_schema::<T>(db.clone(), genesis_state_root, from, next)?;
             migrate_schema::<T>(db, genesis_state_root, next, to)
         }

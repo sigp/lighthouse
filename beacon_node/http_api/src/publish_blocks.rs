@@ -97,7 +97,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     };
     let block = unverified_block.inner_block();
 
-    debug!(slot = %block.slot(), "Signed block received in HTTP API");
+    debug!( slot = %block.slot(), "Signed block received in HTTP API");
 
     /* actually publish a block */
     let publish_block_p2p = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -388,7 +388,7 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                     debug!(
                         column_index,
                         %slot,
-                        %proposer,
+                        proposer,
                         "Data column for publication already known"
                     );
                     Ok(None)
@@ -398,7 +398,7 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                         column_index,
                         %slot,
                         error = ?e,
-                        "Data column for publication is gossip-invalid",
+                        "Data column for publication is gossip-invalid"
                     );
                     Err(warp_utils::reject::custom_bad_request(format!("{e:?}")))
                 }
@@ -459,7 +459,7 @@ fn build_gossip_verified_blobs<T: BeaconChainTypes>(
                         blob_index = blob_sidecar.index,
                         %slot,
                         error = ?e,
-                        "Blob for publication is gossip-invalid",
+                        "Blob for publication is gossip-invalid"
                     );
                     Err(warp_utils::reject::custom_bad_request(e.to_string()))
                 }
@@ -468,6 +468,15 @@ fn build_gossip_verified_blobs<T: BeaconChainTypes>(
         .collect::<Result<Vec<_>, Rejection>>()?;
 
     Ok(gossip_verified_blobs)
+}
+
+fn publish_blob_sidecars<T: BeaconChainTypes>(
+    sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    blob: &GossipVerifiedBlob<T>,
+) -> Result<(), BlockError> {
+    let pubsub_message = PubsubMessage::BlobSidecar(Box::new((blob.index(), blob.clone_blob())));
+    crate::publish_pubsub_message(sender_clone, pubsub_message)
+        .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))
 }
 
 fn publish_column_sidecars<T: BeaconChainTypes>(
@@ -500,15 +509,6 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         })
         .collect::<Vec<_>>();
     crate::publish_pubsub_messages(sender_clone, pubsub_messages)
-        .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))
-}
-
-fn publish_blob_sidecars<T: BeaconChainTypes>(
-    sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    blob: &GossipVerifiedBlob<T>,
-) -> Result<(), BlockError> {
-    let pubsub_message = PubsubMessage::BlobSidecar(Box::new((blob.index(), blob.clone_blob())));
-    crate::publish_pubsub_message(sender_clone, pubsub_message)
         .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))
 }
 

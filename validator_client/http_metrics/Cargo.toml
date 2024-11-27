@@ -11,10 +11,10 @@ metrics = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
+logging = { workspace = true }
 warp_utils = { workspace = true }
 warp = { workspace = true }
 lighthouse_version = { workspace = true }
-logging = { workspace = true }
 validator_services = { workspace = true }
 validator_store = { workspace = true }
 validator_metrics = { workspace = true }

@@ -173,7 +173,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %hash,
                     "New RPC block received",
                 );
-
                 // Trigger processing for work referencing this block.
                 let reprocess_msg = ReprocessQueueMessage::BlockImported {
                     block_root: *hash,

@@ -2437,6 +2437,7 @@ name = "environment"
 version = "0.1.2"
 dependencies = [
  "async-channel",
+ "clap",
  "ctrlc",
  "eth2_config",
  "eth2_network_config",
@@ -4381,6 +4382,7 @@ dependencies = [
  "eth2_keystore",
  "filesystem",
  "lockfile",
+ "logging",
  "metrics",
  "parking_lot 0.12.3",
  "rand",
@@ -4668,6 +4670,7 @@ dependencies = [
  "state_processing",
  "store",
  "tracing",
+ "tracing-subscriber",
  "tree_hash",
  "types",
  "validator_dir",
@@ -7945,6 +7948,7 @@ version = "0.2.0"
 dependencies = [
  "clap",
  "env_logger 0.9.3",
+ "environment",
  "eth2_network_config",
  "execution_layer",
  "futures",

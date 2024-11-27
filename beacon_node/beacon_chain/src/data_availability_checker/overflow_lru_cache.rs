@@ -194,13 +194,13 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// Returns `true` if both the block exists and the number of received blobs / custody columns
     /// matches the number of expected blobs / custody columns.
-
     pub fn is_available(&self, custody_column_count: usize) -> bool {
         let block_kzg_commitments_count_opt = self.block_kzg_commitments_count();
         let expected_blobs_msg = block_kzg_commitments_count_opt
             .as_ref()
             .map(|num| num.to_string())
             .unwrap_or("unknown".to_string());
+
         // No data columns when there are 0 blobs
         let expected_columns_opt = block_kzg_commitments_count_opt.map(|blob_count| {
             if blob_count > 0 {
@@ -219,10 +219,10 @@ impl<E: EthSpec> PendingComponents<E> {
 
         debug!(
             block_root = ?self.block_root,
-            "received_blobs" = num_received_blobs,
-            "expected_blobs" = expected_blobs_msg,
-            "received_columns" = num_received_columns,
-            "expected_columns" = expected_columns_msg,
+            received_blobs = num_received_blobs,
+            expected_blobs = expected_blobs_msg,
+            received_columns = num_received_columns,
+            expected_columns = expected_columns_msg,
             "Component(s) added to data availability checker"
         );
 

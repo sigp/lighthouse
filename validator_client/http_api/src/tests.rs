@@ -3,6 +3,9 @@
 
 mod keystores;
 
+use doppelganger_service::DoppelgangerService;
+use initialized_validators::{Config as InitializedValidatorsConfig, InitializedValidators};
+
 use crate::{ApiSecret, Config as HttpConfig, Context};
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
@@ -16,7 +19,6 @@ use eth2::{
     Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
-use initialized_validators::{Config as InitializedValidatorsConfig, InitializedValidators};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
@@ -95,6 +97,7 @@ impl ApiTester {
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
+            log.clone(),
         ));
 
         validator_store
@@ -122,6 +125,7 @@ impl ApiTester {
                 store_passwords_in_secrets_dir: false,
             },
             sse_logging_components: None,
+            log,
             slot_clock: slot_clock.clone(),
             _phantom: PhantomData,
         });

@@ -630,7 +630,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     .await
     {
         error!(
-            current_epoch = %current_epoch,
+            %current_epoch,
             request_epoch = %current_epoch,
             err = ?e,
             "Failed to download attester duties"
@@ -651,7 +651,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             .await
     {
         error!(
-            current_epoch = %current_epoch,
+            %current_epoch,
             request_epoch = %next_epoch,
             err = ?e,
             "Failed to download attester duties"

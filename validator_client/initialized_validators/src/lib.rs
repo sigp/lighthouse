@@ -503,7 +503,6 @@ pub struct InitializedValidators {
     validators: HashMap<PublicKeyBytes, InitializedValidator>,
     /// The clients used for communications with a remote signer.
     web3_signer_client_map: Option<HashMap<Web3SignerDefinition, Client>>,
-
     config: Config,
 }
 
@@ -1278,13 +1277,13 @@ impl InitializedValidators {
                                     .insert(init.voting_public_key().compress(), init);
                                 info!(
                                     signing_method = "local_keystore",
-                                    voting_pubkey = ?def.voting_public_key,
+                                    voting_pubkey = format!("{:?}", def.voting_public_key),
                                     "Enabled validator"
                                 );
 
                                 if let Some(lockfile_path) = existing_lockfile_path {
                                     warn!(
-                                        path = %lockfile_path.display(),
+                                        path = ?lockfile_path.display(),
                                         cause = "Ungraceful shutdown (harmless) OR \
                                                     non-Lighthouse client using this keystore \
                                                     (risky)",
@@ -1294,9 +1293,9 @@ impl InitializedValidators {
                             }
                             Err(e) => {
                                 error!(
-                                    error = ?e,
+                                    error = format!("{:?}", e),
                                     signing_method = "local_keystore",
-                                    validator = ?def.voting_public_key,
+                                    validator = format!("{:?}", def.voting_public_key),
                                     "Failed to initialize validator"
                                 );
 
@@ -1321,15 +1320,15 @@ impl InitializedValidators {
 
                                 info!(
                                     signing_method = "remote_signer",
-                                    voting_pubkey = ?def.voting_public_key,
+                                    voting_pubkey = format!("{:?}", def.voting_public_key),
                                     "Enabled validator"
                                 );
                             }
                             Err(e) => {
                                 error!(
-                                    error = ?e,
+                                    error = format!("{:?}", e),
                                     signing_method = "remote_signer",
-                                    validator = ?def.voting_public_key,
+                                    validator = format!("{:?}", def.voting_public_key),
                                     "Failed to initialize validator"
                                 );
 
@@ -1355,7 +1354,7 @@ impl InitializedValidators {
                 }
 
                 info!(
-                    voting_pubkey = ?def.voting_public_key,
+                    voting_pubkey = format!("{:?}", def.voting_public_key),
                     "Disabled validator"
                 );
             }
@@ -1371,7 +1370,7 @@ impl InitializedValidators {
         if has_local_definitions && key_cache.is_modified() {
             tokio::task::spawn_blocking(move || {
                 match key_cache.save(validators_dir) {
-                    Err(e) => warn!(err = ?e, "Error during saving of key_cache"),
+                    Err(e) => warn!(err = format!("{:?}", e), "Error during saving of key_cache"),
                     Ok(true) => info!("Modified key_cache saved successfully"),
                     _ => {}
                 };

@@ -1845,7 +1845,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if let Some(buffer) = self.historic_state_cache.lock().get_hdiff_buffer(slot) {
             debug!(
                 %slot,
-                "Hit hdiff buffer cache",
+                "Hit hdiff buffer cache"
             );
             metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT);
             return Ok((slot, buffer));
@@ -2581,10 +2581,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             if slot == anchor_slot {
-                info!(
-                    %slot,
-                    "Payload pruning reached anchor state"
-                );
+                info!(%slot, "Payload pruning reached anchor state");
                 break;
             }
         }
@@ -2751,7 +2748,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops.push(StoreOp::KeyValueOp(update_blob_info));
 
         self.do_atomically_with_block_and_blobs_cache(ops)?;
-        debug!(%blob_lists_pruned, "Blob pruning complete");
+        debug!(blob_lists_pruned, "Blob pruning complete");
 
         Ok(())
     }
@@ -2820,6 +2817,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
         let delete_ops = cold_ops.len();
 
+        // If we just deleted the genesis state, re-store it using the current* schema.
         if self.get_split_slot() > 0 {
             info!(
                 state_root = ?genesis_state_root,

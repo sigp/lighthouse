@@ -260,7 +260,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         if slot == self.context.eth2_config.spec.genesis_slot {
             debug!(
-                proposers = ?notification.block_proposers,
+                proposers = format!("{:?}", notification.block_proposers),
                 "Not producing block at genesis slot"
             );
             return Ok(());
@@ -364,7 +364,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         info!(
             slot = slot.as_u64(),
-            signing_time_ms, "Publishing signed block"
+            signing_time_ms = signing_time_ms,
+            "Publishing signed block"
         );
 
         // Publish block with first available beacon node.
@@ -413,7 +414,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 warn!(
                     info = "a validator may have recently been removed from this VC",
                     ?pubkey,
-                    %slot,
+                    ?slot,
                     "Missing pubkey for block randao"
                 );
                 return Ok(());
