@@ -31,7 +31,7 @@ use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use tracing::{debug, error, info, span, trace, warn, Level};
+use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use types::{
     ChainSpec, DataColumnSubnetId, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
     SyncSubnetId, Unsigned, ValidatorSubscription,
@@ -467,7 +467,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
             }
-        };
+        }.instrument(info_span!("", service = "network"));
         executor.spawn(service_fut, "network");
     }
 
@@ -950,8 +950,6 @@ fn next_fork_subscriptions_delay<T: BeaconChainTypes>(
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {
     fn drop(&mut self) {
-        let span = span!(Level::INFO, "NetworkService", service = "network");
-        let _enter = span.enter();
         // network thread is terminating
         let enrs = self.libp2p.enr_entries();
         debug!(number_of_peers = enrs.len(), "Persisting DHT to store");

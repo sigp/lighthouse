@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, span, trace, warn, Level};
+use tracing::{debug, error, info_span, trace, warn, Instrument};
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
@@ -90,16 +90,10 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
-        let span = span!(Level::INFO, "Router", service = "router");
-        let _enter = span.enter();
-
         trace!("Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
-        //let sync_logger = log.new(o!("service"=> "sync"));
-        let sync_span = span!(Level::INFO, "Router", service = "sync");
-        let _enter = sync_span.enter();
         // generate the message channel
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
@@ -141,6 +135,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 debug!("Network message router started");
                 UnboundedReceiverStream::new(handler_recv)
                     .for_each(move |msg| future::ready(handler.handle_message(msg)))
+                    .instrument(info_span!("", service = "router"))
                     .await;
             },
             "router",

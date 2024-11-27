@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tracing::{debug, span, trace, Level};
+use tracing::{debug, instrument, trace};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -167,6 +167,7 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
 }
 
 impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
+    #[instrument(level = "trace", name = "libp2p_rpc", skip(network_params))]
     pub fn new(
         fork_context: Arc<ForkContext>,
         enable_light_client_server: bool,
@@ -175,9 +176,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         network_params: NetworkParams,
         seq_number: u64,
     ) -> Self {
-        let span = span!(Level::INFO, "RPC", service = "libp2p_rpc");
-        let _enter = span.enter();
-
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
             debug!(?config, "Using inbound rate limiting params");
             RateLimiter::new_with_config(config.0)
@@ -202,6 +200,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Sends an RPC response.
     ///
     /// The peer must be connected for this to succeed.
+    #[instrument(level = "trace", name = "libp2p_rpc", skip(self))]
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
@@ -219,6 +218,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
+    #[instrument(level = "trace", name = "libp2p_rpc", skip(self))]
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: RequestType<E>) {
         let event = if let Some(self_limiter) = self.self_limiter.as_mut() {
             match self_limiter.allows(peer_id, request_id, req) {
@@ -241,6 +241,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
     /// gracefully terminates the RPC behaviour with a goodbye message.
+    #[instrument(level = "trace", name = "libp2p_rpc", skip(self))]
     pub fn shutdown(&mut self, peer_id: PeerId, id: Id, reason: GoodbyeReason) {
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
@@ -249,15 +250,14 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         });
     }
 
+    #[instrument(level = "trace", name = "libp2p_rpc", skip(self))]
     pub fn update_seq_number(&mut self, seq_number: u64) {
         self.seq_number = seq_number
     }
 
     /// Send a Ping request to the destination `PeerId` via `ConnectionId`.
+    #[instrument(level = "trace", name = "libp2p_rpc", skip(self))]
     pub fn ping(&mut self, peer_id: PeerId, id: Id) {
-        let span = span!(Level::INFO, "RPC", service = "libp2p_rpc");
-        let _enter = span.enter();
-
         let ping = Ping {
             data: self.seq_number,
         };
@@ -276,8 +276,8 @@ where
 
     fn handle_established_inbound_connection(
         &mut self,
-        connection_id: ConnectionId,
-        peer_id: PeerId,
+        _connection_id: ConnectionId,
+        _peer_id: PeerId,
         _local_addr: &libp2p::Multiaddr,
         _remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
@@ -291,14 +291,6 @@ where
             },
             (),
         );
-        let span = span!(
-            Level::INFO,
-            "RPC",
-            peer_id = %peer_id,
-            connection_id = %connection_id
-        );
-
-        let _enter = span.enter();
 
         let handler = RPCHandler::new(
             protocol,
@@ -404,9 +396,6 @@ where
         conn_id: ConnectionId,
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
-        let span = span!(Level::INFO, "RPC", service = "libp2p_rpc");
-        let _enter = span.enter();
-
         match event {
             HandlerEvent::Ok(RPCReceived::Request(Request {
                 id,

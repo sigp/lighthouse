@@ -38,7 +38,7 @@ use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use tracing::{debug, info, span, trace, warn, Level};
+use tracing::{debug, info, instrument, trace, warn};
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
@@ -165,13 +165,11 @@ pub struct Network<E: EthSpec> {
 
 /// Implements the combined behaviour for the libp2p service.
 impl<E: EthSpec> Network<E> {
+    #[instrument(level = "trace", name = "libp2p", skip(executor, ctx))]
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
     ) -> error::Result<(Self, Arc<NetworkGlobals<E>>)> {
-        let span = span!(Level::INFO, "Network", service = "libp2p");
-        let _enter = span.enter();
-
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");
         // initialise the node's ID
@@ -508,6 +506,7 @@ impl<E: EthSpec> Network<E> {
     /// - Starts listening in the given ports.
     /// - Dials boot-nodes and libp2p peers.
     /// - Subscribes to starting gossipsub topics.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     async fn start(&mut self, config: &crate::NetworkConfig) -> error::Result<()> {
         let enr = self.network_globals.local_enr();
         info!(
@@ -626,48 +625,59 @@ impl<E: EthSpec> Network<E> {
     /* Public Accessible Functions to interact with the behaviour */
 
     /// The routing pub-sub mechanism for eth2.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn gossipsub_mut(&mut self) -> &mut Gossipsub {
         &mut self.swarm.behaviour_mut().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn eth2_rpc_mut(&mut self) -> &mut RPC<RequestId, E> {
         &mut self.swarm.behaviour_mut().eth2_rpc
     }
     /// Discv5 Discovery protocol.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn discovery_mut(&mut self) -> &mut Discovery<E> {
         &mut self.swarm.behaviour_mut().discovery
     }
     /// Provides IP addresses and peer information.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn identify_mut(&mut self) -> &mut identify::Behaviour {
         &mut self.swarm.behaviour_mut().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn peer_manager_mut(&mut self) -> &mut PeerManager<E> {
         &mut self.swarm.behaviour_mut().peer_manager
     }
 
     /// The routing pub-sub mechanism for eth2.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn gossipsub(&self) -> &Gossipsub {
         &self.swarm.behaviour().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn eth2_rpc(&self) -> &RPC<RequestId, E> {
         &self.swarm.behaviour().eth2_rpc
     }
     /// Discv5 Discovery protocol.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn discovery(&self) -> &Discovery<E> {
         &self.swarm.behaviour().discovery
     }
     /// Provides IP addresses and peer information.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn identify(&self) -> &identify::Behaviour {
         &self.swarm.behaviour().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn peer_manager(&self) -> &PeerManager<E> {
         &self.swarm.behaviour().peer_manager
     }
 
     /// Returns the local ENR of the node.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn local_enr(&self) -> Enr {
         self.network_globals.local_enr()
     }
@@ -676,6 +686,7 @@ impl<E: EthSpec> Network<E> {
 
     /// Subscribes to a gossipsub topic kind, letting the network service determine the
     /// encoding and fork version.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn subscribe_kind(&mut self, kind: GossipKind) -> bool {
         let gossip_topic = GossipTopic::new(
             kind,
@@ -688,6 +699,7 @@ impl<E: EthSpec> Network<E> {
 
     /// Unsubscribes from a gossipsub topic kind, letting the network service determine the
     /// encoding and fork version.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn unsubscribe_kind(&mut self, kind: GossipKind) -> bool {
         let gossip_topic = GossipTopic::new(
             kind,
@@ -698,6 +710,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Subscribe to all required topics for the `new_fork` with the given `new_fork_digest`.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn subscribe_new_fork_topics(&mut self, new_fork: ForkName, new_fork_digest: [u8; 4]) {
         // Subscribe to existing topics with new fork digest
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
@@ -728,6 +741,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Unsubscribe from all topics that doesn't have the given fork_digest
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn unsubscribe_from_fork_topics_except(&mut self, except: [u8; 4]) {
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
         for topic in subscriptions
@@ -740,6 +754,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Remove topic weight from all topics that don't have the given fork digest.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn remove_topic_weight_except(&mut self, except: [u8; 4]) {
         let new_param = TopicScoreParams {
             topic_weight: 0.0,
@@ -764,6 +779,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Returns the scoring parameters for a topic if set.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn get_topic_params(&self, topic: GossipTopic) -> Option<&TopicScoreParams> {
         self.swarm
             .behaviour()
@@ -774,6 +790,7 @@ impl<E: EthSpec> Network<E> {
     /// Subscribes to a gossipsub topic.
     ///
     /// Returns `true` if the subscription was successful and `false` otherwise.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
         self.network_globals
@@ -796,6 +813,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Unsubscribe from a gossipsub topic.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn unsubscribe(&mut self, topic: GossipTopic) -> bool {
         // update the network globals
         self.network_globals
@@ -820,6 +838,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn publish(&mut self, messages: Vec<PubsubMessage<E>>) {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
@@ -874,6 +893,7 @@ impl<E: EthSpec> Network<E> {
 
     /// Informs the gossipsub about the result of a message validation.
     /// If the message is valid it will get propagated by gossipsub.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn report_message_validation_result(
         &mut self,
         propagation_source: &PeerId,
@@ -910,6 +930,7 @@ impl<E: EthSpec> Network<E> {
 
     /// Updates the current gossipsub scoring parameters based on the validator count and current
     /// slot.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn update_gossipsub_parameters(
         &mut self,
         active_validators: usize,
@@ -953,6 +974,7 @@ impl<E: EthSpec> Network<E> {
     /* Eth2 RPC behaviour functions */
 
     /// Send a request to a peer over RPC.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn send_request(
         &mut self,
         peer_id: PeerId,
@@ -970,6 +992,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Send a successful response to a peer over RPC.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
@@ -982,6 +1005,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Inform the peer that their request produced an error.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn send_error_response(
         &mut self,
         peer_id: PeerId,
@@ -999,11 +1023,12 @@ impl<E: EthSpec> Network<E> {
     }
 
     /* Peer management functions */
-
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn testing_dial(&mut self, addr: Multiaddr) -> Result<(), libp2p::swarm::DialError> {
         self.swarm.dial(addr)
     }
 
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn report_peer(
         &mut self,
         peer_id: &PeerId,
@@ -1019,6 +1044,7 @@ impl<E: EthSpec> Network<E> {
     ///
     /// This will send a goodbye, disconnect and then ban the peer.
     /// This is fatal for a peer, and should be used in unrecoverable circumstances.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
         self.peer_manager_mut()
             .goodbye_peer(peer_id, reason, source);
@@ -1026,16 +1052,19 @@ impl<E: EthSpec> Network<E> {
 
     /// Hard (ungraceful) disconnect for testing purposes only
     /// Use goodbye_peer for disconnections, do not use this function.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn __hard_disconnect_testing_only(&mut self, peer_id: PeerId) {
         let _ = self.swarm.disconnect_peer_id(peer_id);
     }
 
     /// Returns an iterator over all enr entries in the DHT.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn enr_entries(&self) -> Vec<Enr> {
         self.discovery().table_entries_enr()
     }
 
     /// Add an ENR to the routing table of the discovery mechanism.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn add_enr(&mut self, enr: Enr) {
         self.discovery_mut().add_enr(enr);
     }
@@ -1043,6 +1072,7 @@ impl<E: EthSpec> Network<E> {
     /// Updates a subnet value to the ENR attnets/syncnets bitfield.
     ///
     /// The `value` is `true` if a subnet is being added and false otherwise.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn update_enr_subnet(&mut self, subnet_id: Subnet, value: bool) {
         if let Err(e) = self.discovery_mut().update_enr_bitfield(subnet_id, value) {
             crit!(error = e, "Could not update ENR bitfield");
@@ -1053,6 +1083,7 @@ impl<E: EthSpec> Network<E> {
 
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
     /// would like to retain the peers for.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn discover_subnet_peers(&mut self, subnets_to_discover: Vec<SubnetDiscovery>) {
         // If discovery is not started or disabled, ignore the request
         if !self.discovery().started {
@@ -1107,6 +1138,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Updates the local ENR's "eth2" field with the latest EnrForkId.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId) {
         self.discovery_mut().update_eth2_enr(enr_fork_id.clone());
 
@@ -1117,6 +1149,7 @@ impl<E: EthSpec> Network<E> {
     /* Private internal functions */
 
     /// Updates the current meta data of the node to match the local ENR.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn update_metadata_bitfields(&mut self) {
         let local_attnets = self
             .discovery_mut()
@@ -1148,11 +1181,13 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Sends a Ping request to the peer.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn ping(&mut self, peer_id: PeerId) {
         self.eth2_rpc_mut().ping(peer_id, RequestId::Internal);
     }
 
     /// Sends a METADATA request to a peer.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
         let event = if self.fork_context.spec.is_peer_das_scheduled() {
             // Nodes with higher custody will probably start advertising it
@@ -1167,6 +1202,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Sends a METADATA response to a peer.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn send_meta_data_response(
         &mut self,
         _req: MetadataRequest<E>,
@@ -1184,6 +1220,7 @@ impl<E: EthSpec> Network<E> {
     // RPC Propagation methods
     /// Queues the response to be sent upwards as long at it was requested outside the Behaviour.
     #[must_use = "return the response"]
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn build_response(
         &mut self,
         id: RequestId,
@@ -1202,6 +1239,7 @@ impl<E: EthSpec> Network<E> {
 
     /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet, spec: Arc<ChainSpec>) {
         let predicate = subnet_predicate::<E>(vec![subnet], spec);
         let peers_to_dial: Vec<Enr> = self
@@ -1229,6 +1267,7 @@ impl<E: EthSpec> Network<E> {
     /* Sub-behaviour event handling functions */
 
     /// Handle a gossipsub event.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn inject_gs_event(&mut self, event: gossipsub::Event) -> Option<NetworkEvent<E>> {
         match event {
             gossipsub::Event::Message {
@@ -1362,6 +1401,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Handle an RPC event.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn inject_rpc_event(&mut self, event: RPCMessage<RequestId, E>) -> Option<NetworkEvent<E>> {
         let peer_id = event.peer_id;
 
@@ -1648,6 +1688,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Handle an identify event.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn inject_identify_event(&mut self, event: identify::Event) -> Option<NetworkEvent<E>> {
         match event {
             identify::Event::Received {
@@ -1670,6 +1711,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Handle a peer manager event.
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn inject_pm_event(&mut self, event: PeerManagerEvent) -> Option<NetworkEvent<E>> {
         match event {
             PeerManagerEvent::PeerConnectedIncoming(peer_id) => {
@@ -1723,6 +1765,7 @@ impl<E: EthSpec> Network<E> {
         }
     }
 
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn inject_upnp_event(&mut self, event: libp2p::upnp::Event) {
         match event {
             libp2p::upnp::Event::NewExternalAddr(addr) => {
@@ -1766,7 +1809,7 @@ impl<E: EthSpec> Network<E> {
     }
 
     /* Networking polling */
-
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     pub async fn next_event(&mut self) -> NetworkEvent<E> {
         loop {
             tokio::select! {
@@ -1800,6 +1843,7 @@ impl<E: EthSpec> Network<E> {
         }
     }
 
+    #[instrument(level = "trace", name = "libp2p", skip(self))]
     fn parse_swarm_event(
         &mut self,
         event: SwarmEvent<BehaviourEvent<E>>,

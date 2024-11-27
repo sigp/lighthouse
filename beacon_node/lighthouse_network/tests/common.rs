@@ -7,7 +7,7 @@ use lighthouse_network::{NetworkConfig, NetworkEvent};
 use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
-use tracing::{debug, error, span, Level};
+use tracing::{debug, error, info_span, Instrument};
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
     MinimalEthSpec, Slot,
@@ -130,17 +130,8 @@ pub async fn build_node_pair(
     spec: Arc<ChainSpec>,
     protocol: Protocol,
 ) -> (Libp2pInstance, Libp2pInstance) {
-    let sender_span = span!(Level::INFO, "Sender", who = "sender");
-    let reciever_span = span!(Level::INFO, "Receiver", who = "reciever");
-
-    let mut sender = {
-        let _enter = sender_span.enter();
-        build_libp2p_instance(rt.clone(), vec![], fork_name, spec.clone()).await
-    };
-    let mut receiver = {
-        let _enter = reciever_span.enter();
-        build_libp2p_instance(rt, vec![], fork_name, spec.clone()).await
-    };
+    let mut sender = build_libp2p_instance(rt.clone(), vec![], fork_name, spec.clone()).await;
+    let mut receiver = build_libp2p_instance(rt, vec![], fork_name, spec.clone()).await;
 
     // let the two nodes set up listeners
     let sender_fut = async {
@@ -165,7 +156,8 @@ pub async fn build_node_pair(
                 }
             }
         }
-    };
+    }
+    .instrument(info_span!("Sender", who = "sender"));
     let receiver_fut = async {
         loop {
             if let NetworkEvent::NewListenAddr(addr) = receiver.next_event().await {
@@ -187,7 +179,8 @@ pub async fn build_node_pair(
                 }
             }
         }
-    };
+    }
+    .instrument(info_span!("Receiver", who = "receiver"));
 
     let joined = futures::future::join(sender_fut, receiver_fut);
 
