@@ -165,24 +165,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// Informs the limiter that a peer has disconnected. This removes any pending requests and
     /// returns their IDs.
     pub fn peer_disconnected(&mut self, peer_id: PeerId) -> Vec<(Id, Protocol)> {
-        // It's not ideal to iterate this map, but the key is (PeerId, Protocol) and this map
-        // should never really be large. So we iterate for simplicity
         let mut failed_requests = Vec::new();
-        self.delayed_requests
-            .retain(|(map_peer_id, protocol), queue| {
-                if map_peer_id == &peer_id {
-                    // NOTE: Currently cannot remove entries from the DelayQueue, we will just let
-                    // them expire and ignore them.
-                    for message in queue {
-                        failed_requests.push((message.request_id, *protocol))
-                    }
-                    // Remove the entry
-                    false
-                } else {
-                    // Keep the entry
-                    true
-                }
-            });
 
         self.ready_requests.retain(|event| {
             if let BehaviourAction::NotifyHandler {
@@ -203,6 +186,24 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                 unreachable!()
             }
         });
+
+        // It's not ideal to iterate this map, but the key is (PeerId, Protocol) and this map
+        // should never really be large. So we iterate for simplicity
+        self.delayed_requests
+            .retain(|(map_peer_id, protocol), queue| {
+                if map_peer_id == &peer_id {
+                    // NOTE: Currently cannot remove entries from the DelayQueue, we will just let
+                    // them expire and ignore them.
+                    for message in queue {
+                        failed_requests.push((message.request_id, *protocol))
+                    }
+                    // Remove the entry
+                    false
+                } else {
+                    // Keep the entry
+                    true
+                }
+            });
 
         failed_requests
     }
@@ -304,6 +305,65 @@ mod tests {
             }
 
             assert_eq!(limiter.ready_requests.len(), 1);
+        }
+    }
+
+    /// Test that `peer_disconnected` returns the IDs of pending requests.
+    #[tokio::test]
+    async fn test_peer_disconnected_returns_failed_requests() {
+        let log = logging::test_logger();
+        let config = OutboundRateLimiterConfig(RateLimiterConfig {
+            ping_quota: Quota::n_every(1, 2),
+            ..Default::default()
+        });
+        let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
+            SelfRateLimiter::new(config, log).unwrap();
+        let peer_id = PeerId::random();
+
+        for i in 1..=5u32 {
+            let result = limiter.allows(
+                peer_id,
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
+                    id: i,
+                })),
+                RequestType::Ping(Ping { data: i as u64 }),
+            );
+
+            // Check that the limiter allows the first request while other requests are added to the queue.
+            if i == 1 {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err());
+            }
+        }
+
+        // Wait until the tokens have been regenerated, then run `next_peer_request_ready`.
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        limiter.next_peer_request_ready(peer_id, Protocol::Ping);
+
+        // Check that one of the pending requests has moved to ready_requests.
+        assert_eq!(
+            limiter
+                .delayed_requests
+                .get(&(peer_id, Protocol::Ping))
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(limiter.ready_requests.len(), 1);
+
+        let mut failed_requests = limiter.peer_disconnected(peer_id);
+
+        // Check that the limiter returns the IDs of pending requests and that the IDs are ordered correctly.
+        for i in 2..=5u32 {
+            let (request_id, protocol) = failed_requests.remove(0);
+            assert!(matches!(
+                request_id,
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
+                    id
+                })) if id == i
+            ));
+            assert_eq!(protocol, Protocol::Ping);
         }
     }
 }
