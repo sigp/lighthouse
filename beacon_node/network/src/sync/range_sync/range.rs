@@ -56,7 +56,7 @@ use logging::crit;
 use lru_cache::LRUTimeCache;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, trace, warn, instrument};
+use tracing::{debug, instrument, trace, warn};
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// For how long we store failed finalized chains to prevent retries.
@@ -85,7 +85,6 @@ where
 {
     #[instrument(level = "info", name = "range_sync", skip(beacon_chain))]
     pub fn new(beacon_chain: Arc<C>) -> Self {
-
         RangeSync {
             beacon_chain: beacon_chain.clone(),
             chains: ChainCollection::new(beacon_chain),
