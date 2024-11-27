@@ -39,8 +39,12 @@ mod tests {
 
         let (signal, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor =
-            task_executor::TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
+        let executor = task_executor::TaskExecutor::new(
+            Arc::downgrade(&runtime),
+            exit,
+            shutdown_tx,
+            "test".to_string(),
+        );
 
         let mut config = NetworkConfig::default();
         config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212, 21213);
@@ -113,8 +117,12 @@ mod tests {
         let (mut network_service, network_globals, _network_senders) = runtime.block_on(async {
             let (_, exit) = async_channel::bounded(1);
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-            let executor =
-                task_executor::TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
+            let executor = task_executor::TaskExecutor::new(
+                Arc::downgrade(&runtime),
+                exit,
+                shutdown_tx,
+                "test".to_string(),
+            );
 
             let mut config = NetworkConfig::default();
             config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21214, 21214, 21215);
