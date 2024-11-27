@@ -87,13 +87,14 @@ pub async fn build_libp2p_instance(
     boot_nodes: Vec<Enr>,
     fork_name: ForkName,
     chain_spec: Arc<ChainSpec>,
+    service_name: String,
 ) -> Libp2pInstance {
     let config = build_config(boot_nodes);
     // launch libp2p service
 
     let (signal, exit) = async_channel::bounded(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-    let executor = task_executor::TaskExecutor::new(rt, exit, shutdown_tx);
+    let executor = task_executor::TaskExecutor::new(rt, exit, shutdown_tx, service_name);
     let libp2p_context = lighthouse_network::Context {
         config,
         enr_fork_id: EnrForkId::default(),
@@ -130,8 +131,16 @@ pub async fn build_node_pair(
     spec: Arc<ChainSpec>,
     protocol: Protocol,
 ) -> (Libp2pInstance, Libp2pInstance) {
-    let mut sender = build_libp2p_instance(rt.clone(), vec![], fork_name, spec.clone()).await;
-    let mut receiver = build_libp2p_instance(rt, vec![], fork_name, spec.clone()).await;
+    let mut sender = build_libp2p_instance(
+        rt.clone(),
+        vec![],
+        fork_name,
+        spec.clone(),
+        "sender".to_string(),
+    )
+    .await;
+    let mut receiver =
+        build_libp2p_instance(rt, vec![], fork_name, spec.clone(), "receiver".to_string()).await;
 
     // let the two nodes set up listeners
     let sender_fut = async {
@@ -205,7 +214,16 @@ pub async fn build_linear(
 ) -> Vec<Libp2pInstance> {
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
-        nodes.push(build_libp2p_instance(rt.clone(), vec![], fork_name, spec.clone()).await);
+        nodes.push(
+            build_libp2p_instance(
+                rt.clone(),
+                vec![],
+                fork_name,
+                spec.clone(),
+                "linear".to_string(),
+            )
+            .await,
+        );
     }
 
     let multiaddrs: Vec<Multiaddr> = nodes
