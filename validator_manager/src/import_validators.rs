@@ -387,7 +387,7 @@ pub mod tests {
         str::FromStr,
     };
     use tempfile::{tempdir, TempDir};
-    use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
 
     const VC_TOKEN_FILE_NAME: &str = "vc_token.json";
 

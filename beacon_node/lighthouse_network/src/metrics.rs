@@ -8,6 +8,7 @@ pub static NAT_OPEN: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
         &["protocol"],
     )
 });
+
 pub static ADDRESS_UPDATE_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "libp2p_address_update_total",
@@ -212,4 +213,6 @@ pub fn scrape_discovery_metrics() {
     set_gauge(&DISCOVERY_SESSIONS, metrics.active_sessions as i64);
     set_gauge_vec(&DISCOVERY_BYTES, &["inbound"], metrics.bytes_recv as i64);
     set_gauge_vec(&DISCOVERY_BYTES, &["outbound"], metrics.bytes_sent as i64);
+    set_gauge_vec(&NAT_OPEN, &["discv5_ipv4"], metrics.ipv4_contactable as i64);
+    set_gauge_vec(&NAT_OPEN, &["discv5_ipv6"], metrics.ipv6_contactable as i64);
 }

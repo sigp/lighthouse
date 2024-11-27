@@ -184,7 +184,6 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 self.work_queue.len() as f64,
             );
         }
-        // TODO check if is_full?
     }
 
     pub fn process_or_queue_item(

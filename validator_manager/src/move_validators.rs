@@ -668,7 +668,7 @@ mod test {
     use account_utils::validator_definitions::SigningDefinition;
     use std::fs;
     use tempfile::{tempdir, TempDir};
-    use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
 
     const SRC_VC_TOKEN_FILE_NAME: &str = "src_vc_token.json";
     const DEST_VC_TOKEN_FILE_NAME: &str = "dest_vc_token.json";

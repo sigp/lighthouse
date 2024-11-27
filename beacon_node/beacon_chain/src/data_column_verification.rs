@@ -3,6 +3,7 @@ use crate::block_verification::{
     BlockSlashInfo,
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
+use crate::observed_data_sidecars::{ObservationStrategy, Observe};
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
@@ -13,6 +14,7 @@ use slog::debug;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
 use std::iter;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
 use types::{
@@ -160,17 +162,16 @@ impl From<BeaconStateError> for GossipDataColumnError {
     }
 }
 
-pub type GossipVerifiedDataColumnList<T> = RuntimeVariableList<GossipVerifiedDataColumn<T>>;
-
 /// A wrapper around a `DataColumnSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Debug)]
-pub struct GossipVerifiedDataColumn<T: BeaconChainTypes> {
+pub struct GossipVerifiedDataColumn<T: BeaconChainTypes, O: ObservationStrategy = Observe> {
     block_root: Hash256,
     data_column: KzgVerifiedDataColumn<T::EthSpec>,
+    _phantom: PhantomData<O>,
 }
 
-impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
+impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O> {
     pub fn new(
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
@@ -179,12 +180,14 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
         let header = column_sidecar.signed_block_header.clone();
         // We only process slashing info if the gossip verification failed
         // since we do not process the data column any further in that case.
-        validate_data_column_sidecar_for_gossip(column_sidecar, subnet_id, chain).map_err(|e| {
-            process_block_slash_info::<_, GossipDataColumnError>(
-                chain,
-                BlockSlashInfo::from_early_error_data_column(header, e),
-            )
-        })
+        validate_data_column_sidecar_for_gossip::<T, O>(column_sidecar, subnet_id, chain).map_err(
+            |e| {
+                process_block_slash_info::<_, GossipDataColumnError>(
+                    chain,
+                    BlockSlashInfo::from_early_error_data_column(header, e),
+                )
+            },
+        )
     }
 
     pub fn id(&self) -> DataColumnIdentifier {
@@ -375,11 +378,11 @@ where
     Ok(())
 }
 
-pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
+pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
+) -> Result<GossipVerifiedDataColumn<T, O>, GossipDataColumnError> {
     let column_slot = data_column.slot();
     verify_data_column_sidecar(&data_column, &chain.spec)?;
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
@@ -404,9 +407,14 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
         )
         .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?;
 
+    if O::observe() {
+        observe_gossip_data_column(&kzg_verified_data_column.data, chain)?;
+    }
+
     Ok(GossipVerifiedDataColumn {
         block_root: data_column.block_root(),
         data_column: kzg_verified_data_column,
+        _phantom: PhantomData,
     })
 }
 
@@ -648,11 +656,42 @@ fn verify_sidecar_not_from_future_slot<T: BeaconChainTypes>(
     Ok(())
 }
 
+pub fn observe_gossip_data_column<T: BeaconChainTypes>(
+    data_column_sidecar: &DataColumnSidecar<T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<(), GossipDataColumnError> {
+    // Now the signature is valid, store the proposal so we don't accept another data column sidecar
+    // with the same `DataColumnIdentifier`.  It's important to double-check that the proposer still
+    // hasn't been observed so we don't have a race-condition when verifying two blocks
+    // simultaneously.
+    //
+    // Note: If this DataColumnSidecar goes on to fail full verification, we do not evict it from the
+    // seen_cache as alternate data_column_sidecars for the same identifier can still be retrieved over
+    // rpc. Evicting them from this cache would allow faster propagation over gossip. So we
+    // allow retrieval of potentially valid blocks over rpc, but try to punish the proposer for
+    // signing invalid messages. Issue for more background
+    // https://github.com/ethereum/consensus-specs/issues/3261
+    if chain
+        .observed_column_sidecars
+        .write()
+        .observe_sidecar(data_column_sidecar)
+        .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?
+    {
+        return Err(GossipDataColumnError::PriorKnown {
+            proposer: data_column_sidecar.block_proposer_index(),
+            slot: data_column_sidecar.slot(),
+            index: data_column_sidecar.index,
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use crate::data_column_verification::{
         validate_data_column_sidecar_for_gossip, GossipDataColumnError,
     };
+    use crate::observed_data_sidecars::Observe;
     use crate::test_utils::BeaconChainHarness;
     use types::{DataColumnSidecar, EthSpec, ForkName, MainnetEthSpec};
 
@@ -691,8 +730,11 @@ mod test {
                 .unwrap(),
         };
 
-        let result =
-            validate_data_column_sidecar_for_gossip(column_sidecar.into(), index, &harness.chain);
+        let result = validate_data_column_sidecar_for_gossip::<_, Observe>(
+            column_sidecar.into(),
+            index,
+            &harness.chain,
+        );
         assert!(matches!(
             result.err(),
             Some(GossipDataColumnError::UnexpectedDataColumn)
