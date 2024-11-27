@@ -1,4 +1,4 @@
-use types::{BeaconStateError, EpochCacheError, InconsistentFork};
+use types::{milhouse, BeaconStateError, EpochCacheError, InconsistentFork};
 
 #[derive(Debug, PartialEq)]
 pub enum EpochProcessingError {
@@ -23,7 +23,11 @@ pub enum EpochProcessingError {
     InconsistentStateFork(InconsistentFork),
     InvalidJustificationBit(ssz_types::Error),
     InvalidFlagIndex(usize),
+    MilhouseError(milhouse::Error),
     EpochCache(EpochCacheError),
+    SinglePassMissingActivationQueue,
+    MissingEarliestExitEpoch,
+    MissingExitBalanceToConsume,
 }
 
 impl From<InclusionError> for EpochProcessingError {
@@ -47,6 +51,12 @@ impl From<ssz_types::Error> for EpochProcessingError {
 impl From<safe_arith::ArithError> for EpochProcessingError {
     fn from(e: safe_arith::ArithError) -> EpochProcessingError {
         EpochProcessingError::ArithError(e)
+    }
+}
+
+impl From<milhouse::Error> for EpochProcessingError {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
     }
 }
 

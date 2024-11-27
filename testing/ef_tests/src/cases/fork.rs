@@ -63,7 +63,9 @@ impl<E: EthSpec> Case for ForkTest<E> {
         let mut result = match fork_name {
             ForkName::Base => panic!("phase0 not supported"),
             ForkName::Altair => upgrade_to_altair(&mut result_state, spec).map(|_| result_state),
-            ForkName::Merge => upgrade_to_bellatrix(&mut result_state, spec).map(|_| result_state),
+            ForkName::Bellatrix => {
+                upgrade_to_bellatrix(&mut result_state, spec).map(|_| result_state)
+            }
             ForkName::Capella => upgrade_to_capella(&mut result_state, spec).map(|_| result_state),
             ForkName::Deneb => upgrade_to_deneb(&mut result_state, spec).map(|_| result_state),
             ForkName::Electra => upgrade_to_electra(&mut result_state, spec).map(|_| result_state),

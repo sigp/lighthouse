@@ -1,7 +1,7 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    ChainSpec, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef,
+    ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
     ExecutionPayloadHeaderRefMut, ForkName, ForkVersionDeserialize, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
@@ -11,7 +11,7 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Merge, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
         derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
         serde(bound = "E: EthSpec", deny_unknown_fields)
@@ -23,8 +23,8 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BuilderBid<E: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "header_merge"))]
-    pub header: ExecutionPayloadHeaderMerge<E>,
+    #[superstruct(only(Bellatrix), partial_getter(rename = "header_bellatrix"))]
+    pub header: ExecutionPayloadHeaderBellatrix<E>,
     #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
     pub header: ExecutionPayloadHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
@@ -79,7 +79,9 @@ impl<E: EthSpec> ForkVersionDeserialize for BuilderBid<E> {
             |e| serde::de::Error::custom(format!("BuilderBid failed to deserialize: {:?}", e));
 
         Ok(match fork_name {
-            ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Bellatrix => {
+                Self::Bellatrix(serde_json::from_value(value).map_err(convert_err)?)
+            }
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),

@@ -25,14 +25,18 @@ excluded_paths = [
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
+    # We no longer implement merge logic.
+    "tests/.*/bellatrix/fork_choice/on_merge_block",
     # light_client
-    "tests/.*/.*/light_client",
+    "tests/.*/.*/light_client/single_merkle_proof",
+    "tests/.*/.*/light_client/sync",
+    "tests/.*/electra/light_client/update_ranking",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
     # One of the EF researchers likes to pack the tarballs on a Mac
-    ".*\.DS_Store.*",
+    ".*\\.DS_Store.*",
     # More Mac weirdness.
     "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml",
     # bls tests are moved to bls12-381-tests directory
@@ -42,7 +46,8 @@ excluded_paths = [
     "bls12-381-tests/deserialization_G2",
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip6110",
-    "tests/.*/whisk"
+    "tests/.*/whisk",
+    "tests/.*/eip7594",
 ]
 
 

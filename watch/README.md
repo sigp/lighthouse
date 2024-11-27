@@ -39,8 +39,6 @@ diesel database reset --database-url postgres://postgres:postgres@localhost/dev
 
 1. Ensure a synced Lighthouse beacon node with historical states is available
 at `localhost:5052`.
-The smaller the value of `--slots-per-restore-point` the faster beacon.watch
-will be able to sync to the beacon node.
 
 1. Run the updater daemon:
 ```

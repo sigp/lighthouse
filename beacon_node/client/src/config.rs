@@ -1,15 +1,16 @@
+use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::validator_monitor::ValidatorMonitorConfig;
 use beacon_chain::TrustedSetup;
 use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
+use kzg::trusted_setup::get_trusted_setup;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use types::Graffiti;
 
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
@@ -21,6 +22,11 @@ const DEFAULT_BLOBS_DB_DIR: &str = "blobs_db";
 pub enum ClientGenesis {
     /// Creates a genesis state as per the 2019 Canada interop specifications.
     Interop {
+        validator_count: usize,
+        genesis_time: u64,
+    },
+    // Creates a genesis state similar to the 2019 Canada specs, but starting post-Merge.
+    InteropMerge {
         validator_count: usize,
         genesis_time: u64,
     },
@@ -53,13 +59,9 @@ pub struct Config {
     /// Path where the blobs database will be located if blobs should be in a separate database.
     pub blobs_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
-    /// If true, the node will use co-ordinated junk for eth1 values.
-    ///
-    /// This is the method used for the 2019 client interop in Canada.
-    pub dummy_eth1_backend: bool,
     pub sync_eth1_chain: bool,
-    /// Graffiti to be inserted everytime we create a block.
-    pub graffiti: Graffiti,
+    /// Graffiti to be inserted everytime we create a block if the validator doesn't specify.
+    pub beacon_graffiti: GraffitiOrigin,
     pub validator_monitor: ValidatorMonitorConfig,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
@@ -70,7 +72,7 @@ pub struct Config {
     pub chain: beacon_chain::ChainConfig,
     pub eth1: eth1::Config,
     pub execution_layer: Option<execution_layer::Config>,
-    pub trusted_setup: Option<TrustedSetup>,
+    pub trusted_setup: TrustedSetup,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
     pub monitoring_api: Option<monitoring_api::Config>,
@@ -84,6 +86,9 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+            .expect("Unable to read trusted setup file");
+
         Self {
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             db_name: "chain_db".to_string(),
@@ -94,12 +99,11 @@ impl Default for Config {
             store: <_>::default(),
             network: NetworkConfig::default(),
             chain: <_>::default(),
-            dummy_eth1_backend: false,
-            sync_eth1_chain: false,
+            sync_eth1_chain: true,
             eth1: <_>::default(),
             execution_layer: None,
-            trusted_setup: None,
-            graffiti: Graffiti::default(),
+            trusted_setup,
+            beacon_graffiti: GraffitiOrigin::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             monitoring_api: None,

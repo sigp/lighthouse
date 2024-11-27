@@ -738,7 +738,7 @@ pub fn get_votes_test_definition() -> ForkChoiceTestDefinition {
     // Ensure that pruning below the prune threshold does not prune.
     ops.push(Operation::Prune {
         finalized_root: get_root(5),
-        prune_threshold: usize::max_value(),
+        prune_threshold: usize::MAX,
         expected_len: 11,
     });
 

@@ -3,8 +3,8 @@ use crate::metrics;
 use std::sync::Arc;
 use types::{
     consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
-    BeaconStateError, Epoch, EthSpec, ParticipationFlags, ProgressiveBalancesCache, SyncCommittee,
-    Validator, VariableList,
+    BeaconStateError, Epoch, EthSpec, List, ParticipationFlags, ProgressiveBalancesCache,
+    SyncCommittee, Validator,
 };
 
 /// Provides a summary of validator participation during the epoch.
@@ -25,20 +25,20 @@ pub enum EpochProcessingSummary<E: EthSpec> {
 #[derive(PartialEq, Debug)]
 pub struct ParticipationEpochSummary<E: EthSpec> {
     /// Copy of the validator registry prior to mutation.
-    validators: VariableList<Validator, E::ValidatorRegistryLimit>,
+    validators: List<Validator, E::ValidatorRegistryLimit>,
     /// Copy of the participation flags for the previous epoch.
-    previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+    previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     /// Copy of the participation flags for the current epoch.
-    current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+    current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     previous_epoch: Epoch,
     current_epoch: Epoch,
 }
 
 impl<E: EthSpec> ParticipationEpochSummary<E> {
     pub fn new(
-        validators: VariableList<Validator, E::ValidatorRegistryLimit>,
-        previous_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
-        current_epoch_participation: VariableList<ParticipationFlags, E::ValidatorRegistryLimit>,
+        validators: List<Validator, E::ValidatorRegistryLimit>,
+        previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
+        current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
         previous_epoch: Epoch,
         current_epoch: Epoch,
     ) -> Self {
@@ -99,6 +99,10 @@ impl<E: EthSpec> EpochProcessingSummary<E> {
         metrics::set_gauge(
             &metrics::PARTICIPATION_PREV_EPOCH_SOURCE_ATTESTING_GWEI_TOTAL,
             self.previous_epoch_source_attesting_balance()? as i64,
+        );
+        metrics::set_gauge(
+            &metrics::PARTICIPATION_CURRENT_EPOCH_TOTAL_ACTIVE_GWEI_TOTAL,
+            self.current_epoch_total_active_balance() as i64,
         );
 
         Ok(())

@@ -1,5 +1,3 @@
-extern crate slog;
-
 mod compute_light_client_updates;
 pub mod config;
 mod metrics;

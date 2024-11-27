@@ -19,6 +19,9 @@ pub mod altair {
 
     pub const NUM_FLAG_INDICES: usize = 3;
 }
-pub mod merge {
+pub mod bellatrix {
     pub const INTERVALS_PER_SLOT: u64 = 3;
+}
+pub mod deneb {
+    pub use crate::VERSIONED_HASH_VERSION_KZG;
 }

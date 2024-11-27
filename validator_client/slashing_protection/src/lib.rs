@@ -67,9 +67,9 @@ impl From<Hash256> for SigningRoot {
     }
 }
 
-impl Into<Hash256> for SigningRoot {
-    fn into(self) -> Hash256 {
-        self.0
+impl From<SigningRoot> for Hash256 {
+    fn from(from: SigningRoot) -> Hash256 {
+        from.0
     }
 }
 
@@ -130,6 +130,8 @@ impl Display for NotSafe {
 
 #[cfg(test)]
 mod test {
+    use types::FixedBytesExtended;
+
     use super::*;
 
     #[test]

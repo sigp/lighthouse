@@ -1,7 +1,10 @@
-#![cfg(any(feature = "mdbx", feature = "lmdb"))]
+#![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
 use logging::test_logger;
-use slasher::{test_utils::indexed_att, Config, Slasher};
+use slasher::{
+    test_utils::{chain_spec, indexed_att},
+    Config, Slasher,
+};
 use tempfile::tempdir;
 use types::Epoch;
 
@@ -9,11 +12,12 @@ use types::Epoch;
 fn attestation_pruning_empty_wrap_around() {
     let tempdir = tempdir().unwrap();
     let mut config = Config::new(tempdir.path().into());
+    let spec = chain_spec();
     config.validator_chunk_size = 1;
     config.chunk_size = 16;
     config.history_length = 16;
 
-    let slasher = Slasher::open(config.clone(), test_logger()).unwrap();
+    let slasher = Slasher::open(config.clone(), spec, test_logger()).unwrap();
 
     let v = vec![0];
     let history_length = config.history_length as u64;

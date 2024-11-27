@@ -30,7 +30,7 @@ pub mod upgrade;
 pub mod verify_operation;
 
 pub use all_caches::AllCaches;
-pub use block_replayer::{BlockReplayError, BlockReplayer, StateProcessingStrategy};
+pub use block_replayer::{BlockReplayError, BlockReplayer};
 pub use consensus_context::{ConsensusContext, ContextError};
 pub use genesis::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
@@ -45,4 +45,4 @@ pub use per_epoch_processing::{
 };
 pub use per_slot_processing::{per_slot_processing, Error as SlotProcessingError};
 pub use types::{EpochCache, EpochCacheError, EpochCacheKey};
-pub use verify_operation::{SigVerifiedOp, VerifyOperation, VerifyOperationAt};
+pub use verify_operation::{SigVerifiedOp, TransformPersist, VerifyOperation, VerifyOperationAt};

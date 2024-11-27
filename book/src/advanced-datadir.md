@@ -1,4 +1,4 @@
-## Custom Data Directories
+# Custom Data Directories
 
 Users can override the default Lighthouse data directories (e.g., `~/.lighthouse/mainnet`) using the `--datadir` flag. The custom data directory mirrors the structure of any network specific default directory (e.g. `~/.lighthouse/mainnet`).
 
@@ -11,10 +11,11 @@ lighthouse --network mainnet --datadir /var/lib/my-custom-dir account validator 
 lighthouse --network mainnet --datadir /var/lib/my-custom-dir bn --staking
 lighthouse --network mainnet --datadir /var/lib/my-custom-dir vc
 ```
+
 The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator-management.md).
 After that, we simply run the beacon chain and validator client with the custom dir path.
 
-### Relative Paths
+## Relative Paths
 
 [#2682]: https://github.com/sigp/lighthouse/pull/2682
 [#2846]: https://github.com/sigp/lighthouse/pull/2846
@@ -40,7 +41,7 @@ be applied. On start-up, if a split directory scenario is detected (i.e. `~/here
 Lighthouse will continue to operate with split directories. In such a scenario, the following
 harmless log will show:
 
-```
+```text
 WARN Legacy datadir location    location: "/home/user/datadir/beacon", msg: this occurs when using relative paths for a datadir location
 ```
 

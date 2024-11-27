@@ -11,7 +11,7 @@ use state_processing::per_epoch_processing::altair::{
 };
 use state_processing::per_epoch_processing::base::rewards_and_penalties::{
     get_attestation_component_delta, get_attestation_deltas_all, get_attestation_deltas_subset,
-    get_inactivity_penalty_delta, get_inclusion_delay_delta,
+    get_inactivity_penalty_delta, get_inclusion_delay_delta, ProposerRewardCalculation,
 };
 use state_processing::per_epoch_processing::base::validator_statuses::InclusionInfo;
 use state_processing::per_epoch_processing::base::{
@@ -54,7 +54,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match state {
             BeaconState::Base(_) => self.compute_attestation_rewards_base(state, validators),
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
             | BeaconState::Electra(_) => self.compute_attestation_rewards_altair(state, validators),
@@ -81,13 +81,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.compute_ideal_rewards_base(&state, &validator_statuses.total_balances)?;
 
         let indices_to_attestation_delta = if validators.is_empty() {
-            get_attestation_deltas_all(&state, &validator_statuses, spec)?
-                .into_iter()
-                .enumerate()
-                .collect()
+            get_attestation_deltas_all(
+                &state,
+                &validator_statuses,
+                ProposerRewardCalculation::Exclude,
+                spec,
+            )?
+            .into_iter()
+            .enumerate()
+            .collect()
         } else {
             let validator_indices = Self::validators_ids_to_indices(&mut state, validators)?;
-            get_attestation_deltas_subset(&state, &validator_statuses, &validator_indices, spec)?
+            get_attestation_deltas_subset(
+                &state,
+                &validator_statuses,
+                ProposerRewardCalculation::Exclude,
+                &validator_indices,
+                spec,
+            )?
         };
 
         let mut total_rewards = vec![];

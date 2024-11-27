@@ -5,16 +5,15 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dependencies]
+alloy-primitives = { workspace = true}
 discv5 = { workspace = true }
 gossipsub = { workspace = true }
-unsigned-varint = { version = "0.6", features = ["codec"] }
+unsigned-varint = { version = "0.8", features = ["codec"] }
 ssz_types = { workspace = true }
 types = { workspace = true }
 serde = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-tree_hash = { workspace = true }
-tree_hash_derive = { workspace = true }
 slog = { workspace = true }
 lighthouse_version = { workspace = true }
 tokio = { workspace = true }
@@ -22,8 +21,7 @@ futures = { workspace = true }
 error-chain = { workspace = true }
 dirs = { workspace = true }
 fnv = { workspace = true }
-lazy_static = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 smallvec = { workspace = true }
 tokio-io-timeout = "1"
 lru = { workspace = true }
@@ -43,22 +41,17 @@ superstruct = { workspace = true }
 prometheus-client = "0.22.0"
 unused_port = { workspace = true }
 delay_map = { workspace = true }
-tracing = { workspace = true }
-byteorder = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
+itertools = { workspace = true }
+alloy-rlp = { workspace = true }
 
 # Local dependencies
-futures-ticker = "0.0.3"
-getrandom = "0.2.11"
-hex_fmt = "0.3.0"
-instant = "0.1.12"
 void = "1.0.2"
-base64 = "0.21.5"
-libp2p-mplex = "0.41"
+libp2p-mplex = "0.42"
 
 [dependencies.libp2p]
-version = "0.53"
+version = "0.54"
 default-features = false
 features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic", "upnp"]
 
@@ -69,7 +62,7 @@ tempfile = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 async-channel = { workspace = true }
+logging = { workspace = true }
 
 [features]
 libp2p-websocket = []
-

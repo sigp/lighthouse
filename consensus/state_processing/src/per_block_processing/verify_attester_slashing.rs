@@ -18,12 +18,12 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// invalidity.
 pub fn verify_attester_slashing<E: EthSpec>(
     state: &BeaconState<E>,
-    attester_slashing: &AttesterSlashing<E>,
+    attester_slashing: AttesterSlashingRef<'_, E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<Vec<u64>> {
-    let attestation_1 = &attester_slashing.attestation_1;
-    let attestation_2 = &attester_slashing.attestation_2;
+    let attestation_1 = attester_slashing.attestation_1();
+    let attestation_2 = attester_slashing.attestation_2();
 
     // Spec: is_slashable_attestation_data
     verify!(
@@ -45,7 +45,7 @@ pub fn verify_attester_slashing<E: EthSpec>(
 /// Returns Ok(indices) if `indices.len() > 0`
 pub fn get_slashable_indices<E: EthSpec>(
     state: &BeaconState<E>,
-    attester_slashing: &AttesterSlashing<E>,
+    attester_slashing: AttesterSlashingRef<'_, E>,
 ) -> Result<Vec<u64>> {
     get_slashable_indices_modular(state, attester_slashing, |_, validator| {
         validator.is_slashable_at(state.current_epoch())
@@ -56,23 +56,22 @@ pub fn get_slashable_indices<E: EthSpec>(
 /// for determining whether a given validator should be considered slashable.
 pub fn get_slashable_indices_modular<F, E: EthSpec>(
     state: &BeaconState<E>,
-    attester_slashing: &AttesterSlashing<E>,
+    attester_slashing: AttesterSlashingRef<'_, E>,
     is_slashable: F,
 ) -> Result<Vec<u64>>
 where
     F: Fn(u64, &Validator) -> bool,
 {
-    let attestation_1 = &attester_slashing.attestation_1;
-    let attestation_2 = &attester_slashing.attestation_2;
+    let attestation_1 = attester_slashing.attestation_1();
+    let attestation_2 = attester_slashing.attestation_2();
 
     let attesting_indices_1 = attestation_1
-        .attesting_indices
-        .iter()
+        .attesting_indices_iter()
         .cloned()
         .collect::<BTreeSet<_>>();
+
     let attesting_indices_2 = attestation_2
-        .attesting_indices
-        .iter()
+        .attesting_indices_iter()
         .cloned()
         .collect::<BTreeSet<_>>();
 

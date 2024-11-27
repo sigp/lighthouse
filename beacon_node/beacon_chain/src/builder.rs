@@ -7,13 +7,13 @@ use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
+use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
 use crate::head_tracker::HeadTracker;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
+use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::snapshot_cache::SnapshotCache;
-use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
@@ -32,15 +32,15 @@ use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, debug, error, info, o, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::per_slot_processing;
+use state_processing::{per_slot_processing, AllCaches};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti,
-    Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec,
+    FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -93,17 +93,18 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
     head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
     chain_config: ChainConfig,
     log: Option<Logger>,
-    graffiti: Graffiti,
+    beacon_graffiti: GraffitiOrigin,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
-    kzg: Option<Arc<Kzg>>,
+    kzg: Arc<Kzg>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
+    import_all_data_columns: bool,
 }
 
 impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
@@ -119,7 +120,7 @@ where
     ///
     /// The `_eth_spec_instance` parameter is only supplied to make concrete the `E` trait.
     /// This should generally be either the `MinimalEthSpec` or `MainnetEthSpec` types.
-    pub fn new(_eth_spec_instance: E) -> Self {
+    pub fn new(_eth_spec_instance: E, kzg: Arc<Kzg>) -> Self {
         Self {
             store: None,
             store_migrator_config: None,
@@ -136,15 +137,16 @@ where
             light_client_server_tx: None,
             head_tracker: None,
             validator_pubkey_cache: None,
-            spec: E::default_spec(),
+            spec: Arc::new(E::default_spec()),
             chain_config: ChainConfig::default(),
             log: None,
-            graffiti: Graffiti::default(),
+            beacon_graffiti: GraffitiOrigin::default(),
             slasher: None,
             pending_io_batch: vec![],
-            kzg: None,
+            kzg,
             task_executor: None,
             validator_monitor_config: None,
+            import_all_data_columns: false,
         }
     }
 
@@ -152,7 +154,7 @@ where
     ///
     /// This method should generally be called immediately after `Self::new` to ensure components
     /// are started with a consistent spec.
-    pub fn custom_spec(mut self, spec: ChainSpec) -> Self {
+    pub fn custom_spec(mut self, spec: Arc<ChainSpec>) -> Self {
         self.spec = spec;
         self
     }
@@ -361,6 +363,10 @@ where
         store
             .put_block(&beacon_block_root, beacon_block.clone())
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
+        store
+            .store_frozen_block_root_at_skip_slots(Slot::new(0), Slot::new(1), beacon_block_root)
+            .and_then(|ops| store.cold_db.do_atomically(ops))
+            .map_err(|e| format!("Failed to store genesis block root: {e:?}"))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
@@ -406,6 +412,11 @@ where
             store
                 .init_blob_info(genesis.beacon_block.slot())
                 .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
+        );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(genesis.beacon_block.slot())
+                .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
         );
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
@@ -462,7 +473,7 @@ where
         // Prime all caches before storing the state in the database and computing the tree hash
         // root.
         weak_subj_state
-            .build_caches(&self.spec)
+            .build_all_caches(&self.spec)
             .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
         let weak_subj_state_root = weak_subj_state
             .update_tree_hash_cache()
@@ -538,6 +549,13 @@ where
         // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
         store
+            .update_finalized_state(
+                weak_subj_state_root,
+                weak_subj_block_root,
+                weak_subj_state.clone(),
+            )
+            .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
+        store
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {e:?}"))?;
         store
@@ -563,6 +581,11 @@ where
             store
                 .init_blob_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
+        );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(weak_subj_block.slot())
+                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
@@ -608,6 +631,12 @@ where
         self
     }
 
+    /// Sets whether to require and import all data columns when importing block.
+    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
+        self.import_all_data_columns = import_all_data_columns;
+        self
+    }
+
     /// Sets the `BeaconChain` event handler backend.
     ///
     /// For example, provide `ServerSentEventHandler` as a `handler`.
@@ -649,9 +678,9 @@ where
         self
     }
 
-    /// Sets the `graffiti` field.
-    pub fn graffiti(mut self, graffiti: Graffiti) -> Self {
-        self.graffiti = graffiti;
+    /// Sets the `beacon_graffiti` field.
+    pub fn beacon_graffiti(mut self, beacon_graffiti: GraffitiOrigin) -> Self {
+        self.beacon_graffiti = beacon_graffiti;
         self
     }
 
@@ -666,11 +695,6 @@ where
     /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
     pub fn validator_monitor_config(mut self, config: ValidatorMonitorConfig) -> Self {
         self.validator_monitor_config = Some(config);
-        self
-    }
-
-    pub fn kzg(mut self, kzg: Option<Arc<Kzg>>) -> Self {
-        self.kzg = kzg;
         self
     }
 
@@ -701,8 +725,8 @@ where
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
         let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
-
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
+
         let mut validator_monitor = ValidatorMonitor::new(
             validator_monitor_config,
             beacon_proposer_cache.clone(),
@@ -851,10 +875,8 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
-        let head_for_snapshot_cache = head_snapshot.clone();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
-        let snapshot_cache_size = self.chain_config.snapshot_cache_size;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -913,14 +935,15 @@ where
             observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
-            observed_blob_sidecars: <_>::default(),
+            observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
+            observed_blob_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
             eth1_chain: self.eth1_chain,
-            execution_layer: self.execution_layer,
+            execution_layer: self.execution_layer.clone(),
             genesis_validators_root,
             genesis_time,
             canonical_head,
@@ -930,20 +953,16 @@ where
             fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
-            snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
-                snapshot_cache_size,
-                head_for_snapshot_cache,
-            )),
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
+            shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
                 log.clone(),
             )),
-            eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
+            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
-            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             reqresp_pre_import_cache: <_>::default(),
@@ -953,16 +972,27 @@ where
                 .shutdown_sender
                 .ok_or("Cannot build without a shutdown sender.")?,
             log: log.clone(),
-            graffiti: self.graffiti,
+            graffiti_calculator: GraffitiCalculator::new(
+                self.beacon_graffiti,
+                self.execution_layer,
+                slot_clock.slot_duration() * E::slots_per_epoch() as u32,
+                log.clone(),
+            ),
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, &log, self.spec)
-                    .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(
+                    slot_clock,
+                    self.kzg.clone(),
+                    store,
+                    self.import_all_data_columns,
+                    self.spec,
+                    log.new(o!("service" => "data_availability_checker")),
+                )
+                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
-            block_production_state: Arc::new(Mutex::new(None)),
         };
 
         let head = beacon_chain.head_snapshot();
@@ -1127,7 +1157,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::EphemeralHarnessType;
+    use crate::test_utils::{get_kzg, EphemeralHarnessType};
     use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
@@ -1158,8 +1188,12 @@ mod test {
             MinimalEthSpec,
             MemoryStore<MinimalEthSpec>,
             MemoryStore<MinimalEthSpec>,
-        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
-            .unwrap();
+        > = HotColdDB::open_ephemeral(
+            StoreConfig::default(),
+            ChainSpec::minimal().into(),
+            log.clone(),
+        )
+        .unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(
@@ -1174,7 +1208,9 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
-        let chain = Builder::new(MinimalEthSpec)
+        let kzg = get_kzg(&spec);
+
+        let chain = Builder::new(MinimalEthSpec, kzg)
             .logger(log.clone())
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())
@@ -1190,7 +1226,7 @@ mod test {
 
         let head = chain.head_snapshot();
 
-        let state = &head.beacon_state;
+        let mut state = head.beacon_state.clone();
         let block = &head.beacon_block;
 
         assert_eq!(state.slot(), Slot::new(0), "should start from genesis");
@@ -1201,7 +1237,7 @@ mod test {
         );
         assert_eq!(
             block.state_root(),
-            state.canonical_root(),
+            state.canonical_root().unwrap(),
             "block should have correct state root"
         );
         assert_eq!(
@@ -1262,7 +1298,7 @@ mod test {
         }
 
         for v in state.validators() {
-            let creds = v.withdrawal_credentials.as_bytes();
+            let creds = v.withdrawal_credentials.as_slice();
             assert_eq!(
                 creds[0], spec.bls_withdrawal_prefix_byte,
                 "first byte of withdrawal creds should be bls prefix"

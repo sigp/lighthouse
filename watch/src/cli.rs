@@ -1,28 +1,29 @@
 use crate::{config::Config, logger, server, updater};
-use clap::{App, Arg};
+use clap::{Arg, ArgAction, Command};
+use clap_utils::get_color_style;
 
 pub const SERVE: &str = "serve";
 pub const RUN_UPDATER: &str = "run-updater";
 pub const CONFIG: &str = "config";
 
-fn run_updater<'a, 'b>() -> App<'a, 'b> {
-    App::new(RUN_UPDATER).setting(clap::AppSettings::ColoredHelp)
+fn run_updater() -> Command {
+    Command::new(RUN_UPDATER).styles(get_color_style())
 }
 
-fn serve<'a, 'b>() -> App<'a, 'b> {
-    App::new(SERVE).setting(clap::AppSettings::ColoredHelp)
+fn serve() -> Command {
+    Command::new(SERVE).styles(get_color_style())
 }
 
-pub fn app<'a, 'b>() -> App<'a, 'b> {
-    App::new("beacon_watch_daemon")
+pub fn app() -> Command {
+    Command::new("beacon_watch_daemon")
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .setting(clap::AppSettings::ColoredHelp)
+        .styles(get_color_style())
         .arg(
-            Arg::with_name(CONFIG)
+            Arg::new(CONFIG)
                 .long(CONFIG)
                 .value_name("PATH_TO_CONFIG")
                 .help("Path to configuration file")
-                .takes_value(true)
+                .action(ArgAction::Set)
                 .global(true),
         )
         .subcommand(run_updater())
@@ -32,7 +33,7 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
 pub async fn run() -> Result<(), String> {
     let matches = app().get_matches();
 
-    let config = match matches.value_of(CONFIG) {
+    let config = match matches.get_one::<String>(CONFIG) {
         Some(path) => Config::load_from_file(path.to_string())?,
         None => Config::default(),
     };
@@ -40,10 +41,10 @@ pub async fn run() -> Result<(), String> {
     logger::init_logger(&config.log_level);
 
     match matches.subcommand() {
-        (RUN_UPDATER, Some(_)) => updater::run_updater(config)
+        Some((RUN_UPDATER, _)) => updater::run_updater(config)
             .await
             .map_err(|e| format!("Failure: {:?}", e)),
-        (SERVE, Some(_)) => server::serve(config)
+        Some((SERVE, _)) => server::serve(config)
             .await
             .map_err(|e| format!("Failure: {:?}", e)),
         _ => Err("Unsupported subcommand. See --help".into()),

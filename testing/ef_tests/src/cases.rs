@@ -1,6 +1,6 @@
 use super::*;
 use rayon::prelude::*;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::path::{Path, PathBuf};
 use types::ForkName;
 
@@ -18,12 +18,17 @@ mod fork;
 mod fork_choice;
 mod genesis_initialization;
 mod genesis_validity;
+mod get_custody_columns;
 mod kzg_blob_to_kzg_commitment;
 mod kzg_compute_blob_kzg_proof;
+mod kzg_compute_cells_and_kzg_proofs;
 mod kzg_compute_kzg_proof;
+mod kzg_recover_cells_and_kzg_proofs;
 mod kzg_verify_blob_kzg_proof;
 mod kzg_verify_blob_kzg_proof_batch;
+mod kzg_verify_cell_kzg_proof_batch;
 mod kzg_verify_kzg_proof;
+mod light_client_verify_is_better_update;
 mod merkle_proof_validity;
 mod operations;
 mod rewards;
@@ -48,12 +53,17 @@ pub use epoch_processing::*;
 pub use fork::ForkTest;
 pub use genesis_initialization::*;
 pub use genesis_validity::*;
+pub use get_custody_columns::*;
 pub use kzg_blob_to_kzg_commitment::*;
 pub use kzg_compute_blob_kzg_proof::*;
+pub use kzg_compute_cells_and_kzg_proofs::*;
 pub use kzg_compute_kzg_proof::*;
+pub use kzg_recover_cells_and_kzg_proofs::*;
 pub use kzg_verify_blob_kzg_proof::*;
 pub use kzg_verify_blob_kzg_proof_batch::*;
+pub use kzg_verify_cell_kzg_proof_batch::*;
 pub use kzg_verify_kzg_proof::*;
+pub use light_client_verify_is_better_update::*;
 pub use merkle_proof_validity::*;
 pub use operations::*;
 pub use rewards::RewardsTest;
@@ -63,6 +73,19 @@ pub use shuffling::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 pub use transition::TransitionTest;
+
+#[derive(Debug, PartialEq)]
+pub enum FeatureName {
+    Eip7594,
+}
+
+impl Display for FeatureName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FeatureName::Eip7594 => f.write_str("eip7594"),
+        }
+    }
+}
 
 pub trait LoadCase: Sized {
     /// Load the test case from a test case directory.
@@ -81,6 +104,13 @@ pub trait Case: Debug + Sync {
     ///
     /// Returns `true` by default.
     fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
+        true
+    }
+
+    /// Whether or not this test exists for the given `feature_name`.
+    ///
+    /// Returns `true` by default.
+    fn is_enabled_for_feature(_feature_name: FeatureName) -> bool {
         true
     }
 

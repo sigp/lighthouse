@@ -4,11 +4,12 @@ use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
     auth::Auth, http::JSONRPC_VERSION, ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status,
 };
+use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
-use environment::null_logger;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use kzg::Kzg;
+use logging::test_logger;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -18,7 +19,7 @@ use std::convert::Infallible;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
@@ -41,6 +42,7 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v1: true,
     new_payload_v2: true,
     new_payload_v3: true,
+    new_payload_v4: true,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: true,
     forkchoice_updated_v3: true,
@@ -49,7 +51,18 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_v1: true,
     get_payload_v2: true,
     get_payload_v3: true,
+    get_payload_v4: true,
+    get_client_version_v1: true,
+    get_blobs_v1: true,
 };
+
+pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
+    LazyLock::new(|| JsonClientVersionV1 {
+        code: "MC".to_string(), // "mock client"
+        name: "Mock Execution Client".to_string(),
+        version: "0.1.0".to_string(),
+        commit: "0xabcdef01".to_string(),
+    });
 
 mod execution_block_generator;
 mod handle_rpc;
@@ -58,6 +71,7 @@ mod mock_builder;
 mod mock_execution_layer;
 
 /// Configuration for the MockExecutionLayer.
+#[derive(Clone)]
 pub struct MockExecutionConfig {
     pub server_config: Config,
     pub jwt_key: JwtKey,
@@ -73,7 +87,7 @@ impl Default for MockExecutionConfig {
     fn default() -> Self {
         Self {
             jwt_key: JwtKey::random(),
-            terminal_difficulty: DEFAULT_TERMINAL_DIFFICULTY.into(),
+            terminal_difficulty: Uint256::from(DEFAULT_TERMINAL_DIFFICULTY),
             terminal_block: DEFAULT_TERMINAL_BLOCK,
             terminal_block_hash: ExecutionBlockHash::zero(),
             server_config: Config::default(),
@@ -96,7 +110,7 @@ impl<E: EthSpec> MockServer<E> {
         Self::new(
             &runtime::Handle::current(),
             JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
-            DEFAULT_TERMINAL_DIFFICULTY.into(),
+            Uint256::from(DEFAULT_TERMINAL_DIFFICULTY),
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             None, // FIXME(capella): should this be the default?
@@ -136,7 +150,7 @@ impl<E: EthSpec> MockServer<E> {
         let ctx: Arc<Context<E>> = Arc::new(Context {
             config: server_config,
             jwt_key,
-            log: null_logger().unwrap(),
+            log: test_logger(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),

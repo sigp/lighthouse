@@ -1,6 +1,7 @@
-use crate::beacon_block_body::format_kzg_commitments;
+use crate::beacon_block_body::{format_kzg_commitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::*;
 use derivative::Derivative;
+use merkle_proof::MerkleTree;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
@@ -37,7 +38,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -72,8 +73,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockBase<E, Payload>,
     #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
     pub message: BeaconBlockAltair<E, Payload>,
-    #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
-    pub message: BeaconBlockMerge<E, Payload>,
+    #[superstruct(only(Bellatrix), partial_getter(rename = "message_bellatrix"))]
+    pub message: BeaconBlockBellatrix<E, Payload>,
     #[superstruct(only(Capella), partial_getter(rename = "message_capella"))]
     pub message: BeaconBlockCapella<E, Payload>,
     #[superstruct(only(Deneb), partial_getter(rename = "message_deneb"))]
@@ -150,8 +151,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             BeaconBlock::Altair(message) => {
                 SignedBeaconBlock::Altair(SignedBeaconBlockAltair { message, signature })
             }
-            BeaconBlock::Merge(message) => {
-                SignedBeaconBlock::Merge(SignedBeaconBlockMerge { message, signature })
+            BeaconBlock::Bellatrix(message) => {
+                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix { message, signature })
             }
             BeaconBlock::Capella(message) => {
                 SignedBeaconBlock::Capella(SignedBeaconBlockCapella { message, signature })
@@ -239,6 +240,45 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         }
     }
 
+    /// Produce a signed beacon block header AND a merkle proof for the KZG commitments.
+    ///
+    /// This method is more efficient than generating each part separately as it reuses hashing.
+    pub fn signed_block_header_and_kzg_commitments_proof(
+        &self,
+    ) -> Result<
+        (
+            SignedBeaconBlockHeader,
+            FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+        ),
+        Error,
+    > {
+        // Create the block body merkle tree
+        let body_leaves = self.message().body().body_merkle_leaves();
+        let beacon_block_body_depth = body_leaves.len().next_power_of_two().ilog2() as usize;
+        let body_merkle_tree = MerkleTree::create(&body_leaves, beacon_block_body_depth);
+
+        // Compute the KZG commitments inclusion proof
+        let (_, proof) = body_merkle_tree
+            .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
+            .map_err(Error::MerkleTreeError)?;
+        let kzg_commitments_inclusion_proof = FixedVector::new(proof)?;
+
+        let block_header = BeaconBlockHeader {
+            slot: self.slot(),
+            proposer_index: self.message().proposer_index(),
+            parent_root: self.parent_root(),
+            state_root: self.state_root(),
+            body_root: body_merkle_tree.hash(),
+        };
+
+        let signed_header = SignedBeaconBlockHeader {
+            message: block_header,
+            signature: self.signature().clone(),
+        };
+
+        Ok((signed_header, kzg_commitments_inclusion_proof))
+    }
+
     /// Convenience accessor for the block's slot.
     pub fn slot(&self) -> Slot {
         self.message().slot()
@@ -310,20 +350,20 @@ impl<E: EthSpec> From<SignedBeaconBlockAltair<E, BlindedPayload<E>>>
 // Post-Bellatrix blocks can be "unblinded" by adding the full payload.
 // NOTE: It might be nice to come up with a `superstruct` pattern to abstract over this before
 // the first fork after Bellatrix.
-impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
+impl<E: EthSpec> SignedBeaconBlockBellatrix<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayloadMerge<E>,
-    ) -> SignedBeaconBlockMerge<E, FullPayload<E>> {
-        let SignedBeaconBlockMerge {
+        execution_payload: ExecutionPayloadBellatrix<E>,
+    ) -> SignedBeaconBlockBellatrix<E, FullPayload<E>> {
+        let SignedBeaconBlockBellatrix {
             message:
-                BeaconBlockMerge {
+                BeaconBlockBellatrix {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root,
                     body:
-                        BeaconBlockBodyMerge {
+                        BeaconBlockBodyBellatrix {
                             randao_reveal,
                             eth1_data,
                             graffiti,
@@ -333,18 +373,18 @@ impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayloadMerge { .. },
+                            execution_payload: BlindedPayloadBellatrix { .. },
                         },
                 },
             signature,
         } = self;
-        SignedBeaconBlockMerge {
-            message: BeaconBlockMerge {
+        SignedBeaconBlockBellatrix {
+            message: BeaconBlockBellatrix {
                 slot,
                 proposer_index,
                 parent_root,
                 state_root,
-                body: BeaconBlockBodyMerge {
+                body: BeaconBlockBodyBellatrix {
                     randao_reveal,
                     eth1_data,
                     graffiti,
@@ -354,7 +394,7 @@ impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayloadMerge { execution_payload },
+                    execution_payload: FullPayloadBellatrix { execution_payload },
                 },
             },
             signature,
@@ -498,6 +538,7 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
                             execution_payload: BlindedPayloadElectra { .. },
                             bls_to_execution_changes,
                             blob_kzg_commitments,
+                            execution_requests,
                         },
                 },
             signature,
@@ -521,6 +562,7 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
                     execution_payload: FullPayloadElectra { execution_payload },
                     bls_to_execution_changes,
                     blob_kzg_commitments,
+                    execution_requests,
                 },
             },
             signature,
@@ -536,8 +578,8 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
         let full_block = match (self, execution_payload) {
             (SignedBeaconBlock::Base(block), _) => SignedBeaconBlock::Base(block.into()),
             (SignedBeaconBlock::Altair(block), _) => SignedBeaconBlock::Altair(block.into()),
-            (SignedBeaconBlock::Merge(block), Some(ExecutionPayload::Merge(payload))) => {
-                SignedBeaconBlock::Merge(block.into_full_block(payload))
+            (SignedBeaconBlock::Bellatrix(block), Some(ExecutionPayload::Bellatrix(payload))) => {
+                SignedBeaconBlock::Bellatrix(block.into_full_block(payload))
             }
             (SignedBeaconBlock::Capella(block), Some(ExecutionPayload::Capella(payload))) => {
                 SignedBeaconBlock::Capella(block.into_full_block(payload))
@@ -550,7 +592,7 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             }
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
-            (SignedBeaconBlock::Merge(_), _) => return None,
+            (SignedBeaconBlock::Bellatrix(_), _) => return None,
             (SignedBeaconBlock::Capella(_), _) => return None,
             (SignedBeaconBlock::Deneb(_), _) => return None,
             (SignedBeaconBlock::Electra(_), _) => return None,
@@ -687,8 +729,8 @@ pub mod ssz_tagged_signed_beacon_block {
                 ForkName::Altair => Ok(SignedBeaconBlock::Altair(
                     SignedBeaconBlockAltair::from_ssz_bytes(body)?,
                 )),
-                ForkName::Merge => Ok(SignedBeaconBlock::Merge(
-                    SignedBeaconBlockMerge::from_ssz_bytes(body)?,
+                ForkName::Bellatrix => Ok(SignedBeaconBlock::Bellatrix(
+                    SignedBeaconBlockBellatrix::from_ssz_bytes(body)?,
                 )),
                 ForkName::Capella => Ok(SignedBeaconBlock::Capella(
                     SignedBeaconBlockCapella::from_ssz_bytes(body)?,
@@ -744,7 +786,10 @@ mod test {
                 BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
                 sig.clone(),
             ),
-            SignedBeaconBlock::from_block(BeaconBlock::Merge(BeaconBlockMerge::empty(spec)), sig),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty(spec)),
+                sig,
+            ),
         ];
 
         for block in blocks {
@@ -783,7 +828,7 @@ mod test {
                 sig.clone(),
             ),
             SignedBeaconBlock::from_block(
-                BeaconBlock::Merge(BeaconBlockMerge::empty(spec)),
+                BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty(spec)),
                 sig.clone(),
             ),
             SignedBeaconBlock::from_block(

@@ -135,7 +135,7 @@ impl BlockCache {
     ///
     /// - If the cache is not empty and `item.block.block_number - 1` is not already in `self`.
     /// - If `item.block.block_number` is in `self`, but is not identical to the supplied
-    /// `Eth1Snapshot`.
+    ///   `Eth1Snapshot`.
     /// - If `item.block.timestamp` is prior to the parent.
     pub fn insert_root_or_child(&mut self, block: Eth1Block) -> Result<(), Error> {
         let expected_block_number = self
@@ -195,6 +195,8 @@ impl BlockCache {
 
 #[cfg(test)]
 mod tests {
+    use types::FixedBytesExtended;
+
     use super::*;
 
     fn get_block(i: u64, interval_secs: u64) -> Eth1Block {

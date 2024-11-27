@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 use clap_utils::parse_required;
-use state_processing::common::get_indexed_attestation;
+use state_processing::common::{attesting_indices_base, attesting_indices_electra};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -33,9 +33,14 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
 
     let indexed_attestations = attestations
         .into_iter()
-        .map(|att| {
-            let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
-            get_indexed_attestation(committee.committee, &att)
+        .map(|att| match att {
+            Attestation::Base(att) => {
+                let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
+                attesting_indices_base::get_indexed_attestation(committee.committee, &att)
+            }
+            Attestation::Electra(att) => {
+                attesting_indices_electra::get_indexed_attestation_from_state(&state, &att)
+            }
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Error constructing indexed attestation: {:?}", e))?;

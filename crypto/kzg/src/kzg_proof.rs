@@ -38,9 +38,9 @@ impl From<[u8; BYTES_PER_PROOF]> for KzgProof {
     }
 }
 
-impl Into<[u8; BYTES_PER_PROOF]> for KzgProof {
-    fn into(self) -> [u8; BYTES_PER_PROOF] {
-        self.0
+impl From<KzgProof> for [u8; BYTES_PER_PROOF] {
+    fn from(from: KzgProof) -> [u8; BYTES_PER_PROOF] {
+        from.0
     }
 }
 

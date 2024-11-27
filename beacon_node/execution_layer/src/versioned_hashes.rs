@@ -1,5 +1,3 @@
-extern crate alloy_consensus;
-extern crate alloy_rlp;
 use alloy_consensus::TxEnvelope;
 use alloy_rlp::Decodable;
 use types::{EthSpec, ExecutionPayloadRef, Hash256, Unsigned, VersionedHash};
@@ -44,22 +42,17 @@ pub fn extract_versioned_hashes_from_transactions<E: EthSpec>(
     let mut versioned_hashes = Vec::new();
 
     for tx in transactions {
-        match beacon_tx_to_tx_envelope(tx)? {
-            TxEnvelope::Eip4844(signed_tx_eip4844) => {
-                versioned_hashes.extend(
-                    signed_tx_eip4844
-                        .tx()
-                        .blob_versioned_hashes
-                        .iter()
-                        .map(|fb| Hash256::from(fb.0)),
-                );
-            }
-            // enumerating all variants explicitly to make pattern irrefutable
-            // in case new types are added in the future which also have blobs
-            TxEnvelope::Legacy(_)
-            | TxEnvelope::TaggedLegacy(_)
-            | TxEnvelope::Eip2930(_)
-            | TxEnvelope::Eip1559(_) => {}
+        // TxEnvelope is non-exhaustive so unforunately we can (no longer) write an exhaustive
+        // match here.
+        if let TxEnvelope::Eip4844(signed_tx_eip4844) = beacon_tx_to_tx_envelope(tx)? {
+            versioned_hashes.extend(
+                signed_tx_eip4844
+                    .tx()
+                    .tx()
+                    .blob_versioned_hashes
+                    .iter()
+                    .map(|fb| Hash256::from(fb.0)),
+            );
         }
     }
 
@@ -78,7 +71,8 @@ pub fn beacon_tx_to_tx_envelope<N: Unsigned>(
 mod test {
     use super::*;
     use crate::test_utils::static_valid_tx;
-    use alloy_consensus::{TxKind, TxLegacy};
+    use alloy_consensus::TxLegacy;
+    use alloy_primitives::TxKind;
 
     type E = types::MainnetEthSpec;
 

@@ -385,6 +385,8 @@ mod test {
     use beacon_chain::test_utils::BeaconChainHarness;
     use beacon_chain::types::{ChainSpec, MainnetEthSpec};
     use sloggers::{null::NullLoggerBuilder, Build};
+    use std::sync::Arc;
+    use types::FixedBytesExtended;
 
     fn get_state<E: EthSpec>() -> BeaconState<E> {
         let harness = BeaconChainHarness::builder(E::default())
@@ -400,7 +402,8 @@ mod test {
     fn block_root_iter() {
         let log = NullLoggerBuilder.build().unwrap();
         let store =
-            HotColdDB::open_ephemeral(Config::default(), ChainSpec::minimal(), log).unwrap();
+            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
+                .unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -412,15 +415,16 @@ mod test {
         let mut hashes = (0..).map(Hash256::from_low_u64_be);
         let roots_a = state_a.block_roots_mut();
         for i in 0..roots_a.len() {
-            roots_a[i] = hashes.next().unwrap()
+            *roots_a.get_mut(i).unwrap() = hashes.next().unwrap();
         }
         let roots_b = state_b.block_roots_mut();
         for i in 0..roots_b.len() {
-            roots_b[i] = hashes.next().unwrap()
+            *roots_b.get_mut(i).unwrap() = hashes.next().unwrap();
         }
 
         let state_a_root = hashes.next().unwrap();
-        state_b.state_roots_mut()[0] = state_a_root;
+        *state_b.state_roots_mut().get_mut(0).unwrap() = state_a_root;
+        state_a.apply_pending_mutations().unwrap();
         store.put_state(&state_a_root, &state_a).unwrap();
 
         let iter = BlockRootsIterator::new(&store, &state_b);
@@ -447,7 +451,8 @@ mod test {
     fn state_root_iter() {
         let log = NullLoggerBuilder.build().unwrap();
         let store =
-            HotColdDB::open_ephemeral(Config::default(), ChainSpec::minimal(), log).unwrap();
+            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
+                .unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -471,6 +476,9 @@ mod test {
 
         let state_a_root = Hash256::from_low_u64_be(slots_per_historical_root as u64);
         let state_b_root = Hash256::from_low_u64_be(slots_per_historical_root as u64 * 2);
+
+        state_a.apply_pending_mutations().unwrap();
+        state_b.apply_pending_mutations().unwrap();
 
         store.put_state(&state_a_root, &state_a).unwrap();
         store.put_state(&state_b_root, &state_b).unwrap();

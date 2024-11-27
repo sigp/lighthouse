@@ -45,6 +45,12 @@ impl AttestationDelta {
     }
 }
 
+#[derive(Debug)]
+pub enum ProposerRewardCalculation {
+    Include,
+    Exclude,
+}
+
 /// Apply attester and proposer rewards.
 pub fn process_rewards_and_penalties<E: EthSpec>(
     state: &mut BeaconState<E>,
@@ -62,7 +68,12 @@ pub fn process_rewards_and_penalties<E: EthSpec>(
         return Err(Error::ValidatorStatusesInconsistent);
     }
 
-    let deltas = get_attestation_deltas_all(state, validator_statuses, spec)?;
+    let deltas = get_attestation_deltas_all(
+        state,
+        validator_statuses,
+        ProposerRewardCalculation::Include,
+        spec,
+    )?;
 
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).
@@ -79,9 +90,10 @@ pub fn process_rewards_and_penalties<E: EthSpec>(
 pub fn get_attestation_deltas_all<E: EthSpec>(
     state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
+    proposer_reward: ProposerRewardCalculation,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
-    get_attestation_deltas(state, validator_statuses, None, spec)
+    get_attestation_deltas(state, validator_statuses, proposer_reward, None, spec)
 }
 
 /// Apply rewards for participation in attestations during the previous epoch, and only compute
@@ -89,10 +101,18 @@ pub fn get_attestation_deltas_all<E: EthSpec>(
 pub fn get_attestation_deltas_subset<E: EthSpec>(
     state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
+    proposer_reward: ProposerRewardCalculation,
     validators_subset: &Vec<usize>,
     spec: &ChainSpec,
 ) -> Result<Vec<(usize, AttestationDelta)>, Error> {
-    get_attestation_deltas(state, validator_statuses, Some(validators_subset), spec).map(|deltas| {
+    get_attestation_deltas(
+        state,
+        validator_statuses,
+        proposer_reward,
+        Some(validators_subset),
+        spec,
+    )
+    .map(|deltas| {
         deltas
             .into_iter()
             .enumerate()
@@ -109,6 +129,7 @@ pub fn get_attestation_deltas_subset<E: EthSpec>(
 fn get_attestation_deltas<E: EthSpec>(
     state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
+    proposer_reward: ProposerRewardCalculation,
     maybe_validators_subset: Option<&Vec<usize>>,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
@@ -169,13 +190,15 @@ fn get_attestation_deltas<E: EthSpec>(
                 .combine(inactivity_penalty_delta)?;
         }
 
-        if let Some((proposer_index, proposer_delta)) = proposer_delta {
-            if include_validator_delta(proposer_index) {
-                deltas
-                    .get_mut(proposer_index)
-                    .ok_or(Error::ValidatorStatusesInconsistent)?
-                    .inclusion_delay_delta
-                    .combine(proposer_delta)?;
+        if let ProposerRewardCalculation::Include = proposer_reward {
+            if let Some((proposer_index, proposer_delta)) = proposer_delta {
+                if include_validator_delta(proposer_index) {
+                    deltas
+                        .get_mut(proposer_index)
+                        .ok_or(Error::ValidatorStatusesInconsistent)?
+                        .inclusion_delay_delta
+                        .combine(proposer_delta)?;
+                }
             }
         }
     }

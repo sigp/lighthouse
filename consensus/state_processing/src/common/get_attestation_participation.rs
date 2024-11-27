@@ -47,7 +47,7 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
     match state {
         &BeaconState::Base(_)
         | &BeaconState::Altair(_)
-        | &BeaconState::Merge(_)
+        | &BeaconState::Bellatrix(_)
         | &BeaconState::Capella(_) => {
             if is_matching_target && inclusion_delay <= E::slots_per_epoch() {
                 participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);

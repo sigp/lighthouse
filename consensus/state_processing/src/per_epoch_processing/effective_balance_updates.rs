@@ -21,7 +21,9 @@ pub fn process_effective_balance_updates<E: EthSpec>(
     let downward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_downward_multiplier)?;
     let upward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_upward_multiplier)?;
     let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
-    for (index, validator) in validators.iter_mut().enumerate() {
+    let mut validators_iter = validators.iter_cow();
+
+    while let Some((index, validator)) = validators_iter.next_cow() {
         let balance = balances
             .get(index)
             .copied()
@@ -44,7 +46,7 @@ pub fn process_effective_balance_updates<E: EthSpec>(
         }
 
         if new_effective_balance != validator.effective_balance {
-            validator.effective_balance = new_effective_balance;
+            validator.into_mut()?.effective_balance = new_effective_balance;
         }
     }
 

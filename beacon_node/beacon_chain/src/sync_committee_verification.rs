@@ -28,8 +28,7 @@
 
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::{
-    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT, metrics,
-    observed_aggregates::ObserveOutcome, BeaconChain, BeaconChainError, BeaconChainTypes,
+    metrics, observed_aggregates::ObserveOutcome, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::{verify_signature_sets, PublicKeyBytes};
 use derivative::Derivative;
@@ -619,10 +618,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     signed_aggregate: &SignedContributionAndProof<T::EthSpec>,
     participant_pubkeys: &[PublicKeyBytes],
 ) -> Result<bool, Error> {
-    let pubkey_cache = chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+    let pubkey_cache = chain.validator_pubkey_cache.read();
 
     let aggregator_index = signed_aggregate.message.aggregator_index;
     if aggregator_index >= pubkey_cache.len() as u64 {
@@ -683,10 +679,7 @@ pub fn verify_sync_committee_message<T: BeaconChainTypes>(
     let signature_setup_timer =
         metrics::start_timer(&metrics::SYNC_MESSAGE_PROCESSING_SIGNATURE_SETUP_TIMES);
 
-    let pubkey_cache = chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+    let pubkey_cache = chain.validator_pubkey_cache.read();
 
     let pubkey = pubkey_cache
         .get_pubkey_from_pubkey_bytes(pubkey_bytes)

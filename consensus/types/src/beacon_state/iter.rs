@@ -74,7 +74,7 @@ mod test {
         let mut state: BeaconState<E> = BeaconState::new(0, <_>::default(), &spec);
 
         for i in 0..state.block_roots().len() {
-            state.block_roots_mut()[i] = root_slot(i).1;
+            *state.block_roots_mut().get_mut(i).unwrap() = root_slot(i).1;
         }
 
         assert_eq!(
@@ -122,7 +122,7 @@ mod test {
         let mut state: BeaconState<E> = BeaconState::new(0, <_>::default(), &spec);
 
         for i in 0..state.block_roots().len() {
-            state.block_roots_mut()[i] = root_slot(i).1;
+            *state.block_roots_mut().get_mut(i).unwrap() = root_slot(i).1;
         }
 
         assert_eq!(

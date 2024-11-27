@@ -1,7 +1,7 @@
 use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
-use crate::test_utils::DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI;
+use crate::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -49,6 +49,12 @@ pub async fn handle_rpc<E: EthSpec>(
                         .latest_execution_block(),
                 )
                 .unwrap()),
+                "0x0" => Ok(serde_json::to_value(
+                    ctx.execution_block_generator
+                        .read()
+                        .genesis_execution_block(),
+                )
+                .unwrap()),
                 other => Err((
                     format!("The tag {} is not supported", other),
                     BAD_PARAMS_ERROR_CODE,
@@ -77,12 +83,10 @@ pub async fn handle_rpc<E: EthSpec>(
                 .ok_or_else(|| "missing/invalid params[1] value".to_string())
                 .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             if full_tx {
-                Ok(serde_json::to_value(
-                    ctx.execution_block_generator
-                        .read()
-                        .execution_block_with_txs_by_hash(hash),
-                )
-                .unwrap())
+                Err((
+                    "full_tx support has been removed".to_string(),
+                    BAD_PARAMS_ERROR_CODE,
+                ))
             } else {
                 Ok(serde_json::to_value(
                     ctx.execution_block_generator
@@ -92,7 +96,10 @@ pub async fn handle_rpc<E: EthSpec>(
                 .unwrap())
             }
         }
-        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 | ENGINE_NEW_PAYLOAD_V3 => {
+        ENGINE_NEW_PAYLOAD_V1
+        | ENGINE_NEW_PAYLOAD_V2
+        | ENGINE_NEW_PAYLOAD_V3
+        | ENGINE_NEW_PAYLOAD_V4 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::V1(
                     get_param::<JsonExecutionPayloadV1<E>>(params, 0)
@@ -105,20 +112,14 @@ pub async fn handle_rpc<E: EthSpec>(
                             .map(|jep| JsonExecutionPayload::V1(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV4<E>>(params, 0)
+                // From v3 onwards, we use the newPayload version only for the corresponding
+                // ExecutionPayload version. So we return an error instead of falling back to
+                // older versions of newPayload
+                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV3<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V3(jep))
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::V4(jep))
-                    .or_else(|_| {
-                        get_param::<JsonExecutionPayloadV3<E>>(params, 0)
-                            .map(|jep| JsonExecutionPayload::V3(jep))
-                            .or_else(|_| {
-                                get_param::<JsonExecutionPayloadV2<E>>(params, 0)
-                                    .map(|jep| JsonExecutionPayload::V2(jep))
-                                    .or_else(|_| {
-                                        get_param::<JsonExecutionPayloadV1<E>>(params, 0)
-                                            .map(|jep| JsonExecutionPayload::V1(jep))
-                                    })
-                            })
-                    })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
@@ -129,7 +130,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 .get_fork_at_timestamp(*request.timestamp());
             // validate method called correctly according to fork time
             match fork {
-                ForkName::Merge => {
+                ForkName::Bellatrix => {
                     if matches!(request, JsonExecutionPayload::V2(_)) {
                         return Err((
                             format!(
@@ -184,7 +185,10 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                 }
                 ForkName::Electra => {
-                    if method == ENGINE_NEW_PAYLOAD_V1 || method == ENGINE_NEW_PAYLOAD_V2 {
+                    if method == ENGINE_NEW_PAYLOAD_V1
+                        || method == ENGINE_NEW_PAYLOAD_V2
+                        || method == ENGINE_NEW_PAYLOAD_V3
+                    {
                         return Err((
                             format!("{} called after Electra fork!", method),
                             GENERIC_ERROR_CODE,
@@ -253,7 +257,10 @@ pub async fn handle_rpc<E: EthSpec>(
 
             Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
-        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 | ENGINE_GET_PAYLOAD_V3 => {
+        ENGINE_GET_PAYLOAD_V1
+        | ENGINE_GET_PAYLOAD_V2
+        | ENGINE_GET_PAYLOAD_V3
+        | ENGINE_GET_PAYLOAD_V4 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
@@ -303,7 +310,9 @@ pub async fn handle_rpc<E: EthSpec>(
                 .read()
                 .get_fork_at_timestamp(response.timestamp())
                 == ForkName::Electra
-                && method == ENGINE_GET_PAYLOAD_V1
+                && (method == ENGINE_GET_PAYLOAD_V1
+                    || method == ENGINE_GET_PAYLOAD_V2
+                    || method == ENGINE_GET_PAYLOAD_V3)
             {
                 return Err((
                     format!("{} called after Electra fork!", method),
@@ -319,24 +328,27 @@ pub async fn handle_rpc<E: EthSpec>(
                     JsonExecutionPayload::V1(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV1 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                         })
                         .unwrap()
                     }
                     JsonExecutionPayload::V2(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV2 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                         })
                         .unwrap()
                     }
                     _ => unreachable!(),
                 }),
+                // From v3 onwards, we use the getPayload version only for the corresponding
+                // ExecutionPayload version. So we return an error if the ExecutionPayload version
+                // we get does not correspond to the getPayload version.
                 ENGINE_GET_PAYLOAD_V3 => Ok(match JsonExecutionPayload::from(response) {
                     JsonExecutionPayload::V3(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV3 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                             blobs_bundle: maybe_blobs
                                 .ok_or((
                                     "No blobs returned despite V3 Payload".to_string(),
@@ -347,10 +359,13 @@ pub async fn handle_rpc<E: EthSpec>(
                         })
                         .unwrap()
                     }
+                    _ => unreachable!(),
+                }),
+                ENGINE_GET_PAYLOAD_V4 => Ok(match JsonExecutionPayload::from(response) {
                     JsonExecutionPayload::V4(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV4 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                             blobs_bundle: maybe_blobs
                                 .ok_or((
                                     "No blobs returned despite V4 Payload".to_string(),
@@ -358,6 +373,8 @@ pub async fn handle_rpc<E: EthSpec>(
                                 ))?
                                 .into(),
                             should_override_builder: false,
+                            // TODO(electra): add EL requests in mock el
+                            requests: Default::default(),
                         })
                         .unwrap()
                     }
@@ -389,7 +406,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                     .read()
                                     .get_fork_at_timestamp(*pa.timestamp())
                                 {
-                                    ForkName::Merge => {
+                                    ForkName::Bellatrix => {
                                         get_param::<Option<JsonPayloadAttributesV1>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V1))
                                             .transpose()
@@ -421,7 +438,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     .read()
                     .get_fork_at_timestamp(*pa.timestamp())
                 {
-                    ForkName::Merge => {
+                    ForkName::Bellatrix => {
                         if matches!(pa, JsonPayloadAttributes::V2(_)) {
                             return Err((
                                 format!(
@@ -522,6 +539,9 @@ pub async fn handle_rpc<E: EthSpec>(
             let engine_capabilities = ctx.engine_capabilities.read();
             Ok(serde_json::to_value(engine_capabilities.to_response()).unwrap())
         }
+        ENGINE_GET_CLIENT_VERSION_V1 => {
+            Ok(serde_json::to_value([DEFAULT_CLIENT_VERSION.clone()]).unwrap())
+        }
         ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1 => {
             #[derive(Deserialize)]
             #[serde(transparent)]
@@ -536,40 +556,19 @@ pub async fn handle_rpc<E: EthSpec>(
 
             let mut response = vec![];
             for block_num in start..(start + count) {
-                let maybe_block = ctx
+                let maybe_payload = ctx
                     .execution_block_generator
                     .read()
-                    .execution_block_with_txs_by_number(block_num);
+                    .execution_payload_by_number(block_num);
 
-                match maybe_block {
-                    Some(block) => {
-                        let transactions = Transactions::<E>::new(
-                            block
-                                .transactions()
-                                .iter()
-                                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
-                                .collect::<Result<_, _>>()
-                                .map_err(|e| {
-                                    (
-                                        format!("failed to deserialize transaction: {:?}", e),
-                                        GENERIC_ERROR_CODE,
-                                    )
-                                })?,
-                        )
-                        .map_err(|e| {
-                            (
-                                format!("failed to deserialize transactions: {:?}", e),
-                                GENERIC_ERROR_CODE,
-                            )
-                        })?;
-
-                        response.push(Some(JsonExecutionPayloadBodyV1::<E> {
-                            transactions,
-                            withdrawals: block
-                                .withdrawals()
-                                .ok()
-                                .map(|withdrawals| VariableList::from(withdrawals.clone())),
-                        }));
+                match maybe_payload {
+                    Some(payload) => {
+                        let payload_body: ExecutionPayloadBodyV1<E> = ExecutionPayloadBodyV1 {
+                            transactions: payload.transactions().clone(),
+                            withdrawals: payload.withdrawals().ok().cloned(),
+                        };
+                        let json_payload_body = JsonExecutionPayloadBodyV1::from(payload_body);
+                        response.push(Some(json_payload_body));
                     }
                     None => response.push(None),
                 }

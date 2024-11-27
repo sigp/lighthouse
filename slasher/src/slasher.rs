@@ -13,7 +13,8 @@ use slog::{debug, error, info, Logger};
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
-    AttesterSlashing, Epoch, EthSpec, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader,
+    AttesterSlashing, ChainSpec, Epoch, EthSpec, IndexedAttestation, ProposerSlashing,
+    SignedBeaconBlockHeader,
 };
 
 #[derive(Debug)]
@@ -28,10 +29,23 @@ pub struct Slasher<E: EthSpec> {
 }
 
 impl<E: EthSpec> Slasher<E> {
-    pub fn open(config: Config, log: Logger) -> Result<Self, Error> {
+    pub fn open(config: Config, spec: Arc<ChainSpec>, log: Logger) -> Result<Self, Error> {
         config.validate()?;
         let config = Arc::new(config);
-        let db = SlasherDB::open(config.clone(), log.clone())?;
+        let db = SlasherDB::open(config.clone(), spec, log.clone())?;
+        Self::from_config_and_db(config, db, log)
+    }
+
+    /// TESTING ONLY.
+    ///
+    /// Initialise a slasher database from an existing `db`. The caller must ensure that the
+    /// database's config matches the one provided.
+    pub fn from_config_and_db(
+        config: Arc<Config>,
+        db: SlasherDB<E>,
+        log: Logger,
+    ) -> Result<Self, Error> {
+        config.validate()?;
         let attester_slashings = Mutex::new(HashSet::new());
         let proposer_slashings = Mutex::new(HashSet::new());
         let attestation_queue = AttestationQueue::default();
@@ -45,6 +59,11 @@ impl<E: EthSpec> Slasher<E> {
             config,
             log,
         })
+    }
+
+    pub fn into_reset_db(self) -> Result<SlasherDB<E>, Error> {
+        self.db.reset()?;
+        Ok(self.db)
     }
 
     /// Harvest all attester slashings found, removing them from the slasher.
@@ -299,7 +318,7 @@ impl<E: EthSpec> Slasher<E> {
                     self.log,
                     "Found double-vote slashing";
                     "validator_index" => validator_index,
-                    "epoch" => slashing.attestation_1.data.target.epoch,
+                    "epoch" => slashing.attestation_1().data().target.epoch,
                 );
                 slashings.insert(slashing);
             }
@@ -325,8 +344,8 @@ impl<E: EthSpec> Slasher<E> {
 
         for indexed_record in batch {
             let attestation = &indexed_record.indexed;
-            let target_epoch = attestation.data.target.epoch;
-            let source_epoch = attestation.data.source.epoch;
+            let target_epoch = attestation.data().target.epoch;
+            let source_epoch = attestation.data().source.epoch;
 
             if source_epoch > target_epoch
                 || source_epoch + self.config.history_length as u64 <= current_epoch

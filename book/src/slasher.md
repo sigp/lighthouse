@@ -8,6 +8,7 @@ extra income for your validators. However it is currently only recommended for e
 of the immaturity of the slasher UX and the extra resources required.
 
 ## Minimum System Requirements
+
 * Quad-core CPU
 * 16 GB RAM
 * 256 GB solid state storage (in addition to the space requirement for the beacon node DB)
@@ -47,8 +48,8 @@ directory.
 
 It is possible to use one of several database backends with the slasher:
 
-- LMDB (default)
-- MDBX
+* LMDB (default)
+* MDBX
 
 The advantage of MDBX is that it performs compaction, resulting in less disk usage over time. The
 disadvantage is that upstream MDBX is unstable, so Lighthouse is pinned to a specific version.
@@ -113,13 +114,13 @@ changed after initialization.
 
 * Flag: `--slasher-max-db-size GIGABYTES`
 * Argument: maximum size of the database in gigabytes
-* Default: 256 GB
+* Default: 512 GB
 
 Both database backends LMDB and MDBX place a hard limit on the size of the database
 file. You can use the `--slasher-max-db-size` flag to set this limit. It can be adjusted after
 initialization if the limit is reached.
 
-By default the limit is set to accommodate the default history length and around 600K validators (with about 30% headroom) but
+By default the limit is set to accommodate the default history length and around 1 million validators but
 you can set it lower if running with a reduced history length. The space required scales
 approximately linearly in validator count and history length, i.e. if you halve either you can halve
 the space required.

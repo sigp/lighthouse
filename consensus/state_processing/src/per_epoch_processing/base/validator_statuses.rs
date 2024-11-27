@@ -1,4 +1,4 @@
-use crate::common::get_attesting_indices;
+use crate::common::attesting_indices_base::get_attesting_indices;
 use safe_arith::SafeArith;
 use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, PendingAttestation};
 
@@ -30,7 +30,7 @@ impl Default for InclusionInfo {
     /// Defaults to `delay` at its maximum value and `proposer_index` at zero.
     fn default() -> Self {
         Self {
-            delay: u64::max_value(),
+            delay: u64::MAX,
             proposer_index: 0,
         }
     }

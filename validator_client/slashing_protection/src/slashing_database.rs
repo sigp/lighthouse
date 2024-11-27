@@ -23,7 +23,7 @@ pub const POOL_SIZE: u32 = 1;
 #[cfg(not(test))]
 pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(test)]
-pub const CONNECTION_TIMEOUT: Duration = Duration::from_millis(500);
+pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Supported version of the interchange format.
 pub const SUPPORTED_INTERCHANGE_FORMAT_VERSION: u64 = 5;
@@ -513,7 +513,7 @@ impl SlashingDatabase {
         txn.execute(
             "INSERT INTO signed_blocks (validator_id, slot, signing_root)
              VALUES (?1, ?2, ?3)",
-            params![validator_id, slot, signing_root.to_hash256_raw().as_bytes()],
+            params![validator_id, slot, signing_root.to_hash256_raw().as_slice()],
         )?;
         Ok(())
     }
@@ -539,7 +539,7 @@ impl SlashingDatabase {
                 validator_id,
                 att_source_epoch,
                 att_target_epoch,
-                att_signing_root.to_hash256_raw().as_bytes()
+                att_signing_root.to_hash256_raw().as_slice()
             ],
         )?;
         Ok(())

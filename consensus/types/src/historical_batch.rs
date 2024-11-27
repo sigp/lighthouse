@@ -23,8 +23,10 @@ use tree_hash_derive::TreeHash;
 )]
 #[arbitrary(bound = "E: EthSpec")]
 pub struct HistoricalBatch<E: EthSpec> {
-    pub block_roots: FixedVector<Hash256, E::SlotsPerHistoricalRoot>,
-    pub state_roots: FixedVector<Hash256, E::SlotsPerHistoricalRoot>,
+    #[test_random(default)]
+    pub block_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
+    #[test_random(default)]
+    pub state_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,
 }
 
 #[cfg(test)]

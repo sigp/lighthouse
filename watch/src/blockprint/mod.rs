@@ -24,6 +24,7 @@ pub use server::blockprint_routes;
 const TIMEOUT: Duration = Duration::from_secs(50);
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Error {
     Reqwest(reqwest::Error),
     Url(url::ParseError),

@@ -33,6 +33,7 @@ pub struct WatchBlockprint {
 }
 
 #[derive(Debug, QueryableByName, diesel::FromSqlRow)]
+#[allow(dead_code)]
 pub struct WatchValidatorBlockprint {
     #[diesel(sql_type = Integer)]
     pub proposer_index: i32,

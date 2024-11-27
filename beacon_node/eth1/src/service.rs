@@ -23,7 +23,7 @@ use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, DepositTreeSnapshot, Eth1Data, EthSpec, Unsigned};
 
 /// Indicates the default eth1 chain id we use for the deposit contract.
-pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
+pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Mainnet;
 /// Indicates the default eth1 endpoint.
 pub const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545";
 
@@ -266,7 +266,7 @@ pub struct Config {
     pub endpoint: Eth1Endpoint,
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
-    /// The eth1 chain id where the deposit contract is deployed (Goerli/Mainnet).
+    /// The eth1 chain id where the deposit contract is deployed (Holesky/Mainnet).
     pub chain_id: Eth1Id,
     /// Defines the first block that the `DepositCache` will start searching for deposit logs.
     ///
@@ -397,7 +397,7 @@ pub struct Service {
 
 impl Service {
     /// Creates a new service. Does not attempt to connect to the eth1 node.
-    pub fn new(config: Config, log: Logger, spec: ChainSpec) -> Result<Self, String> {
+    pub fn new(config: Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
         Ok(Self {
             inner: Arc::new(Inner {
                 block_cache: <_>::default(),
@@ -414,6 +414,10 @@ impl Service {
         })
     }
 
+    pub fn chain_spec(&self) -> &Arc<ChainSpec> {
+        &self.inner.spec
+    }
+
     pub fn client(&self) -> &HttpJsonRpc {
         &self.inner.endpoint
     }
@@ -422,7 +426,7 @@ impl Service {
     pub fn from_deposit_snapshot(
         config: Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         deposit_snapshot: &DepositTreeSnapshot,
     ) -> Result<Self, Error> {
         let deposit_cache =
@@ -450,11 +454,6 @@ impl Service {
 
     /// Returns the follow distance that has been shortened to accommodate for differences in the
     /// spacing between blocks.
-    ///
-    /// ## Notes
-    ///
-    /// This is useful since the spec declares `SECONDS_PER_ETH1_BLOCK` to be `14`, whilst it is
-    /// actually `15` on Goerli.
     pub fn cache_follow_distance(&self) -> u64 {
         self.config().cache_follow_distance()
     }
@@ -469,7 +468,7 @@ impl Service {
         bytes: &[u8],
         config: Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         let inner = Inner::from_bytes(bytes, config, spec)?;
         Ok(Self {
@@ -550,10 +549,11 @@ impl Service {
 
     /// Returns the number of deposits with valid signatures that have been observed.
     pub fn get_valid_signature_count(&self) -> Option<usize> {
+        let highest_safe_block = self.highest_safe_block()?;
         self.deposits()
             .read()
             .cache
-            .get_valid_signature_count(self.highest_safe_block()?)
+            .get_valid_signature_count(highest_safe_block)
     }
 
     /// Returns the number of deposits with valid signatures that have been observed, without
@@ -858,7 +858,7 @@ impl Service {
         let max_log_requests_per_update = self
             .config()
             .max_log_requests_per_update
-            .unwrap_or_else(usize::max_value);
+            .unwrap_or(usize::MAX);
 
         let range = {
             match new_block_numbers {
@@ -1001,10 +1001,7 @@ impl Service {
     ) -> Result<BlockCacheUpdateOutcome, Error> {
         let client = self.client();
         let block_cache_truncation = self.config().block_cache_truncation;
-        let max_blocks_per_update = self
-            .config()
-            .max_blocks_per_update
-            .unwrap_or_else(usize::max_value);
+        let max_blocks_per_update = self.config().max_blocks_per_update.unwrap_or(usize::MAX);
 
         let range = {
             match new_block_numbers {
@@ -1030,7 +1027,7 @@ impl Service {
                 let range_size = range.end() - range.start();
                 let max_size = block_cache_truncation
                     .map(|n| n as u64)
-                    .unwrap_or_else(u64::max_value);
+                    .unwrap_or_else(|| u64::MAX);
                 if range_size > max_size {
                     // If the range of required blocks is larger than `max_size`, drop all
                     // existing blocks and download `max_size` count of blocks.
@@ -1137,7 +1134,7 @@ impl Service {
 
         Ok(BlockCacheUpdateOutcome {
             blocks_imported,
-            head_block_number: self.inner.block_cache.read().highest_block_number(),
+            head_block_number: block_cache.highest_block_number(),
         })
     }
 }

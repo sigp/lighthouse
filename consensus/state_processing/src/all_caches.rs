@@ -1,6 +1,8 @@
 use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use crate::epoch_cache::initialize_epoch_cache;
-use types::{BeaconState, ChainSpec, EpochCacheError, EthSpec, Hash256, RelativeEpoch};
+use types::{
+    BeaconState, ChainSpec, EpochCacheError, EthSpec, FixedBytesExtended, Hash256, RelativeEpoch,
+};
 
 /// Mixin trait for the beacon state that provides operations on *all* caches.
 ///
@@ -9,12 +11,14 @@ use types::{BeaconState, ChainSpec, EpochCacheError, EthSpec, Hash256, RelativeE
 pub trait AllCaches {
     /// Build all caches.
     ///
-    /// Note that this excludes the tree-hash cache. That needs to be managed separately.
+    /// Note that this excludes milhouse's intrinsic tree-hash cache. That needs to be managed
+    /// separately.
     fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), EpochCacheError>;
 
     /// Return true if all caches are built.
     ///
-    /// Note that this excludes the tree-hash cache. That needs to be managed separately.
+    /// Note that this excludes milhouse's intrinsic tree-hash cache. That needs to be managed
+    /// separately.
     fn all_caches_built(&self) -> bool;
 }
 

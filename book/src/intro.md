@@ -24,7 +24,6 @@ You may read this book from start to finish, or jump to some of these topics:
 - Utilize the whole stack by starting a [local testnet](./setup.md#local-testnets).
 - Query the [RESTful HTTP API](./api.md) using `curl`.
 
-
 Prospective contributors can read the [Contributing](./contributing.md) section
 to understand how we develop and test Lighthouse.
 

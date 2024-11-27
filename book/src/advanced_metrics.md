@@ -30,7 +30,6 @@ curl localhost:5054/metrics
 
 ## Validator Client Metrics
 
-
 By default, these metrics are disabled but can be enabled with the `--metrics`
 flag. Use the `--metrics-address`, `--metrics-port` and
 `--metrics-allow-origin` flags to customize the metrics server.
@@ -78,7 +77,7 @@ You can adjust the frequency at which Lighthouse sends metrics to the remote ser
 `--monitoring-endpoint-period` flag. It takes an integer value in seconds, defaulting to 60
 seconds.
 
-```
+```bash
 lighthouse bn --monitoring-endpoint-period 60 --monitoring-endpoint "https://url"
 ```
 

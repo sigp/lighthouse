@@ -10,6 +10,7 @@ use state_processing::per_block_processing::get_new_eth1_data;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
@@ -284,7 +285,7 @@ where
         ssz_container: &SszEth1,
         config: Eth1Config,
         log: &Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         let backend =
             Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, log.clone(), spec)?;
@@ -355,7 +356,7 @@ pub trait Eth1ChainBackend<E: EthSpec>: Sized + Send + Sync {
         bytes: &[u8],
         config: Eth1Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String>;
 }
 
@@ -413,7 +414,7 @@ impl<E: EthSpec> Eth1ChainBackend<E> for DummyEth1ChainBackend<E> {
         _bytes: &[u8],
         _config: Eth1Config,
         _log: Logger,
-        _spec: ChainSpec,
+        _spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         Ok(Self(PhantomData))
     }
@@ -441,7 +442,7 @@ impl<E: EthSpec> CachingEth1Backend<E> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
-    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Result<Self, String> {
+    pub fn new(config: Eth1Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
         Ok(Self {
             core: HttpService::new(config, log.clone(), spec)
                 .map_err(|e| format!("Failed to create eth1 http service: {:?}", e))?,
@@ -475,10 +476,10 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
             voting_period_start_slot,
         );
 
-        let blocks = self.core.blocks().read();
-
-        let votes_to_consider =
-            get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec);
+        let votes_to_consider = {
+            let blocks = self.core.blocks().read();
+            get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec)
+        };
 
         trace!(
             self.log,
@@ -546,12 +547,20 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
             state.eth1_data().deposit_count
         };
 
-        match deposit_index.cmp(&deposit_count) {
+        // [New in Electra:EIP6110]
+        let deposit_index_limit =
+            if let Ok(deposit_requests_start_index) = state.deposit_requests_start_index() {
+                std::cmp::min(deposit_count, deposit_requests_start_index)
+            } else {
+                deposit_count
+            };
+
+        match deposit_index.cmp(&deposit_index_limit) {
             Ordering::Greater => Err(Error::DepositIndexTooHigh),
             Ordering::Equal => Ok(vec![]),
             Ordering::Less => {
                 let next = deposit_index;
-                let last = std::cmp::min(deposit_count, next + E::MaxDeposits::to_u64());
+                let last = std::cmp::min(deposit_index_limit, next + E::MaxDeposits::to_u64());
 
                 self.core
                     .deposits()
@@ -588,7 +597,7 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
         bytes: &[u8],
         config: Eth1Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         let inner = HttpService::from_bytes(bytes, config, log.clone(), spec)?;
         Ok(Self {
@@ -677,15 +686,14 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 #[cfg(test)]
 mod test {
     use super::*;
-    use environment::null_logger;
-    use types::{DepositData, MinimalEthSpec, Signature};
+    use types::{DepositData, FixedBytesExtended, MinimalEthSpec, Signature};
 
     type E = MinimalEthSpec;
 
     fn get_eth1_data(i: u64) -> Eth1Data {
         Eth1Data {
             block_hash: Hash256::from_low_u64_be(i),
-            deposit_root: Hash256::from_low_u64_be(u64::max_value() - i),
+            deposit_root: Hash256::from_low_u64_be(u64::MAX - i),
             deposit_count: i,
         }
     }
@@ -735,6 +743,7 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
+        use logging::test_logger;
         use types::{test_utils::generate_deterministic_keypair, MainnetEthSpec};
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
@@ -742,9 +751,10 @@ mod test {
                 ..Eth1Config::default()
             };
 
-            let log = null_logger().unwrap();
+            let log = test_logger();
             Eth1Chain::new(
-                CachingEth1Backend::new(eth1_config, log, MainnetEthSpec::default_spec()).unwrap(),
+                CachingEth1Backend::new(eth1_config, log, Arc::new(MainnetEthSpec::default_spec()))
+                    .unwrap(),
             )
         }
 
@@ -1020,6 +1030,7 @@ mod test {
 
     mod collect_valid_votes {
         use super::*;
+        use types::List;
 
         fn get_eth1_data_vec(n: u64, block_number_offset: u64) -> Vec<(Eth1Data, BlockNumber)> {
             (0..n)
@@ -1067,12 +1078,14 @@ mod test {
 
             let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-            *state.eth1_data_votes_mut() = votes_to_consider[0..slots as usize / 4]
-                .iter()
-                .map(|(eth1_data, _)| eth1_data)
-                .cloned()
-                .collect::<Vec<_>>()
-                .into();
+            *state.eth1_data_votes_mut() = List::new(
+                votes_to_consider[0..slots as usize / 4]
+                    .iter()
+                    .map(|(eth1_data, _)| eth1_data)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
 
             let votes =
                 collect_valid_votes(&state, &votes_to_consider.clone().into_iter().collect());
@@ -1096,12 +1109,14 @@ mod test {
                 .expect("should have some eth1 data")
                 .clone();
 
-            *state.eth1_data_votes_mut() = vec![duplicate_eth1_data.clone(); 4]
-                .iter()
-                .map(|(eth1_data, _)| eth1_data)
-                .cloned()
-                .collect::<Vec<_>>()
-                .into();
+            *state.eth1_data_votes_mut() = List::new(
+                vec![duplicate_eth1_data.clone(); 4]
+                    .iter()
+                    .map(|(eth1_data, _)| eth1_data)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
 
             let votes = collect_valid_votes(&state, &votes_to_consider.into_iter().collect());
             assert_votes!(

@@ -33,6 +33,10 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProofBatch<E> {
         fork_name == ForkName::Deneb
     }
 
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name != FeatureName::Eip7594
+    }
+
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let parse_input = |input: &KZGVerifyBlobKZGProofBatchInput| -> Result<_, Error> {
             let blobs = input
@@ -53,8 +57,7 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProofBatch<E> {
             Ok((commitments, blobs, proofs))
         };
 
-        let kzg = get_kzg()?;
-
+        let kzg = get_kzg();
         let result =
             parse_input(&self.input).and_then(
                 |(commitments, blobs, proofs)| match validate_blobs::<E>(

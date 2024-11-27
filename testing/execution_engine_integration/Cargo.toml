@@ -10,13 +10,12 @@ serde_json = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
-environment = { workspace = true }
 execution_layer = { workspace = true }
 sensitive_url = { workspace = true }
 types = { workspace = true }
 unused_port = { workspace = true }
-ethers-core = { workspace = true }
 ethers-providers = { workspace = true }
+ethers-core = { workspace = true }
 deposit_contract = { workspace = true }
 reqwest = { workspace = true }
 hex = { workspace = true }

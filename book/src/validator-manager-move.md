@@ -100,7 +100,7 @@ lighthouse \
 > it is recommended for an additional layer of safety. It will result in 2-3
 > epochs of downtime for the validator after it is moved, which is generally an
 > inconsequential cost in lost rewards or penalties.
-> 
+>
 > Optionally, users can add the `--http-store-passwords-in-secrets-dir` flag if they'd like to have
 > the import validator keystore passwords stored in separate files rather than in the
 > `validator-definitions.yml` file. If you don't know what this means, you can safely omit the flag.
@@ -116,7 +116,7 @@ location of the file varies, but it is located in the "validator directory" of y
 alongside validator keystores. For example: `~/.lighthouse/mainnet/validators/api-token.txt`. If you are unsure of the `api-token.txt` path, you can run `curl http://localhost:5062/lighthouse/auth` which will show the path.
 
 Copy the contents of that file into a new file on the **destination host** at `~/src-token.txt`. The
-API token should be similar to `api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123`.
+API token is a random string, e.g., `hGut6B8uEujufDXSmZsT0thnxvdvKFBvh`.
 
 ### 4. Create an SSH Tunnel
 
@@ -158,7 +158,9 @@ Moved keystore 1 of 2
 Moved keystore 2 of 2
 Done.
 ```
+
 At the same time, `lighthouse vc` will log:
+
 ```bash
 INFO Importing keystores via standard HTTP API, count: 1
 INFO Enabled validator                       voting_pubkey: 0xab6e29f1b98fedfca878edce2b471f1b5ee58ee4c3bd216201f98254ef6f6eac40a53d74c8b7da54f51d3e85cacae92f, signing_method: local_keystore
@@ -183,11 +185,12 @@ lighthouse \
 ```
 
 > Note: If you have the `validator-monitor-auto` turned on, the source beacon node may still be reporting the attestation status of the validators that have been moved:
+
 ```
 INFO Previous epoch attestation(s) success   validators: ["validator_index"], epoch: 100000, service: val_mon, service: beacon
 ```
-> This is fine as the validator monitor does not know that the validators have been moved (it *does not* mean that the validators have attested twice for the same slot). A restart of the beacon node will resolve this. 
 
+> This is fine as the validator monitor does not know that the validators have been moved (it *does not* mean that the validators have attested twice for the same slot). A restart of the beacon node will resolve this.
 
 Any errors encountered during the operation should include information on how to
 proceed. Assistance is also available on our

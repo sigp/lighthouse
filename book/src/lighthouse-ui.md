@@ -23,7 +23,7 @@ information:
 
 - [Installation Guide](./ui-installation.md) - Information to install and run the Lighthouse UI.
 - [Configuration Guide](./ui-configuration.md) - Explanation of how to setup
-	and configure Siren.
+ and configure Siren.
 - [Authentication Guide](./ui-authentication.md) - Explanation of how Siren authentication works and protects validator actions.
 - [Usage](./ui-usage.md) - Details various Siren components.
 - [FAQs](./ui-faqs.md) - Frequently Asked Questions.

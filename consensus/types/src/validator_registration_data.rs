@@ -12,6 +12,7 @@ pub struct SignedValidatorRegistrationData {
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode, TreeHash)]
 pub struct ValidatorRegistrationData {
+    #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
     #[serde(with = "serde_utils::quoted_u64")]
     pub gas_limit: u64,

@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "5.1.3"
+version = "5.3.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
@@ -14,29 +14,25 @@ jemalloc = ["malloc_utils/jemalloc"]
 bls = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
+sloggers = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
 env_logger = { workspace = true }
 types = { workspace = true }
 state_processing = { workspace = true }
-int_to_bytes = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_ssz = { workspace = true }
 environment = { workspace = true }
 eth2_network_config = { workspace = true }
-genesis = { workspace = true }
 deposit_contract = { workspace = true }
 tree_hash = { workspace = true }
 clap_utils = { workspace = true }
 lighthouse_network = { workspace = true }
-validator_dir = { workspace = true, features = ["insecure_keys"] }
+validator_dir = { workspace = true }
 lighthouse_version = { workspace = true }
-directory = { workspace = true }
 account_utils = { workspace = true }
 eth2_wallet = { workspace = true }
-eth1_test_rig = { workspace = true }
-sensitive_url = { workspace = true }
 eth2 = { workspace = true }
 snap = { workspace = true }
 beacon_chain = { workspace = true }

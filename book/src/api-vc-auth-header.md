@@ -9,10 +9,10 @@ HTTP header:
 - Value: `Bearer <api-token>`
 
 Where `<api-token>` is a string that can be obtained from the validator client
-host. Here is an example `Authorization` header:
+host. Here is an example of the `Authorization` header:
 
-```
-Authorization: Bearer api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123
+```text
+Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh
 ```
 
 ## Obtaining the API token
@@ -22,17 +22,16 @@ this is `~/.lighthouse/{network}/validators/api-token.txt`. Here's an
 example using the `cat` command to print the token to the terminal, but any
 text editor will suffice:
 
+```bash
+cat api-token.txt
+hGut6B8uEujufDXSmZsT0thnxvdvKFBvh
 ```
-$ cat api-token.txt
-api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123
-```
-
 
 When starting the validator client it will output a log message containing the path
 to the file containing the api token.
 
-```
-Sep 28 19:17:52.615 INFO HTTP API started                        api_token_file: "$HOME/prater/validators/api-token.txt", listen_address: 127.0.0.1:5062
+```text
+Sep 28 19:17:52.615 INFO HTTP API started                        api_token_file: "$HOME/holesky/validators/api-token.txt", listen_address: 127.0.0.1:5062
 ```
 
 The _path_ to the API token may also be fetched from the HTTP API itself (this endpoint is the only
@@ -46,7 +45,7 @@ Response:
 
 ```json
 {
-    "token_path": "/home/karlm/.lighthouse/prater/validators/api-token.txt"
+    "token_path": "/home/karlm/.lighthouse/holesky/validators/api-token.txt"
 }
 ```
 
@@ -55,7 +54,7 @@ Response:
 Here is an example `curl` command using the API token in the `Authorization` header:
 
 ```bash
-curl localhost:5062/lighthouse/version -H "Authorization: Bearer api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123"
+curl localhost:5062/lighthouse/version -H "Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh"
 ```
 
 The server should respond with its version:

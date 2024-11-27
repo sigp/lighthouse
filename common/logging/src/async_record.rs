@@ -123,12 +123,10 @@ impl Serializer for ToSendSerializer {
         take(&mut self.kv, |kv| Box::new((kv, SingleKV(key, val))));
         Ok(())
     }
-    #[cfg(integer128)]
     fn emit_u128(&mut self, key: Key, val: u128) -> slog::Result {
         take(&mut self.kv, |kv| Box::new((kv, SingleKV(key, val))));
         Ok(())
     }
-    #[cfg(integer128)]
     fn emit_i128(&mut self, key: Key, val: i128) -> slog::Result {
         take(&mut self.kv, |kv| Box::new((kv, SingleKV(key, val))));
         Ok(())
@@ -177,7 +175,7 @@ impl Serialize for AsyncRecord {
         // Convoluted pattern to avoid binding `format_args!` to a temporary.
         // See: https://stackoverflow.com/questions/56304313/cannot-use-format-args-due-to-temporary-value-is-freed-at-the-end-of-this-state
         let mut f = |msg: std::fmt::Arguments| {
-            map_serializer.serialize_entry("msg", &msg.to_string())?;
+            map_serializer.serialize_entry("msg", msg.to_string())?;
 
             let record = Record::new(&rs, &msg, BorrowedKV(&(*kv)));
             self.logger_values

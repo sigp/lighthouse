@@ -73,6 +73,7 @@ mod tests {
         config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
         config.upnp_enabled = false;
         config.boot_nodes_enr = enrs.clone();
+        let config = Arc::new(config);
         runtime.block_on(async move {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
@@ -86,7 +87,7 @@ mod tests {
 
             let _network_service = NetworkService::start(
                 beacon_chain.clone(),
-                &config,
+                config,
                 executor,
                 None,
                 beacon_processor_tx,
@@ -125,7 +126,7 @@ mod tests {
 
         // Build beacon chain.
         let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
-            .spec(spec.clone())
+            .spec(spec.clone().into())
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .mock_execution_layer()
@@ -149,12 +150,13 @@ mod tests {
             config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21214, 21214, 21215);
             config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
             config.upnp_enabled = false;
+            let config = Arc::new(config);
 
             let beacon_processor_channels =
                 BeaconProcessorChannels::new(&BeaconProcessorConfig::default());
             NetworkService::build(
                 beacon_chain.clone(),
-                &config,
+                config,
                 executor.clone(),
                 None,
                 beacon_processor_channels.beacon_processor_tx,
@@ -167,21 +169,18 @@ mod tests {
         // Subscribe to the topics.
         runtime.block_on(async {
             while network_globals.gossipsub_subscriptions.read().len() < 2 {
-                if let Some(msg) = network_service.attestation_service.next().await {
-                    network_service.on_attestation_service_msg(msg);
+                if let Some(msg) = network_service.subnet_service.next().await {
+                    network_service.on_subnet_service_msg(msg);
                 }
             }
         });
 
         // Make sure the service is subscribed to the topics.
         let (old_topic1, old_topic2) = {
-            let mut subnets = SubnetId::compute_subnets_for_epoch::<MinimalEthSpec>(
-                network_globals.local_enr().node_id().raw().into(),
-                beacon_chain.epoch().unwrap(),
+            let mut subnets = SubnetId::compute_attestation_subnets(
+                network_globals.local_enr().node_id().raw(),
                 &spec,
             )
-            .unwrap()
-            .0
             .collect::<Vec<_>>();
             assert_eq!(2, subnets.len());
 

@@ -4,10 +4,10 @@ use crate::{
     },
     *,
 };
-use keccak_hash::H256;
+use alloy_primitives::B256 as H256;
 use kzg::Kzg;
 use tempfile::NamedTempFile;
-use types::MainnetEthSpec;
+use types::{FixedBytesExtended, MainnetEthSpec};
 
 pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
@@ -19,7 +19,7 @@ pub struct MockExecutionLayer<E: EthSpec> {
 impl<E: EthSpec> MockExecutionLayer<E> {
     pub fn default_params(executor: TaskExecutor) -> Self {
         let mut spec = MainnetEthSpec::default_spec();
-        spec.terminal_total_difficulty = DEFAULT_TERMINAL_DIFFICULTY.into();
+        spec.terminal_total_difficulty = Uint256::from(DEFAULT_TERMINAL_DIFFICULTY);
         spec.terminal_block_hash = ExecutionBlockHash::zero();
         spec.terminal_block_hash_activation_epoch = Epoch::new(0);
         Self::new(
@@ -67,8 +67,8 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         std::fs::write(&path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
 
         let config = Config {
-            execution_endpoints: vec![url],
-            secret_files: vec![path],
+            execution_endpoint: Some(url),
+            secret_file: Some(path),
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
@@ -138,7 +138,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                ForkName::Merge,
+                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,
@@ -178,7 +178,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
-                ForkName::Merge,
+                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::BlindedV2,

@@ -13,7 +13,7 @@ pub fn store_full_state<E: EthSpec>(
     };
     metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as u64);
     metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
-    let key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
+    let key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_slice());
     ops.push(KeyValueStoreOp::PutKeyValue(key, bytes));
     Ok(())
 }
@@ -25,7 +25,7 @@ pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(
 ) -> Result<Option<BeaconState<E>>, Error> {
     let total_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
 
-    match db.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
+    match db.get_bytes(DBColumn::BeaconState.into(), state_root.as_slice())? {
         Some(bytes) => {
             let overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_OVERHEAD_TIMES);
             let container = StorageContainer::from_ssz_bytes(&bytes, spec)?;
@@ -46,14 +46,14 @@ pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(
 #[derive(Encode)]
 pub struct StorageContainer<E: EthSpec> {
     state: BeaconState<E>,
-    committee_caches: Vec<CommitteeCache>,
+    committee_caches: Vec<Arc<CommitteeCache>>,
 }
 
 impl<E: EthSpec> StorageContainer<E> {
     /// Create a new instance for storing a `BeaconState`.
     pub fn new(state: &BeaconState<E>) -> Self {
         Self {
-            state: state.clone_with(CloneConfig::none()),
+            state: state.clone(),
             committee_caches: state.committee_caches().to_vec(),
         }
     }

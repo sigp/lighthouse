@@ -1,6 +1,6 @@
 [package]
 name = "beacon_node"
-version = "5.1.3"
+version = "5.3.0"
 authors = [
     "Paul Hauner <paul@paulhauner.com>",
     "Age Manning <Age@AgeManning.com",
@@ -29,18 +29,14 @@ clap = { workspace = true }
 slog = { workspace = true }
 dirs = { workspace = true }
 directory = { workspace = true }
-futures = { workspace = true }
 environment = { workspace = true }
 task_executor = { workspace = true }
 genesis = { workspace = true }
-eth2_network_config = { workspace = true }
 execution_layer = { workspace = true }
 lighthouse_network = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 clap_utils = { workspace = true }
 hyper = { workspace = true }
-lighthouse_version = { workspace = true }
 hex = { workspace = true }
 slasher = { workspace = true }
 monitoring_api = { workspace = true }
@@ -48,3 +44,4 @@ sensitive_url = { workspace = true }
 http_api = { workspace = true }
 unused_port = { workspace = true }
 strum = { workspace = true }
+account_utils = { workspace = true }

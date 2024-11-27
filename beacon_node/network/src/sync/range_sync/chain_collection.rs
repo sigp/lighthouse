@@ -24,7 +24,7 @@ use types::{Epoch, Hash256, Slot};
 const PARALLEL_HEAD_CHAINS: usize = 2;
 
 /// Minimum work we require a finalized chain to do before picking a chain with more peers.
-const MIN_FINALIZED_CHAIN_VALIDATED_EPOCHS: u64 = 10;
+const MIN_FINALIZED_CHAIN_PROCESSED_EPOCHS: u64 = 10;
 
 /// The state of the long range/batch sync.
 #[derive(Clone)]
@@ -64,8 +64,8 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
 
     /// Updates the Syncing state of the collection after a chain is removed.
     fn on_chain_removed(&mut self, id: &ChainId, was_syncing: bool, sync_type: RangeSyncType) {
-        let _ = metrics::get_int_gauge(&metrics::SYNCING_CHAINS_COUNT, &[sync_type.as_str()])
-            .map(|m| m.dec());
+        metrics::inc_counter_vec(&metrics::SYNCING_CHAINS_REMOVED, &[sync_type.as_str()]);
+        self.update_metrics();
 
         match self.state {
             RangeSyncState::Finalized(ref syncing_id) => {
@@ -273,8 +273,8 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     // chains are different, check that they don't have the same number of peers
                     if let Some(syncing_chain) = self.finalized_chains.get_mut(&syncing_id) {
                         if max_peers > syncing_chain.available_peers()
-                            && syncing_chain.validated_epochs()
-                                > MIN_FINALIZED_CHAIN_VALIDATED_EPOCHS
+                            && syncing_chain.processed_epochs()
+                                > MIN_FINALIZED_CHAIN_PROCESSED_EPOCHS
                         {
                             syncing_chain.stop_syncing();
                             old_id = Some(Some(syncing_id));
@@ -493,15 +493,28 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     target_head_slot,
                     target_head_root,
                     peer,
+                    sync_type.into(),
                     &self.log,
                 );
                 debug_assert_eq!(new_chain.get_id(), id);
                 debug!(self.log, "New chain added to sync"; "peer_id" => peer_rpr, "sync_type" => ?sync_type, &new_chain);
                 entry.insert(new_chain);
-                let _ =
-                    metrics::get_int_gauge(&metrics::SYNCING_CHAINS_COUNT, &[sync_type.as_str()])
-                        .map(|m| m.inc());
+                metrics::inc_counter_vec(&metrics::SYNCING_CHAINS_ADDED, &[sync_type.as_str()]);
+                self.update_metrics();
             }
         }
+    }
+
+    fn update_metrics(&self) {
+        metrics::set_gauge_vec(
+            &metrics::SYNCING_CHAINS_COUNT,
+            &[RangeSyncType::Finalized.as_str()],
+            self.finalized_chains.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::SYNCING_CHAINS_COUNT,
+            &[RangeSyncType::Head.as_str()],
+            self.head_chains.len() as i64,
+        );
     }
 }

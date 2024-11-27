@@ -22,7 +22,7 @@ fn deterministic() {
 fn children_deterministic() {
     let master = DerivedKey::from_seed(&[42]).unwrap();
     assert_eq!(
-        master.child(u32::max_value()).secret(),
-        master.child(u32::max_value()).secret(),
+        master.child(u32::MAX).secret(),
+        master.child(u32::MAX).secret(),
     )
 }

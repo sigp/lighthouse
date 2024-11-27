@@ -1,3 +1,4 @@
+use crate::metrics;
 use crate::ExecutionOptimistic;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::StateId as CoreStateId;
@@ -23,6 +24,7 @@ impl StateId {
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<(Hash256, ExecutionOptimistic, Finalized), warp::Rejection> {
+        let _t = metrics::start_timer(&metrics::HTTP_API_STATE_ROOT_TIMES);
         let (slot, execution_optimistic, finalized) = match &self.0 {
             CoreStateId::Head => {
                 let (cached_head, execution_status) = chain
@@ -178,10 +180,7 @@ impl StateId {
                     .head_and_execution_status()
                     .map_err(warp_utils::reject::beacon_chain_error)?;
                 return Ok((
-                    cached_head
-                        .snapshot
-                        .beacon_state
-                        .clone_with_only_committee_caches(),
+                    cached_head.snapshot.beacon_state.clone(),
                     execution_status.is_optimistic_or_invalid(),
                     false,
                 ));

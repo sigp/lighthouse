@@ -9,5 +9,4 @@ reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 eth2 = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 lighthouse_version = { workspace = true }

@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { workspace = true }
+clap_utils = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 types = { workspace = true }
@@ -30,9 +31,7 @@ url = { workspace = true }
 rand = { workspace = true }
 diesel = { version = "2.0.2", features = ["postgres", "r2d2"] }
 diesel_migrations = { version = "2.0.0", features = ["postgres"] }
-byteorder = { workspace = true }
 bls = { workspace = true }
-hex = { workspace = true }
 r2d2 = { workspace = true }
 serde_yaml = { workspace = true }
 

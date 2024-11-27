@@ -36,11 +36,11 @@ impl ForkContext {
             ));
         }
 
-        // Only add Merge to list of forks if it's enabled
-        // Note: `bellatrix_fork_epoch == None` implies merge hasn't been activated yet on the config.
+        // Only add Bellatrix to list of forks if it's enabled
+        // Note: `bellatrix_fork_epoch == None` implies bellatrix hasn't been activated yet on the config.
         if spec.bellatrix_fork_epoch.is_some() {
             fork_to_digest.push((
-                ForkName::Merge,
+                ForkName::Bellatrix,
                 ChainSpec::compute_fork_digest(
                     spec.bellatrix_fork_version,
                     genesis_validators_root,

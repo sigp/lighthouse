@@ -9,13 +9,16 @@ use eth2_wallet::{
 use filesystem::{create_with_600_perms, Error as FsError};
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
 use std::io;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::str::from_utf8;
 use std::thread::sleep;
 use std::time::Duration;
+use std::{
+    fs::{self, File},
+    str::FromStr,
+};
 use zeroize::Zeroize;
 
 pub mod validator_definitions;
@@ -34,6 +37,8 @@ pub const MINIMUM_PASSWORD_LEN: usize = 12;
 const DEFAULT_PASSWORD_LEN: usize = 48;
 
 pub const MNEMONIC_PROMPT: &str = "Enter the mnemonic phrase:";
+
+pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
 
 /// Returns the "default" path where a wallet should store its password file.
 pub fn default_wallet_password_path<P: AsRef<Path>>(wallet_name: &str, secrets_dir: P) -> PathBuf {
@@ -213,6 +218,14 @@ pub fn mnemonic_from_phrase(phrase: &str) -> Result<Mnemonic, String> {
 #[serde(transparent)]
 pub struct ZeroizeString(String);
 
+impl FromStr for ZeroizeString {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.to_owned()))
+    }
+}
+
 impl From<String> for ZeroizeString {
     fn from(s: String) -> Self {
         Self(s)
@@ -226,7 +239,7 @@ impl ZeroizeString {
 
     /// Remove any number of newline or carriage returns from the end of a vector of bytes.
     pub fn without_newlines(&self) -> ZeroizeString {
-        let stripped_string = self.0.trim_end_matches(|c| c == '\r' || c == '\n').into();
+        let stripped_string = self.0.trim_end_matches(['\r', '\n']).into();
         Self(stripped_string)
     }
 }

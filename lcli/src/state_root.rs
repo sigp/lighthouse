@@ -4,6 +4,7 @@ use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use eth2_network_config::Eth2NetworkConfig;
+use log::info;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use types::{BeaconState, EthSpec};

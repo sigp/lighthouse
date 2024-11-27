@@ -90,9 +90,9 @@ impl SyncSelectionProof {
     }
 }
 
-impl Into<Signature> for SyncSelectionProof {
-    fn into(self) -> Signature {
-        self.0
+impl From<SyncSelectionProof> for Signature {
+    fn from(from: SyncSelectionProof) -> Signature {
+        from.0
     }
 }
 
@@ -105,7 +105,7 @@ impl From<Signature> for SyncSelectionProof {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::{FixedBytesExtended, MainnetEthSpec};
     use eth2_interop_keypairs::keypair;
 
     #[test]

@@ -1,18 +1,22 @@
+use crate::attestation::AttestationBase;
 use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
+use std::fmt;
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
+use self::indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra};
+
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -63,8 +67,8 @@ pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload
     pub body: BeaconBlockBodyBase<E, Payload>,
     #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
     pub body: BeaconBlockBodyAltair<E, Payload>,
-    #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
-    pub body: BeaconBlockBodyMerge<E, Payload>,
+    #[superstruct(only(Bellatrix), partial_getter(rename = "body_bellatrix"))]
+    pub body: BeaconBlockBodyBellatrix<E, Payload>,
     #[superstruct(only(Capella), partial_getter(rename = "body_capella"))]
     pub body: BeaconBlockBodyCapella<E, Payload>,
     #[superstruct(only(Deneb), partial_getter(rename = "body_deneb"))]
@@ -130,7 +134,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
             .map(BeaconBlock::Electra)
             .or_else(|_| BeaconBlockDeneb::from_ssz_bytes(bytes).map(BeaconBlock::Deneb))
             .or_else(|_| BeaconBlockCapella::from_ssz_bytes(bytes).map(BeaconBlock::Capella))
-            .or_else(|_| BeaconBlockMerge::from_ssz_bytes(bytes).map(BeaconBlock::Merge))
+            .or_else(|_| BeaconBlockBellatrix::from_ssz_bytes(bytes).map(BeaconBlock::Bellatrix))
             .or_else(|_| BeaconBlockAltair::from_ssz_bytes(bytes).map(BeaconBlock::Altair))
             .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
     }
@@ -221,7 +225,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
         match self {
             BeaconBlockRef::Base { .. } => ForkName::Base,
             BeaconBlockRef::Altair { .. } => ForkName::Altair,
-            BeaconBlockRef::Merge { .. } => ForkName::Merge,
+            BeaconBlockRef::Bellatrix { .. } => ForkName::Bellatrix,
             BeaconBlockRef::Capella { .. } => ForkName::Capella,
             BeaconBlockRef::Deneb { .. } => ForkName::Deneb,
             BeaconBlockRef::Electra { .. } => ForkName::Electra,
@@ -324,7 +328,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             message: header,
             signature: Signature::empty(),
         };
-        let indexed_attestation: IndexedAttestation<E> = IndexedAttestation {
+        let indexed_attestation = IndexedAttestationBase {
             attesting_indices: VariableList::new(vec![
                 0_u64;
                 E::MaxValidatorsPerCommittee::to_usize()
@@ -345,12 +349,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             signed_header_2: signed_header,
         };
 
-        let attester_slashing = AttesterSlashing {
+        let attester_slashing = AttesterSlashingBase {
             attestation_1: indexed_attestation.clone(),
             attestation_2: indexed_attestation,
         };
 
-        let attestation: Attestation<E> = Attestation {
+        let attestation = AttestationBase {
             aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerCommittee::to_usize())
                 .unwrap(),
             data: AttestationData::default(),
@@ -466,15 +470,15 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> 
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockMerge<E, Payload> {
-    /// Returns an empty Merge block to be used during genesis.
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBellatrix<E, Payload> {
+    /// Returns an empty Bellatrix block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
-        BeaconBlockMerge {
+        BeaconBlockBellatrix {
             slot: spec.genesis_slot,
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
-            body: BeaconBlockBodyMerge {
+            body: BeaconBlockBodyBellatrix {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
@@ -488,7 +492,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockMerg
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
-                execution_payload: Payload::Merge::default(),
+                execution_payload: Payload::Bellatrix::default(),
             },
         }
     }
@@ -503,7 +507,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockCapella<E, Payload>
                 message: BlsToExecutionChange {
                     validator_index: 0,
                     from_bls_pubkey: PublicKeyBytes::empty(),
-                    to_execution_address: Address::zero(),
+                    to_execution_address: Address::ZERO,
                 },
                 signature: Signature::empty()
             };
@@ -603,12 +607,37 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
     /// Return a Electra block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
+        let indexed_attestation: IndexedAttestationElectra<E> = IndexedAttestationElectra {
+            attesting_indices: VariableList::new(vec![0_u64; E::MaxValidatorsPerSlot::to_usize()])
+                .unwrap(),
+            data: AttestationData::default(),
+            signature: AggregateSignature::empty(),
+        };
+        let attester_slashings = vec![
+            AttesterSlashingElectra {
+                attestation_1: indexed_attestation.clone(),
+                attestation_2: indexed_attestation,
+            };
+            E::max_attester_slashings_electra()
+        ]
+        .into();
+        let attestation = AttestationElectra {
+            aggregation_bits: BitList::with_capacity(E::MaxValidatorsPerSlot::to_usize()).unwrap(),
+            data: AttestationData::default(),
+            signature: AggregateSignature::empty(),
+            committee_bits: BitVector::new(),
+        };
+        let mut attestations_electra = vec![];
+        for _ in 0..E::MaxAttestationsElectra::to_usize() {
+            attestations_electra.push(attestation.clone());
+        }
+
         let bls_to_execution_changes = vec![
             SignedBlsToExecutionChange {
                 message: BlsToExecutionChange {
                     validator_index: 0,
                     from_bls_pubkey: PublicKeyBytes::empty(),
-                    to_execution_address: Address::zero(),
+                    to_execution_address: Address::ZERO,
                 },
                 signature: Signature::empty()
             };
@@ -626,8 +655,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
             state_root: Hash256::zero(),
             body: BeaconBlockBodyElectra {
                 proposer_slashings: base_block.body.proposer_slashings,
-                attester_slashings: base_block.body.attester_slashings,
-                attestations: base_block.body.attestations,
+                attester_slashings,
+                attestations: attestations_electra.into(),
                 deposits: base_block.body.deposits,
                 voluntary_exits: base_block.body.voluntary_exits,
                 bls_to_execution_changes,
@@ -641,6 +670,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
                 graffiti: Graffiti::default(),
                 execution_payload: Payload::Electra::default(),
                 blob_kzg_commitments: VariableList::empty(),
+                execution_requests: ExecutionRequests::default(),
             },
         }
     }
@@ -671,6 +701,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
                 execution_payload: Payload::Electra::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
+                execution_requests: ExecutionRequests::default(),
             },
         }
     }
@@ -753,7 +784,7 @@ macro_rules! impl_from {
 
 impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBase<_, _>| body.into());
 impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
-impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
+impl_from!(BeaconBlockBellatrix, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBellatrix<_, _>| body.into());
 impl_from!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyCapella<_, _>| body.into());
 impl_from!(BeaconBlockDeneb, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyDeneb<_, _>| body.into());
 impl_from!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyElectra<_, _>| body.into());
@@ -786,7 +817,7 @@ macro_rules! impl_clone_as_blinded {
 
 impl_clone_as_blinded!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
-impl_clone_as_blinded!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockBellatrix, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockDeneb, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
@@ -834,6 +865,23 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
                 e
             )))?
         ))
+    }
+}
+pub enum BlockImportSource {
+    Gossip,
+    Lookup,
+    RangeSync,
+    HttpApi,
+}
+
+impl fmt::Display for BlockImportSource {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BlockImportSource::Gossip => write!(f, "gossip"),
+            BlockImportSource::Lookup => write!(f, "lookup"),
+            BlockImportSource::RangeSync => write!(f, "range_sync"),
+            BlockImportSource::HttpApi => write!(f, "http_api"),
+        }
     }
 }
 
@@ -1074,9 +1122,8 @@ mod tests {
                     .expect("good electra block can be decoded"),
                 good_block
             );
-            // TODO(electra): once the Electra block is changed from Deneb, update this to match
-            // the other forks.
-            assert!(BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec).is_ok());
+            BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
+                .expect_err("bad electra block cannot be decoded");
         }
     }
 }

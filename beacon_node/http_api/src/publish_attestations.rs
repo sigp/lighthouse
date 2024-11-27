@@ -87,7 +87,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
         .send(NetworkMessage::Publish {
             messages: vec![PubsubMessage::Attestation(Box::new((
                 attestation.subnet_id(),
-                attestation.attestation().clone(),
+                attestation.attestation().clone_as_attestation(),
             )))],
         })
         .map_err(|_| Error::Publication)?;
@@ -141,7 +141,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     // move the `attestations` vec into the blocking task, so this small overhead is unavoidable.
     let attestation_metadata = attestations
         .iter()
-        .map(|att| (att.data.slot, att.data.index))
+        .map(|att| (att.data().slot, att.committee_index()))
         .collect::<Vec<_>>();
 
     // Gossip validate and publish attestations that can be immediately processed.

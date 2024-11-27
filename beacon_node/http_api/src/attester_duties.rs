@@ -5,9 +5,7 @@ use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{self as api_types};
 use slot_clock::SlotClock;
 use state_processing::state_advance::partial_state_advance;
-use types::{
-    AttestationDuty, BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256, RelativeEpoch,
-};
+use types::{AttestationDuty, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, RelativeEpoch};
 
 /// The struct that is returned to the requesting HTTP client.
 type ApiDuties = api_types::DutiesResponse<Vec<api_types::AttesterData>>;
@@ -90,8 +88,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         if head.beacon_state.current_epoch() <= request_epoch {
             Some((
                 head.beacon_state_root(),
-                head.beacon_state
-                    .clone_with(CloneConfig::committee_caches_only()),
+                head.beacon_state.clone(),
                 execution_status.is_optimistic_or_invalid(),
             ))
         } else {

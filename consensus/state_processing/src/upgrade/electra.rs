@@ -1,7 +1,8 @@
+use safe_arith::SafeArith;
 use std::mem;
 use types::{
-    BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
-    Fork,
+    BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, Epoch, EpochCache,
+    EthSpec, Fork,
 };
 
 /// Transform a `Deneb` state into an `Electra` state.
@@ -10,8 +11,75 @@ pub fn upgrade_to_electra<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_deneb_mut()?;
 
+    let earliest_exit_epoch = pre_state
+        .validators()
+        .iter()
+        .filter(|v| v.exit_epoch != spec.far_future_epoch)
+        .map(|v| v.exit_epoch)
+        .max()
+        .unwrap_or(epoch)
+        .safe_add(1)?;
+
+    // The total active balance cache must be built before the consolidation churn limit
+    // is calculated.
+    pre_state.build_total_active_balance_cache(spec)?;
+    let earliest_consolidation_epoch = spec.compute_activation_exit_epoch(epoch)?;
+
+    let mut post = upgrade_state_to_electra(
+        pre_state,
+        earliest_exit_epoch,
+        earliest_consolidation_epoch,
+        spec,
+    )?;
+
+    *post.exit_balance_to_consume_mut()? = post.get_activation_exit_churn_limit(spec)?;
+    *post.consolidation_balance_to_consume_mut()? = post.get_consolidation_churn_limit(spec)?;
+
+    // Add validators that are not yet active to pending balance deposits
+    let validators = post.validators().clone();
+    let mut pre_activation = validators
+        .iter()
+        .enumerate()
+        .filter(|(_, validator)| validator.activation_epoch == spec.far_future_epoch)
+        .collect::<Vec<_>>();
+
+    // Sort the indices by activation_eligibility_epoch and then by index
+    pre_activation.sort_by(|(index_a, val_a), (index_b, val_b)| {
+        if val_a.activation_eligibility_epoch == val_b.activation_eligibility_epoch {
+            index_a.cmp(index_b)
+        } else {
+            val_a
+                .activation_eligibility_epoch
+                .cmp(&val_b.activation_eligibility_epoch)
+        }
+    });
+
+    // Process validators to queue entire balance and reset them
+    for (index, _) in pre_activation {
+        post.queue_entire_balance_and_reset_validator(index, spec)?;
+    }
+
+    // Ensure early adopters of compounding credentials go through the activation churn
+    for (index, validator) in validators.iter().enumerate() {
+        if validator.has_compounding_withdrawal_credential(spec) {
+            post.queue_excess_active_balance(index, spec)?;
+        }
+    }
+
+    *pre_state = post;
+
+    Ok(())
+}
+
+pub fn upgrade_state_to_electra<E: EthSpec>(
+    pre_state: &mut BeaconState<E>,
+    earliest_exit_epoch: Epoch,
+    earliest_consolidation_epoch: Epoch,
+    spec: &ChainSpec,
+) -> Result<BeaconState<E>, Error> {
+    let epoch = pre_state.current_epoch();
+    let pre = pre_state.as_deneb_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
@@ -62,6 +130,16 @@ pub fn upgrade_to_electra<E: EthSpec>(
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries.clone(),
+        // Electra
+        deposit_requests_start_index: spec.unset_deposit_requests_start_index,
+        deposit_balance_to_consume: 0,
+        exit_balance_to_consume: 0,
+        earliest_exit_epoch,
+        consolidation_balance_to_consume: 0,
+        earliest_consolidation_epoch,
+        pending_balance_deposits: Default::default(),
+        pending_partial_withdrawals: Default::default(),
+        pending_consolidations: Default::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
@@ -70,10 +148,6 @@ pub fn upgrade_to_electra<E: EthSpec>(
         exit_cache: mem::take(&mut pre.exit_cache),
         slashings_cache: mem::take(&mut pre.slashings_cache),
         epoch_cache: EpochCache::default(),
-        tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
     });
-
-    *pre_state = post;
-
-    Ok(())
+    Ok(post)
 }
