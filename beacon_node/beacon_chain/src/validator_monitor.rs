@@ -21,7 +21,7 @@ use std::str::Utf8Error;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::AbstractExecPayload;
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{debug, error, info, instrument, warn};
 use types::consts::altair::{
     TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
 };
@@ -405,8 +405,11 @@ pub struct ValidatorMonitor<E: EthSpec> {
 }
 
 impl<E: EthSpec> ValidatorMonitor<E> {
-
-    #[instrument(level = "info", name = "validator_monitor", skip(beacon_proposer_cache))]
+    #[instrument(
+        level = "info",
+        name = "validator_monitor",
+        skip(beacon_proposer_cache)
+    )]
     pub fn new(
         config: ValidatorMonitorConfig,
         beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
@@ -1431,7 +1434,11 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     /// We use the parent slot instead of block slot to ignore skip slots when calculating inclusion distance.
     ///
     /// Note: Blocks that get orphaned will skew the inclusion distance calculation.
-    #[instrument(level = "info", name = "validator_monitor", skip(self, indexed_attestation))]
+    #[instrument(
+        level = "info",
+        name = "validator_monitor",
+        skip(self, indexed_attestation)
+    )]
     pub fn register_attestation_in_block(
         &self,
         indexed_attestation: IndexedAttestationRef<'_, E>,

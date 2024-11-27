@@ -532,7 +532,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<DataColumnReconstructionResult<T::EthSpec>, AvailabilityCheckError> {
-
         let pending_components = match self
             .availability_cache
             .check_and_set_reconstruction_started(block_root)
@@ -625,12 +624,14 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
         executor.spawn(
-            async move { availability_cache_maintenance_service(chain, overflow_cache).instrument(
-                info_span!(
-                    "DataAvailabilityChecker",
-                    service = "data_availability_checker"
-                )
-            ).await },
+            async move {
+                availability_cache_maintenance_service(chain, overflow_cache)
+                    .instrument(info_span!(
+                        "DataAvailabilityChecker",
+                        service = "data_availability_checker"
+                    ))
+                    .await
+            },
             "availability_cache_service",
         );
     } else {
