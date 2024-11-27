@@ -355,6 +355,7 @@ mod tests {
         let mut failed_requests = limiter.peer_disconnected(peer_id);
 
         // Check that the limiter returns the IDs of pending requests and that the IDs are ordered correctly.
+        assert_eq!(failed_requests.len(), 4);
         for i in 2..=5u32 {
             let (request_id, protocol) = failed_requests.remove(0);
             assert!(matches!(
