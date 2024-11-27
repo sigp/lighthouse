@@ -145,6 +145,7 @@ graffitis
 gwei
 hdiffs
 holesky
+homebrew
 hostname
 html
 http

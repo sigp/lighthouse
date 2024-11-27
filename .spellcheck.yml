@@ -12,6 +12,11 @@ matrix:
   pipeline:
   - pyspelling.filters.url:
   - pyspelling.filters.markdown:
+      markdown_extensions:
+      - pymdownx.superfences:
+      - pymdownx.highlight:
+      - pymdownx.striphtml:
+      - pymdownx.magiclink:
   - pyspelling.filters.html:
       comments: false
       ignores:
