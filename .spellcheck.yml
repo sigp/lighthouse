@@ -1,7 +1,7 @@
 matrix:
 - name: Markdown
   sources:
-  - '!venv/**/*.md|**/*.md'
+  - './book/**/*.md|!./book/**/setup.md|!./book/**/help_*.md'
   default_encoding: utf-8
   aspell:
     lang: en
@@ -16,5 +16,10 @@ matrix:
       ignores:
       - code
       - pre
-  sources:
-  - './book/**/*.md' 
+  - pyspelling.filters.context:
+      context_visible_first: true
+      delimiters:
+      # Ignore hex strings
+      - open: '0x[a-fA-F0-9]'
+        close: '[^a-fA-F0-9]'
+
