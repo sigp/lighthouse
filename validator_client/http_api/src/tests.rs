@@ -97,7 +97,6 @@ impl ApiTester {
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            log.clone(),
         ));
 
         validator_store
@@ -125,7 +124,6 @@ impl ApiTester {
                 store_passwords_in_secrets_dir: false,
             },
             sse_logging_components: None,
-            log,
             slot_clock: slot_clock.clone(),
             _phantom: PhantomData,
         });

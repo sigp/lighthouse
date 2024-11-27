@@ -14,7 +14,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
-use tracing::{debug, error, span, Level};
+use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
@@ -532,12 +532,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<DataColumnReconstructionResult<T::EthSpec>, AvailabilityCheckError> {
-        let span = span!(
-            Level::INFO,
-            "DataAvailabilityChecker",
-            service = "data_availability_checker"
-        );
-        let _enter = span.enter();
 
         let pending_components = match self
             .availability_cache
@@ -627,17 +621,16 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
-    let span = span!(
-        Level::INFO,
-        "DataAvailabilityChecker",
-        service = "data_availability_checker"
-    );
-    let _enter = span.enter();
     // this cache only needs to be maintained if deneb is configured
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
         executor.spawn(
-            async move { availability_cache_maintenance_service(chain, overflow_cache).await },
+            async move { availability_cache_maintenance_service(chain, overflow_cache).instrument(
+                info_span!(
+                    "DataAvailabilityChecker",
+                    service = "data_availability_checker"
+                )
+            ).await },
             "availability_cache_service",
         );
     } else {
@@ -649,13 +642,6 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,
 ) {
-    let span = span!(
-        Level::INFO,
-        "DataAvailabilityChecker",
-        service = "data_availability_checker"
-    );
-    let _enter = span.enter();
-
     let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
         match chain
