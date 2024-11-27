@@ -1,86 +1,46 @@
 use super::*;
 use crate::status::ToStatusMessage;
 use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
-use crate::sync::range_sync::{BatchId, BlockStorage, RangeSyncType};
-use crate::sync::{ChainId, SyncMessage};
-use beacon_chain::parking_lot::RwLock;
-use beacon_chain::test_utils::BlockStrategy;
+use crate::sync::range_sync::RangeSyncType;
+use crate::sync::SyncMessage;
+use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use beacon_chain::EngineState;
-use bls::FixedBytesExtended;
 use lighthouse_network::rpc::{RequestType, StatusMessage};
 use lighthouse_network::service::api_types::{AppRequestId, Id, SyncRequestId};
 use lighthouse_network::{PeerId, SyncInfo};
-use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Duration;
 use types::{EthSpec, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot};
 
 const D: Duration = Duration::new(0, 0);
 
-#[derive(Debug)]
-pub struct FakeStorage {
-    known_blocks: RwLock<HashSet<Hash256>>,
-    status: RwLock<StatusMessage>,
-}
-
-impl Default for FakeStorage {
-    fn default() -> Self {
-        FakeStorage {
-            known_blocks: RwLock::new(HashSet::new()),
-            status: RwLock::new(StatusMessage {
-                fork_digest: [0; 4],
-                finalized_root: Hash256::zero(),
-                finalized_epoch: 0usize.into(),
-                head_root: Hash256::zero(),
-                head_slot: 0usize.into(),
-            }),
-        }
-    }
-}
-
-impl FakeStorage {
-    fn remember_block(&self, block_root: Hash256) {
-        self.known_blocks.write().insert(block_root);
-    }
-
-    #[allow(dead_code)]
-    fn forget_block(&self, block_root: &Hash256) {
-        self.known_blocks.write().remove(block_root);
-    }
-}
-
-impl BlockStorage for FakeStorage {
-    fn is_block_known(&self, block_root: &store::Hash256) -> bool {
-        self.known_blocks.read().contains(block_root)
-    }
-}
-
-impl ToStatusMessage for FakeStorage {
-    fn status_message(&self) -> StatusMessage {
-        self.status.read().clone()
-    }
-}
-
-type PeerTestInfo = (PeerId, SyncInfo /* Remote info */);
-
 impl TestRig {
     /// Produce a head peer with an advanced head
-    fn add_head_peer(&mut self) -> PeerTestInfo {
+    fn add_head_peer(&mut self) -> PeerId {
+        self.add_head_peer_with_root(Hash256::random())
+    }
+
+    /// Produce a head peer with an advanced head
+    fn add_head_peer_with_root(&mut self, head_root: Hash256) -> PeerId {
         let local_info = self.local_info();
         self.add_peer(SyncInfo {
-            head_root: Hash256::random(),
+            head_root,
             head_slot: local_info.head_slot + 1 + Slot::new(SLOT_IMPORT_TOLERANCE as u64),
             ..local_info
         })
     }
 
     // Produce a finalized peer with an advanced finalized epoch
-    fn add_finalized_peer(&mut self) -> PeerTestInfo {
+    fn add_finalized_peer(&mut self) -> PeerId {
+        self.add_finalized_peer_with_root(Hash256::random())
+    }
+
+    // Produce a finalized peer with an advanced finalized epoch
+    fn add_finalized_peer_with_root(&mut self, finalized_root: Hash256) -> PeerId {
         let local_info = self.local_info();
         let finalized_epoch = local_info.finalized_epoch + 2;
         self.add_peer(SyncInfo {
             finalized_epoch,
-            finalized_root: Hash256::random(),
+            finalized_root,
             head_slot: finalized_epoch.start_slot(E::slots_per_epoch()),
             head_root: Hash256::random(),
         })
@@ -102,12 +62,12 @@ impl TestRig {
         }
     }
 
-    fn add_peer(&mut self, remote_info: SyncInfo) -> PeerTestInfo {
+    fn add_peer(&mut self, remote_info: SyncInfo) -> PeerId {
         // Create valid peer known to network globals
         let peer_id = self.new_connected_peer();
         // Send peer to sync
         self.send_sync_message(SyncMessage::AddPeer(peer_id, remote_info.clone()));
-        (peer_id, remote_info)
+        peer_id
     }
 
     fn assert_state(&self, state: RangeSyncType) {
@@ -127,46 +87,12 @@ impl TestRig {
         self.pop_received_processor_event(|ev| {
             (ev.work_type() == beacon_processor::WorkType::ChainSegment).then_some(())
         })
-        .unwrap_or_else(|e| panic!("Expect ChainSegment work event"));
+        .unwrap_or_else(|e| panic!("Expect ChainSegment work event: {e:?}"));
     }
 
     fn update_execution_engine_state(&mut self, state: EngineState) {
         self.log(&format!("execution engine state updated: {state:?}"));
         self.sync_manager.update_execution_engine_state(state);
-    }
-
-    fn send_blocks_by_range_response(
-        &mut self,
-        peer_id: PeerId,
-        beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
-        range_blocks_req_id: Id,
-    ) {
-        self.log("send_blocks_by_range_response");
-        self.send_sync_message(SyncMessage::RpcBlock {
-            request_id: SyncRequestId::RangeBlockAndBlobs {
-                id: range_blocks_req_id,
-            },
-            peer_id,
-            beacon_block,
-            seen_timestamp: D,
-        });
-    }
-
-    fn send_empty_blocks_by_range_response(
-        &mut self,
-        _peer_id: PeerId,
-        _chain_id: ChainId,
-        _batch_id: BatchId,
-        _req_id: Id,
-    ) {
-        // Send empty vector of blocks to range sync
-        // todo!();
-    }
-
-    fn complete_range_block_and_blobs_response(&mut self, peer_id: PeerId, req_id: Id) {
-        // For all active requests associated with a block or blob request ID send the stream
-        // terminator without blocks
-        self.send_blocks_by_range_response(peer_id, None, req_id);
     }
 
     fn find_blocks_by_range_request(&mut self, target_peer_id: &PeerId) -> (Id, Option<Id>) {
@@ -228,26 +154,34 @@ impl TestRig {
         }
     }
 
-    fn create_remembered_block(&mut self) -> Hash256 {
-        // Add block to chain storage such that `knows block` returns true
-        // block_on(self.harness.extend_chain(
-        //    1,
-        //    BlockStrategy::OnCanonicalHead,
-        //    AttestationStrategy::AllValidators,
-        // ));
+    fn create_canonical_block(&mut self) -> SignedBeaconBlock<E> {
+        self.harness.advance_slot();
 
-        let block_root = self
-            .harness
+        let block_root =
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(self.harness.extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                ));
+        self.harness
             .chain
-            .canonical_head
-            .cached_head()
-            .head_block_root();
-
-        todo!();
+            .store
+            .get_full_block(&block_root)
+            .unwrap()
+            .unwrap()
     }
 
-    fn remember_block(&mut self, block: Hash256) {
-        todo!();
+    fn remember_block(&mut self, block: SignedBeaconBlock<E>) {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(self.harness.process_block(
+                block.slot(),
+                block.canonical_root(),
+                (block.into(), None),
+            ))
+            .unwrap();
     }
 }
 
@@ -257,14 +191,14 @@ fn head_chain_removed_while_finalized_syncing() {
     let mut rig = TestRig::test_setup();
 
     // Get a peer with an advanced head
-    let (head_peer, _) = rig.add_head_peer();
+    let head_peer = rig.add_head_peer();
     rig.assert_state(RangeSyncType::Head);
 
     // Sync should have requested a batch, grab the request.
     let _ = rig.find_blocks_by_range_request(&head_peer);
 
     // Now get a peer with an advanced finalized epoch.
-    let (finalized_peer, _) = rig.add_finalized_peer();
+    let finalized_peer = rig.add_finalized_peer();
     rig.assert_state(RangeSyncType::Finalized);
 
     // Sync should have requested a batch, grab the request
@@ -275,36 +209,37 @@ fn head_chain_removed_while_finalized_syncing() {
     rig.assert_state(RangeSyncType::Finalized);
 }
 
-#[ignore]
 #[test]
 fn state_update_while_purging() {
     // NOTE: this is a regression test.
     let mut rig = TestRig::test_setup();
 
-    // TODO: Need to create blocks that can be inserted into the fork-choice and fit the "known
+    // Create blocks on a separate harness
+    let mut rig_2 = TestRig::test_setup();
+    // Need to create blocks that can be inserted into the fork-choice and fit the "known
     // conditions" below.
-    let known_block_root_1 = rig.create_remembered_block();
-    let known_block_root_2 = rig.create_remembered_block();
+    let head_peer_block = rig_2.create_canonical_block();
+    let head_peer_root = head_peer_block.canonical_root();
+    let finalized_peer_block = rig_2.create_canonical_block();
+    let finalized_peer_root = finalized_peer_block.canonical_root();
 
     // Get a peer with an advanced head
-    let (head_peer, head_info) = rig.add_head_peer();
-    let head_peer_root = head_info.head_root;
+    let head_peer = rig.add_head_peer_with_root(head_peer_root);
     rig.assert_state(RangeSyncType::Head);
 
     // Sync should have requested a batch, grab the request.
     let _ = rig.find_blocks_by_range_request(&head_peer);
 
     // Now get a peer with an advanced finalized epoch.
-    let (finalized_peer, remote_info) = rig.add_finalized_peer();
-    let finalized_peer_root = remote_info.finalized_root;
+    let finalized_peer = rig.add_finalized_peer_with_root(finalized_peer_root);
     rig.assert_state(RangeSyncType::Finalized);
 
     // Sync should have requested a batch, grab the request
     let _ = rig.find_blocks_by_range_request(&finalized_peer);
 
     // Now the chain knows both chains target roots.
-    rig.remember_block(head_peer_root);
-    rig.remember_block(finalized_peer_root);
+    rig.remember_block(head_peer_block);
+    rig.remember_block(finalized_peer_block);
 
     // Add an additional peer to the second chain to make range update it's status
     rig.add_finalized_peer();
@@ -315,7 +250,7 @@ fn pause_and_resume_on_ee_offline() {
     let mut rig = TestRig::test_setup();
 
     // add some peers
-    let (peer1, _) = rig.add_head_peer();
+    let peer1 = rig.add_head_peer();
     // make the ee offline
     rig.update_execution_engine_state(EngineState::Offline);
     // send the response to the request
@@ -324,7 +259,7 @@ fn pause_and_resume_on_ee_offline() {
     rig.expect_empty_processor();
 
     // while the ee is offline, more peers might arrive. Add a new finalized peer.
-    let (peer2, _) = rig.add_finalized_peer();
+    let peer2 = rig.add_finalized_peer();
 
     // send the response to the request
     rig.find_and_complete_blocks_by_range_request(peer2);
