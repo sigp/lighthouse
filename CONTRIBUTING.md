@@ -3,7 +3,7 @@
 [![GitPOAP badge](https://public-api.gitpoap.io/v1/repo/sigp/lighthouse/badge)](https://www.gitpoap.io/gh/sigp/lighthouse)
 
 Lighthouse is an open-source Ethereum consensus client. We're community driven and
-welcome all contribution. We aim to provide a constructive, respectful and fun
+welcome all contributions. We aim to provide a constructive, respectful and fun
 environment for collaboration.
 
 We are active contributors to
