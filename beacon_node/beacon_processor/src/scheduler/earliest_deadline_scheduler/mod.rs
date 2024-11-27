@@ -24,7 +24,7 @@ const MANAGER_TASK_NAME: &str = "earliest_deadline_first_scheduler";
 
 pub struct Scheduler<E: EthSpec, S: SlotClock> {
     beacon_processor: BeaconProcessor<E>,
-    work_queue: WorkQueue<E, S>,
+    work_queue: WorkQueue<QueueItem<E, S>>,
 }
 
 impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {

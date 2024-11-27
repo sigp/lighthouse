@@ -10,8 +10,8 @@ use types::{EthSpec, Slot};
 
 use crate::{ReprocessQueueMessage, Work, WorkEvent};
 
-pub struct WorkQueue<E: EthSpec, S: SlotClock> {
-    min_heap: BinaryHeap<Reverse<QueueItem<E, S>>>,
+pub struct WorkQueue<Q: std::cmp::Ord> {
+    min_heap: BinaryHeap<Reverse<Q>>,
 }
 
 pub struct QueueItem<E: EthSpec, S: SlotClock> {
@@ -201,18 +201,18 @@ impl<E: EthSpec, S: SlotClock> Ord for QueueItem<E, S> {
     }
 }
 
-impl<E: EthSpec, S: SlotClock> WorkQueue<E, S> {
+impl<Q: std::cmp::Ord> WorkQueue<Q> {
     pub fn new() -> Self {
         WorkQueue {
             min_heap: BinaryHeap::new(),
         }
     }
 
-    pub fn insert(&mut self, queue_item: QueueItem<E, S>) {
+    pub fn insert(&mut self, queue_item: Q) {
         self.min_heap.push(Reverse(queue_item))
     }
 
-    pub fn pop(&mut self) -> Option<QueueItem<E, S>> {
+    pub fn pop(&mut self) -> Option<Q> {
         if let Some(queue_item) = self.min_heap.pop() {
             Some(queue_item.0)
         } else {
@@ -220,7 +220,7 @@ impl<E: EthSpec, S: SlotClock> WorkQueue<E, S> {
         }
     }
 
-    fn _peek(&self) -> Option<&Reverse<QueueItem<E, S>>> {
+    fn _peek(&self) -> Option<&Reverse<Q>> {
         self.min_heap.peek()
     }
 
