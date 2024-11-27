@@ -48,11 +48,8 @@ Infura
 IPs
 IPv
 JSON
-JWT
 KeyManager
-KEYSTORES
 Kurtosis
-LighthouseConfig
 LMDB
 LLVM
 LRU
@@ -167,14 +164,12 @@ keystore
 keystores
 linter
 linux
-loadavg
 localhost
 lossy
 macOS
 mainnet
 makefile
 mdBook
-mem
 mev
 misconfiguration
 mkcert
@@ -184,7 +179,6 @@ nd
 ness
 nginx
 nitty
-num
 oom
 orging
 orgs
@@ -213,7 +207,6 @@ src
 stakers
 subnet
 subnets
-sys
 systemd
 testnet
 testnets
@@ -232,8 +225,8 @@ untrusted
 uptimes
 url
 validator
-validator's
 validators
+validator's
 vc
 virt
 webapp
