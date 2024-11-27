@@ -91,7 +91,7 @@ The steps to do port forwarding depends on the router, but the general steps are
     - Internal port: `9001`
     - IP address: Choose the device that is running  Lighthouse.
 
-1. To check that you have successfully opened the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. Note: this will only confirm if port 9000/TCP is open. You will need to ensure you have correctly setup port forwarding for the UDP ports (`9000` and `9001` by default).
+1. To check that you have successfully opened the ports, go to [`yougetsignal`](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. Note: this will only confirm if port 9000/TCP is open. You will need to ensure you have correctly setup port forwarding for the UDP ports (`9000` and `9001` by default).
 
 ## ENR Configuration
 

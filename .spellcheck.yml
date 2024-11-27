@@ -1,7 +1,11 @@
 matrix:
 - name: Markdown
   sources:
-  - './book/**/*.md|!./book/**/setup.md|!./book/**/help_*.md|!./book/**/mainnet-validator.md|!./book/**/graffiti.md|!./book/**/suggested*.md'
+  - './book/**/*.md'
+  - 'README.md'
+  - 'CONTRIBUTING.md'
+  - 'SECURITY.md'
+  - './scripts/local_testnet/README.md'
   default_encoding: utf-8
   aspell:
     lang: en
