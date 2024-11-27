@@ -14,7 +14,6 @@ use futures::{future, StreamExt};
 use logging::tracing_logging_layer::LoggingLayer;
 use logging::SSELoggingComponents;
 use serde::{Deserialize, Serialize};
-use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
@@ -32,7 +31,8 @@ use {
 #[cfg(not(target_family = "unix"))]
 use {futures::channel::oneshot, std::cell::RefCell};
 
-const LOG_CHANNEL_SIZE: usize = 16384;
+// TODO(tracing) do we need this
+// const LOG_CHANNEL_SIZE: usize = 16384;
 pub const SSE_LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
 const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
@@ -198,28 +198,22 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                     let (file_non_blocking_writer, file_guard) =
                         tracing_appender::non_blocking(file_appender);
 
-                    let file_logging_layer = LoggingLayer::new(
+                    LoggingLayer::new(
                         file_non_blocking_writer,
                         file_guard,
                         config.disable_log_timestamp,
-                    );
-                    file_logging_layer
+                    )
                 }
                 Err(e) => {
                     eprintln!("Failed to initialize rolling file appender: {}", e);
                     let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-                    let file_logging_layer =
-                        LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp);
-                    file_logging_layer
+                    LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp)
                 }
             }
         } else {
             eprintln!("No path provided. File logging is disabled.");
             let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-            let file_logging_layer =
-                LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp);
-
-            file_logging_layer
+            LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp)
         };
 
         let (stdout_non_blocking_writer, stdout_guard) =

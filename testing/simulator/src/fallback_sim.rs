@@ -109,7 +109,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     };
 
     let (env_builder, file_logging_layer, stdout_logging_layer, _sse_logging_layer_opt) =
-        EnvironmentBuilder::minimal().init_tracing(logger_config.clone());
+        // TODO(tracing) init tracing takes a string value as second arg
+        EnvironmentBuilder::minimal().init_tracing(logger_config.clone(), "");
 
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new(log_level.to_lowercase().as_str()))
@@ -236,7 +237,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             executor.spawn(
                 async move {
                     let mut validator_config = testing_validator_config();
-                    validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
+                    validator_config.validator_store.fee_recipient =
+                        Some(SUGGESTED_FEE_RECIPIENT.into());
                     println!("Adding validator client {}", i);
                     network_1
                         .add_validator_client_with_fallbacks(
@@ -252,7 +254,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             );
         }
 
-        let duration_to_genesis = network.duration_to_genesis().await;
+        let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 

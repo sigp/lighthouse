@@ -1478,7 +1478,7 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
         tester
             .harness
             .chain
-            .process_gossip_blob(gossip_blob, || panic!("should not publish block yet"))
+            .process_gossip_blob(gossip_blob)
             .await
             .unwrap();
     }
@@ -1551,7 +1551,7 @@ pub async fn blobs_seen_on_gossip_without_block() {
         tester
             .harness
             .chain
-            .process_gossip_blob(gossip_blob, || panic!("should not publish block yet"))
+            .process_gossip_blob(gossip_blob)
             .await
             .unwrap();
     }
@@ -1625,7 +1625,7 @@ pub async fn blobs_seen_on_gossip_without_block_and_no_http_blobs() {
         tester
             .harness
             .chain
-            .process_gossip_blob(gossip_blob, || panic!("should not publish block yet"))
+            .process_gossip_blob(gossip_blob)
             .await
             .unwrap();
     }
@@ -1697,7 +1697,7 @@ pub async fn slashable_blobs_seen_on_gossip_cause_failure() {
         tester
             .harness
             .chain
-            .process_gossip_blob(gossip_blob, || panic!("should not publish block yet"))
+            .process_gossip_blob(gossip_blob)
             .await
             .unwrap();
     }

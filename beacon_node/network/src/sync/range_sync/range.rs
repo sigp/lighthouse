@@ -659,7 +659,8 @@ mod tests {
         }
     }
 
-    fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
+    // TODO(tracing)
+    fn range(_log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .default_spec()

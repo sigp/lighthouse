@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
-use tracing::Level;
 use tracing::{debug, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
@@ -628,8 +627,9 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_range_single_empty_rpc() {
     // set up the logging. The level and enabled logging or not
-    let log_level = Level::TRACE;
-    let enable_logging = false;
+    // TODO(trace) enable disable log?
+    // let log_level = Level::TRACE;
+    // let enable_logging = false;
 
     let rt = Arc::new(Runtime::new().unwrap());
 

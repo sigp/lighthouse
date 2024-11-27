@@ -106,18 +106,20 @@ pub struct Eth1FinalizationCache {
     last_finalized: Option<Eth1Data>,
 }
 
-/// Provides a cache of `Eth1CacheData` at epoch boundaries. This is used to
-/// finalize deposits when a new epoch is finalized.
-///
-impl Eth1FinalizationCache {
-    pub fn new() -> Self {
-        Eth1FinalizationCache {
+impl Default for Eth1FinalizationCache {
+    fn default() -> Self {
+        Self {
             by_checkpoint: CheckpointMap::new(),
             pending_eth1: BTreeMap::new(),
             last_finalized: None,
         }
     }
+}
 
+/// Provides a cache of `Eth1CacheData` at epoch boundaries. This is used to
+/// finalize deposits when a new epoch is finalized.
+///
+impl Eth1FinalizationCache {
     pub fn with_capacity(capacity: usize) -> Self {
         Eth1FinalizationCache {
             by_checkpoint: CheckpointMap::with_capacity(capacity),
@@ -194,7 +196,7 @@ pub mod tests {
     const EPOCHS_PER_ETH1_VOTING_PERIOD: u64 = 64;
 
     fn eth1cache() -> Eth1FinalizationCache {
-        Eth1FinalizationCache::new()
+        Eth1FinalizationCache::default()
     }
 
     fn random_eth1_data(deposit_count: u64) -> Eth1Data {

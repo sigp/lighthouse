@@ -1,16 +1,13 @@
 //! This module provides an implementation of `slog::Drain` that optionally writes to a channel if
 //! there are subscribers to a HTTP SSE stream.
 
-use serde_json;
 use serde_json::json;
 use serde_json::Value;
 use std::sync::Arc;
-use std::sync::Mutex;
 use tokio::sync::broadcast::Sender;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
-use tracing_subscriber::layer::Context;
-use tracing_subscriber::Layer;
+use tracing_subscriber::layer::{Context, Layer};
 
 /// Default log level for SSE Events.
 // NOTE: Made this a constant. Debug level seems to be pretty intense. Can make this
@@ -52,10 +49,8 @@ impl<S: Subscriber> Layer<S> for SSELoggingComponents {
             if error_type.eq_ignore_ascii_case("crit") {
                 log_entry["level"] = json!("CRIT");
 
-                if let Some(fields) = log_entry.get_mut("fields") {
-                    if let Value::Object(ref mut map) = fields {
-                        map.remove("error_type");
-                    }
+                if let Some(Value::Object(ref mut map)) = log_entry.get_mut("fields") {
+                    map.remove("error_type");
                 }
             }
         }

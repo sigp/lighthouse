@@ -92,7 +92,7 @@ where
         for (_, fields) in span_fields.iter().rev() {
             for (i, (field_name, field_value)) in fields.iter().enumerate() {
                 if i > 0 {
-                    formatted_spans.push_str(" ");
+                    formatted_spans.push(' ');
                 }
                 formatted_spans.push_str(&format!(
                     "{}{}{}={}",

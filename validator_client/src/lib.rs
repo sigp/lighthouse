@@ -1,52 +1,28 @@
-mod attestation_service;
-mod beacon_node_fallback;
-mod beacon_node_health;
-mod block_service;
-mod check_synced;
 mod cli;
-mod duties_service;
-mod graffiti_file;
-mod http_metrics;
-mod key_cache;
+pub mod config;
 mod latency;
 mod notifier;
-mod preparation_service;
-mod signing_method;
-mod sync_committee_service;
 
-pub mod config;
-mod doppelganger_service;
-pub mod http_api;
-pub mod initialized_validators;
-pub mod validator_store;
-
-pub use beacon_node_fallback::ApiTopic;
-pub use beacon_node_health::BeaconNodeSyncDistanceTiers;
 pub use cli::cli_app;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
-use lighthouse_metrics::set_gauge;
+use metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use sensitive_url::SensitiveUrl;
-pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
-use crate::beacon_node_fallback::{
+use beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode,
 };
-use crate::doppelganger_service::DoppelgangerService;
-use crate::graffiti_file::GraffitiFile;
-use crate::initialized_validators::Error::UnableToOpenVotingKeystore;
+
 use account_utils::validator_definitions::ValidatorDefinitions;
-use attestation_service::{AttestationService, AttestationServiceBuilder};
-use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use duties_service::{sync::SyncDutiesMap, DutiesService};
+use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
-use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
-use http_api::ApiSecret;
+use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
+use initialized_validators::Error::UnableToOpenVotingKeystore;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
-use preparation_service::{PreparationService, PreparationServiceBuilder};
 use reqwest::Certificate;
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
@@ -57,13 +33,21 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use sync_committee_service::SyncCommitteeService;
 use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
 use tracing::{debug, error, info, warn};
-use types::{EthSpec, Hash256, PublicKeyBytes};
+use types::{EthSpec, Hash256};
+use validator_http_api::ApiSecret;
+use validator_services::{
+    attestation_service::{AttestationService, AttestationServiceBuilder},
+    block_service::{BlockService, BlockServiceBuilder},
+    duties_service::{self, DutiesService},
+    preparation_service::{PreparationService, PreparationServiceBuilder},
+    sync::SyncDutiesMap,
+    sync_committee_service::SyncCommitteeService,
+};
 use validator_store::ValidatorStore;
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -144,21 +128,22 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         );
 
         // Optionally start the metrics server.
-        let http_metrics_ctx = if config.http_metrics.enabled {
-            let shared = http_metrics::Shared {
+        let validator_metrics_ctx = if config.http_metrics.enabled {
+            let shared = validator_http_metrics::Shared {
                 validator_store: None,
                 genesis_time: None,
                 duties_service: None,
             };
 
-            let ctx: Arc<http_metrics::Context<E>> = Arc::new(http_metrics::Context {
-                config: config.http_metrics.clone(),
-                shared: RwLock::new(shared),
-            });
+            let ctx: Arc<validator_http_metrics::Context<E>> =
+                Arc::new(validator_http_metrics::Context {
+                    config: config.http_metrics.clone(),
+                    shared: RwLock::new(shared),
+                });
 
             let exit = context.executor.exit();
 
-            let (_listen_addr, server) = http_metrics::serve(ctx.clone(), exit)
+            let (_listen_addr, server) = validator_http_metrics::serve(ctx.clone(), exit)
                 .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
 
             context
@@ -201,7 +186,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
-            config.clone(),
+            config.initialized_validators.clone(),
         )
         .await
         .map_err(|e| {
@@ -366,20 +351,20 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         // Set the count for beacon node fallbacks excluding the primary beacon node.
         set_gauge(
-            &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
+            &validator_metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,
         );
         // Set the total beacon node count.
         set_gauge(
-            &http_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
+            &validator_metrics::TOTAL_BEACON_NODES_COUNT,
             num_nodes as i64,
         );
 
         // Initialize the number of connected, synced beacon nodes to 0.
-        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
-        set_gauge(&http_metrics::metrics::SYNCED_BEACON_NODES_COUNT, 0);
+        set_gauge(&validator_metrics::ETH2_FALLBACK_CONNECTED, 0);
+        set_gauge(&validator_metrics::SYNCED_BEACON_NODES_COUNT, 0);
         // Initialize the number of connected, avaliable beacon nodes to 0.
-        set_gauge(&http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
+        set_gauge(&validator_metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
         let mut beacon_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
             candidates,
@@ -402,7 +387,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         };
 
         // Update the metrics server.
-        if let Some(ctx) = &http_metrics_ctx {
+        if let Some(ctx) = &validator_metrics_ctx {
             ctx.shared.write().genesis_time = Some(genesis_time);
         }
 
@@ -422,7 +407,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         start_fallback_updater_service(context.clone(), proposer_nodes.clone())?;
 
         let doppelganger_service = if config.enable_doppelganger_protection {
-            Some(Arc::new(DoppelgangerService::new()))
+            Some(Arc::new(DoppelgangerService::default()))
         } else {
             None
         };
@@ -434,7 +419,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.eth2_config.spec.clone(),
             doppelganger_service.clone(),
             slot_clock.clone(),
-            &config,
+            &config.validator_store,
             context.executor.clone(),
         ));
 
@@ -469,7 +454,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         });
 
         // Update the metrics server.
-        if let Some(ctx) = &http_metrics_ctx {
+        if let Some(ctx) = &validator_metrics_ctx {
             ctx.shared.write().validator_store = Some(validator_store.clone());
             ctx.shared.write().duties_service = Some(duties_service.clone());
         }
@@ -541,7 +526,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let api_secret = ApiSecret::create_or_open(&self.config.validator_dir)?;
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
-            let ctx = Arc::new(http_api::Context {
+            let ctx = Arc::new(validator_http_api::Context {
                 task_executor: self.context.executor.clone(),
                 api_secret,
                 block_service: Some(self.block_service.clone()),
@@ -559,7 +544,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
             let exit = self.context.executor.exit();
 
-            let (listen_addr, server) = http_api::serve(ctx, exit)
+            let (listen_addr, server) = validator_http_api::serve(ctx, exit)
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             self.context
@@ -629,7 +614,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 async fn init_from_beacon_node<E: EthSpec>(
     beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     proposer_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
-    context: &RuntimeContext<E>,
+    _context: &RuntimeContext<E>,
 ) -> Result<(u64, Hash256), String> {
     loop {
         beacon_nodes.update_all_candidates().await;
@@ -713,7 +698,7 @@ async fn init_from_beacon_node<E: EthSpec>(
 async fn wait_for_genesis<E: EthSpec>(
     beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     genesis_time: u64,
-    context: &RuntimeContext<E>,
+    _context: &RuntimeContext<E>,
 ) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -805,24 +790,4 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
         .read_to_end(&mut buf)
         .map_err(|e| format!("Unable to read certificate file: {}", e))?;
     Certificate::from_pem(&buf).map_err(|e| format!("Unable to parse certificate: {}", e))
-}
-
-// Given the various graffiti control methods, determine the graffiti that will be used for
-// the next block produced by the validator with the given public key.
-pub fn determine_graffiti(
-    validator_pubkey: &PublicKeyBytes,
-    graffiti_file: Option<GraffitiFile>,
-    validator_definition_graffiti: Option<Graffiti>,
-    graffiti_flag: Option<Graffiti>,
-) -> Option<Graffiti> {
-    graffiti_file
-        .and_then(|mut g| match g.load_graffiti(validator_pubkey) {
-            Ok(g) => g,
-            Err(e) => {
-                warn!(error = ?e,"Failed to read graffiti file");
-                None
-            }
-        })
-        .or(validator_definition_graffiti)
-        .or(graffiti_flag)
 }

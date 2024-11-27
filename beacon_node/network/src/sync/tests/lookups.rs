@@ -36,9 +36,9 @@ use lighthouse_network::{
     types::SyncState,
     NetworkConfig, NetworkGlobals, PeerId,
 };
-use tracing::info;
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
+use tracing::info;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
@@ -59,7 +59,8 @@ struct TestRigConfig {
 
 impl TestRig {
     fn test_setup_with_config(config: Option<TestRigConfig>) -> Self {
-        let logger_type = if cfg!(feature = "test_logger") {
+        // TODO(tracing)
+        let _logger_type = if cfg!(feature = "test_logger") {
             LoggerType::Test
         } else if cfg!(feature = "ci_logger") {
             LoggerType::CI
@@ -1208,7 +1209,7 @@ impl TestRig {
         {
             Availability::Available(_) => panic!("block removed from da_checker, available"),
             Availability::MissingComponents(block_root) => {
-                // self.log(&format!("inserted block to da_checker {block_root:?}"))
+                self.log(&format!("inserted block to da_checker {block_root:?}"))
             }
         };
     }
@@ -1223,7 +1224,7 @@ impl TestRig {
         {
             Availability::Available(_) => panic!("blob removed from da_checker, available"),
             Availability::MissingComponents(block_root) => {
-                // self.log(&format!("inserted blob to da_checker {block_root:?}"))
+                self.log(&format!("inserted blob to da_checker {block_root:?}"))
             }
         };
     }
@@ -2294,11 +2295,6 @@ mod deneb_only {
                 block_root,
             })
         }
-
-        // fn log(self, msg: &str) -> Self {
-        //     self.rig.log(msg);
-        //     self
-        // }
 
         fn trigger_unknown_block_from_attestation(mut self) -> Self {
             let block_root = self.block.canonical_root();

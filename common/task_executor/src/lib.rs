@@ -5,7 +5,7 @@ use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use std::sync::Weak;
 use tokio::runtime::{Handle, Runtime};
-use tracing::{debug, span, trace, Level};
+use tracing::{debug, span, Level};
 
 pub use tokio::task::JoinHandle;
 
@@ -113,6 +113,15 @@ impl TaskExecutor {
         }
     }
 
+    /// Clones the task executor adding a service name.
+    pub fn clone_task_executor(&self) -> Self {
+        TaskExecutor {
+            handle_provider: self.handle_provider.clone(),
+            exit: self.exit.clone(),
+            signal_tx: self.signal_tx.clone(),
+        }
+    }
+
     /// A convenience wrapper for `Self::spawn` which ignores a `Result` as long as both `Ok`/`Err`
     /// are of type `()`.
     ///
@@ -170,7 +179,7 @@ impl TaskExecutor {
     /// Spawn a future on the tokio runtime. This function does not wrap the task in an `async-channel::Receiver`
     /// like [spawn](#method.spawn).
     /// The caller of this function is responsible for wrapping up the task with an `async-channel::Receiver` to
-    /// ensure that the task gets canceled appropriately.
+    /// ensure that the task gets cancelled appropriately.
     /// This function generates prometheus metrics on number of tasks and task duration.
     ///
     /// This is useful in cases where the future to be spawned needs to do additional cleanup work when
@@ -210,7 +219,7 @@ impl TaskExecutor {
 
     /// Spawn a future on the tokio runtime wrapped in an `async-channel::Receiver` returning an optional
     /// join handle to the future.
-    /// The task is canceled when the corresponding async-channel is dropped.
+    /// The task is cancelled when the corresponding async-channel is dropped.
     ///
     /// This function generates prometheus metrics on number of tasks and task duration.
     pub fn spawn_handle<R: Send + 'static>(
@@ -219,7 +228,6 @@ impl TaskExecutor {
         name: &'static str,
     ) -> Option<tokio::task::JoinHandle<Option<R>>> {
         let exit = self.exit();
-
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives
             let int_gauge_1 = int_gauge.clone();
@@ -228,10 +236,7 @@ impl TaskExecutor {
                 Some(handle.spawn(async move {
                     futures::pin_mut!(exit);
                     let result = match future::select(Box::pin(task), exit).await {
-                        future::Either::Left((value, _)) => {
-                            trace!(task = name, "Async task completed");
-                            Some(value)
-                        }
+                        future::Either::Left((value, _)) => Some(value),
                         future::Either::Right(_) => {
                             debug!(task = name, "Async task shutdown, exit received");
                             None
@@ -276,13 +281,10 @@ impl TaskExecutor {
 
         let future = async move {
             let result = match join_handle.await {
-                Ok(result) => {
-                    trace!(task = name, "Blocking task completed");
-                    Ok(result)
-                }
-                Err(e) => {
-                    debug!(error = %e, "Blocking task ended unexpectedly");
-                    Err(e)
+                Ok(result) => Ok(result),
+                Err(error) => {
+                    debug!(%error, "Blocking task ended unexpectedly");
+                    Err(error)
                 }
             };
             drop(timer);
@@ -315,7 +317,6 @@ impl TaskExecutor {
         metrics::inc_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
         let handle = self.handle()?;
         let exit = self.exit();
-
         debug!(name, "Starting block_on task");
 
         handle.block_on(async {
@@ -328,7 +329,7 @@ impl TaskExecutor {
                     Some(output)
                 },
                 _ = exit => {
-                    debug!(
+                                        debug!(
                         name,
                         "Cancelled block_on task"
                     );

@@ -8,10 +8,10 @@ use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, Ba
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
-use lighthouse_metrics::set_int_gauge;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
+use metrics::set_int_gauge;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
@@ -42,6 +42,7 @@ pub type ProcessingResult = Result<KeepChain, RemoveChain>;
 
 /// Reasons for removing a chain
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum RemoveChain {
     EmptyPeerPool,
     ChainCompleted,

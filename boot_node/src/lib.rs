@@ -10,6 +10,7 @@ use config::BootNodeConfig;
 use types::{EthSpec, EthSpecId};
 
 /// Run the bootnode given the CLI configuration.
+#[allow(unused_variables)]
 pub fn run(
     lh_matches: &ArgMatches,
     bn_matches: &ArgMatches,

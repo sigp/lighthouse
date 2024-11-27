@@ -346,6 +346,10 @@ where
         store
             .put_block(&beacon_block_root, beacon_block.clone())
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
+        store
+            .store_frozen_block_root_at_skip_slots(Slot::new(0), Slot::new(1), beacon_block_root)
+            .and_then(|ops| store.cold_db.do_atomically(ops))
+            .map_err(|e| format!("Failed to store genesis block root: {e:?}"))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
@@ -921,7 +925,7 @@ where
                 shuffling_cache_size,
                 head_shuffling_ids,
             )),
-            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::new()),
+            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::default()),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),

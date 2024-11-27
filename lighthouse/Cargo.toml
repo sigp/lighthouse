@@ -50,7 +50,7 @@ clap_utils = { workspace = true }
 eth2_network_config = { workspace = true }
 lighthouse_version = { workspace = true }
 account_utils = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -72,6 +72,9 @@ sensitive_url = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
 beacon_processor = { workspace = true }
+beacon_node_fallback = { workspace = true }
+initialized_validators = { workspace = true }
+
 
 [[test]]
 name = "lighthouse_tests"

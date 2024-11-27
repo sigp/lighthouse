@@ -1638,8 +1638,8 @@ impl TaskSpawner {
     }
 }
 
-/// This struct will send a message on `self.tx` when it is dropped. An error will be logged on
-/// `self.log` if the send fails (this happens when the node is shutting down).
+/// This struct will send a message on `self.tx` when it is dropped. An error will be logged
+/// if the send fails (this happens when the node is shutting down).
 ///
 /// ## Purpose
 ///

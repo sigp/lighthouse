@@ -206,7 +206,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
 
     /// Return the number of times this batch has failed downloading and failed processing, in this
     /// order.
-    pub fn failed_attempts(&self) -> (usize, usize) {
+    pub fn _failed_attempts(&self) -> (usize, usize) {
         (
             self.failed_download_attempts.len(),
             self.failed_processing_attempts.len(),

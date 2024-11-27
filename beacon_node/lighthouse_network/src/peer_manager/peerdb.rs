@@ -1,8 +1,6 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
 use crate::discovery::{peer_id_to_node_id, CombinedKey};
-use crate::{
-    metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Eth2Enr, Gossipsub, PeerId,
-};
+use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId};
 use itertools::Itertools;
 use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};

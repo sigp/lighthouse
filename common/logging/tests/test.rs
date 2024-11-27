@@ -1,8 +1,8 @@
-use std::env;
 use std::process::Command;
 use std::process::Output;
 
-fn run_cmd(cmd_line: &str) -> Result<Output, std::io::Error> {
+// TODO(tracing) do we need this?
+fn _run_cmd(cmd_line: &str) -> Result<Output, std::io::Error> {
     if cfg!(target_os = "windows") {
         Command::new(r#"cmd"#).args(["/C", cmd_line]).output()
     } else {

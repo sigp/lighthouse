@@ -311,8 +311,8 @@ where
 
     fn handle_established_outbound_connection(
         &mut self,
-        connection_id: ConnectionId,
-        peer_id: PeerId,
+        _connection_id: ConnectionId,
+        _peer_id: PeerId,
         _addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
         _port_use: PortUse,

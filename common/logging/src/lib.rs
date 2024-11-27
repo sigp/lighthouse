@@ -1,12 +1,9 @@
-use lighthouse_metrics::{
-    inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
-};
+use metrics::{try_create_int_counter, IntCounter, Result as MetricsResult};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
 pub mod macros;
@@ -96,11 +93,11 @@ pub fn create_tracing_layer(
     } else {
         let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(std::io::sink());
         let (discv5_non_blocking_writer, _discv5_guard) = NonBlocking::new(std::io::sink());
-        return (
+        (
             libp2p_non_blocking_writer,
             _libp2p_guard,
             discv5_non_blocking_writer,
             _discv5_guard,
-        );
+        )
     }
 }

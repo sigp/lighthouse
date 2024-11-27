@@ -588,10 +588,7 @@ fn run<E: EthSpec>(
         .with_writer(discv5_non_blocking_writer)
         .with_line_number(true);
 
-    let logfile_prefix = match matches.subcommand_name() {
-        Some(subcommand) => subcommand,
-        None => "lighthouse",
-    };
+    let logfile_prefix = matches.subcommand_name().unwrap_or("lighthouse");
 
     let (builder, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt) =
         environment_builder.init_tracing(logger_config.clone(), logfile_prefix);
