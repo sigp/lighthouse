@@ -136,7 +136,6 @@ crate_crypto_internal_eth_kzg_polynomial = "=0.5.1"
 crate_crypto_kzg_multi_open_fk20 = "=0.5.1"
 discv5 = { version = "0.9", features = ["libp2p"] }
 env_logger = "0.9"
-error-chain = "0.12"
 ethereum_hashing = "0.7.0"
 ethereum_serde_utils = "0.7"
 ethereum_ssz = "0.7"
