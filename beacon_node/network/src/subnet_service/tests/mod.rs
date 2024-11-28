@@ -13,12 +13,15 @@ use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
 use task_executor::test_utils::TestRuntime;
+use tracing_subscriber::EnvFilter;
 use types::{
     CommitteeIndex, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SubnetId,
     SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
 };
 
 const SLOT_DURATION_MILLIS: u64 = 400;
+
+const TEST_LOG_LEVEL: Option<&str> = None;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
@@ -36,6 +39,8 @@ pub struct TestBeaconChain {
 impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
         let spec = Arc::new(MainnetEthSpec::default_spec());
+
+        let _ = get_tracing_subscriber(TEST_LOG_LEVEL);
 
         let keypairs = generate_deterministic_keypairs(1);
 
@@ -86,6 +91,18 @@ pub fn recent_genesis_time() -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs()
+}
+
+fn get_tracing_subscriber(
+    log_level: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    if let Some(level) = log_level {
+        return tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::try_new(level).unwrap())
+            .try_init();
+    } else {
+        Ok(())
+    }
 }
 
 static CHAIN: LazyLock<TestBeaconChain> = LazyLock::new(TestBeaconChain::new_with_system_clock);
