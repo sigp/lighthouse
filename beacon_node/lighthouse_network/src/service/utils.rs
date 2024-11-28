@@ -1,9 +1,7 @@
 use crate::multiaddr::Protocol;
 use crate::rpc::methods::MetaDataV3;
 use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
-use crate::types::{
-    error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind,
-};
+use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind};
 use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
 use gossipsub;
@@ -83,7 +81,7 @@ pub fn build_transport(
 
 // Useful helper functions for debugging. Currently not used in the client.
 #[allow(dead_code)]
-fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
+fn keypair_from_hex(hex_bytes: &str) -> Result<Keypair, String> {
     let hex_bytes = if let Some(stripped) = hex_bytes.strip_prefix("0x") {
         stripped.to_string()
     } else {
@@ -91,18 +89,18 @@ fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
     };
 
     hex::decode(hex_bytes)
-        .map_err(|e| format!("Failed to parse p2p secret key bytes: {:?}", e).into())
+        .map_err(|e| format!("Failed to parse p2p secret key bytes: {:?}", e))
         .and_then(keypair_from_bytes)
 }
 
 #[allow(dead_code)]
-fn keypair_from_bytes(mut bytes: Vec<u8>) -> error::Result<Keypair> {
+fn keypair_from_bytes(mut bytes: Vec<u8>) -> Result<Keypair, String> {
     secp256k1::SecretKey::try_from_bytes(&mut bytes)
         .map(|secret| {
             let keypair: secp256k1::Keypair = secret.into();
             keypair.into()
         })
-        .map_err(|e| format!("Unable to parse p2p secret key: {:?}", e).into())
+        .map_err(|e| format!("Unable to parse p2p secret key: {:?}", e))
 }
 
 /// Loads a private key from disk. If this fails, a new key is
