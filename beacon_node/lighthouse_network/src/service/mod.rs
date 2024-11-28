@@ -20,7 +20,7 @@ use crate::types::{
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
-use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::{metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{AppRequestId, PeerRequestId, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
@@ -174,7 +174,7 @@ impl<E: EthSpec> Network<E> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
-    ) -> error::Result<(Self, Arc<NetworkGlobals<E>>)> {
+    ) -> Result<(Self, Arc<NetworkGlobals<E>>), String> {
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");
         // initialise the node's ID
@@ -517,7 +517,7 @@ impl<E: EthSpec> Network<E> {
         name = "libp2p",
         skip(self)
     )]
-    async fn start(&mut self, config: &crate::NetworkConfig) -> error::Result<()> {
+    async fn start(&mut self, config: &crate::NetworkConfig) -> Result<(), String> {
         let enr = self.network_globals.local_enr();
         info!(
             peer_id = %enr.peer_id(),
@@ -1055,7 +1055,7 @@ impl<E: EthSpec> Network<E> {
         &mut self,
         active_validators: usize,
         current_slot: Slot,
-    ) -> error::Result<()> {
+    ) -> Result<(), String> {
         let (beacon_block_params, beacon_aggregate_proof_params, beacon_attestation_subnet_params) =
             self.score_settings
                 .get_dynamic_topic_params(active_validators, current_slot)?;

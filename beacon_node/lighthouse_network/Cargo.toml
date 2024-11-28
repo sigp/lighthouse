@@ -19,7 +19,6 @@ logging = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 futures = { workspace = true }
-error-chain = { workspace = true }
 dirs = { workspace = true }
 fnv = { workspace = true }
 metrics = { workspace = true }

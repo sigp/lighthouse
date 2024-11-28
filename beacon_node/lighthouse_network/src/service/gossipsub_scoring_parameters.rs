@@ -1,5 +1,5 @@
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
-use crate::{error, TopicHash};
+use crate::TopicHash;
 use gossipsub::{IdentTopic as Topic, PeerScoreParams, PeerScoreThresholds, TopicScoreParams};
 use std::cmp::max;
 use std::collections::HashMap;
@@ -84,7 +84,7 @@ impl<E: EthSpec> PeerScoreSettings<E> {
         thresholds: &PeerScoreThresholds,
         enr_fork_id: &EnrForkId,
         current_slot: Slot,
-    ) -> error::Result<PeerScoreParams> {
+    ) -> Result<PeerScoreParams, String> {
         let mut params = PeerScoreParams {
             decay_interval: self.decay_interval,
             decay_to_zero: self.decay_to_zero,
@@ -175,7 +175,7 @@ impl<E: EthSpec> PeerScoreSettings<E> {
         &self,
         active_validators: usize,
         current_slot: Slot,
-    ) -> error::Result<(TopicScoreParams, TopicScoreParams, TopicScoreParams)> {
+    ) -> Result<(TopicScoreParams, TopicScoreParams, TopicScoreParams), String> {
         let (aggregators_per_slot, committees_per_slot) =
             self.expected_aggregator_count_per_slot(active_validators)?;
         let multiple_bursts_per_subnet_per_epoch =
@@ -256,7 +256,7 @@ impl<E: EthSpec> PeerScoreSettings<E> {
     fn expected_aggregator_count_per_slot(
         &self,
         active_validators: usize,
-    ) -> error::Result<(f64, usize)> {
+    ) -> Result<(f64, usize), String> {
         let committees_per_slot = E::get_committee_count_per_slot_with(
             active_validators,
             self.max_committees_per_slot,

@@ -5,7 +5,6 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
-use crate::error;
 use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::status_message;
@@ -89,7 +88,7 @@ impl<T: BeaconChainTypes> Router<T> {
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
-    ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
+    ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
         trace!("Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();

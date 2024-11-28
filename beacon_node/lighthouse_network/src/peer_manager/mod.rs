@@ -4,7 +4,7 @@ use crate::discovery::enr_ext::EnrExt;
 use crate::discovery::peer_id_to_node_id;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RpcErrorResponse};
 use crate::service::TARGET_SUBNET_PEERS;
-use crate::{error, metrics, Gossipsub, NetworkGlobals, PeerId, Subnet, SubnetDiscovery};
+use crate::{metrics, Gossipsub, NetworkGlobals, PeerId, Subnet, SubnetDiscovery};
 use delay_map::HashSetDelay;
 use discv5::Enr;
 use libp2p::identify::Info as IdentifyInfo;
@@ -141,7 +141,7 @@ impl<E: EthSpec> PeerManager<E> {
     pub fn new(
         cfg: config::Config,
         network_globals: Arc<NetworkGlobals<E>>,
-    ) -> error::Result<Self> {
+    ) -> Result<Self, String> {
         let config::Config {
             discovery_enabled,
             metrics_enabled,
