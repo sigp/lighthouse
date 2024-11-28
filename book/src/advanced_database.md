@@ -4,7 +4,7 @@ Lighthouse uses an efficient "split" database schema, whereby finalized states a
 from recent, unfinalized states. We refer to the portion of the database storing finalized states as
 the _freezer_ or _cold DB_, and the portion storing recent states as the _hot DB_.
 
-In both the hot and cold DBs, full `BeaconState` data structures are only stored periodically, and
+In both the hot and cold DBs, full `BeaconState` data structures are only stored periodicallyl, and
 intermediate states are reconstructed by quickly replaying blocks on top of the nearest state. For
 example, to fetch a state at slot 7 the database might fetch a full state from slot 0, and replay
 blocks from slots 1-7 while omitting redundant signature checks and Merkle root calculations. In
