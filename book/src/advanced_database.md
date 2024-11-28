@@ -14,7 +14,7 @@ more detail below).
 The full states upon which blocks are replayed are referred to as _snapshots_ in the case of the
 freezer DB, and _epoch boundary states_ in the case of the hot DB.
 
-The frequency at which the hot database stores full `BeaconState`s is fixed to one-state-per-epoch
+The frequency at which the hot database stores full `BeaconState` is fixed to one-state-per-epoch
 in order to keep loads of recent states performant. For the freezer DB, the frequency is
 configurable via the `--hierarchy-exponents` CLI flag, which is the topic of the next section.
 
@@ -56,7 +56,7 @@ that we have observed are:
   _a lot_ of space. It's even possible to push beyond that with `--hierarchy-exponents 0` which
   would store a full state every single slot (NOT RECOMMENDED).
 - **Less diff layers are not necessarily faster**. One might expect that the fewer diff layers there
-  are, the less work Lighthouse would have to do to reconstruct any particular state. In practise
+  are, the less work Lighthouse would have to do to reconstruct any particular state. In practice
   this seems to be offset by the increased size of diffs in each layer making the diffs take longer
   to apply. We observed no significant performance benefit from `--hierarchy-exponents 5,7,11`, and
   a substantial increase in space consumed.
