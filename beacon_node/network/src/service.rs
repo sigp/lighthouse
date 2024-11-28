@@ -441,7 +441,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     // handle a message from a validator requesting a subscription to a subnet
                     Some(msg) = self.validator_subscription_recv.recv() => self.on_validator_subscription_msg(msg).await,
 
-                    // TODO(tracing) add subnet service span
                     // process any subnet service events
                     Some(msg) = self.subnet_service.next() => self.on_subnet_service_msg(msg),
 

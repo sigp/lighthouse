@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info_span, Instrument};
+use tracing_subscriber::EnvFilter;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
     MinimalEthSpec, Slot,
@@ -61,6 +62,19 @@ impl std::ops::DerefMut for Libp2pInstance {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+#[allow(unused)]
+pub fn build_tracing_subscriber(
+    level: &str,
+    enabled: bool,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    if enabled {
+        return tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::try_new(level).unwrap())
+            .try_init();
+    }
+    Ok(())
 }
 
 pub fn build_config(mut boot_nodes: Vec<Enr>) -> Arc<NetworkConfig> {

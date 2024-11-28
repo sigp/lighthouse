@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::Protocol;
+use common::{build_tracing_subscriber, Protocol};
 use lighthouse_network::rpc::{methods::*, RequestType};
 use lighthouse_network::service::api_types::AppRequestId;
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Response};
@@ -13,6 +13,7 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use tracing::{debug, warn};
+use tracing_subscriber::EnvFilter;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
     EmptyBlock, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256, MinimalEthSpec,
@@ -53,6 +54,11 @@ fn bellatrix_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> Beacon
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_status_rpc() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _ = build_tracing_subscriber(log_level, enable_logging);
+
     let rt = Arc::new(Runtime::new().unwrap());
 
     let spec = Arc::new(E::default_spec());
@@ -141,6 +147,11 @@ fn test_tcp_status_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_range_chunked_rpc() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _ = build_tracing_subscriber(log_level, enable_logging);
+
     let messages_to_send = 6;
 
     let rt = Arc::new(Runtime::new().unwrap());
@@ -281,6 +292,11 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_blobs_by_range_chunked_rpc() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _ = build_tracing_subscriber(log_level, enable_logging);
+
     let slot_count = 32;
     let messages_to_send = 34;
 
@@ -397,6 +413,11 @@ fn test_blobs_by_range_chunked_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_range_over_limit() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _ = build_tracing_subscriber(log_level, enable_logging);
+
     let messages_to_send = 5;
 
     let rt = Arc::new(Runtime::new().unwrap());
@@ -496,6 +517,11 @@ fn test_tcp_blocks_by_range_over_limit() {
 // Tests that a streamed BlocksByRange RPC Message terminates when all expected chunks were received
 #[test]
 fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _ = build_tracing_subscriber(log_level, enable_logging);
+
     let messages_to_send = 10;
     let extra_messages_to_send = 10;
 
@@ -626,10 +652,10 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_range_single_empty_rpc() {
-    // set up the logging. The level and enabled logging or not
-    // TODO(trace) enable disable log?
-    // let log_level = Level::TRACE;
-    // let enable_logging = false;
+    // Set up the logging.
+    let log_level = "trace";
+    let enable_logging = false;
+    let _ = build_tracing_subscriber(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
 
@@ -747,6 +773,11 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_root_chunked_rpc() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _ = build_tracing_subscriber(log_level, enable_logging);
+
     let messages_to_send = 6;
 
     let spec = Arc::new(E::default_spec());
@@ -883,6 +914,11 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
 // Tests a streamed, chunked BlocksByRoot RPC Message terminates when all expected reponses have been received
 #[test]
 fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _ = build_tracing_subscriber(log_level, enable_logging);
+
     let messages_to_send: u64 = 10;
     let extra_messages_to_send: u64 = 10;
 
@@ -1019,7 +1055,10 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
 
 /// Establishes a pair of nodes and disconnects the pair based on the selected protocol via an RPC
 /// Goodbye message.
-fn goodbye_test(protocol: Protocol) {
+fn goodbye_test(log_level: &str, enable_logging: bool, protocol: Protocol) {
+    // Set up the logging.
+    let _ = build_tracing_subscriber(log_level, enable_logging);
+
     let rt = Arc::new(Runtime::new().unwrap());
 
     let spec = Arc::new(E::default_spec());
@@ -1075,12 +1114,16 @@ fn goodbye_test(protocol: Protocol) {
 #[test]
 #[allow(clippy::single_match)]
 fn tcp_test_goodbye_rpc() {
-    goodbye_test(Protocol::Tcp);
+    let log_level = "debug";
+    let enabled_logging = false;
+    goodbye_test(log_level, enabled_logging, Protocol::Tcp);
 }
 
 // Tests a Goodbye RPC message
 #[test]
 #[allow(clippy::single_match)]
 fn quic_test_goodbye_rpc() {
-    goodbye_test(Protocol::Quic);
+    let log_level = "debug";
+    let enabled_logging = false;
+    goodbye_test(log_level, enabled_logging, Protocol::Quic);
 }
