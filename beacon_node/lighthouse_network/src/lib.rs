@@ -101,7 +101,7 @@ impl<'a> std::fmt::Display for ClearDialError<'a> {
 }
 
 pub use crate::types::{
-    error, Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
+    Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
     SubnetDiscovery,
 };
 
