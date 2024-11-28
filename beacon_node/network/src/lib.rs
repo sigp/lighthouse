@@ -14,4 +14,3 @@ pub use lighthouse_network::NetworkConfig;
 pub use service::{
     NetworkMessage, NetworkReceivers, NetworkSenders, NetworkService, ValidatorSubscriptionMessage,
 };
-
