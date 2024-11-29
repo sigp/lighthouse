@@ -380,7 +380,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
     }
 }
 
-impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'_, E, Payload> {
     /// Get the fork_name of this object
     pub fn fork_name(self) -> ForkName {
         match self {

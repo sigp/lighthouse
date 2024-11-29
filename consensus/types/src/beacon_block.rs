@@ -80,8 +80,8 @@ pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BeaconBlock<E, Payload> {}
-impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot
-    for BeaconBlockRef<'a, E, Payload>
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot
+    for BeaconBlockRef<'_, E, Payload>
 {
 }
 

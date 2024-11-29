@@ -108,7 +108,7 @@ fn get_sync_status<E: EthSpec>(
         // Determine how many voting periods are contained in distance between
         // now and genesis, rounding up.
         let voting_periods_past =
-            (seconds_till_genesis + voting_period_duration - 1) / voting_period_duration;
+            seconds_till_genesis.div_ceil(voting_period_duration);
 
         // Return the start time of the current voting period*.
         //
