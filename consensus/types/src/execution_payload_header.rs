@@ -371,7 +371,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderDe
     }
 }
 
-impl<'a, E: EthSpec> ExecutionPayloadHeaderRefMut<'a, E> {
+impl<E: EthSpec> ExecutionPayloadHeaderRefMut<'_, E> {
     /// Mutate through
     pub fn replace(self, header: ExecutionPayloadHeader<E>) -> Result<(), BeaconStateError> {
         match self {
