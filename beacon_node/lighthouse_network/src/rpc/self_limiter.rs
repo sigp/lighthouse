@@ -441,6 +441,13 @@ mod tests {
                     })),
                     RequestType::Ping(Ping { data: i as u64 }),
                 );
+
+                // Check that the limiter allows the first two requests.
+                if i <= 2 {
+                    assert!(result.is_ok());
+                } else {
+                    assert!(result.is_err());
+                }
             }
         }
 
@@ -455,6 +462,7 @@ mod tests {
             .get(&(peer2, Protocol::Ping))
             .is_some());
 
+        // Check that the limiter returns the IDs of pending requests and that the IDs are ordered correctly.
         let mut failed_requests = limiter.peer_disconnected(peer1);
         for i in 3..=5u32 {
             let (request_id, _) = failed_requests.remove(0);
@@ -472,6 +480,7 @@ mod tests {
             .delayed_requests
             .get(&(peer1, Protocol::Ping))
             .is_none());
+
         assert!(limiter.active_requests.get(&peer2).is_some());
         assert!(limiter
             .delayed_requests

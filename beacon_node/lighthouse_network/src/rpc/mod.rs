@@ -263,7 +263,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             Ok(event) => self.events.push(event),
             Err(_e) => {
                 // Request is logged and queued internally in the self rate limiter.
-                return;
             }
         }
     }
