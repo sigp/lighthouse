@@ -62,6 +62,7 @@ pub struct ApiTester {
     pub _server_shutdown: oneshot::Sender<()>,
     pub validator_dir: TempDir,
     pub secrets_dir: TempDir,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl ApiTester {
@@ -137,7 +138,7 @@ impl ApiTester {
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
-            spec,
+            spec: spec.clone(),
             config: http_config,
             log,
             sse_logging_components: None,
@@ -173,6 +174,7 @@ impl ApiTester {
             _server_shutdown: shutdown_tx,
             validator_dir,
             secrets_dir,
+            spec,
         }
     }
 

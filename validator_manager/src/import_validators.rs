@@ -5,11 +5,11 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use derivative::Derivative;
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
-use eth2::types::Address;
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use types::Address;
 
 pub const CMD: &str = "import";
 pub const VALIDATORS_FILE_FLAG: &str = "validators-file";
@@ -418,7 +418,7 @@ pub mod tests {
             spec: Arc<ChainSpec>,
         ) -> Self {
             let dir = tempdir().unwrap();
-            let vc = ApiTester::new_with_http_config(http_config).await;
+            let vc = ApiTester::new_with_http_config_and_spec(http_config, spec).await;
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
             fs::write(&vc_token_path, &vc.api_token).unwrap();
 

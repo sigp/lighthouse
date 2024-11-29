@@ -167,10 +167,7 @@ mod test {
     };
     use account_utils::eth2_keystore::KeystoreBuilder;
     use account_utils::ZeroizeString;
-    use beacon_chain::test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-    };
-    use beacon_chain::ChainConfig;
+    use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
     use eth2::lighthouse_vc::types::KeystoreJsonStr;
     use http_api::test_utils::InteractiveTester;
     use std::{
@@ -191,6 +188,7 @@ mod test {
         validators: Vec<ValidatorSpecification>,
         beacon_node: InteractiveTester<E>,
         index_of_validators_to_exit: usize,
+        spec: Arc<ChainSpec>,
     }
 
     impl TestBuilder {
@@ -198,25 +196,15 @@ mod test {
             let mut spec = ChainSpec::mainnet();
             spec.shard_committee_period = 1;
             spec.altair_fork_epoch = Some(Epoch::new(0));
-            spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-            spec.capella_fork_epoch = Some(Epoch::new(0));
-            spec.deneb_fork_epoch = Some(Epoch::new(0));
+            spec.bellatrix_fork_epoch = Some(Epoch::new(1));
+            spec.capella_fork_epoch = Some(Epoch::new(2));
+            spec.deneb_fork_epoch = Some(Epoch::new(3));
 
-            // let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            //     .spec(Arc::new(spec.clone()))
-            //     .keypairs(vec![])
-            //     .fresh_ephemeral_store()
-            //     .mock_execution_layer()
-            //     .recalculate_fork_times_with_genesis(0)
-            //     .mock_execution_layer_all_payloads_valid()
-            //     .build();
-
-            let beacon_node = InteractiveTester::new(Some(spec), 64).await;
+            let beacon_node = InteractiveTester::new(Some(spec.clone()), 64).await;
 
             let harness = &beacon_node.harness;
             let mock_el = harness.mock_execution_layer.as_ref().unwrap();
             let execution_ctx = mock_el.server.ctx.clone();
-            let slot_clock = &harness.chain.slot_clock;
 
             // Move to terminal block.
             mock_el.server.all_payloads_valid();
@@ -226,6 +214,8 @@ mod test {
                 .move_to_terminal_block()
                 .unwrap();
 
+            println!("Beacon node spec: {:?}", beacon_node.harness.chain.spec);
+
             Self {
                 exit_config: None,
                 src_import_builder: None,
@@ -234,12 +224,18 @@ mod test {
                 validators: vec![],
                 beacon_node,
                 index_of_validators_to_exit: 0,
+                spec: spec.into(),
             }
         }
 
         async fn with_validators(mut self, index_of_validators_to_exit: usize) -> Self {
-            let mut builder =
-                ImportTestBuilder::new_with_http_config(self.http_config.clone()).await;
+            let mut builder = ImportTestBuilder::new_with_http_config_and_spec(
+                self.http_config.clone(),
+                self.spec.clone(),
+            )
+            .await;
+
+            println!("Validator client spec: {:?}", builder.vc.spec);
 
             self.vc_token =
                 Some(fs::read_to_string(builder.get_import_config().vc_token_path).unwrap());
@@ -345,6 +341,11 @@ mod test {
             // Advance beacon chain
             self.beacon_node.harness.advance_slot();
 
+            println!(
+                "current slot_first_advance_slot: {:?}",
+                self.beacon_node.harness.get_current_slot()
+            );
+
             self.beacon_node
                 .harness
                 .extend_chain(
@@ -354,10 +355,15 @@ mod test {
                 )
                 .await;
 
+            println!(
+                "current slot_extend_chain: {:?}",
+                self.beacon_node.harness.get_current_slot()
+            );
+
             self.beacon_node.harness.advance_slot();
 
             println!(
-                "current slot: {:?}",
+                "current slot_second_advance_slot: {:?}",
                 self.beacon_node.harness.get_current_slot()
             );
 
