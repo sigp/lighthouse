@@ -155,9 +155,7 @@ pub struct RootsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> 
     slot: Slot,
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Clone
-    for RootsIterator<'_, E, Hot, Cold>
-{
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Clone for RootsIterator<'_, E, Hot, Cold> {
     fn clone(&self) -> Self {
         Self {
             store: self.store,
