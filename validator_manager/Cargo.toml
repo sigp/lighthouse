@@ -21,6 +21,7 @@ eth2 = { workspace = true }
 hex = { workspace = true }
 tokio = { workspace = true }
 derivative = { workspace = true }
+logging = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

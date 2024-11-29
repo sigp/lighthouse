@@ -5,11 +5,11 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use derivative::Derivative;
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
+use eth2::types::Address;
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use types::Address;
 
 pub const CMD: &str = "import";
 pub const VALIDATORS_FILE_FLAG: &str = "validators-file";
@@ -385,9 +385,13 @@ pub mod tests {
     use std::{
         fs::{self, File},
         str::FromStr,
+        sync::Arc,
     };
     use tempfile::{tempdir, TempDir};
+    use types::*;
     use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+
+    type E = MainnetEthSpec;
 
     const VC_TOKEN_FILE_NAME: &str = "vc_token.json";
 
@@ -406,6 +410,13 @@ pub mod tests {
         }
 
         pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
+            Self::new_with_http_config_and_spec(http_config, Arc::new(E::default_spec())).await
+        }
+
+        pub async fn new_with_http_config_and_spec(
+            http_config: HttpConfig,
+            spec: Arc<ChainSpec>,
+        ) -> Self {
             let dir = tempdir().unwrap();
             let vc = ApiTester::new_with_http_config(http_config).await;
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);

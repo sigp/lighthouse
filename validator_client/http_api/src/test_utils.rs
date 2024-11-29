@@ -27,6 +27,7 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
+use types::ChainSpec;
 use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -69,6 +70,14 @@ impl ApiTester {
     }
 
     pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
+        let spec = Arc::new(E::default_spec());
+        Self::new_with_http_config_and_spec(http_config, spec).await
+    }
+
+    pub async fn new_with_http_config_and_spec(
+        http_config: HttpConfig,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
         let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
@@ -92,8 +101,6 @@ impl ApiTester {
             fee_recipient: Some(TEST_DEFAULT_FEE_RECIPIENT),
             ..Default::default()
         };
-
-        let spec = Arc::new(E::default_spec());
 
         let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
