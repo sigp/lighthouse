@@ -29,6 +29,7 @@ use std::{
     time::Duration,
 };
 
+#[allow(unused_imports)]
 use futures::{FutureExt, StreamExt};
 use hashlink::LinkedHashMap;
 use prometheus_client::registry::Registry;
@@ -73,9 +74,9 @@ use super::{
     types::RpcOut,
 };
 use super::{PublishError, SubscriptionError, TopicScoreParams, ValidationError};
+use futures_timer::Delay;
 use quick_protobuf::{MessageWrite, Writer};
 use std::{cmp::Ordering::Equal, fmt::Debug};
-use futures_timer::Delay;
 
 #[cfg(test)]
 mod tests;
@@ -3425,7 +3426,7 @@ where
 
         // update scores
         if let Some((peer_score, _, delay)) = &mut self.peer_score {
-            if delay.poll_unpin(cx).is_ready(){
+            if delay.poll_unpin(cx).is_ready() {
                 peer_score.refresh_scores();
             }
         }
