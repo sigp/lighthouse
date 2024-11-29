@@ -528,9 +528,9 @@ impl BeaconNodeHttpClient {
         self.post_with_response(path, &()).await
     }
 
-    ///
-    /// Analysis endpoints.
-    ///
+    /*
+     Analysis endpoints.
+    */
 
     /// `GET` lighthouse/analysis/block_rewards?start_slot,end_slot
     pub async fn get_lighthouse_analysis_block_rewards(

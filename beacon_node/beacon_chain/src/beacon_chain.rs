@@ -1112,6 +1112,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
+    #[allow(clippy::type_complexity)]
     pub fn get_blocks_checking_caches(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
@@ -1127,6 +1128,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(BeaconBlockStreamer::<T>::new(self, CheckCaches::Yes)?.launch_stream(block_roots))
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn get_blocks(
         self: &Arc<Self>,
         block_roots: Vec<Hash256>,
