@@ -21,7 +21,6 @@ eth2_config = { workspace = true }
 slot_clock = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-error-chain = { workspace = true }
 slog = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
