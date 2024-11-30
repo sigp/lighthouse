@@ -29,8 +29,7 @@ use std::{
     time::Duration,
 };
 
-#[allow(unused_imports)]
-use futures::{FutureExt, StreamExt};
+use futures::FutureExt;
 use hashlink::LinkedHashMap;
 use prometheus_client::registry::Registry;
 use rand::{seq::SliceRandom, thread_rng};
