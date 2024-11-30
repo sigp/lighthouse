@@ -29,7 +29,6 @@ use std::{
     time::Duration,
 };
 
-
 use futures::FutureExt;
 use hashlink::LinkedHashMap;
 use prometheus_client::registry::Registry;

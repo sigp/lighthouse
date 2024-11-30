@@ -25,6 +25,7 @@ use crate::subscription_filter::WhitelistSubscriptionFilter;
 use crate::types::RpcReceiver;
 use crate::{config::ConfigBuilder, types::Rpc, IdentTopic as Topic};
 use byteorder::{BigEndian, ByteOrder};
+use futures::StreamExt;
 use libp2p::core::ConnectedPoint;
 use rand::Rng;
 use std::net::Ipv4Addr;
