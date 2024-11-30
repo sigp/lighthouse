@@ -29,8 +29,8 @@ use std::{
     time::Duration,
 };
 
-#[allow(unused_imports)]
-use futures::{FutureExt, StreamExt};
+
+use futures::FutureExt;
 use hashlink::LinkedHashMap;
 use prometheus_client::registry::Registry;
 use rand::{seq::SliceRandom, thread_rng};
@@ -3428,6 +3428,7 @@ where
         if let Some((peer_score, _, delay)) = &mut self.peer_score {
             if delay.poll_unpin(cx).is_ready() {
                 peer_score.refresh_scores();
+                delay.reset(self.config.heartbeat_interval());
             }
         }
 

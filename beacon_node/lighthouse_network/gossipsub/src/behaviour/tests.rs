@@ -29,6 +29,7 @@ use libp2p::core::ConnectedPoint;
 use rand::Rng;
 use std::net::Ipv4Addr;
 use std::thread::sleep;
+use futures::StreamExt;
 
 #[derive(Default, Debug)]
 struct InjectNodes<D, F> {
