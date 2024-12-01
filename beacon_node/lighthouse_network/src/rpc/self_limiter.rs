@@ -451,16 +451,14 @@ mod tests {
             }
         }
 
-        assert!(limiter.active_requests.get(&peer1).is_some());
+        assert!(limiter.active_requests.contains_key(&peer1));
         assert!(limiter
             .delayed_requests
-            .get(&(peer1, Protocol::Ping))
-            .is_some());
-        assert!(limiter.active_requests.get(&peer2).is_some());
+            .contains_key(&(peer1, Protocol::Ping)));
+        assert!(limiter.active_requests.contains_key(&peer2));
         assert!(limiter
             .delayed_requests
-            .get(&(peer2, Protocol::Ping))
-            .is_some());
+            .contains_key(&(peer2, Protocol::Ping)));
 
         // Check that the limiter returns the IDs of pending requests and that the IDs are ordered correctly.
         let mut failed_requests = limiter.peer_disconnected(peer1);
@@ -475,16 +473,14 @@ mod tests {
         }
 
         // Check that peer1’s active and delayed requests have been removed.
-        assert!(limiter.active_requests.get(&peer1).is_none());
-        assert!(limiter
+        assert!(!limiter.active_requests.contains_key(&peer1));
+        assert!(!limiter
             .delayed_requests
-            .get(&(peer1, Protocol::Ping))
-            .is_none());
+            .contains_key(&(peer1, Protocol::Ping)));
 
-        assert!(limiter.active_requests.get(&peer2).is_some());
+        assert!(limiter.active_requests.contains_key(&peer2));
         assert!(limiter
             .delayed_requests
-            .get(&(peer2, Protocol::Ping))
-            .is_some());
+            .contains_key(&(peer2, Protocol::Ping)));
     }
 }
