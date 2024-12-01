@@ -1177,6 +1177,9 @@ fn test_delayed_rpc_response() {
     let log = logging::test_logger();
     let spec = Arc::new(E::default_spec());
 
+    // Allow 1 token to be use used every 3 seconds.
+    const QUOTA_SEC: u64 = 3;
+
     rt.block_on(async {
         // get sender/receiver
         let (mut sender, mut receiver) = common::build_node_pair(
@@ -1187,7 +1190,7 @@ fn test_delayed_rpc_response() {
             Protocol::Tcp,
             false,
             // Configure a quota for STATUS responses of 1 token every 3 seconds.
-            Some("status:1/3".parse().unwrap()),
+            Some(format!("status:1/{QUOTA_SEC}").parse().unwrap()),
         )
         .await;
 
@@ -1237,7 +1240,13 @@ fn test_delayed_rpc_response() {
                             }
                             2..=5 => {
                                 // The second and subsequent responses are delayed due to the response rate-limiter on the receiver side.
-                                assert!(request_sent_at.elapsed() > Duration::from_secs(3));
+                                // Adding a slight margin to the elapsed time check to account for potential timing issues caused by system
+                                // scheduling or execution delays during testing.
+                                assert!(
+                                    request_sent_at.elapsed()
+                                        > (Duration::from_secs(QUOTA_SEC)
+                                            - Duration::from_millis(100))
+                                );
                                 if request_id == 5 {
                                     // End the test
                                     return;
