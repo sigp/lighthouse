@@ -2606,7 +2606,6 @@ dependencies = [
  "eth2_config",
  "ethereum_ssz",
  "kzg",
- "logging",
  "pretty_reqwest_error",
  "reqwest",
  "sensitive_url",
@@ -3885,7 +3884,6 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
- "environment",
  "eth1",
  "eth2",
  "ethereum_serde_utils",
@@ -4372,7 +4370,6 @@ dependencies = [
  "eth2_keystore",
  "filesystem",
  "lockfile",
- "logging",
  "metrics",
  "parking_lot 0.12.3",
  "rand",
@@ -5362,7 +5359,6 @@ dependencies = [
  "parking_lot 0.12.3",
  "serde",
  "serde_json",
- "take_mut",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -7983,7 +7979,6 @@ dependencies = [
  "libmdbx",
  "lmdb-rkv",
  "lmdb-rkv-sys",
- "logging",
  "lru",
  "maplit",
  "metrics",
@@ -8410,12 +8405,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "take_mut"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f764005d11ee5f36500a149ace24e00e3da98b0158b3e2d53a7495660d3f4d60"
-
-[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8440,7 +8429,6 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "futures",
- "logging",
  "metrics",
  "tokio",
  "tracing",

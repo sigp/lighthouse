@@ -43,5 +43,3 @@ redb = { version = "2.1.4", optional = true }
 maplit = { workspace = true }
 rayon = { workspace = true }
 tempfile = { workspace = true }
-logging = { workspace = true }
-

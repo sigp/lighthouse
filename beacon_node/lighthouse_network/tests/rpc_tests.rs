@@ -56,7 +56,7 @@ fn test_tcp_status_rpc() {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = false;
-    let _ = build_tracing_subscriber(log_level, enable_logging);
+    build_tracing_subscriber(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
 
@@ -149,7 +149,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = false;
-    let _ = build_tracing_subscriber(log_level, enable_logging);
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 6;
 
@@ -294,7 +294,7 @@ fn test_blobs_by_range_chunked_rpc() {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = false;
-    let _ = build_tracing_subscriber(log_level, enable_logging);
+    build_tracing_subscriber(log_level, enable_logging);
 
     let slot_count = 32;
     let messages_to_send = 34;
@@ -415,7 +415,7 @@ fn test_tcp_blocks_by_range_over_limit() {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = false;
-    let _ = build_tracing_subscriber(log_level, enable_logging);
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 5;
 
@@ -519,7 +519,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = false;
-    let _ = build_tracing_subscriber(log_level, enable_logging);
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 10;
     let extra_messages_to_send = 10;
@@ -654,7 +654,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
     // Set up the logging.
     let log_level = "trace";
     let enable_logging = false;
-    let _ = build_tracing_subscriber(log_level, enable_logging);
+    build_tracing_subscriber(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
 
@@ -775,7 +775,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = false;
-    let _ = build_tracing_subscriber(log_level, enable_logging);
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 6;
 
@@ -916,7 +916,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = false;
-    let _ = build_tracing_subscriber(log_level, enable_logging);
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send: u64 = 10;
     let extra_messages_to_send: u64 = 10;
@@ -1056,7 +1056,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
 /// Goodbye message.
 fn goodbye_test(log_level: &str, enable_logging: bool, protocol: Protocol) {
     // Set up the logging.
-    let _ = build_tracing_subscriber(log_level, enable_logging);
+    build_tracing_subscriber(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
 

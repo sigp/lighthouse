@@ -40,7 +40,7 @@ impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
         let spec = Arc::new(MainnetEthSpec::default_spec());
 
-        let _ = get_tracing_subscriber(TEST_LOG_LEVEL);
+        get_tracing_subscriber(TEST_LOG_LEVEL);
 
         let keypairs = generate_deterministic_keypairs(1);
 
