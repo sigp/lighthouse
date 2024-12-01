@@ -104,8 +104,6 @@ pub fn testing_client_config() -> ClientConfig {
     client_config.http_api.enabled = true;
     client_config.http_api.listen_port = 0;
 
-    client_config.dummy_eth1_backend = true;
-
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("should get system time")
