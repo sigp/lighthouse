@@ -1389,8 +1389,8 @@ fn test_request_too_large() {
     });
 }
 
-// Test whether a request using the same protocol as another active request on the receiver
-// triggers a rate-limited error.
+// Test that a rate-limited error doesn't occur even if the sender attempts to send many requests at
+// once, thanks to the self-limiter on the sender side.
 #[test]
 fn test_active_requests() {
     let rt = Arc::new(Runtime::new().unwrap());
@@ -1419,7 +1419,7 @@ fn test_active_requests() {
             head_slot: Slot::new(1),
         });
 
-        // Dummy STATUS RPC response
+        // Dummy STATUS RPC response.
         let rpc_response = Response::Status(StatusMessage {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
@@ -1428,24 +1428,22 @@ fn test_active_requests() {
             head_slot: Slot::new(1),
         });
 
+        // Number of requests.
+        const REQUESTS: u8 = 10;
+
         // Build the sender future.
         let sender_future = async {
             let mut response_received = 0;
-            let mut rate_limited = 0;
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         debug!(log, "Sending RPC request");
-                        // Send requests in quick succession to intentionally trigger a rate-limited error.
-                        sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
-                            .unwrap();
-                        sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
-                            .unwrap();
-                        sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
-                            .unwrap();
+                        // Send requests in quick succession to intentionally trigger request queueing in the self-limiter.
+                        for _ in 0..REQUESTS {
+                            sender
+                                .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                                .unwrap();
+                        }
                     }
                     NetworkEvent::ResponseReceived { response, .. } => {
                         debug!(log, "Sender received response"; "response" => ?response);
@@ -1457,20 +1455,11 @@ fn test_active_requests() {
                         id: _,
                         peer_id: _,
                         error,
-                    } => {
-                        debug!(log, "RPC Failed"; "error" => ?error);
-                        assert!(matches!(
-                            error,
-                            RPCError::ErrorResponse(RpcErrorResponse::RateLimited, ..)
-                        ));
-                        rate_limited += 1;
-                    }
+                    } => panic!("RPC failed: {:?}", error),
                     _ => {}
                 }
 
-                // The sender sent 3 requests, and 1 rate-limited error is expected due to the MAX_CONCURRENT_REQUESTS limit.
-                if response_received + rate_limited == 3 {
-                    assert_eq!(1, rate_limited);
+                if response_received == REQUESTS {
                     return;
                 }
             }
@@ -1489,8 +1478,8 @@ fn test_active_requests() {
                             }
                         }
                     }
-                    // Introduce a delay in sending responses to trigger a rate-limited error.
-                    _ = sleep(Duration::from_secs(5)) => {
+                    // Introduce a delay in sending responses to trigger request queueing on the sender side.
+                    _ = sleep(Duration::from_secs(3)) => {
                         for (peer_id, id, request_id) in received_requests.drain(..) {
                             receiver.send_response(peer_id, id, request_id, rpc_response.clone());
                         }
