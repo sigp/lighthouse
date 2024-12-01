@@ -151,7 +151,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
     fn delete_while(
         &self,
         column: DBColumn,
-        f: impl Fn(&[u8]) -> Result<bool, Error>,
+        mut f: impl FnMut(&[u8]) -> Result<bool, Error>,
     ) -> Result<(), Error> {
         self.db.write().retain(|key, value| {
             if key.remove_column_variable(column).is_some() {

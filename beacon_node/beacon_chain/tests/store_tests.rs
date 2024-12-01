@@ -25,14 +25,11 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
-use store::chunked_vector::Chunk;
 use store::database::interface::BeaconNodeBackend;
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
-use store::KeyValueStore;
 use store::{
-    chunked_vector::{chunk_key, Field},
     iter::{BlockRootsIterator, StateRootsIterator},
-    BlobInfo, DBColumn, HotColdDB, KeyValueStoreOp, StoreConfig,
+    BlobInfo, DBColumn, HotColdDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use tokio::time::sleep;
