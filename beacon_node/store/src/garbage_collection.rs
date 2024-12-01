@@ -29,13 +29,10 @@ where
                 "Garbage collecting {} temporary states",
                 ops.len()
             );
-            let state_col: &str = DBColumn::BeaconState.into();
-            let summary_col: &str = DBColumn::BeaconStateSummary.into();
-            let temp_state_col: &str = DBColumn::BeaconStateTemporary.into();
 
-            self.delete_batch(state_col, ops.clone())?;
-            self.delete_batch(summary_col, ops.clone())?;
-            self.delete_batch(temp_state_col, ops)?;
+            self.delete_batch(DBColumn::BeaconState, ops.clone())?;
+            self.delete_batch(DBColumn::BeaconStateSummary, ops.clone())?;
+            self.delete_batch(DBColumn::BeaconStateTemporary, ops)?;
         }
 
         Ok(())

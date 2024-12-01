@@ -69,15 +69,19 @@ impl<E: EthSpec> LevelDB<E> {
 
     pub fn put_bytes_with_options(
         &self,
-        col: &str,
+        col: DBColumn,
         key: &[u8],
         val: &[u8],
         opts: WriteOptions,
     ) -> Result<(), Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[col]);
-        metrics::inc_counter_vec_by(&metrics::DISK_DB_WRITE_BYTES, &[col], val.len() as u64);
+        metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[col.into()]);
+        metrics::inc_counter_vec_by(
+            &metrics::DISK_DB_WRITE_BYTES,
+            &[col.into()],
+            val.len() as u64,
+        );
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
         self.db
@@ -89,23 +93,23 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     /// Store some `value` in `column`, indexed with `key`.
-    pub fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
+    pub fn put_bytes(&self, col: DBColumn, key: &[u8], val: &[u8]) -> Result<(), Error> {
         self.put_bytes_with_options(col, key, val, self.write_options())
     }
 
-    pub fn put_bytes_sync(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
+    pub fn put_bytes_sync(&self, col: DBColumn, key: &[u8], val: &[u8]) -> Result<(), Error> {
         self.put_bytes_with_options(col, key, val, self.write_options_sync())
     }
 
     pub fn sync(&self) -> Result<(), Error> {
-        self.put_bytes_sync("sync", b"sync", b"sync")
+        self.put_bytes_sync(DBColumn::Dummy, b"sync", b"sync")
     }
 
     // Retrieve some bytes in `column` with `key`.
-    pub fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+    pub fn get_bytes(&self, col: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[col]);
+        metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[col.into()]);
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
         self.db
@@ -115,7 +119,7 @@ impl<E: EthSpec> LevelDB<E> {
                 opt.inspect(|bytes| {
                     metrics::inc_counter_vec_by(
                         &metrics::DISK_DB_READ_BYTES,
-                        &[col],
+                        &[col.into()],
                         bytes.len() as u64,
                     );
                     metrics::stop_timer(timer);
@@ -124,10 +128,10 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     /// Return `true` if `key` exists in `column`.
-    pub fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
+    pub fn key_exists(&self, col: DBColumn, key: &[u8]) -> Result<bool, Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter_vec(&metrics::DISK_DB_EXISTS_COUNT, &[col]);
+        metrics::inc_counter_vec(&metrics::DISK_DB_EXISTS_COUNT, &[col.into()]);
 
         self.db
             .get(self.read_options(), BytesKey::from_vec(column_key))
@@ -136,10 +140,10 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     /// Removes `key` from `column`.
-    pub fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
+    pub fn key_delete(&self, col: DBColumn, key: &[u8]) -> Result<(), Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col]);
+        metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col.into()]);
 
         self.db
             .delete(self.write_options().into(), BytesKey::from_vec(column_key))
@@ -154,18 +158,18 @@ impl<E: EthSpec> LevelDB<E> {
                     let _timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
                     metrics::inc_counter_vec_by(
                         &metrics::DISK_DB_WRITE_BYTES,
-                        &[&col],
+                        &[col.into()],
                         value.len() as u64,
                     );
-                    metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[&col]);
-                    let column_key = get_key_for_col(&col, &key);
+                    metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[col.into()]);
+                    let column_key = get_key_for_col(col, &key);
                     leveldb_batch.put(BytesKey::from_vec(column_key), &value);
                 }
 
                 KeyValueStoreOp::DeleteKey(col, key) => {
                     let _timer = metrics::start_timer(&metrics::DISK_DB_DELETE_TIMES);
-                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[&col]);
-                    let column_key = get_key_for_col(&col, &key);
+                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col.into()]);
+                    let column_key = get_key_for_col(col, &key);
                     leveldb_batch.delete(BytesKey::from_vec(column_key));
                 }
             }
@@ -183,9 +187,9 @@ impl<E: EthSpec> LevelDB<E> {
         let _timer = metrics::start_timer(&metrics::DISK_DB_COMPACT_TIMES);
         let endpoints = |column: DBColumn| {
             (
-                BytesKey::from_vec(get_key_for_col(column.as_str(), Hash256::zero().as_slice())),
+                BytesKey::from_vec(get_key_for_col(column, Hash256::zero().as_slice())),
                 BytesKey::from_vec(get_key_for_col(
-                    column.as_str(),
+                    column,
                     Hash256::repeat_byte(0xff).as_slice(),
                 )),
             )
@@ -205,9 +209,9 @@ impl<E: EthSpec> LevelDB<E> {
     pub fn compact_column(&self, column: DBColumn) -> Result<(), Error> {
         // Use key-size-agnostic keys [] and 0xff..ff with a minimum of 32 bytes to account for
         // columns that may change size between sub-databases or schema versions.
-        let start_key = BytesKey::from_vec(get_key_for_col(column.as_str(), &[]));
+        let start_key = BytesKey::from_vec(get_key_for_col(column, &[]));
         let end_key = BytesKey::from_vec(get_key_for_col(
-            column.as_str(),
+            column,
             &vec![0xff; std::cmp::max(column.key_size(), 32)],
         ));
         self.db.compact(&start_key, &end_key);
@@ -220,7 +224,7 @@ impl<E: EthSpec> LevelDB<E> {
         from: &[u8],
         predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
     ) -> ColumnIter<K> {
-        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
+        let start_key = BytesKey::from_vec(get_key_for_col(column, from));
 
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
@@ -253,7 +257,7 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
-        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
+        let start_key = BytesKey::from_vec(get_key_for_col(column, from));
 
         let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
@@ -285,7 +289,7 @@ impl<E: EthSpec> LevelDB<E> {
         })
     }
 
-    pub fn delete_batch(&self, col: &str, ops: HashSet<&[u8]>) -> Result<(), Error> {
+    pub fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {
         let mut leveldb_batch = Writebatch::new();
         for op in ops {
             let column_key = get_key_for_col(col, op);

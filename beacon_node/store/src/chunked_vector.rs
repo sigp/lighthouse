@@ -680,7 +680,7 @@ where
         key: &[u8],
     ) -> Result<Option<Self>, Error> {
         store
-            .get_bytes(column.into(), key)?
+            .get_bytes(column, key)?
             .map(|bytes| Self::decode(&bytes))
             .transpose()
     }
@@ -691,9 +691,8 @@ where
         key: &[u8],
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        let column_name: &str = column.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
-            column_name.to_owned(),
+            column,
             key.to_vec(),
             self.encode()?,
         ));

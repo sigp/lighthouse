@@ -521,9 +521,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blinded_block: &SignedBeaconBlock<E, BlindedPayload<E>>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
-        let column_name: &str = DBColumn::BeaconBlock.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
-            column_name.to_owned(),
+            DBColumn::BeaconBlock,
             key.as_slice().into(),
             blinded_block.as_ssz_bytes(),
         ));
@@ -646,7 +645,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         decoder: impl FnOnce(&[u8]) -> Result<SignedBeaconBlock<E, Payload>, ssz::DecodeError>,
     ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
         self.hot_db
-            .get_bytes(DBColumn::BeaconBlock.into(), block_root.as_slice())?
+            .get_bytes(DBColumn::BeaconBlock, block_root.as_slice())?
             .map(|block_bytes| decoder(&block_bytes))
             .transpose()
             .map_err(|e| e.into())
@@ -659,10 +658,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block_root: &Hash256,
         fork_name: ForkName,
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
-        let column = ExecutionPayload::<E>::db_column().into();
         let key = block_root.as_slice();
 
-        match self.hot_db.get_bytes(column, key)? {
+        match self
+            .hot_db
+            .get_bytes(ExecutionPayload::<E>::db_column(), key)?
+        {
             Some(bytes) => Ok(Some(ExecutionPayload::from_ssz_bytes(&bytes, fork_name)?)),
             None => Ok(None),
         }
@@ -691,10 +692,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Option<MerkleProof>, Error> {
         let column = DBColumn::SyncCommitteeBranch;
 
-        if let Some(bytes) = self
-            .hot_db
-            .get_bytes(column.into(), &block_root.as_ssz_bytes())?
-        {
+        if let Some(bytes) = self.hot_db.get_bytes(column, &block_root.as_ssz_bytes())? {
             let sync_committee_branch = Vec::<Hash256>::from_ssz_bytes(&bytes)?;
             return Ok(Some(sync_committee_branch));
         }
@@ -711,7 +709,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if let Some(bytes) = self
             .hot_db
-            .get_bytes(column.into(), &sync_committee_period.as_ssz_bytes())?
+            .get_bytes(column, &sync_committee_period.as_ssz_bytes())?
         {
             let sync_committee: SyncCommittee<E> = SyncCommittee::from_ssz_bytes(&bytes)?;
             return Ok(Some(sync_committee));
@@ -727,7 +725,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         let column = DBColumn::SyncCommitteeBranch;
         self.hot_db.put_bytes(
-            column.into(),
+            column,
             &block_root.as_ssz_bytes(),
             &sync_committee_branch.as_ssz_bytes(),
         )?;
@@ -741,7 +739,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         let column = DBColumn::SyncCommittee;
         self.hot_db.put_bytes(
-            column.into(),
+            column,
             &sync_committee_period.to_le_bytes(),
             &sync_committee.as_ssz_bytes(),
         )?;
@@ -753,10 +751,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         sync_committee_period: u64,
     ) -> Result<Option<LightClientUpdate<E>>, Error> {
-        let column = DBColumn::LightClientUpdate;
-        let res = self
-            .hot_db
-            .get_bytes(column.into(), &sync_committee_period.to_le_bytes())?;
+        let res = self.hot_db.get_bytes(
+            DBColumn::LightClientUpdate,
+            &sync_committee_period.to_le_bytes(),
+        )?;
 
         if let Some(light_client_update_bytes) = res {
             let epoch = sync_committee_period
@@ -778,12 +776,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         start_period: u64,
         count: u64,
     ) -> Result<Vec<LightClientUpdate<E>>, Error> {
-        let column = DBColumn::LightClientUpdate;
         let mut light_client_updates = vec![];
         // TODO(modularize-backend) we are calculating sync committee period from ssz twice
         self.hot_db
             .iter_column_from::<Vec<u8>>(
-                column,
+                DBColumn::LightClientUpdate,
                 &start_period.to_le_bytes(),
                 move |sync_committee_bytes, _| {
                     let Ok(sync_committee_period) = u64::from_ssz_bytes(sync_committee_bytes)
@@ -836,10 +833,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         sync_committee_period: u64,
         light_client_update: &LightClientUpdate<E>,
     ) -> Result<(), Error> {
-        let column = DBColumn::LightClientUpdate;
-
         self.hot_db.put_bytes(
-            column.into(),
+            DBColumn::LightClientUpdate,
             &sync_committee_period.to_le_bytes(),
             &light_client_update.as_ssz_bytes(),
         )?;
@@ -850,29 +845,29 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Check if the blobs for a block exists on disk.
     pub fn blobs_exist(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.blobs_db
-            .key_exists(DBColumn::BeaconBlob.into(), block_root.as_slice())
+            .key_exists(DBColumn::BeaconBlob, block_root.as_slice())
     }
 
     /// Determine whether a block exists in the database.
     pub fn block_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.hot_db
-            .key_exists(DBColumn::BeaconBlock.into(), block_root.as_slice())
+            .key_exists(DBColumn::BeaconBlock, block_root.as_slice())
     }
 
     /// Delete a block from the store and the block cache.
     pub fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
         self.block_cache.lock().delete(block_root);
         self.hot_db
-            .key_delete(DBColumn::BeaconBlock.into(), block_root.as_slice())?;
+            .key_delete(DBColumn::BeaconBlock, block_root.as_slice())?;
         self.hot_db
-            .key_delete(DBColumn::ExecPayload.into(), block_root.as_slice())?;
+            .key_delete(DBColumn::ExecPayload, block_root.as_slice())?;
         self.blobs_db
-            .key_delete(DBColumn::BeaconBlob.into(), block_root.as_slice())
+            .key_delete(DBColumn::BeaconBlob, block_root.as_slice())
     }
 
     pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobSidecarList<E>) -> Result<(), Error> {
         self.blobs_db.put_bytes(
-            DBColumn::BeaconBlob.into(),
+            DBColumn::BeaconBlob,
             block_root.as_slice(),
             &blobs.as_ssz_bytes(),
         )?;
@@ -886,9 +881,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blobs: BlobSidecarList<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
-        let column_key: &str = DBColumn::BeaconBlob.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
-            column_key.to_owned(),
+            DBColumn::BeaconBlob,
             key.as_slice().to_vec(),
             blobs.as_ssz_bytes(),
         ));
@@ -901,9 +895,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         for data_column in data_columns {
-            let column: &str = DBColumn::BeaconDataColumn.into();
             ops.push(KeyValueStoreOp::PutKeyValue(
-                column.to_owned(),
+                DBColumn::BeaconDataColumn,
                 get_data_column_key(block_root, &data_column.index),
                 data_column.as_ssz_bytes(),
             ));
@@ -1218,25 +1211,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteStateTemporaryFlag(state_root) => {
-                    let column_name: &str = TemporaryFlag::db_column().into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        column_name.to_owned(),
+                        TemporaryFlag::db_column(),
                         state_root.as_slice().to_vec(),
                     ));
                 }
 
                 StoreOp::DeleteBlock(block_root) => {
-                    let column_name: &str = DBColumn::BeaconBlock.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        column_name.to_owned(),
+                        DBColumn::BeaconBlock,
                         block_root.as_slice().to_vec(),
                     ));
                 }
 
                 StoreOp::DeleteBlobs(block_root) => {
-                    let column_name: &str = DBColumn::BeaconBlob.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        column_name.to_owned(),
+                        DBColumn::BeaconBlob,
                         block_root.as_slice().to_vec(),
                     ));
                 }
@@ -1244,49 +1234,43 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::DeleteDataColumns(block_root, column_indices) => {
                     for index in column_indices {
                         let key = get_data_column_key(&block_root, &index);
-                        let column_name: &str = DBColumn::BeaconDataColumn.into();
                         key_value_batch
-                            .push(KeyValueStoreOp::DeleteKey(column_name.to_owned(), key));
+                            .push(KeyValueStoreOp::DeleteKey(DBColumn::BeaconDataColumn, key));
                     }
                 }
 
                 StoreOp::DeleteState(state_root, slot) => {
                     // Delete the hot state summary.
-                    let summary_column_name: &str = DBColumn::BeaconStateSummary.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        summary_column_name.to_owned(),
+                        DBColumn::BeaconStateSummary,
                         state_root.as_slice().to_vec(),
                     ));
 
                     // Delete the state temporary flag (if any). Temporary flags are commonly
                     // created by the state advance routine.
-                    let temporary_column_name: &str = DBColumn::BeaconStateTemporary.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        temporary_column_name.into(),
+                        DBColumn::BeaconStateTemporary,
                         state_root.as_slice().to_vec(),
                     ));
 
                     if slot.map_or(true, |slot| slot % E::slots_per_epoch() == 0) {
-                        let column_name: &str = DBColumn::BeaconState.into();
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                            column_name.to_owned(),
+                            DBColumn::BeaconState,
                             state_root.as_slice().to_vec(),
                         ));
                     }
                 }
 
                 StoreOp::DeleteExecutionPayload(block_root) => {
-                    let column_name: &str = DBColumn::ExecPayload.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        column_name.to_owned(),
+                        DBColumn::ExecPayload,
                         block_root.as_slice().to_vec(),
                     ));
                 }
 
                 StoreOp::DeleteSyncCommitteeBranch(block_root) => {
-                    let column_name: &str = DBColumn::SyncCommitteeBranch.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        column_name.to_owned(),
+                        DBColumn::SyncCommitteeBranch,
                         block_root.as_slice().to_vec(),
                     ));
                 }
@@ -1299,7 +1283,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(key_value_batch)
     }
 
-    pub fn delete_batch(&self, col: &str, ops: Vec<Hash256>) -> Result<(), Error> {
+    pub fn delete_batch(&self, col: DBColumn, ops: Vec<Hash256>) -> Result<(), Error> {
         let new_ops: HashSet<&[u8]> = ops.iter().map(|v| v.as_slice()).collect();
         self.hot_db.delete_batch(col, new_ops)
     }
@@ -1650,10 +1634,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         ops.push(ColdStateSummary { slot }.as_kv_store_op(*state_root));
-
-        let column: &str = DBColumn::BeaconStateRoots.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
-            column.to_owned(),
+            DBColumn::BeaconStateRoots,
             slot.as_u64().to_be_bytes().to_vec(),
             state_root.as_slice().to_vec(),
         ));
@@ -1721,9 +1703,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             out
         };
 
-        let column: &str = DBColumn::BeaconStateSnapshot.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
-            column.to_owned(),
+            DBColumn::BeaconStateSnapshot,
             state.slot().as_u64().to_be_bytes().to_vec(),
             compressed_value,
         ));
@@ -1731,10 +1712,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     fn load_cold_state_bytes_as_snapshot(&self, slot: Slot) -> Result<Option<Vec<u8>>, Error> {
-        match self.cold_db.get_bytes(
-            DBColumn::BeaconStateSnapshot.into(),
-            &slot.as_u64().to_be_bytes(),
-        )? {
+        match self
+            .cold_db
+            .get_bytes(DBColumn::BeaconStateSnapshot, &slot.as_u64().to_be_bytes())?
+        {
             Some(bytes) => {
                 let _timer =
                     metrics::start_timer(&metrics::STORE_BEACON_STATE_FREEZER_DECOMPRESS_TIME);
@@ -1775,9 +1756,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
         let diff_bytes = diff.as_ssz_bytes();
 
-        let column: &str = DBColumn::BeaconStateDiff.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
-            column.to_owned(),
+            DBColumn::BeaconStateDiff,
             state.slot().as_u64().to_be_bytes().to_vec(),
             diff_bytes,
         ));
@@ -1903,10 +1883,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let bytes = {
             let _t = metrics::start_timer(&metrics::BEACON_HDIFF_READ_TIMES);
             self.cold_db
-                .get_bytes(
-                    DBColumn::BeaconStateDiff.into(),
-                    &slot.as_u64().to_be_bytes(),
-                )?
+                .get_bytes(DBColumn::BeaconStateDiff, &slot.as_u64().to_be_bytes())?
                 .ok_or(HotColdDBError::MissingHDiff(slot))?
         };
         let hdiff = {
@@ -2099,7 +2076,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         match self
             .blobs_db
-            .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_slice())?
+            .get_bytes(DBColumn::BeaconBlob, block_root.as_slice())?
         {
             Some(ref blobs_bytes) => {
                 let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
@@ -2141,7 +2118,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         match self.blobs_db.get_bytes(
-            DBColumn::BeaconDataColumn.into(),
+            DBColumn::BeaconDataColumn,
             &get_data_column_key(block_root, column_index),
         )? {
             Some(ref data_column_bytes) => {
@@ -2199,10 +2176,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         schema_version: SchemaVersion,
         mut ops: Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        let column: &str = SchemaVersion::db_column().into();
         let key = SCHEMA_VERSION_KEY.as_slice();
         let op = KeyValueStoreOp::PutKeyValue(
-            column.to_owned(),
+            SchemaVersion::db_column(),
             key.to_vec(),
             schema_version.as_store_bytes(),
         );
@@ -2586,10 +2562,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block_root: Hash256,
     ) -> Result<Vec<KeyValueStoreOp>, Error> {
         let mut ops = vec![];
-        let column: &str = DBColumn::BeaconBlockRoots.into();
         for slot in start_slot.as_u64()..end_slot.as_u64() {
             ops.push(KeyValueStoreOp::PutKeyValue(
-                column.to_owned(),
+                DBColumn::BeaconBlockRoots,
                 slot.to_be_bytes().to_vec(),
                 block_root.as_slice().to_vec(),
             ));
@@ -2916,7 +2891,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for column in columns {
             for res in self.cold_db.iter_column_keys::<Vec<u8>>(column)? {
                 let key = res?;
-                cold_ops.push(KeyValueStoreOp::DeleteKey(column.as_str().to_owned(), key));
+                cold_ops.push(KeyValueStoreOp::DeleteKey(column, key));
             }
         }
         let delete_ops = cold_ops.len();
@@ -3042,7 +3017,6 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let column: &str = DBColumn::BeaconBlockRoots.into();
     // Then, iterate states in slot ascending order, as they are stored wrt previous states.
     for (block_root, state_root, slot) in state_roots.into_iter().rev() {
         // Delete the execution payload if payload pruning is enabled. At a skipped slot we may
@@ -3055,7 +3029,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
         // Store the slot to block root mapping.
         cold_db_block_ops.push(KeyValueStoreOp::PutKeyValue(
-            column.to_owned(),
+            DBColumn::BeaconBlockRoots,
             slot.as_u64().to_be_bytes().to_vec(),
             block_root.as_slice().to_vec(),
         ));

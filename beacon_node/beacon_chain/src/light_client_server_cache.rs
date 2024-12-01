@@ -274,11 +274,10 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         chain_spec: &ChainSpec,
         log: Logger,
     ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
-        let column = DBColumn::LightClientUpdate;
         let mut light_client_updates = vec![];
 
         let results = store.hot_db.iter_column_from::<Vec<u8>>(
-            column,
+            DBColumn::LightClientUpdate,
             &start_period.to_le_bytes(),
             move |sync_committee_bytes, _| match u64::from_ssz_bytes(sync_committee_bytes) {
                 Ok(sync_committee_period) => {

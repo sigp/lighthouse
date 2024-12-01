@@ -169,9 +169,8 @@ impl<E: EthSpec> PartialBeaconState<E> {
 
     /// Prepare the partial state for storage in the KV database.
     pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
-        let column_name: &str = DBColumn::BeaconState.into();
         KeyValueStoreOp::PutKeyValue(
-            column_name.to_owned(),
+            DBColumn::BeaconState,
             state_root.as_slice().to_vec(),
             self.as_ssz_bytes(),
         )

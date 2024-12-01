@@ -71,16 +71,20 @@ impl<E: EthSpec> Redb<E> {
 
     pub fn put_bytes_with_options(
         &self,
-        col: &str,
+        col: DBColumn,
         key: &[u8],
         val: &[u8],
         opts: WriteOptions,
     ) -> Result<(), Error> {
-        metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[col]);
-        metrics::inc_counter_vec_by(&metrics::DISK_DB_WRITE_BYTES, &[col], val.len() as u64);
+        metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[col.into()]);
+        metrics::inc_counter_vec_by(
+            &metrics::DISK_DB_WRITE_BYTES,
+            &[col.into()],
+            val.len() as u64,
+        );
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
         let open_db = self.db.read();
         let mut tx = open_db.begin_write()?;
         tx.set_durability(opts.into());
@@ -94,24 +98,24 @@ impl<E: EthSpec> Redb<E> {
     }
 
     /// Store some `value` in `column`, indexed with `key`.
-    pub fn put_bytes(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
+    pub fn put_bytes(&self, col: DBColumn, key: &[u8], val: &[u8]) -> Result<(), Error> {
         self.put_bytes_with_options(col, key, val, self.write_options())
     }
 
-    pub fn put_bytes_sync(&self, col: &str, key: &[u8], val: &[u8]) -> Result<(), Error> {
+    pub fn put_bytes_sync(&self, col: DBColumn, key: &[u8], val: &[u8]) -> Result<(), Error> {
         self.put_bytes_with_options(col, key, val, self.write_options_sync())
     }
 
     pub fn sync(&self) -> Result<(), Error> {
-        self.put_bytes_sync("sync", b"sync", b"sync")
+        self.put_bytes_sync(DBColumn::Dummy, b"sync", b"sync")
     }
 
     // Retrieve some bytes in `column` with `key`.
-    pub fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[col]);
+    pub fn get_bytes(&self, col: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[col.into()]);
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
         let open_db = self.db.read();
         let tx = open_db.begin_read()?;
         let table = tx.open_table(table_definition)?;
@@ -123,7 +127,7 @@ impl<E: EthSpec> Redb<E> {
                 let value = access_guard.value().to_vec();
                 metrics::inc_counter_vec_by(
                     &metrics::DISK_DB_READ_BYTES,
-                    &[col],
+                    &[col.into()],
                     value.len() as u64,
                 );
                 metrics::stop_timer(timer);
@@ -137,10 +141,10 @@ impl<E: EthSpec> Redb<E> {
     }
 
     /// Return `true` if `key` exists in `column`.
-    pub fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
-        metrics::inc_counter_vec(&metrics::DISK_DB_EXISTS_COUNT, &[col]);
+    pub fn key_exists(&self, col: DBColumn, key: &[u8]) -> Result<bool, Error> {
+        metrics::inc_counter_vec(&metrics::DISK_DB_EXISTS_COUNT, &[col.into()]);
 
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
         let open_db = self.db.read();
         let tx = open_db.begin_read()?;
         let table = tx.open_table(table_definition)?;
@@ -152,12 +156,12 @@ impl<E: EthSpec> Redb<E> {
     }
 
     /// Removes `key` from `column`.
-    pub fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
+    pub fn key_delete(&self, col: DBColumn, key: &[u8]) -> Result<(), Error> {
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
         let open_db = self.db.read();
         let tx = open_db.begin_write()?;
         let mut table = tx.open_table(table_definition)?;
-        metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col]);
+        metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col.into()]);
 
         table.remove(key).map(|_| ())?;
         drop(table);
@@ -174,12 +178,12 @@ impl<E: EthSpec> Redb<E> {
                     let _timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
                     metrics::inc_counter_vec_by(
                         &metrics::DISK_DB_WRITE_BYTES,
-                        &[&column],
+                        &[column.into()],
                         value.len() as u64,
                     );
-                    metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[&column]);
+                    metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[column.into()]);
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-                        TableDefinition::new(&column);
+                        TableDefinition::new(column.into());
 
                     let mut table = tx.open_table(table_definition)?;
                     table.insert(key.as_slice(), value.as_slice())?;
@@ -187,10 +191,10 @@ impl<E: EthSpec> Redb<E> {
                 }
 
                 KeyValueStoreOp::DeleteKey(column, key) => {
-                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[&column]);
+                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[column.into()]);
                     let _timer = metrics::start_timer(&metrics::DISK_DB_DELETE_TIMES);
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-                        TableDefinition::new(&column);
+                        TableDefinition::new(column.into());
 
                     let mut table = tx.open_table(table_definition)?;
                     table.remove(key.as_slice())?;
@@ -280,13 +284,13 @@ impl<E: EthSpec> Redb<E> {
         self.iter_column_from(column, &vec![0; column.key_size()], |_, _| true)
     }
 
-    pub fn delete_batch(&self, col: &str, ops: HashSet<&[u8]>) -> Result<(), Error> {
+    pub fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {
         let open_db = self.db.read();
         let mut tx = open_db.begin_write()?;
 
         tx.set_durability(redb::Durability::None);
 
-        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
 
         let mut table = tx.open_table(table_definition)?;
         table.retain(|key, _| !ops.contains(key))?;

@@ -148,10 +148,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
-            let column: &str = DBColumn::BeaconBlockRoots.into();
             for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
                 cold_batch.push(KeyValueStoreOp::PutKeyValue(
-                    column.to_owned(),
+                    DBColumn::BeaconBlockRoots,
                     slot.to_be_bytes().to_vec(),
                     block_root.as_slice().to_vec(),
                 ));
@@ -166,10 +165,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // completion.
             if expected_block_root == self.genesis_block_root {
                 let genesis_slot = self.spec.genesis_slot;
-                let column: &str = DBColumn::BeaconBlockRoots.into();
                 for slot in genesis_slot.as_u64()..prev_block_slot.as_u64() {
                     cold_batch.push(KeyValueStoreOp::PutKeyValue(
-                        column.to_owned(),
+                        DBColumn::BeaconBlockRoots,
                         slot.to_be_bytes().to_vec(),
                         self.genesis_block_root.as_slice().to_vec(),
                     ));
