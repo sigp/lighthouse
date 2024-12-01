@@ -62,7 +62,7 @@ check() {
     else
         cp $new_file $file
         changes=true
-        echo "$file is not found, it has just been created"
+        echo "$file was not found, it has just been created"
     fi
 
     if [[ -z $diff ]]; then # check for difference
