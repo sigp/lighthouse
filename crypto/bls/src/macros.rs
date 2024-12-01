@@ -20,7 +20,7 @@ macro_rules! impl_tree_hash {
             // but benchmarks have show that to be at least 15% slower because of the
             // unnecessary copying and allocation (one Vec per byte)
             let values_per_chunk = tree_hash::BYTES_PER_CHUNK;
-            let minimum_chunk_count = ($byte_size + values_per_chunk - 1) / values_per_chunk;
+            let minimum_chunk_count = $byte_size.div_ceil(values_per_chunk);
             tree_hash::merkle_root(&self.serialize(), minimum_chunk_count)
         }
     };

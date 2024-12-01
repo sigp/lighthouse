@@ -149,8 +149,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for FrozenForwardsIterator<'a, E, Hot, Cold>
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for FrozenForwardsIterator<'_, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot)>;
 
@@ -349,8 +349,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for HybridForwardsIterator<'a, E, Hot, Cold>
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for HybridForwardsIterator<'_, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot)>;
 

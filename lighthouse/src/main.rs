@@ -86,7 +86,7 @@ fn build_profile_name() -> String {
     std::env!("OUT_DIR")
         .split(std::path::MAIN_SEPARATOR)
         .nth_back(3)
-        .unwrap_or_else(|| "unknown")
+        .unwrap_or("unknown")
         .to_string()
 }
 

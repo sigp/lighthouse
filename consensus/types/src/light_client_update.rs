@@ -418,7 +418,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             return Ok(new_attested_header_slot < prev_attested_header_slot);
         }
 
-        return Ok(new.signature_slot() < self.signature_slot());
+        Ok(new.signature_slot() < self.signature_slot())
     }
 
     fn is_next_sync_committee_branch_empty<'a>(&'a self) -> bool {
