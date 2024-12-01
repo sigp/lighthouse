@@ -8,7 +8,7 @@ use tracing::Subscriber;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::layer::Context;
-use tracing_subscriber::Layer;
+use tracing_subscriber::{EnvFilter, Layer};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
@@ -155,5 +155,21 @@ pub fn create_libp2p_discv5_tracing_layer(
             discv5_non_blocking_writer,
             _discv5_guard,
         }
+    }
+}
+
+/// Return a tracing subscriber suitable for test usage.
+///
+/// By default no logs will be printed, but they can be enabled via
+/// the `test_logger` feature.  This feature can be enabled for any
+/// dependent crate by passing `--features logging/test_logger`, e.g.
+/// ```bash
+/// cargo test -p beacon_chain --features logging/test_logger
+/// ```
+pub fn create_test_tracing_subscriber() {
+    if cfg!(feature = "test_logger") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::try_new("debug").unwrap())
+            .try_init();
     }
 }

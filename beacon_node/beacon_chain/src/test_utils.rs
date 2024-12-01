@@ -32,6 +32,7 @@ pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Kzg, TrustedSetup};
+use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::Mutex;
@@ -647,6 +648,7 @@ where
     Cold: ItemStore<E>,
 {
     pub fn builder(eth_spec_instance: E) -> Builder<BaseHarnessType<E, Hot, Cold>> {
+        create_test_tracing_subscriber();
         Builder::new(eth_spec_instance)
     }
 

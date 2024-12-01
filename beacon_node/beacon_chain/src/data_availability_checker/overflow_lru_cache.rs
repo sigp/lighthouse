@@ -667,6 +667,7 @@ mod test {
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
+    use logging::create_test_tracing_subscriber;
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
@@ -853,6 +854,7 @@ mod test {
         E: EthSpec,
         T: BeaconChainTypes<HotStore = LevelDB<E>, ColdStore = LevelDB<E>, EthSpec = E>,
     {
+        create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_deneb_chain(&chain_db_path).await;
         let spec = harness.spec.clone();

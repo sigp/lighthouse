@@ -722,9 +722,12 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
+        use logging::create_test_tracing_subscriber;
         use types::{test_utils::generate_deterministic_keypair, MainnetEthSpec};
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
+            create_test_tracing_subscriber();
+
             let eth1_config = Eth1Config {
                 ..Eth1Config::default()
             };

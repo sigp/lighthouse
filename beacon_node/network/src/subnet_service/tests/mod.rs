@@ -93,15 +93,12 @@ pub fn recent_genesis_time() -> u64 {
         .as_secs()
 }
 
-fn get_tracing_subscriber(
-    log_level: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+fn get_tracing_subscriber(log_level: Option<&str>) {
     if let Some(level) = log_level {
-        return tracing_subscriber::fmt()
+        tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::try_new(level).unwrap())
-            .try_init();
-    } else {
-        Ok(())
+            .try_init()
+            .unwrap();
     }
 }
 

@@ -1007,6 +1007,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use logging::create_test_tracing_subscriber;
     use slot_clock::{ManualSlotClock, TestingSlotClock};
     use std::ops::Add;
     use std::sync::Arc;
@@ -1054,6 +1055,7 @@ mod tests {
     // See: https://github.com/sigp/lighthouse/issues/5504#issuecomment-2050930045
     #[tokio::test]
     async fn backfill_schedule_failed_should_reschedule() {
+        create_test_tracing_subscriber();
         let runtime = TestRuntime::default();
         let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(1);
         let (ready_work_tx, mut ready_work_rx) = mpsc::channel(1);

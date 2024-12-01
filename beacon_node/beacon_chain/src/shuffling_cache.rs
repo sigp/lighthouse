@@ -293,6 +293,7 @@ mod test {
     use types::*;
 
     use crate::test_utils::EphemeralHarnessType;
+    use logging::create_test_tracing_subscriber;
 
     use super::*;
 
@@ -303,6 +304,8 @@ mod test {
 
     // Creates a new shuffling cache for testing
     fn new_shuffling_cache() -> ShufflingCache {
+        create_test_tracing_subscriber();
+
         let current_epoch = 8;
         let head_shuffling_ids = BlockShufflingIds {
             current: shuffling_id(current_epoch),

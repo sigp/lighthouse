@@ -65,16 +65,13 @@ impl std::ops::DerefMut for Libp2pInstance {
 }
 
 #[allow(unused)]
-pub fn build_tracing_subscriber(
-    level: &str,
-    enabled: bool,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+pub fn build_tracing_subscriber(level: &str, enabled: bool) {
     if enabled {
-        return tracing_subscriber::fmt()
+        tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::try_new(level).unwrap())
-            .try_init();
+            .try_init()
+            .unwrap();
     }
-    Ok(())
 }
 
 pub fn build_config(mut boot_nodes: Vec<Enr>) -> Arc<NetworkConfig> {

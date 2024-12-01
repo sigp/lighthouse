@@ -10,6 +10,7 @@ use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use kzg::Kzg;
 
+use logging::create_test_tracing_subscriber;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -125,6 +126,7 @@ impl<E: EthSpec> MockServer<E> {
         config: MockExecutionConfig,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
+        create_test_tracing_subscriber();
         let MockExecutionConfig {
             jwt_key,
             terminal_difficulty,

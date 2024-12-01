@@ -15,6 +15,7 @@ use beacon_chain::{
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
+use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -54,6 +55,7 @@ fn get_store_generic(
     config: StoreConfig,
     spec: ChainSpec,
 ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+    create_test_tracing_subscriber();
     let hot_path = db_path.path().join("chain_db");
     let cold_path = db_path.path().join("freezer_db");
     let blobs_path = db_path.path().join("blobs_db");

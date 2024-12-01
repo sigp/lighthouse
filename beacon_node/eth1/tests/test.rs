@@ -4,6 +4,7 @@ use eth1::{Config, Eth1Endpoint, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{AnvilEth1Instance, Http, Middleware, Provider};
 use execution_layer::http::{deposit_methods::*, HttpJsonRpc, Log};
+use logging::create_test_tracing_subscriber;
 use merkle_proof::verify_merkle_proof;
 use sensitive_url::SensitiveUrl;
 use std::ops::Range;
@@ -18,6 +19,7 @@ use types::{
 const DEPOSIT_CONTRACT_TREE_DEPTH: usize = 32;
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
+    create_test_tracing_subscriber();
     EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
@@ -97,6 +99,7 @@ mod eth1_cache {
 
     #[tokio::test]
     async fn simple_scenario() {
+        create_test_tracing_subscriber();
         async {
             for follow_distance in 0..3 {
                 let eth1 = new_anvil_instance()
@@ -177,6 +180,7 @@ mod eth1_cache {
 
     #[tokio::test]
     async fn big_skip() {
+        create_test_tracing_subscriber();
         async {
             let eth1 = new_anvil_instance()
                 .await
@@ -229,6 +233,7 @@ mod eth1_cache {
     /// cache size.
     #[tokio::test]
     async fn pruning() {
+        create_test_tracing_subscriber();
         async {
             let eth1 = new_anvil_instance()
                 .await
@@ -278,6 +283,7 @@ mod eth1_cache {
 
     #[tokio::test]
     async fn double_update() {
+        create_test_tracing_subscriber();
         async {
             let n = 16;
 
@@ -328,6 +334,7 @@ mod deposit_tree {
 
     #[tokio::test]
     async fn updating() {
+        create_test_tracing_subscriber();
         async {
             let n = 4;
 
@@ -406,6 +413,7 @@ mod deposit_tree {
 
     #[tokio::test]
     async fn double_update() {
+        create_test_tracing_subscriber();
         async {
             let n = 8;
 
@@ -665,6 +673,7 @@ mod fast {
     // with the deposit count and root computed from the deposit cache.
     #[tokio::test]
     async fn deposit_cache_query() {
+        create_test_tracing_subscriber();
         async {
             let eth1 = new_anvil_instance()
                 .await
@@ -745,6 +754,7 @@ mod persist {
     use super::*;
     #[tokio::test]
     async fn test_persist_caches() {
+        create_test_tracing_subscriber();
         async {
             let eth1 = new_anvil_instance()
                 .await

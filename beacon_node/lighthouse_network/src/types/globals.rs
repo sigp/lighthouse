@@ -198,10 +198,12 @@ impl<E: EthSpec> NetworkGlobals<E> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use logging::create_test_tracing_subscriber;
     use types::{Epoch, EthSpec, MainnetEthSpec as E};
 
     #[test]
     fn test_sampling_subnets() {
+        create_test_tracing_subscriber();
         let mut spec = E::default_spec();
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 
@@ -224,6 +226,7 @@ mod test {
 
     #[test]
     fn test_sampling_columns() {
+        create_test_tracing_subscriber();
         let mut spec = E::default_spec();
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 

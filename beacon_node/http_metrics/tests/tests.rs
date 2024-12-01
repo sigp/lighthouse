@@ -1,5 +1,6 @@
 use beacon_chain::test_utils::EphemeralHarnessType;
 use http_metrics::Config;
+use logging::create_test_tracing_subscriber;
 use reqwest::header::HeaderValue;
 use reqwest::StatusCode;
 use std::net::{IpAddr, Ipv4Addr};
@@ -11,6 +12,7 @@ type Context = http_metrics::Context<EphemeralHarnessType<MainnetEthSpec>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn returns_200_ok() {
+    create_test_tracing_subscriber();
     async {
         let context = Arc::new(Context {
             config: Config {

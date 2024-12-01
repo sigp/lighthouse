@@ -209,12 +209,14 @@ mod tests {
     use crate::rpc::{Ping, Protocol, RequestType};
     use crate::service::api_types::{AppRequestId, RequestId, SyncRequestId};
     use libp2p::PeerId;
+    use logging::create_test_tracing_subscriber;
     use std::time::Duration;
     use types::MainnetEthSpec;
 
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
     async fn test_next_peer_request_ready() {
+        create_test_tracing_subscriber();
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
             ping_quota: Quota::n_every(1, 2),
             ..Default::default()

@@ -7,6 +7,7 @@ edition = { workspace = true }
 [dev-dependencies]
 eth1_test_rig = { workspace = true }
 sensitive_url = { workspace = true }
+logging = { workspace = true }
 
 [dependencies]
 futures = { workspace = true }

@@ -3395,6 +3395,7 @@ dependencies = [
  "ethereum_ssz",
  "futures",
  "int_to_bytes",
+ "logging",
  "merkle_proof",
  "rayon",
  "sensitive_url",
