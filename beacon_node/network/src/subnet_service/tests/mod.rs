@@ -225,7 +225,7 @@ mod test {
         let mut committee_count = 1;
         let mut subnet = Subnet::Attestation(
             SubnetId::compute_subnet::<MainnetEthSpec>(
-                current_slot,
+                subscription_slot,
                 committee_index,
                 committee_count,
                 &subnet_service.beacon_chain.spec,
@@ -250,7 +250,7 @@ mod test {
 
         let subscriptions = vec![get_subscription(
             committee_index,
-            current_slot,
+            subscription_slot,
             committee_count,
             true,
         )];
