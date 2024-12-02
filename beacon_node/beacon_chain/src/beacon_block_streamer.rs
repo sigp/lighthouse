@@ -265,7 +265,7 @@ impl<E: EthSpec> BodiesByRange<E> {
                 Err(e) => {
                     let block_result =
                         Arc::new(Err(Error::BlocksByRangeFailure(Box::new(e)).into()));
-                    debug!(error = ?block_result,"Payload bodies by range failure");
+                    debug!(error = ?block_result, "Payload bodies by range failure");
                     for block_parts in block_parts_vec {
                         block_map.insert(block_parts.root(), block_result.clone());
                     }
