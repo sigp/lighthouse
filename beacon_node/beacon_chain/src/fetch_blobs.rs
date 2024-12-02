@@ -50,7 +50,6 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
-
     let versioned_hashes = if let Some(kzg_commitments) = block
         .message()
         .body()
