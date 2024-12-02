@@ -20,6 +20,7 @@ use account_utils::{
 };
 pub use api_secret::ApiSecret;
 use beacon_node_fallback::CandidateInfo;
+use core::convert::Infallible;
 use create_validator::{
     create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
 };
@@ -27,12 +28,13 @@ use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{
         self as api_types, GenericResponse, GetGraffitiResponse, Graffiti, PublicKey,
-        PublicKeyBytes, SetGraffitiRequest,
+        PublicKeyBytes, SetGraffitiRequest, UpdateCandidatesRequest, UpdateCandidatesResponse,
     },
 };
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
+use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -49,7 +51,8 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use validator_services::block_service::BlockService;
-use warp::{sse::Event, Filter};
+use warp::{reply::Response, sse::Event, Filter};
+use warp_utils::reject::convert_rejection;
 use warp_utils::task::blocking_json_task;
 
 #[derive(Debug)]
@@ -99,6 +102,7 @@ pub struct Config {
     pub allow_origin: Option<String>,
     pub allow_keystore_export: bool,
     pub store_passwords_in_secrets_dir: bool,
+    pub bn_long_timeouts: bool,
 }
 
 impl Default for Config {
@@ -110,6 +114,7 @@ impl Default for Config {
             allow_origin: None,
             allow_keystore_export: false,
             store_passwords_in_secrets_dir: false,
+            bn_long_timeouts: false,
         }
     }
 }
@@ -136,6 +141,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let config = &ctx.config;
     let allow_keystore_export = config.allow_keystore_export;
     let store_passwords_in_secrets_dir = config.store_passwords_in_secrets_dir;
+    let use_long_timeouts = config.bn_long_timeouts;
     let log = ctx.log.clone();
 
     // Configure CORS.
@@ -835,6 +841,57 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
+    // POST /lighthouse/update_beacon_nodes
+    let post_lighthouse_update_beacon_nodes = warp::path("lighthouse")
+        .and(warp::path("update_beacon_nodes"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(block_service_filter.clone())
+        .then(
+            move |request: UpdateCandidatesRequest, block_service: BlockService<T, E>| async move {
+                async fn parse_urls(urls: &[String]) -> Result<Vec<SensitiveUrl>, Response> {
+                    match urls
+                        .iter()
+                        .map(|url| SensitiveUrl::parse(url).map_err(|e| e.to_string()))
+                        .collect()
+                    {
+                        Ok(sensitive_urls) => Ok(sensitive_urls),
+                        Err(_) => Err(convert_rejection::<Infallible>(Err(
+                            warp_utils::reject::custom_bad_request(
+                                "one or more urls could not be parsed".to_string(),
+                            ),
+                        ))
+                        .await),
+                    }
+                }
+
+                let beacons: Vec<SensitiveUrl> = match parse_urls(&request.beacon_nodes).await {
+                    Ok(new_beacons) => {
+                        match block_service
+                            .beacon_nodes
+                            .update_candidates_list(new_beacons, use_long_timeouts)
+                            .await
+                        {
+                            Ok(beacons) => beacons,
+                            Err(e) => {
+                                return convert_rejection::<Infallible>(Err(
+                                    warp_utils::reject::custom_bad_request(e.to_string()),
+                                ))
+                                .await
+                            }
+                        }
+                    }
+                    Err(e) => return e,
+                };
+
+                let response: UpdateCandidatesResponse = UpdateCandidatesResponse {
+                    new_beacon_nodes_list: beacons.iter().map(|surl| surl.to_string()).collect(),
+                };
+
+                blocking_json_task(move || Ok(api_types::GenericResponse::from(response))).await
+            },
+        );
+
     // Standard key-manager endpoints.
     let eth_v1 = warp::path("eth").and(warp::path("v1"));
     let std_keystores = eth_v1.and(warp::path("keystores")).and(warp::path::end());
@@ -1322,6 +1379,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_std_keystores)
                         .or(post_std_remotekeys)
                         .or(post_graffiti)
+                        .or(post_lighthouse_update_beacon_nodes)
                         .recover(warp_utils::reject::handle_rejection),
                 ))
                 .or(warp::patch()

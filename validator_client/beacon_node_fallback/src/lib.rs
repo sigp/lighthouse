@@ -465,13 +465,13 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// Update the list of candidates with a new list.
     /// Returns `Ok(new_list)` if the update was successful.
     /// Returns `Err(some_err)` if the list is empty.
-    pub async fn replace_candidates(
+    pub async fn update_candidates_list(
         &self,
         new_list: Vec<SensitiveUrl>,
         use_long_timeouts: bool,
     ) -> Result<Vec<SensitiveUrl>, String> {
         if new_list.is_empty() {
-            return Err("Beacon Node list cannot be empty".to_string());
+            return Err("list cannot be empty".to_string());
         }
 
         let timeouts: Timeouts = if new_list.len() == 1 || use_long_timeouts {

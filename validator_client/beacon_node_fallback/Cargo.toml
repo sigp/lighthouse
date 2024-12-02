@@ -20,3 +20,4 @@ strum = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
+sensitive_url = { workspace = true }

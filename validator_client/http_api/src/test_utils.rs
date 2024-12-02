@@ -177,6 +177,7 @@ impl ApiTester {
             allow_origin: None,
             allow_keystore_export: true,
             store_passwords_in_secrets_dir: false,
+            bn_long_timeouts: false,
         }
     }
 
