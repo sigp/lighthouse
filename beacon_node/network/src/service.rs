@@ -1,10 +1,10 @@
+use crate::metrics;
 use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
 use crate::NetworkConfig;
-use crate::{error, metrics};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::BeaconProcessorSend;
 use futures::channel::mpsc::Sender;
@@ -207,11 +207,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-    ) -> error::Result<(
-        NetworkService<T>,
-        Arc<NetworkGlobals<T::EthSpec>>,
-        NetworkSenders<T::EthSpec>,
-    )> {
+    ) -> Result<
+        (
+            NetworkService<T>,
+            Arc<NetworkGlobals<T::EthSpec>>,
+            NetworkSenders<T::EthSpec>,
+        ),
+        String,
+    > {
         let network_log = executor.log().clone();
         // build the channels for external comms
         let (network_senders, network_receivers) = NetworkSenders::new();
@@ -364,7 +367,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
+    ) -> Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>), String> {
         let (network_service, network_globals, network_senders) = Self::build(
             beacon_chain,
             config,
