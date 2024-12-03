@@ -61,7 +61,7 @@ impl GossipPromises {
         }
     }
 
-    /// Remove promises for a given peer and message ID combination. 
+    /// Remove promises for a given peer and message ID combination.
     pub(crate) fn remove_promise(&mut self, peer: &PeerId, message_id: &MessageId) {
         if let Some(promises) = self.promises.get_mut(message_id) {
             promises.retain(|peer_id, _| peer_id != peer);

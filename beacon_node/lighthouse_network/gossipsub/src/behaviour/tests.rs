@@ -5488,32 +5488,32 @@ fn clear_stale_idontwant() {
 fn test_remove_promises() {
     // Create a new empty GossipPromises instance using the Default trait.
     let mut promises = GossipPromises::default();
-    
+
     // Create two unique random peer IDs for testing.
     let peer1 = PeerId::random();
     let peer2 = PeerId::random();
     let message_id = MessageId::new(b"test_message");
     let expiry = Instant::now() + Duration::from_secs(60);
-    
+
     // Test 1: Remove promise from empty state.
     promises.remove_promise(&peer1, &message_id);
     // Verify the message ID doesn't exist in promises (should be safe on empty state).
     assert!(!promises.contains(&message_id));
-    
+
     // Test 2: Remove promise when peer is the only one for a message.
     promises.add_promise(peer1, &[message_id.clone()], expiry);
     assert!(promises.contains(&message_id));
     promises.remove_promise(&peer1, &message_id);
     assert!(!promises.contains(&message_id));
-    
-    // Test 3: Remove a peer's promise while retaining another promise. 
+
+    // Test 3: Remove a peer's promise while retaining another promise.
     promises.add_promise(peer1, &[message_id.clone()], expiry);
     promises.add_promise(peer2, &[message_id.clone()], expiry);
     promises.remove_promise(&peer1, &message_id);
     assert!(promises.contains(&message_id));
     assert!(!promises.peers_for_message(&message_id).contains(&peer1));
     assert!(promises.peers_for_message(&message_id).contains(&peer2));
-    
+
     // Test 4: Remove non-existent peer from existing message
     let non_existent_peer = PeerId::random();
     promises.remove_promise(&non_existent_peer, &message_id);
@@ -5524,9 +5524,7 @@ fn test_remove_promises() {
 //Test that an IWANT promise is removed when a message is received
 #[test]
 fn test_promise_removal_on_message_received() {
-    let config = ConfigBuilder::default()
-        .build()
-        .expect("Valid config");
+    let config = ConfigBuilder::default().build().expect("Valid config");
 
     let (mut gs, peers, _receivers, topics) = inject_nodes1()
         .peer_no(1)
@@ -5538,16 +5536,24 @@ fn test_promise_removal_on_message_received() {
     // Create test message
     let mut seq = 0;
     let raw_message = random_message(&mut seq, &topics);
-    let message = gs.data_transform.inbound_transform(raw_message.clone())
+    let message = gs
+        .data_transform
+        .inbound_transform(raw_message.clone())
         .expect("Valid message transform");
     let message_id = config.message_id(&message);
 
     // Simulate IHAVE/IWANT exchange
-    gs.handle_ihave(&peers[0], vec![(topics[0].clone(), vec![message_id.clone()])]);
+    gs.handle_ihave(
+        &peers[0],
+        vec![(topics[0].clone(), vec![message_id.clone()])],
+    );
 
     // Verify promise was created
     assert!(gs.gossip_promises.contains(&message_id));
-    assert!(gs.gossip_promises.peers_for_message(&message_id).contains(&peers[0]));
+    assert!(gs
+        .gossip_promises
+        .peers_for_message(&message_id)
+        .contains(&peers[0]));
 
     // Receive message
     gs.handle_received_message(raw_message, &peers[0]);
@@ -5561,39 +5567,43 @@ fn test_promise_removal_on_message_received() {
 #[test]
 fn test_promise_removal_on_idontwant_sent() {
     let config = ConfigBuilder::default()
-    .build()
-    .expect("Failed to build config");
-    
-let (mut gs, peers, _receivers, topic_hashes) = inject_nodes1()
-    .peer_no(1)
-    .topics(vec![String::from("topic1")])
-    .to_subscribe(true)
-    .gs_config(config.clone())
-    .explicit(1)
-    .peer_kind(PeerKind::Gossipsubv1_2)
-    .create_network();
+        .build()
+        .expect("Failed to build config");
 
-let message = RawMessage {
-    source: Some(peers[0]),
-    data: vec![12u8; 1024],
-    sequence_number: Some(0),
-    topic: topic_hashes[0].clone(),
-    signature: None,
-    key: None,
-    validated: true,
-};
+    let (mut gs, peers, _receivers, topic_hashes) = inject_nodes1()
+        .peer_no(1)
+        .topics(vec![String::from("topic1")])
+        .to_subscribe(true)
+        .gs_config(config.clone())
+        .explicit(1)
+        .peer_kind(PeerKind::Gossipsubv1_2)
+        .create_network();
 
-// Get the message ID
-let transformed_message = gs.data_transform.inbound_transform(message.clone())
-    .expect("Failed message transform");
-let message_id = config.message_id(&transformed_message);
+    let message = RawMessage {
+        source: Some(peers[0]),
+        data: vec![12u8; 1024],
+        sequence_number: Some(0),
+        topic: topic_hashes[0].clone(),
+        signature: None,
+        key: None,
+        validated: true,
+    };
 
-// Create and verify promise
-gs.handle_ihave(&peers[0], vec![(topic_hashes[0].clone(), vec![message_id.clone()])]);
-assert!(gs.gossip_promises.contains(&message_id));
+    // Get the message ID
+    let transformed_message = gs
+        .data_transform
+        .inbound_transform(message.clone())
+        .expect("Failed message transform");
+    let message_id = config.message_id(&transformed_message);
 
-// Handle message and verify promise removed
-gs.handle_received_message(message, &PeerId::random());
-assert!(!gs.gossip_promises.contains(&message_id)); 
-  
+    // Create and verify promise
+    gs.handle_ihave(
+        &peers[0],
+        vec![(topic_hashes[0].clone(), vec![message_id.clone()])],
+    );
+    assert!(gs.gossip_promises.contains(&message_id));
+
+    // Handle message and verify promise removed
+    gs.handle_received_message(message, &PeerId::random());
+    assert!(!gs.gossip_promises.contains(&message_id));
 }
