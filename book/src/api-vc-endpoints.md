@@ -18,6 +18,7 @@
 | [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic. |
 | [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators. |
 | [`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs |
+| [`GET /lighthouse/beacon/health`](#get-lighthousebeaconhealth) | Get health information for each connected beacon node. |
 
 The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md).
 
@@ -814,5 +815,50 @@ logs emitted are INFO level or higher.
 	  "available": 1,
 	  "total": 1
   }
+}
+```
+
+## `GET /lighthouse/beacon/health`
+
+Provides information about the sync status and execution layer health of each connected beacon node.
+For more inormation about how to interpret the beacon node health, see [Fallback Health](./redundancy.md#fallback-health).
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/beacon/health`                |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200, 400                                   |
+
+### Example Response Body
+
+```json
+{
+    "data": {
+        "beacon_nodes": [
+            {
+                "index": 0,
+                "endpoint": "http://localhost:5052",
+                "health": {
+                    "user_index": 0,
+                    "head": 10500000,
+                    "optimistic_status": "No",
+                    "execution_status": "Healthy",
+                    "health_tier": {
+                        "tier": 1,
+                        "sync_distance": 0,
+                        "distance_tier": "Synced"
+                    }
+                }
+            },
+            {
+                "index": 1,
+                "endpoint": "http://fallbacks-r.us",
+                "health": "Offline"
+            }
+        ]
+    }
 }
 ```
