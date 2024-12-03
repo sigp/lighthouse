@@ -432,6 +432,10 @@ pub fn get_config<E: EthSpec>(
         warn!(log, "The slots-per-restore-point flag is deprecated");
     }
 
+    if let Some(backend) = clap_utils::parse_optional(cli_args, "beacon-node-backend")? {
+        client_config.store.backend = backend;
+    }
+
     if let Some(hierarchy_config) = clap_utils::parse_optional(cli_args, "hierarchy-exponents")? {
         client_config.store.hierarchy_config = hierarchy_config;
     }
