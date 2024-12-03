@@ -552,6 +552,7 @@ For more information about the split point, see the [Database Configuration](./a
 docs.
 
 For archive nodes, the `anchor` will be:
+
 ```json
 "anchor": {
     "anchor_slot": "0",
@@ -561,6 +562,7 @@ For archive nodes, the `anchor` will be:
     "state_lower_limit": "0"
   },
 ```
+
 indicating that all states with slots `>= 0` are available, i.e., full state history. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
 Sync](./checkpoint-sync.md#reconstructing-states).
