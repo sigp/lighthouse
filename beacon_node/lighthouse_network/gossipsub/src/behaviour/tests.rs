@@ -2965,7 +2965,7 @@ fn test_do_not_flood_publish_to_peer_below_publish_threshold() {
             let priority = c.priority.into_inner();
             while !priority.is_empty() {
                 if let Ok(RpcOut::Publish { message, .. }) = priority.try_recv() {
-                    collected_publish.push((peer_id, message));
+                    collected_publish.push((peer_id, message))
                 }
             }
             collected_publish
@@ -5486,47 +5486,38 @@ fn clear_stale_idontwant() {
 // Test promise removal function does not clear promises for other peers
 #[test]
 fn test_remove_promises() {
-    // Create a new empty GossipPromises instance using the Default trait
+    // Create a new empty GossipPromises instance using the Default trait.
     let mut promises = GossipPromises::default();
     
-    // Create two unique random peer IDs for testing
+    // Create two unique random peer IDs for testing.
     let peer1 = PeerId::random();
     let peer2 = PeerId::random();
-    // Create a test message ID from a byte slice
     let message_id = MessageId::new(b"test_message");
-    // Create an expiry time 60 seconds from now
     let expiry = Instant::now() + Duration::from_secs(60);
     
-    // Test 1: Remove promise from empty state
+    // Test 1: Remove promise from empty state.
     promises.remove_promise(&peer1, &message_id);
-    // Verify the message ID doesn't exist in promises (should be safe on empty state)
+    // Verify the message ID doesn't exist in promises (should be safe on empty state).
     assert!(!promises.contains(&message_id));
     
-    // Test 2: Remove promise when peer is the only one for a message
+    // Test 2: Remove promise when peer is the only one for a message.
     promises.add_promise(peer1, &[message_id.clone()], expiry);
     assert!(promises.contains(&message_id));
     promises.remove_promise(&peer1, &message_id);
     assert!(!promises.contains(&message_id));
     
-    // Test 3: Remove one peer's promise while keeping another's
+    // Test 3: Remove a peer's promise while retaining another promise. 
     promises.add_promise(peer1, &[message_id.clone()], expiry);
     promises.add_promise(peer2, &[message_id.clone()], expiry);
     promises.remove_promise(&peer1, &message_id);
-    // Message should still exist because peer2's promise remains
     assert!(promises.contains(&message_id));
-    // Verify peer1 was removed from the promises for this message
     assert!(!promises.peers_for_message(&message_id).contains(&peer1));
-    // Verify peer2's promise still exists
     assert!(promises.peers_for_message(&message_id).contains(&peer2));
     
     // Test 4: Remove non-existent peer from existing message
-    // Create another random peer ID that has no promises
     let non_existent_peer = PeerId::random();
-    // Try to remove a promise for this peer (should have no effect)
     promises.remove_promise(&non_existent_peer, &message_id);
-    // Verify the message still exists
     assert!(promises.contains(&message_id));
-    // Verify peer2's promise wasn't affected
     assert!(promises.peers_for_message(&message_id).contains(&peer2));
 }
 
