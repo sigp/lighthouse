@@ -61,6 +61,17 @@ impl GossipPromises {
         }
     }
 
+    /// Remove promises for a given peer and message ID combination. 
+    pub(crate) fn remove_promise(&mut self, peer: &PeerId, message_id: &MessageId) {
+        if let Some(promises) = self.promises.get_mut(message_id) {
+            promises.retain(|peer_id, _| peer_id != peer);
+            // Clean up empty promises
+            if promises.is_empty() {
+                self.promises.remove(message_id);
+            }
+        }
+    }
+
     pub(crate) fn message_delivered(&mut self, message_id: &MessageId) {
         // Someone delivered a message, we can stop tracking all promises for it.
         self.promises.remove(message_id);

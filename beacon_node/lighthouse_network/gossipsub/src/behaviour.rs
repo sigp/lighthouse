@@ -1844,6 +1844,9 @@ where
 
         // Broadcast IDONTWANT messages
         if raw_message.raw_protobuf_len() > self.config.idontwant_message_size_threshold() {
+            // Clear any pending promises for this message
+            self.gossip_promises.remove_promise(propagation_source, &msg_id);
+            // Send the IDONTWANT message to peers
             self.send_idontwant(&raw_message, &msg_id, Some(propagation_source));
         }
 
@@ -2729,7 +2732,7 @@ where
         let Some(mesh_peers) = self.mesh.get(&message.topic) else {
             return;
         };
-
+        // Get the peers that we previously sent an IWANT to.
         let iwant_peers = self.gossip_promises.peers_for_message(msg_id);
 
         let recipient_peers = mesh_peers
@@ -2750,6 +2753,9 @@ where
             if peer.kind != PeerKind::Gossipsubv1_2 {
                 continue;
             }
+
+            // Remove any pending promises for this message from this peer.
+            self.gossip_promises.remove_promise(peer_id, msg_id);
 
             if peer
                 .sender
