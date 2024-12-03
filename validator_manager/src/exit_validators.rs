@@ -229,11 +229,22 @@ mod test {
         }
 
         async fn with_validators(mut self, index_of_validators_to_exit: usize) -> Self {
-            let mut builder = ImportTestBuilder::new_with_http_config_and_spec(
+            // Ensure genesis validators root matches the beacon node.
+            let genesis_validators_root = self
+                .beacon_node
+                .harness
+                .get_current_state()
+                .genesis_validators_root();
+            // And use a single slot clock for BN and VC to keep things simple.
+            let slot_clock = self.beacon_node.harness.chain.slot_clock.clone();
+            let vc = ApiTester::new_with_options(
                 self.http_config.clone(),
+                slot_clock,
+                genesis_validators_root,
                 self.spec.clone(),
             )
             .await;
+            let mut builder = ImportTestBuilder::new_with_vc(vc).await;
 
             println!("Validator client spec: {:?}", builder.vc.spec);
 

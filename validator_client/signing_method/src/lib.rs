@@ -96,6 +96,7 @@ pub enum SigningMethod {
 
 /// The additional information used to construct a signature. Mostly used for protection from replay
 /// attacks.
+#[derive(Debug)]
 pub struct SigningContext {
     pub domain: Domain,
     pub epoch: Epoch,

@@ -385,13 +385,10 @@ pub mod tests {
     use std::{
         fs::{self, File},
         str::FromStr,
-        sync::Arc,
     };
     use tempfile::{tempdir, TempDir};
     use types::*;
     use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
-
-    type E = MainnetEthSpec;
 
     const VC_TOKEN_FILE_NAME: &str = "vc_token.json";
 
@@ -410,15 +407,12 @@ pub mod tests {
         }
 
         pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-            Self::new_with_http_config_and_spec(http_config, Arc::new(E::default_spec())).await
+            let vc = ApiTester::new_with_http_config(http_config).await;
+            Self::new_with_vc(vc).await
         }
 
-        pub async fn new_with_http_config_and_spec(
-            http_config: HttpConfig,
-            spec: Arc<ChainSpec>,
-        ) -> Self {
+        pub async fn new_with_vc(vc: ApiTester) -> Self {
             let dir = tempdir().unwrap();
-            let vc = ApiTester::new_with_http_config_and_spec(http_config, spec).await;
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
             fs::write(&vc_token_path, &vc.api_token).unwrap();
 

@@ -71,12 +71,17 @@ impl ApiTester {
     }
 
     pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+        let genesis_validators_root = Hash256::repeat_byte(42);
         let spec = Arc::new(E::default_spec());
-        Self::new_with_http_config_and_spec(http_config, spec).await
+        Self::new_with_options(http_config, slot_clock, genesis_validators_root, spec).await
     }
 
-    pub async fn new_with_http_config_and_spec(
+    pub async fn new_with_options(
         http_config: HttpConfig,
+        slot_clock: TestingSlotClock,
+        genesis_validators_root: Hash256,
         spec: Arc<ChainSpec>,
     ) -> Self {
         let log = test_logger();
@@ -106,15 +111,12 @@ impl ApiTester {
         let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let slot_clock =
-            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-
         let test_runtime = TestRuntime::default();
 
         let validator_store = Arc::new(ValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
-            Hash256::repeat_byte(42),
+            genesis_validators_root,
             spec.clone(),
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock.clone(),
