@@ -841,9 +841,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
-    // POST /lighthouse/update_beacon_nodes
-    let post_lighthouse_update_beacon_nodes = warp::path("lighthouse")
-        .and(warp::path("update_beacon_nodes"))
+    // POST /lighthouse/beacon/update
+    let post_lighthouse_beacon_update = warp::path("lighthouse")
+        .and(warp::path("beacon"))
+        .and(warp::path("update"))
         .and(warp::path::end())
         .and(warp::body::json())
         .and(block_service_filter.clone())
@@ -1379,7 +1380,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_std_keystores)
                         .or(post_std_remotekeys)
                         .or(post_graffiti)
-                        .or(post_lighthouse_update_beacon_nodes)
+                        .or(post_lighthouse_beacon_update)
                         .recover(warp_utils::reject::handle_rejection),
                 ))
                 .or(warp::patch()
