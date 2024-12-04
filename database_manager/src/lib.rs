@@ -42,7 +42,7 @@ fn parse_client_config<E: EthSpec>(
         .clone_from(&database_manager_config.blobs_dir);
     client_config.store.blob_prune_margin_epochs = database_manager_config.blob_prune_margin_epochs;
     client_config.store.hierarchy_config = database_manager_config.hierarchy_exponents.clone();
-    client_config.store.backend = database_manager_config.beacon_node_backend;
+    client_config.store.backend = database_manager_config.backend;
     Ok(client_config)
 }
 
