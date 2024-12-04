@@ -41,6 +41,8 @@ use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidec
 use types::*;
 use zstd::{Decoder, Encoder};
 
+const HISTORICAL_BLOB_BATCH_SIZE: usize = 1000;
+
 /// On-disk database that stores finalized states efficiently.
 ///
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
@@ -849,6 +851,48 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &blobs.as_ssz_bytes(),
         )?;
         self.block_cache.lock().put_blobs(*block_root, blobs);
+        Ok(())
+    }
+
+    /// Import historical blobs.
+    pub fn import_historical_blobs(
+        &self,
+        historical_blobs: Vec<(Hash256, BlobSidecarList<E>)>,
+    ) -> Result<(), Error> {
+        if historical_blobs.is_empty() {
+            return Ok(());
+        }
+
+        let mut total_imported = 0;
+
+        for chunk in historical_blobs.chunks(HISTORICAL_BLOB_BATCH_SIZE) {
+            let mut ops = Vec::with_capacity(chunk.len());
+
+            for (block_root, blobs) in chunk {
+                // Verify block exists.
+                if !self.block_exists(block_root)? {
+                    warn!(
+                        self.log,
+                        "Skipping import of blobs; block root does not exist.";
+                        "block_root" => ?block_root,
+                        "num_blobs" => blobs.len(),
+                    );
+                    continue;
+                }
+
+                self.blobs_as_kv_store_ops(block_root, blobs.clone(), &mut ops);
+                total_imported += blobs.len();
+            }
+
+            self.blobs_db.do_atomically(ops)?;
+        }
+
+        debug!(
+            self.log,
+            "Imported historical blobs.";
+            "total_imported" => total_imported,
+        );
+
         Ok(())
     }
 

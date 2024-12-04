@@ -4446,6 +4446,24 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/database/import_blobs
+    let post_lighthouse_database_import_blobs = database_path
+        .and(warp::path("import_blobs"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |blobs, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    match chain.store.import_historical_blobs(blobs) {
+                        Ok(()) => Ok(()),
+                        Err(e) => Err(warp_utils::reject::custom_server_error(format!("{e:?}"))),
+                    }
+                })
+            },
+        );
+
     // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -4807,6 +4825,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
+                    .uor(post_lighthouse_database_import_blobs)
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)

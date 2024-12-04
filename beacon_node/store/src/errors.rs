@@ -50,10 +50,6 @@ pub enum Error {
     MissingGenesisState,
     MissingSnapshot(Slot),
     BlockReplayError(BlockReplayError),
-    AddPayloadLogicError,
-    InvalidKey,
-    InvalidBytes,
-    InconsistentFork(InconsistentFork),
     #[cfg(feature = "leveldb")]
     LevelDbError(LevelDBError),
     #[cfg(feature = "redb")]
@@ -68,6 +64,11 @@ pub enum Error {
         state_root: Hash256,
         slot: Slot,
     },
+    AddPayloadLogicError,
+    InvalidKey,
+    InvalidBytes,
+    InvalidBlobImport(String),
+    InconsistentFork(InconsistentFork),
     Hdiff(hdiff::Error),
     ForwardsIterInvalidColumn(DBColumn),
     ForwardsIterGap(DBColumn, Slot, Slot),
