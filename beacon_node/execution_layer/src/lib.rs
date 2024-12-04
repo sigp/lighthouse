@@ -121,8 +121,7 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                // TODO(electra): update this with builder api returning the requests
-                requests: None,
+                requests: Some(builder_bid.execution_requests),
             },
         };
         Ok(ProvenancedPayload::Builder(
