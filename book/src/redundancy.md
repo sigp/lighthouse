@@ -77,7 +77,7 @@ can be disabled using the `--broadcast none` flag for `lighthouse vc`.
 
 Since v6.0.0, the validator client will be more aggressive in switching to a fallback node. To do this,
 it uses the concept of "Health". Every slot, the validator client checks each connected beacon node
-to  determine which node is the "Healthiest". In general, the validator client will prefer nodes
+to determine which node is the "Healthiest". In general, the validator client will prefer nodes
 which are synced, have synced execution layers and which are not currently optimisitically
 syncing.
 

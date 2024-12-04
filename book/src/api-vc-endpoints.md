@@ -832,6 +832,13 @@ For more inormation about how to interpret the beacon node health, see [Fallback
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200, 400                                   |
 
+Command:
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X GET http://localhost:5062/lighthouse/beacon/health \
+ -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
+ ```
+
 ### Example Response Body
 
 ```json
