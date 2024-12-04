@@ -64,7 +64,7 @@ pub struct DatabaseManager {
         display_order = 0,
         default_value_t = store::config::DatabaseBackend::LevelDb
     )]
-    pub beacon_node_backend: store::config::DatabaseBackend,
+    pub backend: store::config::DatabaseBackend,
 
     #[clap(
         long,
