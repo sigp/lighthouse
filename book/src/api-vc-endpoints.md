@@ -827,7 +827,7 @@ Use this endpoint when you don't want to restart the VC to add, remove or reorde
 
 | Property          | Specification                              |
 |-------------------|--------------------------------------------|
-| Path              | `/lighthouse/validators/beacon/update`    |
+| Path              | `/lighthouse/beacon/update`                |
 | Method            | POST                                       |
 | Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
 | Typical Responses | 200, 400                                   |
