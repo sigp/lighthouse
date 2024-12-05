@@ -556,7 +556,8 @@ mod test {
         subnet_service.validator_subscriptions(vec![sub1, sub2].into_iter());
 
         // Unsubscription event should happen at the end of the slot.
-        let events = get_events(&mut subnet_service, None, 1).await;
+        // We wait for 2 slots, to avoid timeout issues
+        let events = get_events(&mut subnet_service, None, 2).await;
 
         let expected_subscription =
             SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
@@ -567,6 +568,7 @@ mod test {
             assert_eq!(expected_subscription, events[0]);
             assert_eq!(expected_unsubscription, events[2]);
         }
+        // Check that there are no more subscriptions
         assert_eq!(subnet_service.subscriptions().count(), 0);
 
         println!("{events:?}");
