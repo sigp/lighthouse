@@ -66,7 +66,7 @@ We recommend running Siren's container next to your beacon node (on the same ser
 
  1. Siren is now accessible at `https://<the-servers-ip>` (when used with `--net=host`). You will get a warning about an invalid certificate, this can be safely ignored.
 
-    > Note: We recommend setting a strong password when running Siren to protect it from unauthorized access. 
+    > Note: We recommend setting a strong password when running Siren to protect it from unauthorized access.
 
 Advanced users can mount their own certificates or disable SSL altogether, see the `SSL Certificates` section below.
 
@@ -95,7 +95,7 @@ This will allow you to access siren at `http://localhost:3000` by default.
 
 ### About self-signed SSL certificates
 
-By default, internally, Siren is running on port 80 (plain, behind nginx), port 3000 (plain, direct) and port 443 (with SSL, behind nginx)). Siren will generate and use a self-signed certificate on startup. This will generate a security warning when you try to access the interface. We recommend to only disable SSL if you would access Siren over a local LAN or otherwise highly trusted or encrypted network (i.e. VPN). 
+By default, internally, Siren is running on port 80 (plain, behind nginx), port 3000 (plain, direct) and port 443 (with SSL, behind nginx)). Siren will generate and use a self-signed certificate on startup. This will generate a security warning when you try to access the interface. We recommend to only disable SSL if you would access Siren over a local LAN or otherwise highly trusted or encrypted network (i.e. VPN).
 
 #### Generating persistent SSL certificates and installing them to your system
 
