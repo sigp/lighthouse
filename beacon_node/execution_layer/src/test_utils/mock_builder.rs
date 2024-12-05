@@ -317,8 +317,348 @@ impl<E: EthSpec> MockBuilder<E> {
         }
         bid.stamp_payload();
     }
+
+    /// Return the public key of the builder
+    pub fn public_key(&self) -> PublicKeyBytes {
+        self.builder_sk.public_key().compress()
+    }
+
+    pub async fn register_validators(
+        &self,
+        registrations: Vec<SignedValidatorRegistrationData>,
+    ) -> Result<(), String> {
+        for registration in registrations {
+            if !registration.verify_signature(&self.spec) {
+                return Err("invalid signature".to_string());
+            }
+            self.val_registration_cache
+                .write()
+                .insert(registration.message.pubkey, registration);
+        }
+        Ok(())
+    }
+
+    pub async fn submit_blinded_block(
+        &self,
+        block: SignedBlindedBeaconBlock<E>,
+    ) -> Result<ExecutionPayload<E>, String> {
+        let root = match &block {
+            SignedBlindedBeaconBlock::Base(_) | types::SignedBeaconBlock::Altair(_) => {
+                return Err("invalid fork".to_string());
+            }
+            SignedBlindedBeaconBlock::Bellatrix(block) => {
+                block.message.body.execution_payload.tree_hash_root()
+            }
+            SignedBlindedBeaconBlock::Capella(block) => {
+                block.message.body.execution_payload.tree_hash_root()
+            }
+            SignedBlindedBeaconBlock::Deneb(block) => {
+                block.message.body.execution_payload.tree_hash_root()
+            }
+            SignedBlindedBeaconBlock::Electra(block) => {
+                block.message.body.execution_payload.tree_hash_root()
+            }
+        };
+        let payload = self
+            .el
+            .get_payload_by_root(&root)
+            .ok_or_else(|| "missing payload for tx root".to_string())?;
+        let (payload, _) = payload.deconstruct();
+        // TODO(pawan): the reconstruction in the beacon client should propagate the
+        // blobs as well. If that doesn't happen then its probably a bug here
+        self.beacon_client
+            .post_beacon_blinded_blocks(&block)
+            .await
+            .map_err(|e| format!("Failed to post blinded block {:?}", e))?;
+        Ok(payload)
+    }
+
+    pub async fn get_header(
+        &self,
+        slot: Slot,
+        parent_hash: ExecutionBlockHash,
+        pubkey: PublicKeyBytes,
+    ) -> Result<SignedBuilderBid<E>, String> {
+        let fork = self.fork_name_at_slot(slot);
+        let signed_cached_data = self
+            .val_registration_cache
+            .read()
+            .get(&pubkey)
+            .ok_or_else(|| "missing registration".to_string())?
+            .clone();
+        let cached_data = signed_cached_data.message;
+
+        let head = self
+            .beacon_client
+            .get_beacon_blocks::<E>(BlockId::Head)
+            .await
+            .map_err(|_| "couldn't get head".to_string())?
+            .ok_or_else(|| "missing head block".to_string())?;
+
+        let block = head.data.message();
+        let head_block_root = block.tree_hash_root();
+        let head_execution_payload = block
+            .body()
+            .execution_payload()
+            .map_err(|_| "pre-merge block".to_string())?;
+        let head_execution_hash = head_execution_payload.block_hash();
+        let head_gas_limit = head_execution_payload.gas_limit();
+        if head_execution_hash != parent_hash {
+            return Err("head mismatch".to_string());
+        }
+
+        let finalized_execution_hash = self
+            .beacon_client
+            .get_beacon_blocks::<E>(BlockId::Finalized)
+            .await
+            .map_err(|_| "couldn't get finalized block".to_string())?
+            .ok_or_else(|| "missing finalized block".to_string())?
+            .data
+            .message()
+            .body()
+            .execution_payload()
+            .map_err(|_| "pre-merge block".to_string())?
+            .block_hash();
+
+        let justified_execution_hash = self
+            .beacon_client
+            .get_beacon_blocks::<E>(BlockId::Justified)
+            .await
+            .map_err(|_| "couldn't get justified block".to_string())?
+            .ok_or_else(|| "missing justified block".to_string())?
+            .data
+            .message()
+            .body()
+            .execution_payload()
+            .map_err(|_| "pre-merge block".to_string())?
+            .block_hash();
+
+        let val_index = self
+            .beacon_client
+            .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(pubkey))
+            .await
+            .map_err(|_| "couldn't get validator".to_string())?
+            .ok_or_else(|| "missing validator".to_string())?
+            .data
+            .index;
+        let fee_recipient = cached_data.fee_recipient;
+        let slots_since_genesis = slot.as_u64() - self.spec.genesis_slot.as_u64();
+
+        // TODO(pawan): cache this call
+        let genesis_data = self
+            .beacon_client
+            .get_beacon_genesis()
+            .await
+            .map_err(|_| "couldn't get beacon genesis".to_string())?
+            .data;
+        let genesis_time = genesis_data.genesis_time;
+        let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
+
+        let head_state: BeaconState<E> = self
+            .beacon_client
+            .get_debug_beacon_states(StateId::Head)
+            .await
+            .map_err(|_| "couldn't get state".to_string())?
+            .ok_or_else(|| "missing state".to_string())?
+            .data;
+        let prev_randao = head_state
+            .get_randao_mix(head_state.current_epoch())
+            .map_err(|_| "couldn't get prev randao".to_string())?;
+
+        let expected_withdrawals = if fork.capella_enabled() {
+            Some(
+                self.beacon_client
+                    .get_expected_withdrawals(&StateId::Head)
+                    .await
+                    .unwrap()
+                    .data,
+            )
+        } else {
+            None
+        };
+
+        let payload_attributes = match fork {
+            // the withdrawals root is filled in by operations, but we supply the valid withdrawals
+            // first to avoid polluting the execution block generator with invalid payload attributes
+            // NOTE: this was part of an effort to add payload attribute uniqueness checks,
+            // which was abandoned because it broke too many tests in subtle ways.
+            ForkName::Bellatrix | ForkName::Capella => PayloadAttributes::new(
+                timestamp,
+                *prev_randao,
+                fee_recipient,
+                expected_withdrawals,
+                None,
+            ),
+            ForkName::Deneb | ForkName::Electra => PayloadAttributes::new(
+                timestamp,
+                *prev_randao,
+                fee_recipient,
+                expected_withdrawals,
+                Some(head_block_root),
+            ),
+            ForkName::Base | ForkName::Altair => {
+                return Err("invalid fork".to_string());
+            }
+        };
+
+        self.el
+            .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
+            .await;
+
+        let forkchoice_update_params = ForkchoiceUpdateParameters {
+            head_root: Hash256::zero(),
+            head_hash: None,
+            justified_hash: Some(justified_execution_hash),
+            finalized_hash: Some(finalized_execution_hash),
+        };
+
+        let proposer_gas_limit = self
+            .val_registration_cache
+            .read()
+            .get(&pubkey)
+            .map(|v| v.message.gas_limit);
+
+        let payload_parameters = PayloadParameters {
+            parent_hash: head_execution_hash,
+            parent_gas_limit: head_gas_limit,
+            proposer_gas_limit,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: fork,
+        };
+
+        let payload_response_type = self
+            .el
+            .get_full_payload_caching(payload_parameters)
+            .await
+            .map_err(|_| "couldn't get payload".to_string())?;
+
+        let mut message = match payload_response_type {
+            crate::GetPayloadResponseType::Full(payload_response) => {
+                #[allow(clippy::type_complexity)]
+                let (payload, value, maybe_blobs_bundle, maybe_requests): (
+                    ExecutionPayload<E>,
+                    Uint256,
+                    Option<BlobsBundle<E>>,
+                    Option<ExecutionRequests<E>>,
+                ) = payload_response.into();
+
+                match fork {
+                    ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
+                        header: payload
+                            .as_electra()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        blob_kzg_commitments: maybe_blobs_bundle
+                            .map(|b| b.commitments)
+                            .unwrap_or_default(),
+                        value,
+                        pubkey: self.builder_sk.public_key().compress(),
+                        execution_requests: maybe_requests.unwrap_or_default(),
+                    }),
+                    ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
+                        header: payload
+                            .as_deneb()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        blob_kzg_commitments: maybe_blobs_bundle
+                            .map(|b| b.commitments)
+                            .unwrap_or_default(),
+                        value,
+                        pubkey: self.builder_sk.public_key().compress(),
+                    }),
+                    ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
+                        header: payload
+                            .as_capella()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        value,
+                        pubkey: self.builder_sk.public_key().compress(),
+                    }),
+                    ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
+                        header: payload
+                            .as_bellatrix()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        value,
+                        pubkey: self.builder_sk.public_key().compress(),
+                    }),
+                    ForkName::Base | ForkName::Altair => return Err("invalid fork".to_string()),
+                }
+            }
+            crate::GetPayloadResponseType::Blinded(payload_response) => {
+                #[allow(clippy::type_complexity)]
+                let (payload, value, maybe_blobs_bundle, maybe_requests): (
+                    ExecutionPayload<E>,
+                    Uint256,
+                    Option<BlobsBundle<E>>,
+                    Option<ExecutionRequests<E>>,
+                ) = payload_response.into();
+                match fork {
+                    ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
+                        header: payload
+                            .as_electra()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        blob_kzg_commitments: maybe_blobs_bundle
+                            .map(|b| b.commitments)
+                            .unwrap_or_default(),
+                        value,
+                        pubkey: self.builder_sk.public_key().compress(),
+                        execution_requests: maybe_requests.unwrap_or_default(),
+                    }),
+                    ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
+                        header: payload
+                            .as_deneb()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        blob_kzg_commitments: maybe_blobs_bundle
+                            .map(|b| b.commitments)
+                            .unwrap_or_default(),
+                        value,
+                        pubkey: self.builder_sk.public_key().compress(),
+                    }),
+                    ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
+                        header: payload
+                            .as_capella()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        value,
+                        pubkey: self.builder_sk.public_key().compress(),
+                    }),
+                    ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
+                        header: payload
+                            .as_bellatrix()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        value,
+                        pubkey: self.builder_sk.public_key().compress(),
+                    }),
+                    ForkName::Base | ForkName::Altair => return Err("invalid fork".to_string()),
+                }
+            }
+        };
+
+        self.apply_operations(&mut message);
+
+        let mut signature = message.sign_builder_message(&self.builder_sk, &self.spec);
+
+        if *self.invalidate_signatures.read() {
+            signature = Signature::empty();
+        };
+        let signed_bid = SignedBuilderBid { message, signature };
+        Ok(signed_bid)
+    }
+
+    fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
+        self.spec.fork_name_at_slot::<E>(slot)
+    }
 }
 
+/// Serve the builder api using warp. Uses the functions defined in `MockBuilder` to serve
+/// the requests.
+///
+/// We should eventually move this to axum when we move everything else.
 pub fn serve<E: EthSpec>(
     listen_addr: Ipv4Addr,
     listen_port: u16,
@@ -338,18 +678,10 @@ pub fn serve<E: EthSpec>(
         .and(ctx_filter.clone())
         .and_then(
             |registrations: Vec<SignedValidatorRegistrationData>, builder: MockBuilder<E>| async move {
-                for registration in registrations {
-                    if !registration.verify_signature(&builder.spec) {
-                        return Err(reject("invalid signature"));
-                    }
-                    builder
-                        .val_registration_cache
-                        .write()
-                        .insert(registration.message.pubkey, registration);
-                }
-                Ok(warp::reply())
+                builder.register_validators(registrations).await.map_err(|e|warp::reject::custom(Custom(e)))?;
+                Ok::<_, Rejection>(warp::reply())
             },
-        );
+        ).boxed();
 
     let blinded_block =
         prefix
@@ -362,27 +694,10 @@ pub fn serve<E: EthSpec>(
                 |block: SignedBlindedBeaconBlock<E>,
                  fork_name: ForkName,
                  builder: MockBuilder<E>| async move {
-                    let root = match block {
-                        SignedBlindedBeaconBlock::Base(_) | types::SignedBeaconBlock::Altair(_) => {
-                            return Err(reject("invalid fork"));
-                        }
-                        SignedBlindedBeaconBlock::Bellatrix(block) => {
-                            block.message.body.execution_payload.tree_hash_root()
-                        }
-                        SignedBlindedBeaconBlock::Capella(block) => {
-                            block.message.body.execution_payload.tree_hash_root()
-                        }
-                        SignedBlindedBeaconBlock::Deneb(block) => {
-                            block.message.body.execution_payload.tree_hash_root()
-                        }
-                        SignedBlindedBeaconBlock::Electra(block) => {
-                            block.message.body.execution_payload.tree_hash_root()
-                        }
-                    };
                     let payload = builder
-                        .el
-                        .get_payload_by_root(&root)
-                        .ok_or_else(|| reject("missing payload for tx root"))?;
+                        .submit_blinded_block(block)
+                        .await
+                        .map_err(|e| warp::reject::custom(Custom(e)))?;
                     let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
                         version: Some(fork_name),
                         metadata: Default::default(),
@@ -425,285 +740,12 @@ pub fn serve<E: EthSpec>(
              parent_hash: ExecutionBlockHash,
              pubkey: PublicKeyBytes,
              builder: MockBuilder<E>| async move {
-                let fork = builder.spec.fork_name_at_slot::<E>(slot);
-                let signed_cached_data = builder
-                    .val_registration_cache
-                    .read()
-                    .get(&pubkey)
-                    .ok_or_else(|| reject("missing registration"))?
-                    .clone();
-                let cached_data = signed_cached_data.message;
-
-                let head = builder
-                    .beacon_client
-                    .get_beacon_blocks::<E>(BlockId::Head)
+                let fork_name = builder.fork_name_at_slot(slot);
+                let signed_bid = builder
+                    .get_header(slot, parent_hash, pubkey)
                     .await
-                    .map_err(|_| reject("couldn't get head"))?
-                    .ok_or_else(|| reject("missing head block"))?;
+                    .map_err(|e| warp::reject::custom(Custom(e)))?;
 
-                let block = head.data.message();
-                let head_block_root = block.tree_hash_root();
-                let head_execution_payload = block
-                    .body()
-                    .execution_payload()
-                    .map_err(|_| reject("pre-merge block"))?;
-                let head_execution_hash = head_execution_payload.block_hash();
-                let head_gas_limit = head_execution_payload.gas_limit();
-                if head_execution_hash != parent_hash {
-                    return Err(reject("head mismatch"));
-                }
-
-                let finalized_execution_hash = builder
-                    .beacon_client
-                    .get_beacon_blocks::<E>(BlockId::Finalized)
-                    .await
-                    .map_err(|_| reject("couldn't get finalized block"))?
-                    .ok_or_else(|| reject("missing finalized block"))?
-                    .data
-                    .message()
-                    .body()
-                    .execution_payload()
-                    .map_err(|_| reject("pre-merge block"))?
-                    .block_hash();
-
-                let justified_execution_hash = builder
-                    .beacon_client
-                    .get_beacon_blocks::<E>(BlockId::Justified)
-                    .await
-                    .map_err(|_| reject("couldn't get justified block"))?
-                    .ok_or_else(|| reject("missing justified block"))?
-                    .data
-                    .message()
-                    .body()
-                    .execution_payload()
-                    .map_err(|_| reject("pre-merge block"))?
-                    .block_hash();
-
-                let val_index = builder
-                    .beacon_client
-                    .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(pubkey))
-                    .await
-                    .map_err(|_| reject("couldn't get validator"))?
-                    .ok_or_else(|| reject("missing validator"))?
-                    .data
-                    .index;
-                let fee_recipient = cached_data.fee_recipient;
-                let slots_since_genesis = slot.as_u64() - builder.spec.genesis_slot.as_u64();
-
-                let genesis_data = builder
-                    .beacon_client
-                    .get_beacon_genesis()
-                    .await
-                    .map_err(|_| reject("couldn't get beacon genesis"))?
-                    .data;
-                let genesis_time = genesis_data.genesis_time;
-                let timestamp =
-                    (slots_since_genesis * builder.spec.seconds_per_slot) + genesis_time;
-
-                let head_state: BeaconState<E> = builder
-                    .beacon_client
-                    .get_debug_beacon_states(StateId::Head)
-                    .await
-                    .map_err(|_| reject("couldn't get state"))?
-                    .ok_or_else(|| reject("missing state"))?
-                    .data;
-                let prev_randao = head_state
-                    .get_randao_mix(head_state.current_epoch())
-                    .map_err(|_| reject("couldn't get prev randao"))?;
-
-                let expected_withdrawals = if fork.capella_enabled() {
-                    Some(
-                        builder
-                            .beacon_client
-                            .get_expected_withdrawals(&StateId::Head)
-                            .await
-                            .unwrap()
-                            .data,
-                    )
-                } else {
-                    None
-                };
-
-                let payload_attributes = match fork {
-                    // the withdrawals root is filled in by operations, but we supply the valid withdrawals
-                    // first to avoid polluting the execution block generator with invalid payload attributes
-                    // NOTE: this was part of an effort to add payload attribute uniqueness checks,
-                    // which was abandoned because it broke too many tests in subtle ways.
-                    ForkName::Bellatrix | ForkName::Capella => PayloadAttributes::new(
-                        timestamp,
-                        *prev_randao,
-                        fee_recipient,
-                        expected_withdrawals,
-                        None,
-                    ),
-                    ForkName::Deneb | ForkName::Electra => PayloadAttributes::new(
-                        timestamp,
-                        *prev_randao,
-                        fee_recipient,
-                        expected_withdrawals,
-                        Some(head_block_root),
-                    ),
-                    ForkName::Base | ForkName::Altair => {
-                        return Err(reject("invalid fork"));
-                    }
-                };
-
-                builder
-                    .el
-                    .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
-                    .await;
-
-                let forkchoice_update_params = ForkchoiceUpdateParameters {
-                    head_root: Hash256::zero(),
-                    head_hash: None,
-                    justified_hash: Some(justified_execution_hash),
-                    finalized_hash: Some(finalized_execution_hash),
-                };
-
-                let proposer_gas_limit = builder
-                    .val_registration_cache
-                    .read()
-                    .get(&pubkey)
-                    .map(|v| v.message.gas_limit);
-
-                let payload_parameters = PayloadParameters {
-                    parent_hash: head_execution_hash,
-                    parent_gas_limit: head_gas_limit,
-                    proposer_gas_limit,
-                    payload_attributes: &payload_attributes,
-                    forkchoice_update_params: &forkchoice_update_params,
-                    current_fork: fork,
-                };
-
-                let payload_response_type = builder
-                    .el
-                    .get_full_payload_caching(payload_parameters)
-                    .await
-                    .map_err(|_| reject("couldn't get payload"))?;
-
-                let mut message = match payload_response_type {
-                    crate::GetPayloadResponseType::Full(payload_response) => {
-                        #[allow(clippy::type_complexity)]
-                        let (payload, value, maybe_blobs_bundle, maybe_requests): (
-                            ExecutionPayload<E>,
-                            Uint256,
-                            Option<BlobsBundle<E>>,
-                            Option<ExecutionRequests<E>>,
-                        ) = payload_response.into();
-
-                        match fork {
-                            ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
-                                header: payload
-                                    .as_electra()
-                                    .map_err(|_| reject("incorrect payload variant"))?
-                                    .into(),
-                                blob_kzg_commitments: maybe_blobs_bundle
-                                    .map(|b| b.commitments)
-                                    .unwrap_or_default(),
-                                value,
-                                pubkey: builder.builder_sk.public_key().compress(),
-                                execution_requests: maybe_requests.unwrap_or_default(),
-                            }),
-                            ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
-                                header: payload
-                                    .as_deneb()
-                                    .map_err(|_| reject("incorrect payload variant"))?
-                                    .into(),
-                                blob_kzg_commitments: maybe_blobs_bundle
-                                    .map(|b| b.commitments)
-                                    .unwrap_or_default(),
-                                value,
-                                pubkey: builder.builder_sk.public_key().compress(),
-                            }),
-                            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
-                                header: payload
-                                    .as_capella()
-                                    .map_err(|_| reject("incorrect payload variant"))?
-                                    .into(),
-                                value,
-                                pubkey: builder.builder_sk.public_key().compress(),
-                            }),
-                            ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
-                                header: payload
-                                    .as_bellatrix()
-                                    .map_err(|_| reject("incorrect payload variant"))?
-                                    .into(),
-                                value,
-                                pubkey: builder.builder_sk.public_key().compress(),
-                            }),
-                            ForkName::Base | ForkName::Altair => {
-                                return Err(reject("invalid fork"))
-                            }
-                        }
-                    }
-                    crate::GetPayloadResponseType::Blinded(payload_response) => {
-                        #[allow(clippy::type_complexity)]
-                        let (payload, value, maybe_blobs_bundle, maybe_requests): (
-                            ExecutionPayload<E>,
-                            Uint256,
-                            Option<BlobsBundle<E>>,
-                            Option<ExecutionRequests<E>>,
-                        ) = payload_response.into();
-                        match fork {
-                            ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
-                                header: payload
-                                    .as_electra()
-                                    .map_err(|_| reject("incorrect payload variant"))?
-                                    .into(),
-                                blob_kzg_commitments: maybe_blobs_bundle
-                                    .map(|b| b.commitments)
-                                    .unwrap_or_default(),
-                                value,
-                                pubkey: builder.builder_sk.public_key().compress(),
-                                execution_requests: maybe_requests.unwrap_or_default(),
-                            }),
-                            ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
-                                header: payload
-                                    .as_deneb()
-                                    .map_err(|_| reject("incorrect payload variant"))?
-                                    .into(),
-                                blob_kzg_commitments: maybe_blobs_bundle
-                                    .map(|b| b.commitments)
-                                    .unwrap_or_default(),
-                                value,
-                                pubkey: builder.builder_sk.public_key().compress(),
-                            }),
-                            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
-                                header: payload
-                                    .as_capella()
-                                    .map_err(|_| reject("incorrect payload variant"))?
-                                    .into(),
-                                value,
-                                pubkey: builder.builder_sk.public_key().compress(),
-                            }),
-                            ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
-                                header: payload
-                                    .as_bellatrix()
-                                    .map_err(|_| reject("incorrect payload variant"))?
-                                    .into(),
-                                value,
-                                pubkey: builder.builder_sk.public_key().compress(),
-                            }),
-                            ForkName::Base | ForkName::Altair => {
-                                return Err(reject("invalid fork"))
-                            }
-                        }
-                    }
-                };
-
-                builder.apply_operations(&mut message);
-
-                let mut signature =
-                    message.sign_builder_message(&builder.builder_sk, &builder.spec);
-
-                if *builder.invalidate_signatures.read() {
-                    signature = Signature::empty();
-                }
-
-                let fork_name = builder
-                    .spec
-                    .fork_name_at_epoch(slot.epoch(E::slots_per_epoch()));
-                let signed_bid = SignedBuilderBid { message, signature };
                 let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
                     version: Some(fork_name),
                     metadata: Default::default(),
