@@ -13,6 +13,7 @@ use crate::{
     },
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot,
 };
+use bytes::Bytes;
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
@@ -404,6 +405,22 @@ impl BeaconNodeHttpClient {
             .push("reconstruct");
 
         self.post_with_response(path, &()).await
+    }
+
+    /// `POST lighthouse/database/import_blobs_ssz`
+    pub async fn post_lighthouse_database_import_blobs_ssz(
+        &self,
+        blobs: Bytes,
+    ) -> Result<String, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("database")
+            .push("import_blobs_ssz");
+
+        self.post_with_response(path, &blobs).await
     }
 
     /*

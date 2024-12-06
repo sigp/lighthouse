@@ -811,6 +811,11 @@ pub struct LightClientUpdateResponseChunk {
     pub payload: Vec<u8>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ImportBlobsQuery {
+    pub verify: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct BeaconCommitteeSubscription {
     #[serde(with = "serde_utils::quoted_u64")]

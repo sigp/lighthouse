@@ -34,9 +34,10 @@ use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use crate::version::fork_versioned_response;
 use beacon_chain::{
-    attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
-    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
-    BeaconChainTypes, WhenSlotSkipped,
+    attestation_verification::VerifiedAttestation, blob_verification::verify_kzg_for_blob_list,
+    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
+    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    WhenSlotSkipped,
 };
 use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 pub use block_id::BlockId;
@@ -65,7 +66,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use ssz::Encode;
+use ssz::{Decode, Encode};
 pub use state_id::StateId;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -85,11 +86,12 @@ use tokio_stream::{
 };
 use types::{
     fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
-    AttesterSlashing, BeaconStateError, ChainSpec, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
-    ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing,
-    RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    AttesterSlashing, BeaconStateError, BlobSidecarList, ChainSpec, CommitteeCache,
+    ConfigAndPreset, Epoch, EthSpec, ForkName, ForkVersionedResponse, Hash256,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    SignedBlindedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -4450,13 +4452,68 @@ pub fn serve<T: BeaconChainTypes>(
     let post_lighthouse_database_import_blobs = database_path
         .and(warp::path("import_blobs"))
         .and(warp::path::end())
+        .and(warp::query::<api_types::ImportBlobsQuery>())
         .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
-            |blobs, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+            |query: api_types::ImportBlobsQuery,
+             blob_lists: Vec<BlobSidecarList<T::EthSpec>>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    match chain.store.import_historical_blobs(blobs) {
+                    if query.verify {
+                        for blob_list in &blob_lists {
+                            match verify_kzg_for_blob_list(blob_list.iter(), &chain.kzg) {
+                                Ok(()) => (),
+                                Err(e) => {
+                                    return Err(warp_utils::reject::custom_server_error(format!(
+                                        "{e:?}"
+                                    )))
+                                }
+                            }
+                        }
+                    }
+
+                    match chain.store.import_blobs_batch(blob_lists) {
+                        Ok(()) => Ok(()),
+                        Err(e) => Err(warp_utils::reject::custom_server_error(format!("{e:?}"))),
+                    }
+                })
+            },
+        );
+
+    // POST lighthouse/database/import_blobs_ssz
+    let post_lighthouse_database_import_blobs_ssz = database_path
+        .and(warp::path("import_blobs_ssz"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::ImportBlobsQuery>())
+        .and(warp::body::bytes())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |query: api_types::ImportBlobsQuery,
+             body: Bytes,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let blob_lists = Vec::<BlobSidecarList<T::EthSpec>>::from_ssz_bytes(&body)
+                        .map_err(|e| warp_utils::reject::custom_server_error(format!("{e:?}")))?;
+
+                    if query.verify {
+                        for blob_list in &blob_lists {
+                            match verify_kzg_for_blob_list(blob_list.iter(), &chain.kzg) {
+                                Ok(()) => (),
+                                Err(e) => {
+                                    return Err(warp_utils::reject::custom_server_error(format!(
+                                        "{e:?}"
+                                    )))
+                                }
+                            }
+                        }
+                    }
+
+                    match chain.store.import_blobs_batch(blob_lists) {
                         Ok(()) => Ok(()),
                         Err(e) => Err(warp_utils::reject::custom_server_error(format!("{e:?}"))),
                     }
@@ -4826,6 +4883,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
                     .uor(post_lighthouse_database_import_blobs)
+                    .uor(post_lighthouse_database_import_blobs_ssz)
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)

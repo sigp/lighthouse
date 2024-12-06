@@ -41,8 +41,6 @@ use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidec
 use types::*;
 use zstd::{Decoder, Encoder};
 
-const HISTORICAL_BLOB_BATCH_SIZE: usize = 1000;
-
 /// On-disk database that stores finalized states efficiently.
 ///
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
@@ -854,10 +852,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
-    /// Import historical blobs.
-    pub fn import_historical_blobs(
+    /// Import a batch of blobs.
+    /// Implements the following checks:
+    /// - Checks that `block_root` is consistent across each `BlobSidecarList`.
+    /// - Checks that `block_root` exists in the database.
+    /// - Checks if a `BlobSidecarList` is already stored for that `block_root`.
+    ///   If it is, ensure it matches the `BlobSidecarList` we are attempting to store.
+    pub fn import_blobs_batch(
         &self,
-        historical_blobs: Vec<(Hash256, BlobSidecarList<E>)>,
+        historical_blobs: Vec<BlobSidecarList<E>>,
     ) -> Result<(), Error> {
         if historical_blobs.is_empty() {
             return Ok(());
@@ -865,27 +868,57 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let mut total_imported = 0;
 
-        for chunk in historical_blobs.chunks(HISTORICAL_BLOB_BATCH_SIZE) {
-            let mut ops = Vec::with_capacity(chunk.len());
+        let mut ops = vec![];
 
-            for (block_root, blobs) in chunk {
-                // Verify block exists.
-                if !self.block_exists(block_root)? {
-                    warn!(
+        for blob_list in historical_blobs {
+            // Ensure all block_roots in the blob list are the same.
+            let block_root = {
+                let first_block_root = blob_list[0].block_root();
+                if !blob_list
+                    .iter()
+                    .all(|blob| blob.block_root() == first_block_root)
+                {
+                    return Err(Error::InvalidBlobImport(
+                        "Inconsistent block roots".to_string(),
+                    ));
+                }
+                first_block_root
+            };
+
+            // Verify block exists.
+            if !self.block_exists(&block_root)? {
+                warn!(
+                    self.log,
+                    "Aborting blob import; block root does not exist.";
+                    "block_root" => ?block_root,
+                    "num_blobs" => blob_list.len(),
+                );
+                return Err(Error::InvalidBlobImport("Missing block root".to_string()));
+            }
+
+            // Check if a blob_list is already stored for this block root.
+            if let Some(existing_blob_list) = self.get_blobs(&block_root)? {
+                if existing_blob_list == blob_list {
+                    debug!(
                         self.log,
-                        "Skipping import of blobs; block root does not exist.";
+                        "Skipping blob import as identical blob exists";
                         "block_root" => ?block_root,
-                        "num_blobs" => blobs.len(),
+                        "num_blobs" => blob_list.len(),
                     );
                     continue;
                 }
 
-                self.blobs_as_kv_store_ops(block_root, blobs.clone(), &mut ops);
-                total_imported += blobs.len();
+                return Err(Error::InvalidBlobImport(format!(
+                    "Conflicting blobs exist for block root {:?}",
+                    block_root
+                )));
             }
 
-            self.blobs_db.do_atomically(ops)?;
+            self.blobs_as_kv_store_ops(&block_root, blob_list.clone(), &mut ops);
+            total_imported += blob_list.len();
         }
+
+        self.blobs_db.do_atomically(ops)?;
 
         debug!(
             self.log,
