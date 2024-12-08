@@ -31,7 +31,6 @@ hex = { workspace = true }
 ethereum_ssz = { workspace = true }
 ssz_types = { workspace = true }
 futures = { workspace = true }
-error-chain = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 smallvec = { workspace = true }
