@@ -47,9 +47,9 @@ validator_http_metrics = { workspace = true }
 validator_metrics = { workspace = true }
 validator_services = { workspace = true }
 validator_store = { workspace = true }
+validator_test_rig = { workspace = true }
 tokio = { workspace = true }
 fdlimit = "0.3.0"
 env_logger = { workspace = true }
 mockito = { workspace = true }
 regex = { workspace = true }
-eth2_config = { workspace = true }

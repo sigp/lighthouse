@@ -1,0 +1,27 @@
+[package]
+name = "validator_test_rig"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+account_utils = { workspace = true }
+beacon_node_fallback = { workspace = true }
+environment = { workspace = true }
+eth2 = { workspace = true }
+eth2_config = { workspace = true }
+initialized_validators = { workspace = true }
+logging = { workspace = true }
+sensitive_url = { workspace = true }
+slashing_protection = { workspace = true }
+slot_clock = { workspace = true }
+task_executor = { workspace = true }
+types = { workspace = true }
+validator_store = { workspace = true }
+slog = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+mockito = { workspace = true }
+regex = { workspace = true }
+serde_json = { workspace = true }
+env_logger = { workspace = true }
+validator_dir = { workspace = true, features = ["insecure_keys"] }

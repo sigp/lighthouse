@@ -1,16 +1,14 @@
-#![cfg(test)]
-
 use std::sync::Arc;
 use std::time::Duration;
 
 use slog::Logger;
 use tempfile::TempDir;
 
+use crate::ValidatorFiles;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use environment::RuntimeContext;
 use eth2_config::Eth2Config;
 use logging::test_logger;
-use node_test_rig::ValidatorFiles;
 use slashing_protection::SlashingDatabase;
 use slot_clock::SlotClock;
 use slot_clock::TestingSlotClock;

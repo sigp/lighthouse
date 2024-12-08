@@ -323,7 +323,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub async fn publish_block_for_testing(
         &self,
         slot: Slot,

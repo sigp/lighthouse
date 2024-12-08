@@ -21,3 +21,6 @@ tokio =  { workspace = true }
 types =  { workspace = true }
 tree_hash =  { workspace = true }
 bls =  { workspace = true }
+
+[features]
+testing = []

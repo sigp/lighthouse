@@ -740,6 +740,7 @@ mod tests {
     use crate::beacon_node_health::BeaconNodeHealthTier;
     use eth2::SensitiveUrl;
     use eth2::Timeouts;
+    use logging::test_logger;
     use std::str::FromStr;
     use strum::VariantNames;
     use types::EmptyBlock;
@@ -748,9 +749,9 @@ mod tests {
     use types::{BeaconBlockDeneb, BlindedBeaconBlock, MainnetEthSpec, Slot};
 
     use super::*;
-    use validator_client::testing::mock_beacon_node::MockBeaconNode;
-    use validator_client::testing::validator_test_rig::ValidatorTestRig;
     use validator_services::block_service::{BlockService, BlockServiceBuilder, UnsignedBlock};
+    use validator_test_rig::mock_beacon_node::MockBeaconNode;
+    use validator_test_rig::validator_test_rig::ValidatorTestRig;
 
     type E = MainnetEthSpec;
 
@@ -1049,6 +1050,7 @@ mod tests {
             .first_success(|client| async move { client.get_node_version().await })
             .await;
 
+        mock3.expect(1).assert();
         assert!(result_success.is_ok());
 
         // make all beacon node offline and the result should error

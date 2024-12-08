@@ -891,9 +891,9 @@ dependencies = [
  "strum",
  "tokio",
  "types",
- "validator_client",
  "validator_metrics",
  "validator_services",
+ "validator_test_rig",
 ]
 
 [[package]]
@@ -9372,7 +9372,6 @@ dependencies = [
  "env_logger 0.9.3",
  "environment",
  "eth2",
- "eth2_config",
  "fdlimit",
  "graffiti_file",
  "hyper 1.4.1",
@@ -9400,6 +9399,7 @@ dependencies = [
  "validator_metrics",
  "validator_services",
  "validator_store",
+ "validator_test_rig",
 ]
 
 [[package]]
@@ -9550,6 +9550,33 @@ dependencies = [
  "task_executor",
  "types",
  "validator_metrics",
+]
+
+[[package]]
+name = "validator_test_rig"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "beacon_node_fallback",
+ "env_logger 0.9.3",
+ "environment",
+ "eth2",
+ "eth2_config",
+ "initialized_validators",
+ "logging",
+ "mockito",
+ "regex",
+ "sensitive_url",
+ "serde_json",
+ "slashing_protection",
+ "slog",
+ "slot_clock",
+ "task_executor",
+ "tempfile",
+ "tokio",
+ "types",
+ "validator_dir",
+ "validator_store",
 ]
 
 [[package]]
