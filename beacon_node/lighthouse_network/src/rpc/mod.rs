@@ -545,12 +545,12 @@ where
                     RPCReceived::Response(_id, response) => {
                         if response.protocol().terminator().is_none() {
                             self.outbound_request_limiter
-                                .response_received(&peer_id, response.protocol());
+                                .request_completed(&peer_id, response.protocol());
                         }
                     }
                     RPCReceived::EndOfStream(_id, response_termination) => {
                         self.outbound_request_limiter
-                            .response_received(&peer_id, response_termination.protocol());
+                            .request_completed(&peer_id, response_termination.protocol());
                     }
                 }
 
@@ -561,6 +561,14 @@ where
                 }));
             }
             HandlerEvent::Err(err) => {
+                // Inform the limiter that the request has ended with an error.
+                let protocol = match err {
+                    HandlerErr::Inbound { proto, .. } => proto,
+                    HandlerErr::Outbound { proto, .. } => proto,
+                };
+                self.outbound_request_limiter
+                    .request_completed(&peer_id, protocol);
+
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
                     conn_id,

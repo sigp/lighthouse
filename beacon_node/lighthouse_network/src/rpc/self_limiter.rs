@@ -233,7 +233,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     }
 
     /// Informs the limiter that a response has been received.
-    pub fn response_received(&mut self, peer_id: &PeerId, protocol: Protocol) {
+    pub fn request_completed(&mut self, peer_id: &PeerId, protocol: Protocol) {
         if let Some(active_requests) = self.active_requests.get_mut(peer_id) {
             if let Entry::Occupied(mut entry) = active_requests.entry(protocol) {
                 if *entry.get() > 1 {
@@ -387,7 +387,7 @@ mod tests {
             .unwrap();
         assert_eq!(3, queue.len());
 
-        limiter.response_received(&peer_id, Protocol::Ping);
+        limiter.request_completed(&peer_id, Protocol::Ping);
         limiter.next_peer_request_ready(peer_id, Protocol::Ping);
 
         let queue = limiter
@@ -396,8 +396,8 @@ mod tests {
             .unwrap();
         assert_eq!(2, queue.len());
 
-        limiter.response_received(&peer_id, Protocol::Ping);
-        limiter.response_received(&peer_id, Protocol::Ping);
+        limiter.request_completed(&peer_id, Protocol::Ping);
+        limiter.request_completed(&peer_id, Protocol::Ping);
         limiter.next_peer_request_ready(peer_id, Protocol::Ping);
 
         let queue = limiter.delayed_requests.get(&(peer_id, Protocol::Ping));
