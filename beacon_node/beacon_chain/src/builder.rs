@@ -1037,7 +1037,10 @@ where
         );
 
         // Check for states to reconstruct (in the background).
-        if beacon_chain.config.reconstruct_historic_states {
+        if beacon_chain.config.reconstruct_historic_states
+            && beacon_chain.genesis_backfill_slot == 0
+            && beacon_chain.store.get_oldest_block_slot() == 0
+        {
             beacon_chain.store_migrator.process_reconstruction();
         }
 
