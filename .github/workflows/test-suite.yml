@@ -99,6 +99,9 @@ jobs:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in release
       run: make nextest-release
+      env:
+        # Set Java version to 21. (required since Web3Signer 24.12.0)
+        JAVA_HOME: ${{ env.JAVA_HOME_21_X64 }}
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
