@@ -827,7 +827,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "5.3.0"
+version = "6.0.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -1072,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "5.3.0"
+version = "6.0.0"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -1412,7 +1412,6 @@ dependencies = [
  "directory",
  "dirs",
  "environment",
- "error-chain",
  "eth1",
  "eth2",
  "eth2_config",
@@ -2510,16 +2509,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "error-chain"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d2f06b9cac1506ece98fe3231e3cc9c4410ec3d5b1f24ae1c8946f0742cdefc"
-dependencies = [
- "backtrace",
- "version_check",
-]
-
-[[package]]
 name = "eth1"
 version = "0.2.0"
 dependencies = [
@@ -3375,21 +3364,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f90f7dce0722e95104fcb095585910c0977252f286e354b5e3bd38902cd99988"
 
 [[package]]
-name = "futures-ticker"
-version = "0.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9763058047f713632a52e916cc7f6a4b3fc6e9fc1ff8c5b1dc49e5a89041682e"
-dependencies = [
- "futures",
- "futures-timer",
- "instant",
-]
-
-[[package]]
 name = "futures-timer"
 version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f288b0a4f20f9a56b5d1da57e2227c661b7b16168e2f72365f57b63326e29b24"
+dependencies = [
+ "gloo-timers",
+ "send_wrapper 0.4.0",
+]
 
 [[package]]
 name = "futures-util"
@@ -3506,6 +3488,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 
 [[package]]
+name = "gloo-timers"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b995a66bb87bebce9a0f4a95aed01daca4872c050bfcb21653361c03bc35e5c"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "gossipsub"
 version = "0.5.0"
 dependencies = [
@@ -3517,7 +3511,6 @@ dependencies = [
  "either",
  "fnv",
  "futures",
- "futures-ticker",
  "futures-timer",
  "getrandom",
  "hashlink 0.9.1",
@@ -4527,7 +4520,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "5.3.0"
+version = "6.0.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5098,7 +5091,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "5.3.0"
+version = "6.0.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5152,7 +5145,6 @@ dependencies = [
  "dirs",
  "discv5",
  "either",
- "error-chain",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "fnv",
@@ -5718,7 +5710,6 @@ dependencies = [
  "bls",
  "delay_map",
  "derivative",
- "error-chain",
  "eth2",
  "eth2_network_config",
  "ethereum_ssz",
@@ -7564,6 +7555,12 @@ checksum = "00b0bef5b7f9e0df16536d3961cfb6e84331c065b4066afb39768d0e319411f7"
 dependencies = [
  "pest",
 ]
+
+[[package]]
+name = "send_wrapper"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f638d531eccd6e23b980caf34876660d38e265409d8e99b397ab71eb3612fad0"
 
 [[package]]
 name = "send_wrapper"
@@ -10114,8 +10111,8 @@ dependencies = [
  "log",
  "pharos",
  "rustc_version 0.4.1",
- "send_wrapper",
- "thiserror",
+ "send_wrapper 0.6.0",
+ "thiserror 1.0.69",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

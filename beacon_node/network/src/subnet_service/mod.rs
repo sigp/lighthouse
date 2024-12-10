@@ -213,6 +213,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     #[cfg(test)]
     pub(crate) fn is_subscribed(&self, subnet: &Subnet) -> bool {
         self.subscriptions.contains_key(subnet)
+            || self.permanent_attestation_subscriptions.contains(subnet)
     }
 
     /// Processes a list of validator subscriptions.
