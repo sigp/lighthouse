@@ -166,9 +166,9 @@ async fn get_events<S: Stream<Item = SubnetServiceMessage> + Unpin>(
 }
 
 mod test {
-
     #[cfg(not(windows))]
     use crate::subnet_service::MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD;
+    use itertools::Itertools;
 
     use super::*;
 
@@ -344,7 +344,10 @@ mod test {
         // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
         let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
 
-        if subnet_service.is_subscribed(&Subnet::Attestation(subnet_id1)) {
+        if subnet_service
+            .permanent_subscriptions()
+            .contains(&Subnet::Attestation(subnet_id1))
+        {
             // If we are permanently subscribed to this subnet, we won't see a subscribe message
             let _ = get_events(&mut subnet_service, None, 1).await;
         } else {
