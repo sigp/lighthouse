@@ -890,7 +890,6 @@ dependencies = [
  "futures",
  "itertools 0.10.5",
  "logging",
- "mockito",
  "serde",
  "slog",
  "slot_clock",
@@ -898,7 +897,6 @@ dependencies = [
  "tokio",
  "types",
  "validator_metrics",
- "validator_services",
  "validator_test_rig",
 ]
 
@@ -3640,7 +3638,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "http 1.1.0",
- "indexmap 2.5.0",
+ "indexmap 2.6.0",
  "slab",
  "tokio",
  "tokio-util",
@@ -5764,7 +5762,7 @@ dependencies = [
  "http 1.1.0",
  "http-body 1.0.1",
  "http-body-util",
- "hyper 1.4.1",
+ "hyper 1.5.1",
  "hyper-util",
  "log",
  "rand",
@@ -9773,12 +9771,9 @@ name = "validator_test_rig"
 version = "0.1.0"
 dependencies = [
  "account_utils",
- "beacon_node_fallback",
  "env_logger 0.9.3",
- "environment",
  "eth2",
  "eth2_config",
- "initialized_validators",
  "logging",
  "mockito",
  "regex",
@@ -9786,13 +9781,9 @@ dependencies = [
  "serde_json",
  "slashing_protection",
  "slog",
- "slot_clock",
  "task_executor",
- "tempfile",
  "tokio",
  "types",
- "validator_dir",
- "validator_store",
 ]
 
 [[package]]

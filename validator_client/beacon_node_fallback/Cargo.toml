@@ -24,7 +24,5 @@ validator_metrics = { workspace = true }
 [dev-dependencies]
 env_logger = { workspace = true }
 eth2_config = { workspace = true }
-mockito = { workspace = true }
-validator_services = { workspace = true, features = ["testing"] }
 logging = { workspace = true }
 validator_test_rig = { workspace = true }

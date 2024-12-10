@@ -743,23 +743,27 @@ mod tests {
     use logging::test_logger;
     use std::str::FromStr;
     use strum::VariantNames;
-    use types::EmptyBlock;
+    use types::{EmptyBlock, Signature, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
 
     use slot_clock::TestingSlotClock;
-    use types::{BeaconBlockDeneb, BlindedBeaconBlock, MainnetEthSpec, Slot};
+    use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
 
     use super::*;
-    use validator_services::block_service::{BlockService, BlockServiceBuilder, UnsignedBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
-    use validator_test_rig::validator_test_rig::ValidatorTestRig;
 
     type E = MainnetEthSpec;
 
-    async fn new_mock_beacon_node(index: usize) -> (MockBeaconNode<E>, CandidateBeaconNode<E>) {
-        let mock_beacon_node = MockBeaconNode::<E>::new().await;
+    async fn new_mock_beacon_node(
+        index: usize,
+        spec: &ChainSpec,
+    ) -> (MockBeaconNode<E>, CandidateBeaconNode<E>) {
+        let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
+        mock_beacon_node.mock_config_spec(spec);
+
         let beacon_node =
             CandidateBeaconNode::<E>::new(mock_beacon_node.beacon_api_client.clone(), index);
-        return (mock_beacon_node, beacon_node);
+
+        (mock_beacon_node, beacon_node)
     }
 
     #[test]
@@ -774,7 +778,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_candidate_order() {
-        // These fields is irrelvant for sorting. They are set to arbitrary values.
+        // These fields is irrelevant for sorting. They are set to arbitrary values.
         let head = Slot::new(99);
         let optimistic_status = IsOptimistic::No;
         let execution_status = ExecutionEngineHealth::Healthy;
@@ -883,27 +887,14 @@ mod tests {
         assert_eq!(candidates, expected_candidates);
     }
 
-    #[tokio::test]
-    async fn update_all_candidates_should_update_sync_status() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
-
-        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0).await;
-        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1).await;
-        let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2).await;
-
-        let mut beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> =
-            BeaconNodeFallback::new(
-                // Put this out of order to be sorted later
-                vec![
-                    beacon_node_2.clone(),
-                    beacon_node_3.clone(),
-                    beacon_node_1.clone(),
-                ],
-                Config::default(),
-                vec![],
-                spec.clone(),
-                test_logger(),
-            );
+    fn create_beacon_node_fallback(
+        candidates: Vec<CandidateBeaconNode<E>>,
+        topics: Vec<ApiTopic>,
+        spec: Arc<ChainSpec>,
+        log: Logger,
+    ) -> BeaconNodeFallback<TestingSlotClock, E> {
+        let mut beacon_node_fallback =
+            BeaconNodeFallback::new(candidates, Config::default(), topics, spec, log);
 
         beacon_node_fallback.set_slot_clock(TestingSlotClock::new(
             Slot::new(1),
@@ -911,9 +902,29 @@ mod tests {
             Duration::from_secs(12),
         ));
 
-        mock_beacon_node_1.mock_config_spec(&spec);
-        mock_beacon_node_2.mock_config_spec(&spec);
-        mock_beacon_node_3.mock_config_spec(&spec);
+        beacon_node_fallback
+    }
+
+    #[tokio::test]
+    async fn update_all_candidates_should_update_sync_status() {
+        let spec = Arc::new(MainnetEthSpec::default_spec());
+
+        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
+        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
+        let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
+
+        let beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> =
+            create_beacon_node_fallback(
+                // Put this out of order to be sorted later
+                vec![
+                    beacon_node_2.clone(),
+                    beacon_node_3.clone(),
+                    beacon_node_1.clone(),
+                ],
+                vec![],
+                spec.clone(),
+                test_logger(),
+            );
 
         // BeaconNodeHealthTier 1
         mock_beacon_node_1.mock_get_node_syncing(eth2::types::SyncingData {
@@ -951,66 +962,41 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_should_send_to_all_bns() {
-        let test_rig = ValidatorTestRig::new().await;
-        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0).await;
-        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1).await;
+        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
+        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
 
-        let mut beacon_node_fallback = BeaconNodeFallback::new(
+        let beacon_node_fallback = create_beacon_node_fallback(
             vec![beacon_node_1, beacon_node_2],
-            Config::default(),
-            vec![ApiTopic::Blocks], // to broadcast blocks to both bns
-            test_rig.spec.clone(),
-            test_rig.logger.clone(),
+            vec![ApiTopic::Blocks],
+            spec.clone(),
+            test_logger(),
         );
 
-        beacon_node_fallback.set_slot_clock(TestingSlotClock::new(
-            Slot::new(1),
-            Duration::from_secs(0),
-            Duration::from_secs(12),
-        ));
+        mock_beacon_node_1.mock_post_beacon_blinded_blocks_v2_ssz(Duration::from_secs(0));
+        mock_beacon_node_2.mock_post_beacon_blinded_blocks_v2_ssz(Duration::from_secs(0));
 
-        mock_beacon_node_1.mock_config_spec(&test_rig.spec);
-        mock_beacon_node_2.mock_config_spec(&test_rig.spec);
+        let signed_block = SignedBlindedBeaconBlock::<E>::Deneb(SignedBeaconBlockDeneb {
+            message: BeaconBlockDeneb::empty(&spec),
+            signature: Signature::empty(),
+        });
 
-        let mock1 = mock_beacon_node_1.mock_post_beacon_blinded_blocks_v2(Duration::from_secs(0));
-        let mock2 = mock_beacon_node_2.mock_post_beacon_blinded_blocks_v2(Duration::from_secs(0));
-
-        let beacon_node_fallback = Arc::new(beacon_node_fallback);
-        let block_service: BlockService<TestingSlotClock, MainnetEthSpec> =
-            BlockServiceBuilder::new()
-                .slot_clock(test_rig.slot_clock)
-                .validator_store(test_rig.validator_store.clone())
-                .beacon_nodes(beacon_node_fallback.clone())
-                .runtime_context(test_rig.runtime_context)
-                .build()
-                .unwrap();
-
-        beacon_node_fallback.update_all_candidates().await;
-
-        let validators = test_rig.validator_store.initialized_validators();
-        let first_validator_pubkey = {
-            let validators = validators.read();
-            if let Some(first_validator) = validators.validator_definitions().first() {
-                first_validator.voting_public_key.clone()
-            } else {
-                panic!("No validators found");
-            }
-        };
-        let unsigned_block = UnsignedBlock::Blinded(BlindedBeaconBlock::Deneb(
-            BeaconBlockDeneb::empty(&test_rig.spec),
-        ));
-
-        let result = block_service
-            .publish_block_for_testing(Slot::new(1), &first_validator_pubkey.into(), unsigned_block)
+        // trigger broadcast to `post_beacon_blinded_blocks_v2`
+        let result = beacon_node_fallback
+            .broadcast(|client| {
+                let signed_block_cloned = signed_block.clone();
+                async move {
+                    client
+                        .post_beacon_blinded_blocks_v2_ssz(&signed_block_cloned, None)
+                        .await
+                }
+            })
             .await;
-        assert!(result.is_ok());
 
-        mock1.expect(1).assert();
-        mock2.expect(1).assert();
+        assert!(result.is_ok());
 
         let received_blocks_from_bn_1 = mock_beacon_node_1.received_blocks.lock().unwrap();
         let received_blocks_from_bn_2 = mock_beacon_node_2.received_blocks.lock().unwrap();
-
         assert_eq!(received_blocks_from_bn_1.len(), 1);
         assert_eq!(received_blocks_from_bn_2.len(), 1);
     }
@@ -1019,28 +1005,17 @@ mod tests {
     async fn first_success_should_try_nodes_in_order() {
         let spec = Arc::new(MainnetEthSpec::default_spec());
 
-        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0).await;
-        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1).await;
-        let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2).await;
+        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
+        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
+        let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
 
-        let mut beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> =
-            BeaconNodeFallback::new(
+        let beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> =
+            create_beacon_node_fallback(
                 vec![beacon_node_1, beacon_node_2, beacon_node_3],
-                Config::default(),
                 vec![],
                 spec.clone(),
                 test_logger(),
             );
-
-        beacon_node_fallback.set_slot_clock(TestingSlotClock::new(
-            Slot::new(1),
-            Duration::from_secs(0),
-            Duration::from_secs(12),
-        ));
-
-        mock_beacon_node_1.mock_config_spec(&spec);
-        mock_beacon_node_2.mock_config_spec(&spec);
-        mock_beacon_node_3.mock_config_spec(&spec);
 
         let _mock1 = mock_beacon_node_1.mock_offline_node();
         let _mock2 = mock_beacon_node_2.mock_offline_node();

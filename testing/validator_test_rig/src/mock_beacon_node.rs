@@ -1,8 +1,5 @@
-use eth2::types::{FullBlockContents, GenericResponse, ProduceBlockV3Metadata, SyncingData};
-use eth2::{
-    BeaconNodeHttpClient, StatusCode, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
-    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
-};
+use eth2::types::{GenericResponse, SyncingData};
+use eth2::{BeaconNodeHttpClient, StatusCode, Timeouts};
 use logging::test_logger;
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
@@ -12,10 +9,7 @@ use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use types::{
-    BeaconBlock, BlobsList, ChainSpec, ConfigAndPreset, EthSpec, ForkName, ForkVersionedResponse,
-    KzgProofs, SignedBlindedBeaconBlock, Slot, Uint256,
-};
+use types::{ChainSpec, ConfigAndPreset, EthSpec, SignedBlindedBeaconBlock};
 
 pub struct MockBeaconNode<E: EthSpec> {
     server: ServerGuard,
@@ -30,10 +24,10 @@ impl<E: EthSpec> MockBeaconNode<E> {
         // mock server logging
         let _ = env_logger::try_init();
         let server = Server::new_async().await;
-        let slot_duration = Duration::from_secs(12);
-        let timeouts = crate::get_optimised_bn_timeouts(slot_duration);
-        let beacon_api_client =
-            BeaconNodeHttpClient::new(SensitiveUrl::from_str(&server.url()).unwrap(), timeouts);
+        let beacon_api_client = BeaconNodeHttpClient::new(
+            SensitiveUrl::from_str(&server.url()).unwrap(),
+            Timeouts::set_all(Duration::from_secs(1)),
+        );
         let log = test_logger();
         Self {
             server,
@@ -48,59 +42,6 @@ impl<E: EthSpec> MockBeaconNode<E> {
     #[allow(dead_code)]
     pub fn reset_mocks(&mut self) {
         self.server.reset();
-    }
-
-    /// Mocks the `get_validator_blocks_v3` response with an optional delay.
-    pub fn _mock_get_validator_blocks_v3(
-        &mut self,
-        fork: ForkName,
-        block: BeaconBlock<E>,
-        delay_seconds: Option<Duration>,
-    ) -> &mut Self {
-        let path_pattern = Regex::new(r"^/eth/v3/validator/blocks/(\d+).*$").unwrap();
-        let log = self.log.clone();
-
-        self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_header(CONSENSUS_VERSION_HEADER, &fork.to_string())
-            .with_header(EXECUTION_PAYLOAD_BLINDED_HEADER, "false")
-            .with_header(EXECUTION_PAYLOAD_VALUE_HEADER, "1000")
-            .with_header(CONSENSUS_BLOCK_VALUE_HEADER, "1000")
-            .with_body_from_request(move |request| {
-                let path_pattern = path_pattern.clone();
-                let captures = path_pattern.captures(request.path()).unwrap();
-                let slot = Slot::from_str(&captures[1]).unwrap();
-                info!(
-                    log,
-                    "Received validator get block request for slot {:?}", slot
-                );
-
-                if let Some(delay) = delay_seconds {
-                    std::thread::sleep(delay);
-                }
-
-                let metadata = ProduceBlockV3Metadata {
-                    consensus_version: fork,
-                    execution_payload_blinded: false,
-                    execution_payload_value: Uint256::from(1),
-                    consensus_block_value: Uint256::from(1),
-                };
-                let data = FullBlockContents::<E>::new(
-                    block.clone(),
-                    Some((KzgProofs::<E>::empty(), BlobsList::<E>::empty())),
-                );
-                let response = ForkVersionedResponse {
-                    version: Some(fork),
-                    metadata,
-                    data,
-                };
-                serde_json::to_string(&response).unwrap().into_bytes()
-            })
-            .create();
-
-        self
     }
 
     pub fn mock_config_spec(&mut self, spec: &ChainSpec) {
@@ -126,7 +67,8 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create();
     }
 
-    pub fn mock_post_beacon_blinded_blocks_v2(&mut self, delay: Duration) -> Mock {
+    /// Mocks the `post_beacon_blinded_blocks_v2_ssz` response with an optional `delay`.
+    pub fn mock_post_beacon_blinded_blocks_v2_ssz(&mut self, delay: Duration) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v2/beacon/blinded_blocks$").unwrap();
         let log = self.log.clone();
         let url = self.server.url();
