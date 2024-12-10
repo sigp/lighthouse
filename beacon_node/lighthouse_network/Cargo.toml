@@ -18,7 +18,6 @@ slog = { workspace = true }
 lighthouse_version = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
-error-chain = { workspace = true }
 dirs = { workspace = true }
 fnv = { workspace = true }
 metrics = { workspace = true }

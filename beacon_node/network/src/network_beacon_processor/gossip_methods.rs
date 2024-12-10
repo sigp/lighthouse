@@ -914,18 +914,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        let result = self
-            .chain
-            .process_gossip_blob(verified_blob, || Ok(()))
-            .await;
+        let result = self.chain.process_gossip_blob(verified_blob).await;
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // Note: Reusing block imported metric here
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
-                info!(
+                debug!(
                     self.log,
-                    "Gossipsub blob processed, imported fully available block";
+                    "Gossipsub blob processed - imported fully available block";
                     "block_root" => %block_root
                 );
                 self.chain.recompute_head_at_current_slot().await;
@@ -936,9 +933,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                trace!(
+                debug!(
                     self.log,
-                    "Processed blob, waiting for other components";
+                    "Processed gossip blob - waiting for other components";
                     "slot" => %slot,
                     "blob_index" => %blob_index,
                     "block_root" => %block_root,
@@ -1079,7 +1076,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 message_id,
                 peer_id,
                 peer_client,
-                block,
+                block.clone(),
                 reprocess_tx.clone(),
                 seen_duration,
             )
@@ -1446,6 +1443,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_sync_message(SyncMessage::SampleBlock(block_root, block.slot()));
             }
         }
+
+        // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
+        // from kzg commitments, without having to wait for all blobs to be sent from the peers.
+        let publish_blobs = true;
+        let self_clone = self.clone();
+        let block_clone = block.clone();
+        self.executor.spawn(
+            async move {
+                self_clone
+                    .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
+                    .await
+            },
+            "fetch_blobs_gossip",
+        );
 
         let result = self
             .chain

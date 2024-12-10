@@ -198,23 +198,61 @@ pub fn observe_system_health_vc(
     }
 }
 
+/// The current state of Lighthouse NAT/connectivity.
+#[derive(Serialize, Deserialize)]
+pub struct NatState {
+    /// Contactable on discovery ipv4.
+    discv5_ipv4: bool,
+    /// Contactable on discovery ipv6.
+    discv5_ipv6: bool,
+    /// Contactable on libp2p ipv4.
+    libp2p_ipv4: bool,
+    /// Contactable on libp2p ipv6.
+    libp2p_ipv6: bool,
+}
+
+impl NatState {
+    pub fn is_anything_open(&self) -> bool {
+        self.discv5_ipv4 || self.discv5_ipv6 || self.libp2p_ipv4 || self.libp2p_ipv6
+    }
+}
+
 /// Observes if NAT traversal is possible.
-pub fn observe_nat() -> bool {
-    let discv5_nat = lighthouse_network::metrics::get_int_gauge(
+pub fn observe_nat() -> NatState {
+    let discv5_ipv4 = lighthouse_network::metrics::get_int_gauge(
         &lighthouse_network::metrics::NAT_OPEN,
-        &["discv5"],
+        &["discv5_ipv4"],
     )
     .map(|g| g.get() == 1)
     .unwrap_or_default();
 
-    let libp2p_nat = lighthouse_network::metrics::get_int_gauge(
+    let discv5_ipv6 = lighthouse_network::metrics::get_int_gauge(
+        &lighthouse_network::metrics::NAT_OPEN,
+        &["discv5_ipv6"],
+    )
+    .map(|g| g.get() == 1)
+    .unwrap_or_default();
+
+    let libp2p_ipv4 = lighthouse_network::metrics::get_int_gauge(
         &lighthouse_network::metrics::NAT_OPEN,
         &["libp2p"],
     )
     .map(|g| g.get() == 1)
     .unwrap_or_default();
 
-    discv5_nat || libp2p_nat
+    let libp2p_ipv6 = lighthouse_network::metrics::get_int_gauge(
+        &lighthouse_network::metrics::NAT_OPEN,
+        &["libp2p"],
+    )
+    .map(|g| g.get() == 1)
+    .unwrap_or_default();
+
+    NatState {
+        discv5_ipv4,
+        discv5_ipv6,
+        libp2p_ipv4,
+        libp2p_ipv6,
+    }
 }
 
 /// Observes the Beacon Node system health.
@@ -242,7 +280,7 @@ pub fn observe_system_health_bn<E: EthSpec>(
         .unwrap_or_else(|| (String::from("None"), 0, 0));
 
     // Determine if the NAT is open or not.
-    let nat_open = observe_nat();
+    let nat_open = observe_nat().is_anything_open();
 
     SystemHealthBN {
         system_health,

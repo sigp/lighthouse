@@ -7,59 +7,70 @@ the _freezer_ or _cold DB_, and the portion storing recent states as the _hot DB
 In both the hot and cold DBs, full `BeaconState` data structures are only stored periodically, and
 intermediate states are reconstructed by quickly replaying blocks on top of the nearest state. For
 example, to fetch a state at slot 7 the database might fetch a full state from slot 0, and replay
-blocks from slots 1-7 while omitting redundant signature checks and Merkle root calculations. The
-full states upon which blocks are replayed are referred to as _restore points_ in the case of the
+blocks from slots 1-7 while omitting redundant signature checks and Merkle root calculations. In
+the freezer DB, Lighthouse also uses hierarchical state diffs to jump larger distances (described in
+more detail below).
+
+The full states upon which blocks are replayed are referred to as _snapshots_ in the case of the
 freezer DB, and _epoch boundary states_ in the case of the hot DB.
 
 The frequency at which the hot database stores full `BeaconState`s is fixed to one-state-per-epoch
 in order to keep loads of recent states performant. For the freezer DB, the frequency is
-configurable via the `--slots-per-restore-point` CLI flag, which is the topic of the next section.
+configurable via the `--hierarchy-exponents` CLI flag, which is the topic of the next section.
 
-## Freezer DB Space-time Trade-offs
+## Hierarchical State Diffs
 
-Frequent restore points use more disk space but accelerate the loading of historical states.
-Conversely, infrequent restore points use much less space, but cause the loading of historical
-states to slow down dramatically. A lower _slots per restore point_ value (SPRP) corresponds to more
-frequent restore points, while a higher SPRP corresponds to less frequent. The table below shows
-some example values.
+Since v6.0.0, Lighthouse's freezer database uses _hierarchical state diffs_ or _hdiffs_ for short.
+These diffs allow Lighthouse to reconstruct any historic state relatively quickly from a very
+compact database. The essence of the hdiffs is that full states (snapshots) are stored only around
+once per year. To reconstruct a particular state, Lighthouse fetches the last snapshot prior to that
+state, and then applies several _layers_ of diffs. For example, to access a state from November
+2022, we might fetch the yearly snapshot for the start of 2022, then apply a monthly diff to jump to
+November, and then more granular diffs to reach the particular week, day and epoch desired.
+Usually for the last stretch between the start of the epoch and the state requested, some blocks
+will be _replayed_.
 
-| Use Case                   | SPRP | Yearly Disk Usage*| Load Historical State |
-|----------------------------|------|-------------------|-----------------------|
-| Research                   | 32   | more than 10 TB   | 155 ms                |
-| Enthusiast (prev. default) | 2048 | hundreds of GB    | 10.2 s                |
-| Validator only (default)   | 8192 | tens of GB        | 41 s                  |
+The following diagram shows part of the layout of diffs in the default configuration. There is a
+full snapshot stored every `2^21` slots. In the next layer there are diffs every `2^18` slots which
+approximately correspond to "monthly" diffs. Following this are more granular diffs every `2^16`
+slots, every `2^13` slots, and so on down to the per-epoch diffs every `2^5` slots.
 
-*Last update: Dec 2023.
+![Tree diagram displaying hierarchical state diffs](./imgs/db-freezer-layout.png)
 
-As we can see, it's a high-stakes trade-off! The relationships to disk usage and historical state
-load time are both linear – doubling SPRP halves disk usage and doubles load time. The minimum SPRP
-is 32, and the maximum is 8192.
+The number of layers and frequency of diffs is configurable via the `--hierarchy-exponents` flag,
+which has a default value of `5,9,11,13,16,18,21`. The hierarchy exponents must be provided in order
+from smallest to largest. The smallest exponent determines the frequency of the "closest" layer
+of diffs, with the default value of 5 corresponding to a diff every `2^5` slots (every epoch).
+The largest number determines the frequency of full snapshots, with the default value of 21
+corresponding to a snapshot every `2^21` slots (every 291 days).
 
-The default value is 8192 for databases synced from scratch using Lighthouse v2.2.0 or later, or
-2048 for prior versions. Please see the section on [Defaults](#defaults) below.
+The number of possible `--hierarchy-exponents` configurations is extremely large and our exploration
+of possible configurations is still in its relative infancy. If you experiment with non-default
+values of `--hierarchy-exponents` we would be interested to hear how it goes. A few rules of thumb
+that we have observed are:
 
-The values shown in the table are approximate, calculated using a simple heuristic: each
-`BeaconState` consumes around 145MB of disk space, and each block replayed takes around 5ms.  The
-**Yearly Disk Usage** column shows the approximate size of the freezer DB _alone_ (hot DB not included), calculated proportionally using the total freezer database disk usage.
-The **Load Historical State** time is the worst-case load time for a state in the last slot
-before a restore point.
+- **More frequent snapshots = more space**. This is quite intuitive - if you store full states more
+  often then these will take up more space than diffs. However what you lose in space efficiency you
+  may gain in speed. It would be possible to achieve a configuration similar to Lighthouse's
+  previous `--slots-per-restore-point 32` using `--hierarchy-exponents 5`, although this would use
+  _a lot_ of space. It's even possible to push beyond that with `--hierarchy-exponents 0` which
+  would store a full state every single slot (NOT RECOMMENDED).
+- **Less diff layers are not necessarily faster**. One might expect that the fewer diff layers there
+  are, the less work Lighthouse would have to do to reconstruct any particular state. In practise
+  this seems to be offset by the increased size of diffs in each layer making the diffs take longer
+  to apply. We observed no significant performance benefit from `--hierarchy-exponents 5,7,11`, and
+  a substantial increase in space consumed.
 
-To run a full archival node with fast access to beacon states and a SPRP of 32, the disk usage will be more than 10 TB per year, which is impractical for many users. As such, users may consider running the [tree-states](https://github.com/sigp/lighthouse/releases/tag/v5.0.111-exp) release, which only uses less than 200 GB for a full archival node. The caveat is that it is currently experimental and in alpha release (as of Dec 2023), thus not recommended for running mainnet validators. Nevertheless, it is suitable to be used for analysis purposes, and if you encounter any issues in tree-states, we do appreciate any feedback. We plan to have a stable release of tree-states in 1H 2024.  
-
-### Defaults
-
-As of Lighthouse v2.2.0, the default slots-per-restore-point value has been increased from 2048
-to 8192 in order to conserve disk space. Existing nodes will continue to use SPRP=2048 unless
-re-synced. Note that it is currently not possible to change the SPRP without re-syncing, although
-fast re-syncing may be achieved with [Checkpoint Sync](./checkpoint-sync.md).
+If in doubt, we recommend running with the default configuration! It takes a long time to
+reconstruct states in any given configuration, so it might be some time before the optimal
+configuration is determined.
 
 ### CLI Configuration
 
-To configure your Lighthouse node's database with a non-default SPRP, run your Beacon Node with
-the `--slots-per-restore-point` flag:
+To configure your Lighthouse node's database, run your beacon node with the `--hierarchy-exponents` flag:
 
 ```bash
-lighthouse beacon_node --slots-per-restore-point 32
+lighthouse beacon_node --hierarchy-exponents "5,7,11"
 ```
 
 ### Historic state cache
@@ -72,17 +83,20 @@ The historical state cache size can be specified with the flag `--historic-state
 lighthouse beacon_node --historic-state-cache-size 4
 ```
 
-> Note: This feature will cause high memory usage.
+> Note: Use a large cache limit can lead to high memory usage.
 
 ## Glossary
 
-* _Freezer DB_: part of the database storing finalized states. States are stored in a sparser
+- _Freezer DB_: part of the database storing finalized states. States are stored in a sparser
   format, and usually less frequently than in the hot DB.
-* _Cold DB_: see _Freezer DB_.
-* _Hot DB_: part of the database storing recent states, all blocks, and other runtime data. Full
+- _Cold DB_: see _Freezer DB_.
+- _HDiff_: hierarchical state diff.
+- _Hierarchy Exponents_: configuration for hierarchical state diffs, which determines the density
+  of stored diffs and snapshots in the freezer DB.
+- _Hot DB_: part of the database storing recent states, all blocks, and other runtime data. Full
   states are stored every epoch.
-* _Restore Point_: a full `BeaconState` stored periodically in the freezer DB.
-* _Slots Per Restore Point (SPRP)_: the number of slots between restore points in the freezer DB.
-* _Split Slot_: the slot at which states are divided between the hot and the cold DBs. All states
+- _Snapshot_: a full `BeaconState` stored periodically in the freezer DB. Approximately yearly by
+  default (every ~291 days).
+- _Split Slot_: the slot at which states are divided between the hot and the cold DBs. All states
   from slots less than the split slot are in the freezer, while all states with slots greater than
   or equal to the split slot are in the hot DB.
