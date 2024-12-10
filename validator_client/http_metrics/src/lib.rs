@@ -2,6 +2,7 @@
 //!
 //! For other endpoints, see the `http_api` crate.
 
+use lighthouse_validator_store::LighthouseValidatorStore;
 use lighthouse_version::version_with_platform;
 use logging::crit;
 use malloc_utils::scrape_allocator_metrics;
@@ -15,7 +16,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 use types::EthSpec;
 use validator_services::duties_service::DutiesService;
-use validator_store::ValidatorStore;
 use warp::{http::Response, Filter};
 
 #[derive(Debug)]
@@ -38,8 +38,10 @@ impl From<String> for Error {
 
 /// Contains objects which have shared access from inside/outside of the metrics server.
 pub struct Shared<E: EthSpec> {
-    pub validator_store: Option<Arc<ValidatorStore<SystemTimeSlotClock>>>,
-    pub duties_service: Option<Arc<DutiesService<SystemTimeSlotClock, E>>>,
+    pub validator_store: Option<Arc<LighthouseValidatorStore<SystemTimeSlotClock>>>,
+    pub duties_service: Option<
+        Arc<DutiesService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>>,
+    >,
     pub genesis_time: Option<u64>,
 }
 

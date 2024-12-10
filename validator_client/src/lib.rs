@@ -20,6 +20,7 @@ use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
+use lighthouse_validator_store::LighthouseValidatorStore;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use reqwest::Certificate;
@@ -74,13 +75,18 @@ const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 #[derive(Clone)]
 pub struct ProductionValidatorClient<E: EthSpec> {
     context: RuntimeContext<E>,
-    duties_service: Arc<DutiesService<SystemTimeSlotClock, E>>,
-    block_service: BlockService<SystemTimeSlotClock, E>,
-    attestation_service: AttestationService<SystemTimeSlotClock, E>,
-    sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, E>,
+    duties_service:
+        Arc<DutiesService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>>,
+    block_service:
+        BlockService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
+    attestation_service:
+        AttestationService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
+    sync_committee_service:
+        SyncCommitteeService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
-    preparation_service: PreparationService<SystemTimeSlotClock, E>,
-    validator_store: Arc<ValidatorStore<SystemTimeSlotClock>>,
+    preparation_service:
+        PreparationService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
+    validator_store: Arc<LighthouseValidatorStore<SystemTimeSlotClock>>,
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
@@ -412,7 +418,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             None
         };
 
-        let validator_store = Arc::new(ValidatorStore::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::new(
             validators,
             slashing_protection,
             genesis_validators_root,

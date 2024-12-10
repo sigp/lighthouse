@@ -16,16 +16,18 @@ use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
 #[derive(Default)]
-pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
-    duties_service: Option<Arc<DutiesService<T, E>>>,
-    validator_store: Option<Arc<ValidatorStore<T>>>,
+pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> {
+    duties_service: Option<Arc<DutiesService<S, T, E>>>,
+    validator_store: Option<Arc<S>>,
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     context: Option<RuntimeContext<E>>,
     disable: bool,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
+    AttestationServiceBuilder<S, T, E>
+{
     pub fn new() -> Self {
         Self {
             duties_service: None,
@@ -37,12 +39,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         }
     }
 
-    pub fn duties_service(mut self, service: Arc<DutiesService<T, E>>) -> Self {
+    pub fn duties_service(mut self, service: Arc<DutiesService<S, T, E>>) -> Self {
         self.duties_service = Some(service);
         self
     }
 
-    pub fn validator_store(mut self, store: Arc<ValidatorStore<T>>) -> Self {
+    pub fn validator_store(mut self, store: Arc<S>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -67,7 +69,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
-    pub fn build(self) -> Result<AttestationService<T, E>, String> {
+    pub fn build(self) -> Result<AttestationService<S, T, E>, String> {
         Ok(AttestationService {
             inner: Arc::new(Inner {
                 duties_service: self
@@ -92,9 +94,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
 }
 
 /// Helper to minimise `Arc` usage.
-pub struct Inner<T, E: EthSpec> {
-    duties_service: Arc<DutiesService<T, E>>,
-    validator_store: Arc<ValidatorStore<T>>,
+pub struct Inner<S, T, E: EthSpec> {
+    duties_service: Arc<DutiesService<S, T, E>>,
+    validator_store: Arc<S>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     context: RuntimeContext<E>,
@@ -106,11 +108,11 @@ pub struct Inner<T, E: EthSpec> {
 /// If any validators are on the same committee, a single attestation will be downloaded and
 /// returned to the beacon node. This attestation will have a signature from each of the
 /// validators.
-pub struct AttestationService<T, E: EthSpec> {
-    inner: Arc<Inner<T, E>>,
+pub struct AttestationService<S, T, E: EthSpec> {
+    inner: Arc<Inner<S, T, E>>,
 }
 
-impl<T, E: EthSpec> Clone for AttestationService<T, E> {
+impl<S, T, E: EthSpec> Clone for AttestationService<S, T, E> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -118,15 +120,15 @@ impl<T, E: EthSpec> Clone for AttestationService<T, E> {
     }
 }
 
-impl<T, E: EthSpec> Deref for AttestationService<T, E> {
-    type Target = Inner<T, E>;
+impl<S, T, E: EthSpec> Deref for AttestationService<S, T, E> {
+    type Target = Inner<S, T, E>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> AttestationService<S, T, E> {
     /// Starts the service which periodically produces attestations.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         if self.disable {

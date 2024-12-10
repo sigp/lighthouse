@@ -1,10 +1,10 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-use doppelganger_service::{DoppelgangerService, DoppelgangerStatus, DoppelgangerValidatorStore};
+use doppelganger_service::{DoppelgangerService, DoppelgangerValidatorStore};
 use initialized_validators::InitializedValidators;
 use logging::crit;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod};
+use signing_method::{SignableMessage, SigningContext, SigningMethod};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
 };
@@ -14,33 +14,15 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tracing::{error, info, warn};
 use types::{
-    attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
-    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData, VoluntaryExit,
+    graffiti::GraffitiString, AbstractExecPayload, Address, AggregateAndProof, Attestation,
+    BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
+    Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    VoluntaryExit,
 };
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    DoppelgangerProtected(PublicKeyBytes),
-    UnknownToDoppelgangerService(PublicKeyBytes),
-    UnknownPubkey(PublicKeyBytes),
-    Slashable(NotSafe),
-    SameData,
-    GreaterThanCurrentSlot { slot: Slot, current_slot: Slot },
-    GreaterThanCurrentEpoch { epoch: Epoch, current_epoch: Epoch },
-    UnableToSignAttestation(AttestationError),
-    UnableToSign(SigningError),
-}
-
-impl From<SigningError> for Error {
-    fn from(e: SigningError) -> Self {
-        Error::UnableToSign(e)
-    }
-}
+use validator_store::{DoppelgangerStatus, Error, ProposalData, ValidatorStore};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -58,14 +40,6 @@ pub struct Config {
     pub builder_boost_factor: Option<u64>,
 }
 
-/// A helper struct, used for passing data from the validator store to services.
-pub struct ProposalData {
-    pub validator_index: Option<u64>,
-    pub fee_recipient: Option<Address>,
-    pub gas_limit: u64,
-    pub builder_proposals: bool,
-}
-
 /// Number of epochs of slashing protection history to keep.
 ///
 /// This acts as a maximum safe-guard against clock drift.
@@ -76,7 +50,7 @@ const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 /// https://github.com/ethereum/builder-specs/issues/17
 pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
 
-pub struct ValidatorStore<T> {
+pub struct LighthouseValidatorStore<T> {
     validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,
@@ -94,13 +68,13 @@ pub struct ValidatorStore<T> {
     slots_per_epoch: u64,
 }
 
-impl<T: SlotClock + 'static> DoppelgangerValidatorStore for ValidatorStore<T> {
+impl<T: SlotClock + 'static> DoppelgangerValidatorStore for LighthouseValidatorStore<T> {
     fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
         self.validator_index(pubkey)
     }
 }
 
-impl<T: SlotClock + 'static> ValidatorStore<T> {
+impl<T: SlotClock + 'static> LighthouseValidatorStore<T> {
     // All arguments are different types. Making the fields `pub` is undesired. A builder seems
     // unnecessary.
     #[allow(clippy::too_many_arguments)]
@@ -239,70 +213,6 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
         Ok(validator_def)
     }
 
-    /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
-    /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
-    /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
-    pub fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData> {
-        self.validators
-            .read()
-            .validator(pubkey)
-            .map(|validator| ProposalData {
-                validator_index: validator.get_index(),
-                fee_recipient: self
-                    .get_fee_recipient_defaulting(validator.get_suggested_fee_recipient()),
-                gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit()),
-                builder_proposals: self
-                    .get_builder_proposals_defaulting(validator.get_builder_proposals()),
-            })
-    }
-
-    /// Attempts to resolve the pubkey to a validator index.
-    ///
-    /// It may return `None` if the `pubkey` is:
-    ///
-    /// - Unknown.
-    /// - Known, but with an unknown index.
-    pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
-        self.validators.read().get_index(pubkey)
-    }
-
-    /// Returns all voting pubkeys for all enabled validators.
-    ///
-    /// The `filter_func` allows for filtering pubkeys based upon their `DoppelgangerStatus`. There
-    /// are two primary functions used here:
-    ///
-    /// - `DoppelgangerStatus::only_safe`: only returns pubkeys which have passed doppelganger
-    ///     protection and are safe-enough to sign messages.
-    /// - `DoppelgangerStatus::ignored`: returns all the pubkeys from `only_safe` *plus* those still
-    ///     undergoing protection. This is useful for collecting duties or other non-signing tasks.
-    #[allow(clippy::needless_collect)] // Collect is required to avoid holding a lock.
-    pub fn voting_pubkeys<I, F>(&self, filter_func: F) -> I
-    where
-        I: FromIterator<PublicKeyBytes>,
-        F: Fn(DoppelgangerStatus) -> Option<PublicKeyBytes>,
-    {
-        // Collect all the pubkeys first to avoid interleaving locks on `self.validators` and
-        // `self.doppelganger_service()`.
-        let pubkeys = self
-            .validators
-            .read()
-            .iter_voting_pubkeys()
-            .cloned()
-            .collect::<Vec<_>>();
-
-        pubkeys
-            .into_iter()
-            .map(|pubkey| {
-                self.doppelganger_service
-                    .as_ref()
-                    .map(|doppelganger_service| doppelganger_service.validator_status(pubkey))
-                    // Allow signing on all pubkeys if doppelganger protection is disabled.
-                    .unwrap_or_else(|| DoppelgangerStatus::SigningEnabled(pubkey))
-            })
-            .filter_map(filter_func)
-            .collect()
-    }
-
     /// Returns doppelganger statuses for all enabled validators.
     #[allow(clippy::needless_collect)] // Collect is required to avoid holding a lock.
     pub fn doppelganger_statuses(&self) -> Vec<DoppelgangerStatus> {
@@ -325,25 +235,6 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
                     .unwrap_or_else(|| DoppelgangerStatus::SigningEnabled(pubkey))
             })
             .collect()
-    }
-
-    /// Check if the `validator_pubkey` is permitted by the doppleganger protection to sign
-    /// messages.
-    pub fn doppelganger_protection_allows_signing(&self, validator_pubkey: PublicKeyBytes) -> bool {
-        self.doppelganger_service
-            .as_ref()
-            // If there's no doppelganger service then we assume it is purposefully disabled and
-            // declare that all keys are safe with regard to it.
-            .is_none_or(|doppelganger_service| {
-                doppelganger_service
-                    .validator_status(validator_pubkey)
-                    .only_safe()
-                    .is_some()
-            })
-    }
-
-    pub fn num_voting_validators(&self) -> usize {
-        self.validators.read().num_enabled()
     }
 
     fn fork(&self, epoch: Epoch) -> Fork {
@@ -412,40 +303,6 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
                 genesis_validators_root: self.genesis_validators_root,
             }
         }
-    }
-
-    pub async fn randao_reveal<E: EthSpec>(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        signing_epoch: Epoch,
-    ) -> Result<Signature, Error> {
-        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
-        let signing_context = self.signing_context(Domain::Randao, signing_epoch);
-
-        let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::RandaoReveal(signing_epoch),
-                signing_context,
-                &self.spec,
-                &self.task_executor,
-            )
-            .await?;
-
-        Ok(signature)
-    }
-
-    pub fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
-        self.validators.read().graffiti(validator_pubkey)
-    }
-
-    /// Returns the fee recipient for the given public key. The priority order for fetching
-    /// the fee recipient is:
-    /// 1. validator_definitions.yml
-    /// 2. process level fee recipient
-    pub fn get_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
-        // If there is a `suggested_fee_recipient` in the validator definitions yaml
-        // file, use that value.
-        self.get_fee_recipient_defaulting(self.suggested_fee_recipient(validator_pubkey))
     }
 
     pub fn get_fee_recipient_defaulting(&self, fee_recipient: Option<Address>) -> Option<Address> {
@@ -523,6 +380,130 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
             .unwrap_or(self.builder_proposals)
     }
 
+    pub fn import_slashing_protection(
+        &self,
+        interchange: Interchange,
+    ) -> Result<(), InterchangeError> {
+        self.slashing_protection
+            .import_interchange_info(interchange, self.genesis_validators_root)?;
+        Ok(())
+    }
+
+    /// Export slashing protection data while also disabling the given keys in the database.
+    ///
+    /// If any key is unknown to the slashing protection database it will be silently omitted
+    /// from the result. It is the caller's responsibility to check whether all keys provided
+    /// had data returned for them.
+    pub fn export_slashing_protection_for_keys(
+        &self,
+        pubkeys: &[PublicKeyBytes],
+    ) -> Result<Interchange, InterchangeError> {
+        self.slashing_protection.with_transaction(|txn| {
+            let known_pubkeys = pubkeys
+                .iter()
+                .filter_map(|pubkey| {
+                    let validator_id = self
+                        .slashing_protection
+                        .get_validator_id_ignoring_status(txn, pubkey)
+                        .ok()?;
+
+                    Some(
+                        self.slashing_protection
+                            .update_validator_status(txn, validator_id, false)
+                            .map(|()| *pubkey),
+                    )
+                })
+                .collect::<Result<Vec<PublicKeyBytes>, _>>()?;
+            self.slashing_protection.export_interchange_info_in_txn(
+                self.genesis_validators_root,
+                Some(&known_pubkeys),
+                txn,
+            )
+        })
+    }
+}
+
+impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
+    /// Attempts to resolve the pubkey to a validator index.
+    ///
+    /// It may return `None` if the `pubkey` is:
+    ///
+    /// - Unknown.
+    /// - Known, but with an unknown index.
+    fn validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
+        self.validators.read().get_index(pubkey)
+    }
+
+    /// Returns all voting pubkeys for all enabled validators.
+    ///
+    /// The `filter_func` allows for filtering pubkeys based upon their `DoppelgangerStatus`. There
+    /// are two primary functions used here:
+    ///
+    /// - `DoppelgangerStatus::only_safe`: only returns pubkeys which have passed doppelganger
+    ///     protection and are safe-enough to sign messages.
+    /// - `DoppelgangerStatus::ignored`: returns all the pubkeys from `only_safe` *plus* those still
+    ///     undergoing protection. This is useful for collecting duties or other non-signing tasks.
+    #[allow(clippy::needless_collect)] // Collect is required to avoid holding a lock.
+    fn voting_pubkeys<I, F>(&self, filter_func: F) -> I
+    where
+        I: FromIterator<PublicKeyBytes>,
+        F: Fn(DoppelgangerStatus) -> Option<PublicKeyBytes>,
+    {
+        // Collect all the pubkeys first to avoid interleaving locks on `self.validators` and
+        // `self.doppelganger_service()`.
+        let pubkeys = self
+            .validators
+            .read()
+            .iter_voting_pubkeys()
+            .cloned()
+            .collect::<Vec<_>>();
+
+        pubkeys
+            .into_iter()
+            .map(|pubkey| {
+                self.doppelganger_service
+                    .as_ref()
+                    .map(|doppelganger_service| doppelganger_service.validator_status(pubkey))
+                    // Allow signing on all pubkeys if doppelganger protection is disabled.
+                    .unwrap_or_else(|| DoppelgangerStatus::SigningEnabled(pubkey))
+            })
+            .filter_map(filter_func)
+            .collect()
+    }
+
+    /// Check if the `validator_pubkey` is permitted by the doppleganger protection to sign
+    /// messages.
+    fn doppelganger_protection_allows_signing(&self, validator_pubkey: PublicKeyBytes) -> bool {
+        self.doppelganger_service
+            .as_ref()
+            // If there's no doppelganger service then we assume it is purposefully disabled and
+            // declare that all keys are safe with regard to it.
+            .is_none_or(|doppelganger_service| {
+                doppelganger_service
+                    .validator_status(validator_pubkey)
+                    .only_safe()
+                    .is_some()
+            })
+    }
+
+    fn num_voting_validators(&self) -> usize {
+        self.validators.read().num_enabled()
+    }
+
+    fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
+        self.validators.read().graffiti(validator_pubkey)
+    }
+
+    /// Returns the fee recipient for the given public key. The priority order for fetching
+    /// the fee recipient is:
+    /// 1. validator_definitions.yml
+    /// 2. process level fee recipient
+    fn get_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
+        // If there is a `suggested_fee_recipient` in the validator definitions yaml
+        // file, use that value.
+        self.get_fee_recipient_defaulting(self.suggested_fee_recipient(validator_pubkey))
+    }
+
     /// Translate the per validator `builder_proposals`, `builder_boost_factor` and
     /// `prefer_builder_proposals` to a boost factor, if available.
     /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
@@ -531,7 +512,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
     /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
     ///   local payloads.
     /// - Else return `None` to indicate no preference between builder and local payloads.
-    pub fn determine_validator_builder_boost_factor(
+    fn determine_validator_builder_boost_factor(
         &self,
         validator_pubkey: &PublicKeyBytes,
     ) -> Option<u64> {
@@ -566,7 +547,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
     /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
     ///   local payloads.
     /// - Else return `None` to indicate no preference between builder and local payloads.
-    pub fn determine_default_builder_boost_factor(&self) -> Option<u64> {
+    fn determine_default_builder_boost_factor(&self) -> Option<u64> {
         if self.prefer_builder_proposals {
             return Some(u64::MAX);
         }
@@ -579,7 +560,33 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
         })
     }
 
-    pub async fn sign_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    async fn randao_reveal<E: EthSpec>(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        signing_epoch: Epoch,
+    ) -> Result<Signature, Error> {
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+        let signing_context = self.signing_context(Domain::Randao, signing_epoch);
+
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::RandaoReveal(signing_epoch),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await?;
+
+        Ok(signature)
+    }
+
+    fn set_validator_index(&self, validator_pubkey: &PublicKeyBytes, index: u64) {
+        self.initialized_validators()
+            .write()
+            .set_index(validator_pubkey, index);
+    }
+
+    async fn sign_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
         &self,
         validator_pubkey: PublicKeyBytes,
         block: BeaconBlock<E, Payload>,
@@ -666,7 +673,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
         }
     }
 
-    pub async fn sign_attestation<E: EthSpec>(
+    async fn sign_attestation<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         validator_committee_position: usize,
@@ -757,7 +764,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
         }
     }
 
-    pub async fn sign_voluntary_exit<E: EthSpec>(
+    async fn sign_voluntary_exit<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         voluntary_exit: VoluntaryExit,
@@ -786,7 +793,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
         })
     }
 
-    pub async fn sign_validator_registration_data<E: EthSpec>(
+    async fn sign_validator_registration_data<E: EthSpec>(
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
@@ -819,7 +826,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
     ///
     /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
     /// modified by actors other than the signing validator.
-    pub async fn produce_signed_aggregate_and_proof<E: EthSpec>(
+    async fn produce_signed_aggregate_and_proof<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         aggregator_index: u64,
@@ -854,7 +861,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
     /// `validator_pubkey`.
-    pub async fn produce_selection_proof<E: EthSpec>(
+    async fn produce_selection_proof<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
@@ -890,7 +897,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
     }
 
     /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
-    pub async fn produce_sync_selection_proof<E: EthSpec>(
+    async fn produce_sync_selection_proof<E: EthSpec>(
         &self,
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
@@ -926,7 +933,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
         Ok(signature.into())
     }
 
-    pub async fn produce_sync_committee_signature<E: EthSpec>(
+    async fn produce_sync_committee_signature<E: EthSpec>(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -965,7 +972,7 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
         })
     }
 
-    pub async fn produce_signed_contribution_and_proof<E: EthSpec>(
+    async fn produce_signed_contribution_and_proof<E: EthSpec>(
         &self,
         aggregator_index: u64,
         aggregator_pubkey: PublicKeyBytes,
@@ -1002,54 +1009,12 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
         Ok(SignedContributionAndProof { message, signature })
     }
 
-    pub fn import_slashing_protection(
-        &self,
-        interchange: Interchange,
-    ) -> Result<(), InterchangeError> {
-        self.slashing_protection
-            .import_interchange_info(interchange, self.genesis_validators_root)?;
-        Ok(())
-    }
-
-    /// Export slashing protection data while also disabling the given keys in the database.
-    ///
-    /// If any key is unknown to the slashing protection database it will be silently omitted
-    /// from the result. It is the caller's responsibility to check whether all keys provided
-    /// had data returned for them.
-    pub fn export_slashing_protection_for_keys(
-        &self,
-        pubkeys: &[PublicKeyBytes],
-    ) -> Result<Interchange, InterchangeError> {
-        self.slashing_protection.with_transaction(|txn| {
-            let known_pubkeys = pubkeys
-                .iter()
-                .filter_map(|pubkey| {
-                    let validator_id = self
-                        .slashing_protection
-                        .get_validator_id_ignoring_status(txn, pubkey)
-                        .ok()?;
-
-                    Some(
-                        self.slashing_protection
-                            .update_validator_status(txn, validator_id, false)
-                            .map(|()| *pubkey),
-                    )
-                })
-                .collect::<Result<Vec<PublicKeyBytes>, _>>()?;
-            self.slashing_protection.export_interchange_info_in_txn(
-                self.genesis_validators_root,
-                Some(&known_pubkeys),
-                txn,
-            )
-        })
-    }
-
     /// Prune the slashing protection database so that it remains performant.
     ///
     /// This function will only do actual pruning periodically, so it should usually be
     /// cheap to call. The `first_run` flag can be used to print a more verbose message when pruning
     /// runs.
-    pub fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool) {
+    fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool) {
         // Attempt to prune every SLASHING_PROTECTION_HISTORY_EPOCHs, with a tolerance for
         // missing the epoch that aligns exactly.
         let mut last_prune = self.slashing_protection_last_prune.lock();
@@ -1102,5 +1067,22 @@ impl<T: SlotClock + 'static> ValidatorStore<T> {
         *last_prune = current_epoch;
 
         info!("Completed pruning of slashing protection DB");
+    }
+
+    /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
+    /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
+    /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
+    fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData> {
+        self.validators
+            .read()
+            .validator(pubkey)
+            .map(|validator| ProposalData {
+                validator_index: validator.get_index(),
+                fee_recipient: self
+                    .get_fee_recipient_defaulting(validator.get_suggested_fee_recipient()),
+                gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit()),
+                builder_proposals: self
+                    .get_builder_proposals_defaulting(validator.get_builder_proposals()),
+            })
     }
 }

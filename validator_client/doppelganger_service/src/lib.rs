@@ -42,68 +42,7 @@ use task_executor::ShutdownReason;
 use tokio::time::sleep;
 use tracing::{error, info};
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
-
-/// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator
-/// pubkey with regards to doppelganger protection.
-#[derive(Debug, PartialEq)]
-pub enum DoppelgangerStatus {
-    /// Doppelganger protection has approved this for signing.
-    ///
-    /// This is because the service has waited some period of time to
-    /// detect other instances of this key on the network.
-    SigningEnabled(PublicKeyBytes),
-    /// Doppelganger protection is still waiting to detect other instances.
-    ///
-    /// Do not use this pubkey for signing slashable messages!!
-    ///
-    /// However, it can safely be used for other non-slashable operations (e.g., collecting duties
-    /// or subscribing to subnets).
-    SigningDisabled(PublicKeyBytes),
-    /// This pubkey is unknown to the doppelganger service.
-    ///
-    /// This represents a serious internal error in the program. This validator will be permanently
-    /// disabled!
-    UnknownToDoppelganger(PublicKeyBytes),
-}
-
-impl DoppelgangerStatus {
-    /// Only return a pubkey if it is explicitly safe for doppelganger protection.
-    ///
-    /// If `Some(pubkey)` is returned, doppelganger has declared it safe for signing.
-    ///
-    /// ## Note
-    ///
-    /// "Safe" is only best-effort by doppelganger. There is no guarantee that a doppelganger
-    /// doesn't exist.
-    pub fn only_safe(self) -> Option<PublicKeyBytes> {
-        match self {
-            DoppelgangerStatus::SigningEnabled(pubkey) => Some(pubkey),
-            DoppelgangerStatus::SigningDisabled(_) => None,
-            DoppelgangerStatus::UnknownToDoppelganger(_) => None,
-        }
-    }
-
-    /// Returns a key regardless of whether or not doppelganger has approved it. Such a key might be
-    /// used for signing non-slashable messages, duties collection or other activities.
-    ///
-    /// If the validator is unknown to doppelganger then `None` will be returned.
-    pub fn ignored(self) -> Option<PublicKeyBytes> {
-        match self {
-            DoppelgangerStatus::SigningEnabled(pubkey) => Some(pubkey),
-            DoppelgangerStatus::SigningDisabled(pubkey) => Some(pubkey),
-            DoppelgangerStatus::UnknownToDoppelganger(_) => None,
-        }
-    }
-
-    /// Only return a pubkey if it will not be used for signing due to doppelganger detection.
-    pub fn only_unsafe(self) -> Option<PublicKeyBytes> {
-        match self {
-            DoppelgangerStatus::SigningEnabled(_) => None,
-            DoppelgangerStatus::SigningDisabled(pubkey) => Some(pubkey),
-            DoppelgangerStatus::UnknownToDoppelganger(pubkey) => Some(pubkey),
-        }
-    }
-}
+use validator_store::DoppelgangerStatus;
 
 struct LivenessResponses {
     current_epoch_responses: Vec<LivenessResponseData>,
@@ -674,6 +613,7 @@ mod test {
         test_utils::{SeedableRng, TestRandom, XorShiftRng},
         MainnetEthSpec,
     };
+    use validator_store::DoppelgangerStatus;
 
     const DEFAULT_VALIDATORS: usize = 8;
 
