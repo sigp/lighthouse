@@ -44,8 +44,8 @@ impl From<Errors<BlockError>> for BlockError {
 
 /// Builds a `BlockService`.
 #[derive(Default)]
-pub struct BlockServiceBuilder<T, E: EthSpec> {
-    validator_store: Option<Arc<ValidatorStore<T>>>,
+pub struct BlockServiceBuilder<S, T, E: EthSpec> {
+    validator_store: Option<Arc<S>>,
     slot_clock: Option<Arc<T>>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
@@ -54,7 +54,7 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     graffiti_file: Option<GraffitiFile>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
+impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<S, T, E> {
     pub fn new() -> Self {
         Self {
             validator_store: None,
@@ -67,7 +67,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         }
     }
 
-    pub fn validator_store(mut self, store: Arc<ValidatorStore<T>>) -> Self {
+    pub fn validator_store(mut self, store: Arc<S>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -102,7 +102,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn build(self) -> Result<BlockService<T, E>, String> {
+    pub fn build(self) -> Result<BlockService<S, T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
                 validator_store: self
@@ -177,8 +177,8 @@ impl<T: SlotClock> ProposerFallback<T> {
 }
 
 /// Helper to minimise `Arc` usage.
-pub struct Inner<T, E: EthSpec> {
-    validator_store: Arc<ValidatorStore<T>>,
+pub struct Inner<S, T, E: EthSpec> {
+    validator_store: Arc<S>,
     slot_clock: Arc<T>,
     pub beacon_nodes: Arc<BeaconNodeFallback<T>>,
     pub proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
@@ -188,11 +188,11 @@ pub struct Inner<T, E: EthSpec> {
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
-pub struct BlockService<T, E: EthSpec> {
-    inner: Arc<Inner<T, E>>,
+pub struct BlockService<S, T, E: EthSpec> {
+    inner: Arc<Inner<S, T, E>>,
 }
 
-impl<T, E: EthSpec> Clone for BlockService<T, E> {
+impl<S, T, E: EthSpec> Clone for BlockService<S, T, E> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -200,8 +200,8 @@ impl<T, E: EthSpec> Clone for BlockService<T, E> {
     }
 }
 
-impl<T, E: EthSpec> Deref for BlockService<T, E> {
-    type Target = Inner<T, E>;
+impl<S, T, E: EthSpec> Deref for BlockService<S, T, E> {
+    type Target = Inner<S, T, E>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
@@ -214,7 +214,7 @@ pub struct BlockServiceNotification {
     pub block_proposers: Vec<PublicKeyBytes>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockService<S, T, E> {
     pub fn start_update_service(
         self,
         mut notification_rx: mpsc::Receiver<BlockServiceNotification>,

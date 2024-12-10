@@ -253,6 +253,7 @@ int_to_bytes = { path = "consensus/int_to_bytes" }
 kzg = { path = "crypto/kzg" }
 metrics = { path = "common/metrics" }
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
+lighthouse_validator_store = { path = "validator_client/lighthouse_validator_store" }
 lighthouse_version = { path = "common/lighthouse_version" }
 lockfile = { path = "common/lockfile" }
 logging = { path = "common/logging" }
@@ -282,7 +283,7 @@ validator_dir = { path = "common/validator_dir" }
 validator_http_api = { path = "validator_client/http_api" }
 validator_http_metrics = { path = "validator_client/http_metrics" }
 validator_metrics = { path = "validator_client/validator_metrics" }
-validator_store = { path = "validator_client/lighthouse_validator_store" }
+validator_store = { path = "validator_client/validator_store" }
 warp_utils = { path = "common/warp_utils" }
 xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "50d63cdf1878e5cf3538e9aae5eed34a22c64e4a" }
 zstd = "0.13"

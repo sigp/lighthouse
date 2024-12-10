@@ -1,5 +1,4 @@
 use crate::duties_service::{DutiesService, Error};
-use doppelganger_service::DoppelgangerStatus;
 use futures::future::join_all;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, info, warn};
@@ -8,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{ChainSpec, EthSpec, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId};
-use validator_store::Error as ValidatorStoreError;
+use validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
 
 /// Number of epochs in advance to compute selection proofs when not in `distributed` mode.
 pub const AGGREGATION_PRE_COMPUTE_EPOCHS: u64 = 2;
@@ -283,8 +282,12 @@ fn last_slot_of_period<E: EthSpec>(sync_committee_period: u64, spec: &ChainSpec)
     first_slot_of_period::<E>(sync_committee_period + 1, spec) - 1
 }
 
-pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &Arc<DutiesService<T, E>>,
+pub async fn poll_sync_committee_duties<
+    S: ValidatorStore + 'static,
+    T: SlotClock + 'static,
+    E: EthSpec,
+>(
+    duties_service: &Arc<DutiesService<S, T, E>>,
 ) -> Result<(), Error> {
     let sync_duties = &duties_service.sync_duties;
     let spec = &duties_service.spec;
@@ -316,10 +319,8 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
     let local_indices = {
         let mut local_indices = Vec::with_capacity(local_pubkeys.len());
 
-        let vals_ref = duties_service.validator_store.initialized_validators();
-        let vals = vals_ref.read();
         for &pubkey in &local_pubkeys {
-            if let Some(validator_index) = vals.get_index(&pubkey) {
+            if let Some(validator_index) = duties_service.validator_store.validator_index(&pubkey) {
                 local_indices.push(validator_index)
             }
         }
@@ -408,8 +409,12 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
     Ok(())
 }
 
-pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &Arc<DutiesService<T, E>>,
+pub async fn poll_sync_committee_duties_for_period<
+    S: ValidatorStore,
+    T: SlotClock + 'static,
+    E: EthSpec,
+>(
+    duties_service: &Arc<DutiesService<S, T, E>>,
     local_indices: &[u64],
     sync_committee_period: u64,
 ) -> Result<(), Error> {
@@ -502,8 +507,8 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     Ok(())
 }
 
-pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: Arc<DutiesService<T, E>>,
+pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec>(
+    duties_service: Arc<DutiesService<S, T, E>>,
     pre_compute_duties: &[(Slot, SyncDuty)],
     sync_committee_period: u64,
     current_slot: Slot,

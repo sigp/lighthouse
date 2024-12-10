@@ -18,6 +18,7 @@ use eth2::{
     Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
+use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use logging::test_logger;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -31,7 +32,7 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use types::graffiti::GraffitiString;
-use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
+use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -42,7 +43,7 @@ type E = MainnetEthSpec;
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
-    validator_store: Arc<ValidatorStore<TestingSlotClock>>,
+    validator_store: Arc<LighthouseValidatorStore<TestingSlotClock>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
     _validator_dir: TempDir,
@@ -94,7 +95,7 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(ValidatorStore::<_>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::<_>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),

@@ -8,6 +8,7 @@ use directory::{
 use eth2::types::Graffiti;
 use graffiti_file::GraffitiFile;
 use initialized_validators::Config as InitializedValidatorsConfig;
+use lighthouse_validator_store::Config as ValidatorStoreConfig;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
@@ -19,7 +20,6 @@ use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 use validator_http_api::{self, PK_FILENAME};
 use validator_http_metrics;
-use validator_store::Config as ValidatorStoreConfig;
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 

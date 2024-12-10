@@ -1,4 +1,5 @@
 use crate::{DutiesService, ProductionValidatorClient};
+use lighthouse_validator_store::LighthouseValidatorStore;
 use metrics::set_gauge;
 use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
@@ -35,7 +36,7 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
 
 /// Performs a single notification routine.
 async fn notify<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<T, E>,
+    duties_service: &DutiesService<LighthouseValidatorStore<T>, T, E>,
     log: &Logger,
 ) {
     let (candidate_info, num_available, num_synced) =

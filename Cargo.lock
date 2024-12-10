@@ -2250,6 +2250,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "types",
+ "validator_store",
 ]
 
 [[package]]
@@ -5354,6 +5355,31 @@ dependencies = [
  "unsigned-varint 0.8.0",
  "unused_port",
  "void",
+]
+
+[[package]]
+name = "lighthouse_validator_store"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "beacon_node_fallback",
+ "doppelganger_service",
+ "environment",
+ "eth2",
+ "futures",
+ "initialized_validators",
+ "logging",
+ "parking_lot 0.12.3",
+ "serde",
+ "signing_method",
+ "slashing_protection",
+ "slog",
+ "slot_clock",
+ "task_executor",
+ "tokio",
+ "types",
+ "validator_metrics",
+ "validator_store",
 ]
 
 [[package]]
@@ -9536,6 +9562,7 @@ dependencies = [
  "graffiti_file",
  "hyper 1.5.1",
  "initialized_validators",
+ "lighthouse_validator_store",
  "metrics",
  "monitoring_api",
  "parking_lot 0.12.3",
@@ -9591,6 +9618,7 @@ dependencies = [
  "graffiti_file",
  "initialized_validators",
  "itertools 0.10.5",
+ "lighthouse_validator_store",
  "lighthouse_version",
  "logging",
  "parking_lot 0.12.3",
@@ -9621,6 +9649,7 @@ dependencies = [
 name = "validator_http_metrics"
 version = "0.1.0"
 dependencies = [
+ "lighthouse_validator_store",
  "lighthouse_version",
  "malloc_utils",
  "metrics",
@@ -9631,7 +9660,6 @@ dependencies = [
  "types",
  "validator_metrics",
  "validator_services",
- "validator_store",
  "warp",
  "warp_utils",
 ]
@@ -9674,7 +9702,6 @@ version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
  "bls",
- "doppelganger_service",
  "environment",
  "eth2",
  "futures",
@@ -9694,24 +9721,9 @@ dependencies = [
 name = "validator_store"
 version = "0.1.0"
 dependencies = [
- "account_utils",
- "beacon_node_fallback",
- "doppelganger_service",
- "environment",
- "eth2",
- "futures",
- "initialized_validators",
- "logging",
- "parking_lot 0.12.3",
- "serde",
  "signing_method",
  "slashing_protection",
- "slog",
- "slot_clock",
- "task_executor",
- "tokio",
  "types",
- "validator_metrics",
 ]
 
 [[package]]
@@ -9992,6 +10004,7 @@ dependencies = [
  "eth2_network_config",
  "futures",
  "initialized_validators",
+ "lighthouse_validator_store",
  "logging",
  "parking_lot 0.12.3",
  "reqwest",

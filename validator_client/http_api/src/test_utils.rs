@@ -14,6 +14,7 @@ use eth2::{
 use eth2_keystore::KeystoreBuilder;
 use initialized_validators::key_cache::{KeyCache, CACHE_FILENAME};
 use initialized_validators::{InitializedValidators, OnDecryptFailure};
+use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use logging::test_logger;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -27,7 +28,6 @@ use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
 use validator_services::block_service::BlockService;
-use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
 use zeroize::Zeroizing;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -55,7 +55,7 @@ pub struct Web3SignerValidatorScenario {
 pub struct ApiTester {
     pub client: ValidatorClientHttpClient,
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
-    pub validator_store: Arc<ValidatorStore<TestingSlotClock>>,
+    pub validator_store: Arc<LighthouseValidatorStore<TestingSlotClock>>,
     pub url: SensitiveUrl,
     pub api_token: String,
     pub test_runtime: TestRuntime,
@@ -105,7 +105,7 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(ValidatorStore::<_>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::<_>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -127,7 +127,7 @@ impl ApiTester {
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
-            block_service: None::<BlockService<_, E>>,
+            block_service: None::<BlockService<LighthouseValidatorStore<_>, _, E>>,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),

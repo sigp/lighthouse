@@ -14,6 +14,7 @@ slot_clock = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }
+validator_store = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }

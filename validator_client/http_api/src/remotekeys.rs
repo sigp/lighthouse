@@ -8,6 +8,7 @@ use eth2::lighthouse_vc::std_types::{
     ListRemotekeysResponse, SingleListRemotekeysResponse, Status,
 };
 use initialized_validators::{Error, InitializedValidators};
+use lighthouse_validator_store::LighthouseValidatorStore;
 use slog::{info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
@@ -15,12 +16,11 @@ use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
 use types::{EthSpec, PublicKeyBytes};
 use url::Url;
-use validator_store::ValidatorStore;
 use warp::Rejection;
 use warp_utils::reject::custom_server_error;
 
 pub fn list<T: SlotClock + 'static>(
-    validator_store: Arc<ValidatorStore<T>>,
+    validator_store: Arc<LighthouseValidatorStore<T>>,
 ) -> ListRemotekeysResponse {
     let initialized_validators_rwlock = validator_store.initialized_validators();
     let initialized_validators = initialized_validators_rwlock.read();
@@ -50,7 +50,7 @@ pub fn list<T: SlotClock + 'static>(
 
 pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportRemotekeysRequest,
-    validator_store: Arc<ValidatorStore<T>>,
+    validator_store: Arc<LighthouseValidatorStore<T>>,
     task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<ImportRemotekeysResponse, Rejection> {
@@ -96,7 +96,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
 fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
     pubkey: PublicKeyBytes,
     url: String,
-    validator_store: &ValidatorStore<T>,
+    validator_store: &LighthouseValidatorStore<T>,
     handle: Handle,
 ) -> Result<ImportRemotekeyStatus, String> {
     if let Err(url_err) = Url::parse(&url) {
@@ -150,7 +150,7 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
 
 pub fn delete<T: SlotClock + 'static>(
     request: DeleteRemotekeysRequest,
-    validator_store: Arc<ValidatorStore<T>>,
+    validator_store: Arc<LighthouseValidatorStore<T>>,
     task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<DeleteRemotekeysResponse, Rejection> {

@@ -1,6 +1,5 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use bls::PublicKeyBytes;
-use doppelganger_service::DoppelgangerStatus;
 use environment::RuntimeContext;
 use parking_lot::RwLock;
 use slog::{debug, error, info, warn};
@@ -15,7 +14,9 @@ use types::{
     Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
     ValidatorRegistrationData,
 };
-use validator_store::{Error as ValidatorStoreError, ProposalData, ValidatorStore};
+use validator_store::{
+    DoppelgangerStatus, Error as ValidatorStoreError, ProposalData, ValidatorStore,
+};
 
 /// Number of epochs before the Bellatrix hard fork to begin posting proposer preparations.
 const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
@@ -25,8 +26,8 @@ const EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION: u64 = 1;
 
 /// Builds an `PreparationService`.
 #[derive(Default)]
-pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
-    validator_store: Option<Arc<ValidatorStore<T>>>,
+pub struct PreparationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> {
+    validator_store: Option<Arc<S>>,
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     context: Option<RuntimeContext<E>>,
@@ -34,7 +35,7 @@ pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     validator_registration_batch_size: Option<usize>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
+impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<S, T, E> {
     pub fn new() -> Self {
         Self {
             validator_store: None,
@@ -46,7 +47,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         }
     }
 
-    pub fn validator_store(mut self, store: Arc<ValidatorStore<T>>) -> Self {
+    pub fn validator_store(mut self, store: Arc<S>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -82,7 +83,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
-    pub fn build(self) -> Result<PreparationService<T, E>, String> {
+    pub fn build(self) -> Result<PreparationService<S, T, E>, String> {
         Ok(PreparationService {
             inner: Arc::new(Inner {
                 validator_store: self
@@ -109,8 +110,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
 }
 
 /// Helper to minimise `Arc` usage.
-pub struct Inner<T, E: EthSpec> {
-    validator_store: Arc<ValidatorStore<T>>,
+pub struct Inner<S, T, E: EthSpec> {
+    validator_store: Arc<S>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     context: RuntimeContext<E>,
@@ -145,11 +146,11 @@ impl From<ValidatorRegistrationData> for ValidatorRegistrationKey {
 }
 
 /// Attempts to produce proposer preparations for all known validators at the beginning of each epoch.
-pub struct PreparationService<T, E: EthSpec> {
-    inner: Arc<Inner<T, E>>,
+pub struct PreparationService<S, T, E: EthSpec> {
+    inner: Arc<Inner<S, T, E>>,
 }
 
-impl<T, E: EthSpec> Clone for PreparationService<T, E> {
+impl<S, T, E: EthSpec> Clone for PreparationService<S, T, E> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -157,15 +158,15 @@ impl<T, E: EthSpec> Clone for PreparationService<T, E> {
     }
 }
 
-impl<T, E: EthSpec> Deref for PreparationService<T, E> {
-    type Target = Inner<T, E>;
+impl<S, T, E: EthSpec> Deref for PreparationService<S, T, E> {
+    type Target = Inner<S, T, E>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> PreparationService<S, T, E> {
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         self.clone().start_validator_registration_service(spec)?;
         self.start_proposer_prepare_service(spec)

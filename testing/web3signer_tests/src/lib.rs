@@ -25,6 +25,7 @@ mod tests {
     use initialized_validators::{
         load_pem_certificate, load_pkcs12_identity, InitializedValidators,
     };
+    use lighthouse_validator_store::LighthouseValidatorStore;
     use logging::test_logger;
     use parking_lot::Mutex;
     use reqwest::Client;
@@ -309,7 +310,7 @@ mod tests {
 
     /// A testing rig which holds a `ValidatorStore`.
     struct ValidatorStoreRig {
-        validator_store: Arc<ValidatorStore<TestingSlotClock>>,
+        validator_store: Arc<LighthouseValidatorStore<TestingSlotClock>>,
         _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: async_channel::Sender<()>,
@@ -358,12 +359,12 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_store::Config {
+            let config = lighthouse_validator_store::Config {
                 enable_web3signer_slashing_protection: slashing_protection_config.local,
                 ..Default::default()
             };
 
-            let validator_store = ValidatorStore::<_>::new(
+            let validator_store = LighthouseValidatorStore::<_>::new(
                 initialized_validators,
                 slashing_protection,
                 Hash256::repeat_byte(42),
@@ -489,7 +490,7 @@ mod tests {
             generate_sig: F,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock>>) -> R,
             R: Future<Output = S>,
             // We use the `SignedObject` trait to white-list objects for comparison. This avoids
             // accidentally comparing something meaningless like a `()`.
@@ -524,7 +525,7 @@ mod tests {
             web3signer_should_sign: bool,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock>>) -> R,
             R: Future<Output = Result<(), ValidatorStoreError>>,
         {
             for validator_rig in &self.validator_rigs {

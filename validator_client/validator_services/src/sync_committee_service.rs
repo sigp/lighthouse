@@ -19,11 +19,13 @@ use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 pub const SUBSCRIPTION_LOOKAHEAD_EPOCHS: u64 = 4;
 
-pub struct SyncCommitteeService<T: SlotClock + 'static, E: EthSpec> {
-    inner: Arc<Inner<T, E>>,
+pub struct SyncCommitteeService<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> {
+    inner: Arc<Inner<S, T, E>>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> Clone for SyncCommitteeService<T, E> {
+impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> Clone
+    for SyncCommitteeService<S, T, E>
+{
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -31,17 +33,19 @@ impl<T: SlotClock + 'static, E: EthSpec> Clone for SyncCommitteeService<T, E> {
     }
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> Deref for SyncCommitteeService<T, E> {
-    type Target = Inner<T, E>;
+impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> Deref
+    for SyncCommitteeService<S, T, E>
+{
+    type Target = Inner<S, T, E>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
-    duties_service: Arc<DutiesService<T, E>>,
-    validator_store: Arc<ValidatorStore<T>>,
+pub struct Inner<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> {
+    duties_service: Arc<DutiesService<S, T, E>>,
+    validator_store: Arc<S>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     context: RuntimeContext<E>,
@@ -51,10 +55,12 @@ pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
     first_subscription_done: AtomicBool,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
+    SyncCommitteeService<S, T, E>
+{
     pub fn new(
-        duties_service: Arc<DutiesService<T, E>>,
-        validator_store: Arc<ValidatorStore<T>>,
+        duties_service: Arc<DutiesService<S, T, E>>,
+        validator_store: Arc<S>,
         slot_clock: T,
         beacon_nodes: Arc<BeaconNodeFallback<T>>,
         context: RuntimeContext<E>,
