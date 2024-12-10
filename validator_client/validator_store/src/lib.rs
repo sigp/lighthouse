@@ -1,17 +1,16 @@
-use signing_method::Error as SigningError;
 use slashing_protection::NotSafe;
+use std::fmt::Debug;
 use std::future::Future;
 use types::{
-    attestation::Error as AttestationError, AbstractExecPayload, Address, Attestation, BeaconBlock,
-    Epoch, EthSpec, Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit,
+    AbstractExecPayload, Address, Attestation, AttestationError, BeaconBlock, Epoch, EthSpec,
+    Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof,
+    SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
 };
 
 #[derive(Debug, PartialEq)]
-pub enum Error {
+pub enum Error<T> {
     DoppelgangerProtected(PublicKeyBytes),
     UnknownToDoppelgangerService(PublicKeyBytes),
     UnknownPubkey(PublicKeyBytes),
@@ -20,12 +19,12 @@ pub enum Error {
     GreaterThanCurrentSlot { slot: Slot, current_slot: Slot },
     GreaterThanCurrentEpoch { epoch: Epoch, current_epoch: Epoch },
     UnableToSignAttestation(AttestationError),
-    UnableToSign(SigningError),
+    SpecificError(T),
 }
 
-impl From<SigningError> for Error {
-    fn from(e: SigningError) -> Self {
-        Error::UnableToSign(e)
+impl<T> From<T> for Error<T> {
+    fn from(e: T) -> Self {
+        Error::SpecificError(e)
     }
 }
 
@@ -38,6 +37,7 @@ pub struct ProposalData {
 }
 
 pub trait ValidatorStore: Send + Sync {
+    type Error: Debug + Send + Sync;
     /// Attempts to resolve the pubkey to a validator index.
     ///
     /// It may return `None` if the `pubkey` is:
@@ -100,7 +100,7 @@ pub trait ValidatorStore: Send + Sync {
         &self,
         validator_pubkey: PublicKeyBytes,
         signing_epoch: Epoch,
-    ) -> impl Future<Output = Result<Signature, Error>> + Send;
+    ) -> impl Future<Output = Result<Signature, Error<Self::Error>>> + Send;
 
     fn set_validator_index(&self, validator_pubkey: &PublicKeyBytes, index: u64);
 
@@ -109,7 +109,7 @@ pub trait ValidatorStore: Send + Sync {
         validator_pubkey: PublicKeyBytes,
         block: BeaconBlock<E, Payload>,
         current_slot: Slot,
-    ) -> impl Future<Output = Result<SignedBeaconBlock<E, Payload>, Error>> + Send;
+    ) -> impl Future<Output = Result<SignedBeaconBlock<E, Payload>, Error<Self::Error>>> + Send;
 
     fn sign_attestation<E: EthSpec>(
         &self,
@@ -117,18 +117,18 @@ pub trait ValidatorStore: Send + Sync {
         validator_committee_position: usize,
         attestation: &mut Attestation<E>,
         current_epoch: Epoch,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
+    ) -> impl Future<Output = Result<(), Error<Self::Error>>> + Send;
 
     fn sign_voluntary_exit<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         voluntary_exit: VoluntaryExit,
-    ) -> impl Future<Output = Result<SignedVoluntaryExit, Error>> + Send;
+    ) -> impl Future<Output = Result<SignedVoluntaryExit, Error<Self::Error>>> + Send;
 
     fn sign_validator_registration_data<E: EthSpec>(
         &self,
         validator_registration_data: ValidatorRegistrationData,
-    ) -> impl Future<Output = Result<SignedValidatorRegistrationData, Error>> + Send;
+    ) -> impl Future<Output = Result<SignedValidatorRegistrationData, Error<Self::Error>>> + Send;
 
     /// Signs an `AggregateAndProof` for a given validator.
     ///
@@ -140,7 +140,7 @@ pub trait ValidatorStore: Send + Sync {
         aggregator_index: u64,
         aggregate: Attestation<E>,
         selection_proof: SelectionProof,
-    ) -> impl Future<Output = Result<SignedAggregateAndProof<E>, Error>> + Send;
+    ) -> impl Future<Output = Result<SignedAggregateAndProof<E>, Error<Self::Error>>> + Send;
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
     /// `validator_pubkey`.
@@ -148,7 +148,7 @@ pub trait ValidatorStore: Send + Sync {
         &self,
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
-    ) -> impl Future<Output = Result<SelectionProof, Error>> + Send;
+    ) -> impl Future<Output = Result<SelectionProof, Error<Self::Error>>> + Send;
 
     /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
     fn produce_sync_selection_proof<E: EthSpec>(
@@ -156,7 +156,7 @@ pub trait ValidatorStore: Send + Sync {
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         subnet_id: SyncSubnetId,
-    ) -> impl Future<Output = Result<SyncSelectionProof, Error>> + Send;
+    ) -> impl Future<Output = Result<SyncSelectionProof, Error<Self::Error>>> + Send;
 
     fn produce_sync_committee_signature<E: EthSpec>(
         &self,
@@ -164,7 +164,7 @@ pub trait ValidatorStore: Send + Sync {
         beacon_block_root: Hash256,
         validator_index: u64,
         validator_pubkey: &PublicKeyBytes,
-    ) -> impl Future<Output = Result<SyncCommitteeMessage, Error>> + Send;
+    ) -> impl Future<Output = Result<SyncCommitteeMessage, Error<Self::Error>>> + Send;
 
     fn produce_signed_contribution_and_proof<E: EthSpec>(
         &self,
@@ -172,7 +172,7 @@ pub trait ValidatorStore: Send + Sync {
         aggregator_pubkey: PublicKeyBytes,
         contribution: SyncCommitteeContribution<E>,
         selection_proof: SyncSelectionProof,
-    ) -> impl Future<Output = Result<SignedContributionAndProof<E>, Error>> + Send;
+    ) -> impl Future<Output = Result<SignedContributionAndProof<E>, Error<Self::Error>>> + Send;
 
     /// Prune the slashing protection database so that it remains performant.
     ///

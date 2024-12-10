@@ -5,6 +5,5 @@ edition = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [dependencies]
-signing_method = { workspace = true }
 slashing_protection = { workspace = true }
 types = { workspace = true }

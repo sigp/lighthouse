@@ -9494,7 +9494,6 @@ dependencies = [
 name = "validator_store"
 version = "0.1.0"
 dependencies = [
- "signing_method",
  "slashing_protection",
  "types",
 ]
