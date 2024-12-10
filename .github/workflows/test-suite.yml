@@ -83,6 +83,11 @@ jobs:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
     - uses: actions/checkout@v4
+    # Set Java version to 21. (required since Web3Signer 24.12.0).
+    - uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
