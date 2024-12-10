@@ -9583,7 +9583,6 @@ dependencies = [
  "directory",
  "dirs",
  "doppelganger_service",
- "env_logger 0.9.3",
  "environment",
  "eth2",
  "fdlimit",
@@ -9592,9 +9591,7 @@ dependencies = [
  "initialized_validators",
  "logging",
  "metrics",
- "mockito",
  "monitoring_api",
- "node_test_rig",
  "parking_lot 0.12.3",
  "regex",
  "reqwest",
@@ -9613,7 +9610,6 @@ dependencies = [
  "validator_metrics",
  "validator_services",
  "validator_store",
- "validator_test_rig",
 ]
 
 [[package]]
