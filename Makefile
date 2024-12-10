@@ -239,8 +239,9 @@ audit: install-audit audit-CI
 install-audit:
 	cargo install --force cargo-audit
 
+# Remove --ignore once upstream fix is released: https://github.com/hickory-dns/hickory-dns/pull/2662
 audit-CI:
-	cargo audit
+	cargo audit --ignore RUSTSEC-2024-0421
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:
