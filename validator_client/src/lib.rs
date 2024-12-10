@@ -3,8 +3,6 @@ pub mod config;
 mod latency;
 mod notifier;
 
-pub use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
-pub use beacon_node_fallback::ApiTopic;
 pub use cli::cli_app;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
@@ -21,9 +19,7 @@ use account_utils::validator_definitions::ValidatorDefinitions;
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
-use eth2::types::Graffiti;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
-use graffiti_file::GraffitiFile;
 use initialized_validators::Error::UnableToOpenVotingKeystore;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
@@ -42,7 +38,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{EthSpec, Hash256, PublicKeyBytes};
+use types::{EthSpec, Hash256};
 use validator_http_api::ApiSecret;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
@@ -207,15 +203,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config.initialized_validators.clone(),
             log.clone(),
         )
-        .await
-        .map_err(|e| {
-            match e {
-                UnableToOpenVotingKeystore(err) => {
-                    format!("Unable to initialize validators: {:?}. If you have recently moved the location of your data directory \
+            .await
+            .map_err(|e| {
+                match e {
+                    UnableToOpenVotingKeystore(err) => {
+                        format!("Unable to initialize validators: {:?}. If you have recently moved the location of your data directory \
                     make sure to update the location of voting_keystore_path in your validator_definitions.yml", err)
-                },
-                err => {
-                    format!("Unable to initialize validators: {:?}", err)}
+                    },
+                    err => {
+                        format!("Unable to initialize validators: {:?}", err)}
                 }
             })?;
 
@@ -311,7 +307,23 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                     log,
                     "Fallback endpoints are available, using optimized timeouts.";
                 );
-                get_optimised_bn_timeouts(slot_duration)
+                Timeouts {
+                    attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
+                    attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+                    attestation_subscriptions: slot_duration
+                        / HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT,
+                    liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
+                    proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
+                    proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+                    sync_committee_contribution: slot_duration
+                        / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
+                    sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+                    get_beacon_blocks_ssz: slot_duration
+                        / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
+                    get_debug_beacon_states: slot_duration / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
+                    get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
+                    get_validator_block: slot_duration / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
+                }
             } else {
                 Timeouts::set_all(slot_duration)
             };
@@ -822,43 +834,4 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
         .read_to_end(&mut buf)
         .map_err(|e| format!("Unable to read certificate file: {}", e))?;
     Certificate::from_pem(&buf).map_err(|e| format!("Unable to parse certificate: {}", e))
-}
-
-// Given the various graffiti control methods, determine the graffiti that will be used for
-// the next block produced by the validator with the given public key.
-pub fn determine_graffiti(
-    validator_pubkey: &PublicKeyBytes,
-    log: &Logger,
-    graffiti_file: Option<GraffitiFile>,
-    validator_definition_graffiti: Option<Graffiti>,
-    graffiti_flag: Option<Graffiti>,
-) -> Option<Graffiti> {
-    graffiti_file
-        .and_then(|mut g| match g.load_graffiti(validator_pubkey) {
-            Ok(g) => g,
-            Err(e) => {
-                warn!(log, "Failed to read graffiti file"; "error" => ?e);
-                None
-            }
-        })
-        .or(validator_definition_graffiti)
-        .or(graffiti_flag)
-}
-
-pub fn get_optimised_bn_timeouts(slot_duration: Duration) -> Timeouts {
-    Timeouts {
-        attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
-        attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
-        attestation_subscriptions: slot_duration / HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT,
-        liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
-        proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
-        proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
-        sync_committee_contribution: slot_duration
-            / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
-        sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
-        get_beacon_blocks_ssz: slot_duration / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
-        get_debug_beacon_states: slot_duration / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
-        get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
-        get_validator_block: slot_duration / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
-    }
 }

@@ -323,27 +323,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         Ok(())
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    pub async fn publish_block_for_testing(
-        &self,
-        slot: Slot,
-        validator_pubkey: &PublicKeyBytes,
-        unsigned_block: UnsignedBlock<E>,
-    ) -> Result<(), BlockError> {
-        let proposer_fallback = ProposerFallback {
-            beacon_nodes: self.beacon_nodes.clone(),
-            proposer_nodes: self.proposer_nodes.clone(),
-        };
-        self.sign_and_publish_block(
-            proposer_fallback,
-            slot,
-            None,
-            validator_pubkey,
-            unsigned_block,
-        )
-        .await
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn sign_and_publish_block(
         &self,

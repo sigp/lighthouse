@@ -98,7 +98,7 @@ members = [
 
     "validator_manager",
 
-    "watch", "testing/validator_test_rig",
+    "watch",
 ]
 resolver = "2"
 
