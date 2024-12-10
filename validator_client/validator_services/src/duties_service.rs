@@ -86,16 +86,16 @@ const _: () = assert!(ATTESTATION_SUBSCRIPTION_OFFSETS[0] > MIN_ATTESTATION_SUBS
 
 // The info in the enum variants is displayed in logging, clippy thinks it's dead code.
 #[derive(Debug)]
-pub enum Error {
+pub enum Error<T> {
     UnableToReadSlotClock,
     FailedToDownloadAttesters(#[allow(dead_code)] String),
-    FailedToProduceSelectionProof(#[allow(dead_code)] ValidatorStoreError),
+    FailedToProduceSelectionProof(#[allow(dead_code)] ValidatorStoreError<T>),
     InvalidModulo(#[allow(dead_code)] ArithError),
     Arith(#[allow(dead_code)] ArithError),
     SyncDutiesNotFound(#[allow(dead_code)] u64),
 }
 
-impl From<ArithError> for Error {
+impl<T> From<ArithError> for Error<T> {
     fn from(e: ArithError) -> Self {
         Self::Arith(e)
     }
@@ -128,7 +128,7 @@ async fn make_selection_proof<S: ValidatorStore + 'static, E: EthSpec>(
     duty: &AttesterData,
     validator_store: &S,
     spec: &ChainSpec,
-) -> Result<Option<SelectionProof>, Error> {
+) -> Result<Option<SelectionProof>, Error<S::Error>> {
     let selection_proof = validator_store
         .produce_selection_proof::<E>(duty.pubkey, duty.slot)
         .await
@@ -596,7 +596,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static, E: Et
 /// 4. Prune old entries from `duties_service.attesters`.
 async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>(
     duties_service: &Arc<DutiesService<S, T, E>>,
-) -> Result<(), Error> {
+) -> Result<(), Error<S::Error>> {
     let current_epoch_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
         &[validator_metrics::UPDATE_ATTESTERS_CURRENT_EPOCH],
@@ -799,7 +799,7 @@ async fn poll_beacon_attesters_for_epoch<
     epoch: Epoch,
     local_indices: &[u64],
     local_pubkeys: &HashSet<PublicKeyBytes>,
-) -> Result<(), Error> {
+) -> Result<(), Error<S::Error>> {
     let log = duties_service.context.log();
 
     // No need to bother the BN if we don't have any validators.
@@ -1022,7 +1022,7 @@ async fn post_validator_duties_attester<S: ValidatorStore, T: SlotClock + 'stati
     duties_service: &Arc<DutiesService<S, T, E>>,
     epoch: Epoch,
     validator_indices: &[u64],
-) -> Result<DutiesResponse<Vec<AttesterData>>, Error> {
+) -> Result<DutiesResponse<Vec<AttesterData>>, Error<S::Error>> {
     duties_service
         .beacon_nodes
         .first_success(|beacon_node| async move {
@@ -1223,7 +1223,7 @@ async fn fill_in_selection_proofs<
 async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<S, T, E>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
-) -> Result<(), Error> {
+) -> Result<(), Error<S::Error>> {
     let _timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
         &[validator_metrics::UPDATE_PROPOSERS],

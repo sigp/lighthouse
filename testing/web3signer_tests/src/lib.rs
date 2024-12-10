@@ -526,7 +526,7 @@ mod tests {
         ) -> Self
         where
             F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock>>) -> R,
-            R: Future<Output = Result<(), ValidatorStoreError>>,
+            R: Future<Output = Result<(), lighthouse_validator_store::Error>>,
         {
             for validator_rig in &self.validator_rigs {
                 let result =

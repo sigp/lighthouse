@@ -288,7 +288,7 @@ pub async fn poll_sync_committee_duties<
     E: EthSpec,
 >(
     duties_service: &Arc<DutiesService<S, T, E>>,
-) -> Result<(), Error> {
+) -> Result<(), Error<S::Error>> {
     let sync_duties = &duties_service.sync_duties;
     let spec = &duties_service.spec;
     let current_slot = duties_service
@@ -417,7 +417,7 @@ pub async fn poll_sync_committee_duties_for_period<
     duties_service: &Arc<DutiesService<S, T, E>>,
     local_indices: &[u64],
     sync_committee_period: u64,
-) -> Result<(), Error> {
+) -> Result<(), Error<S::Error>> {
     let spec = &duties_service.spec;
     let log = duties_service.context.log();
 
