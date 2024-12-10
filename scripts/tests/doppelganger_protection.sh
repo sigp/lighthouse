@@ -71,7 +71,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     # This process should not last longer than 2 epochs
     vc_1_range_start=0
     vc_1_range_end=$(($KEYS_PER_NODE - 1))
-    vc_1_keys_artifact_id="1-lighthouse-geth-$vc_1_range_start-$vc_1_range_end-0"
+    vc_1_keys_artifact_id="1-lighthouse-geth-$vc_1_range_start-$vc_1_range_end"
     service_name=vc-1-doppelganger
 
     kurtosis service add \
@@ -107,7 +107,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     vc_4_range_start=$(($KEYS_PER_NODE * 3))
     vc_4_range_end=$(($KEYS_PER_NODE * 4 - 1))
-    vc_4_keys_artifact_id="4-lighthouse-geth-$vc_4_range_start-$vc_4_range_end-0"
+    vc_4_keys_artifact_id="4-lighthouse-geth-$vc_4_range_start-$vc_4_range_end"
     service_name=vc-4
 
     kurtosis service add \
