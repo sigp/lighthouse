@@ -3,20 +3,19 @@ name = "account_utils"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = { workspace = true }
-eth2_wallet = { workspace = true }
+directory = { workspace = true }
 eth2_keystore = { workspace = true }
+eth2_wallet = { workspace = true }
 filesystem = { workspace = true }
-zeroize = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+rpassword = "5.0.0"
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 slog = { workspace = true }
 types = { workspace = true }
 validator_dir = { workspace = true }
-regex = { workspace = true }
-rpassword = "5.0.0"
-directory = { workspace = true }
+zeroize = { workspace = true }

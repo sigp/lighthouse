@@ -8,11 +8,11 @@ members = [
     "beacon_node/builder_client",
     "beacon_node/client",
     "beacon_node/eth1",
-    "beacon_node/lighthouse_network",
-    "beacon_node/lighthouse_network/gossipsub",
     "beacon_node/execution_layer",
     "beacon_node/http_api",
     "beacon_node/http_metrics",
+    "beacon_node/lighthouse_network",
+    "beacon_node/lighthouse_network/gossipsub",
     "beacon_node/network",
     "beacon_node/store",
     "beacon_node/timer",
@@ -30,40 +30,40 @@ members = [
     "common/eth2_interop_keypairs",
     "common/eth2_network_config",
     "common/eth2_wallet_manager",
-    "common/metrics",
     "common/lighthouse_version",
     "common/lockfile",
     "common/logging",
     "common/lru_cache",
     "common/malloc_utils",
+    "common/metrics",
+    "common/monitoring_api",
     "common/oneshot_broadcast",
     "common/pretty_reqwest_error",
     "common/sensitive_url",
     "common/slot_clock",
     "common/system_health",
-    "common/task_executor",
     "common/target_check",
+    "common/task_executor",
     "common/test_random_derive",
     "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
-    "common/monitoring_api",
-
-    "database_manager",
-
-    "consensus/int_to_bytes",
     "consensus/fixed_bytes",
     "consensus/fork_choice",
+
+    "consensus/int_to_bytes",
     "consensus/proto_array",
     "consensus/safe_arith",
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
 
     "crypto/bls",
-    "crypto/kzg",
     "crypto/eth2_key_derivation",
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
+    "crypto/kzg",
+
+    "database_manager",
 
     "lcli",
 
@@ -78,8 +78,8 @@ members = [
     "testing/execution_engine_integration",
     "testing/node_test_rig",
     "testing/simulator",
-    "testing/test-test_logger",
     "testing/state_transition_vectors",
+    "testing/test-test_logger",
     "testing/web3signer_tests",
 
     "validator_client",
@@ -126,8 +126,8 @@ delay_map = "0.4"
 derivative = "2"
 dirs = "3"
 either = "1.9"
- # TODO: rust_eth_kzg is pinned for now while a perf regression is investigated
- # The crate_crypto_* dependencies can be removed from this file completely once we update
+# TODO: rust_eth_kzg is pinned for now while a perf regression is investigated
+# The crate_crypto_* dependencies can be removed from this file completely once we update
 rust_eth_kzg = "=0.5.1"
 crate_crypto_internal_eth_kzg_bls12_381 = "=0.5.1"
 crate_crypto_internal_eth_kzg_erasure_codes = "=0.5.1"
@@ -167,7 +167,13 @@ r2d2 = "0.8"
 rand = "0.8"
 rayon = "1.7"
 regex = "1"
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "native-tls-vendored"] }
+reqwest = { version = "0.11", default-features = false, features = [
+    "blocking",
+    "json",
+    "stream",
+    "rustls-tls",
+    "native-tls-vendored",
+] }
 ring = "0.16"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
@@ -176,7 +182,11 @@ serde_json = "1"
 serde_repr = "0.1"
 serde_yaml = "0.9"
 sha2 = "0.9"
-slog = { version = "2", features = ["max_level_debug", "release_max_level_debug", "nested-values"] }
+slog = { version = "2", features = [
+    "max_level_debug",
+    "release_max_level_debug",
+    "nested-values",
+] }
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
@@ -188,7 +198,12 @@ superstruct = "0.8"
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal", "macros"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "sync",
+    "signal",
+    "macros",
+] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "time"] }
 tracing = "0.1.40"
@@ -267,7 +282,7 @@ validator_dir = { path = "common/validator_dir" }
 validator_http_api = { path = "validator_client/http_api" }
 validator_http_metrics = { path = "validator_client/http_metrics" }
 validator_metrics = { path = "validator_client/validator_metrics" }
-validator_store= { path = "validator_client/validator_store" }
+validator_store = { path = "validator_client/validator_store" }
 warp_utils = { path = "common/warp_utils" }
 xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "50d63cdf1878e5cf3538e9aae5eed34a22c64e4a" }
 zstd = "0.13"
