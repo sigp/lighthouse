@@ -17,8 +17,8 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v5.3.0-",
-    fallback = "Lighthouse/v5.3.0"
+    prefix = "Lighthouse/v6.0.0-",
+    fallback = "Lighthouse/v6.0.0"
 );
 
 /// Returns the first eight characters of the latest commit hash for this build.

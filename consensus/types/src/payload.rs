@@ -317,7 +317,7 @@ impl<'a, E: EthSpec> FullPayloadRef<'a, E> {
     }
 }
 
-impl<'b, E: EthSpec> ExecPayload<E> for FullPayloadRef<'b, E> {
+impl<E: EthSpec> ExecPayload<E> for FullPayloadRef<'_, E> {
     fn block_type() -> BlockType {
         BlockType::Full
     }

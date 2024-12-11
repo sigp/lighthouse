@@ -179,12 +179,12 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
             .to_ref()
             .block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
-        return Ok(LightClientHeaderCapella {
+        Ok(LightClientHeaderCapella {
             beacon: block.message().block_header(),
             execution: header,
             execution_branch: FixedVector::new(execution_branch)?,
             _phantom_data: PhantomData,
-        });
+        })
     }
 }
 
