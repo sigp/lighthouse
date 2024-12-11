@@ -46,11 +46,14 @@ use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
-    ValidatorStatus, ValidatorsRequestBody,
+    LightClientUpdatesQuery, PeerDirection, PublishBlockRequest, ValidatorBalancesRequestBody,
+    ValidatorId, ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
-use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
+use lighthouse_network::{
+    types::SyncState, ConnectionDirection, EnrExt, NetworkGlobals, PeerConnectionStatus, PeerId,
+    PubsubMessage,
+};
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
@@ -2870,9 +2873,15 @@ pub fn serve<T: BeaconChainTypes>(
                     let meta_data = network_globals.local_metadata.read();
                     Ok(api_types::GenericResponse::from(api_types::IdentityData {
                         peer_id: network_globals.local_peer_id().to_base58(),
-                        enr,
-                        p2p_addresses,
-                        discovery_addresses,
+                        enr: enr.to_string(),
+                        p2p_addresses: p2p_addresses
+                            .into_iter()
+                            .map(|addr| addr.to_string())
+                            .collect(),
+                        discovery_addresses: discovery_addresses
+                            .into_iter()
+                            .map(|addr| addr.to_string())
+                            .collect(),
                         metadata: api_types::MetaData {
                             seq_number: *meta_data.seq_number(),
                             attnets: format!(
@@ -3059,10 +3068,26 @@ pub fn serve<T: BeaconChainTypes>(
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr().map(|enr| enr.to_base64()),
                                 last_seen_p2p_address: address,
-                                direction: api_types::PeerDirection::from_connection_direction(dir),
-                                state: api_types::PeerState::from_peer_connection_status(
-                                    peer_info.connection_status(),
-                                ),
+                                direction: match dir {
+                                    ConnectionDirection::Incoming => PeerDirection::Inbound,
+                                    ConnectionDirection::Outgoing => PeerDirection::Outbound,
+                                },
+                                state: match peer_info.connection_status() {
+                                    PeerConnectionStatus::Connected { .. } => {
+                                        api_types::PeerState::Connected
+                                    }
+                                    PeerConnectionStatus::Dialing { .. } => {
+                                        api_types::PeerState::Connecting
+                                    }
+                                    PeerConnectionStatus::Disconnecting { .. } => {
+                                        api_types::PeerState::Disconnecting
+                                    }
+                                    PeerConnectionStatus::Disconnected { .. }
+                                    | PeerConnectionStatus::Banned { .. }
+                                    | PeerConnectionStatus::Unknown => {
+                                        api_types::PeerState::Disconnected
+                                    }
+                                },
                             }));
                         }
                     }
@@ -3104,11 +3129,26 @@ pub fn serve<T: BeaconChainTypes>(
 
                             // the eth2 API spec implies only peers we have been connected to at some point should be included.
                             if let Some(dir) = peer_info.connection_direction() {
-                                let direction =
-                                    api_types::PeerDirection::from_connection_direction(dir);
-                                let state = api_types::PeerState::from_peer_connection_status(
-                                    peer_info.connection_status(),
-                                );
+                                let direction = match dir {
+                                    ConnectionDirection::Incoming => PeerDirection::Inbound,
+                                    ConnectionDirection::Outgoing => PeerDirection::Outbound,
+                                };
+                                let state = match peer_info.connection_status() {
+                                    PeerConnectionStatus::Connected { .. } => {
+                                        api_types::PeerState::Connected
+                                    }
+                                    PeerConnectionStatus::Dialing { .. } => {
+                                        api_types::PeerState::Connecting
+                                    }
+                                    PeerConnectionStatus::Disconnecting { .. } => {
+                                        api_types::PeerState::Disconnecting
+                                    }
+                                    PeerConnectionStatus::Disconnected { .. }
+                                    | PeerConnectionStatus::Banned { .. }
+                                    | PeerConnectionStatus::Unknown => {
+                                        api_types::PeerState::Disconnected
+                                    }
+                                };
 
                                 let state_matches = query.state.as_ref().map_or(true, |states| {
                                     states.iter().any(|state_param| *state_param == state)
@@ -3159,16 +3199,13 @@ pub fn serve<T: BeaconChainTypes>(
                         .peers
                         .read()
                         .peers()
-                        .for_each(|(_, peer_info)| {
-                            let state = api_types::PeerState::from_peer_connection_status(
-                                peer_info.connection_status(),
-                            );
-                            match state {
-                                api_types::PeerState::Connected => connected += 1,
-                                api_types::PeerState::Connecting => connecting += 1,
-                                api_types::PeerState::Disconnected => disconnected += 1,
-                                api_types::PeerState::Disconnecting => disconnecting += 1,
-                            }
+                        .for_each(|(_, peer_info)| match peer_info.connection_status() {
+                            PeerConnectionStatus::Connected { .. } => connected += 1,
+                            PeerConnectionStatus::Dialing { .. } => connecting += 1,
+                            PeerConnectionStatus::Disconnecting { .. } => disconnecting += 1,
+                            PeerConnectionStatus::Disconnected { .. }
+                            | PeerConnectionStatus::Banned { .. }
+                            | PeerConnectionStatus::Unknown => disconnected += 1,
                         });
 
                     Ok(api_types::GenericResponse::from(api_types::PeerCount {
@@ -4166,15 +4203,18 @@ pub fn serve<T: BeaconChainTypes>(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    Ok(network_globals
-                        .peers
-                        .read()
-                        .peers()
-                        .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
+                    let mut peers = vec![];
+                    for (peer_id, peer_info) in network_globals.peers.read().peers() {
+                        peers.push(eth2::lighthouse::Peer {
                             peer_id: peer_id.to_string(),
-                            peer_info: peer_info.clone(),
-                        })
-                        .collect::<Vec<_>>())
+                            peer_info: serde_json::to_value(peer_info).map_err(|e| {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "unable to serialize peer_info: {e:?}",
+                                ))
+                            })?,
+                        });
+                    }
+                    Ok(peers)
                 })
             },
         );
@@ -4190,15 +4230,18 @@ pub fn serve<T: BeaconChainTypes>(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    Ok(network_globals
-                        .peers
-                        .read()
-                        .connected_peers()
-                        .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
+                    let mut peers = vec![];
+                    for (peer_id, peer_info) in network_globals.peers.read().connected_peers() {
+                        peers.push(eth2::lighthouse::Peer {
                             peer_id: peer_id.to_string(),
-                            peer_info: peer_info.clone(),
-                        })
-                        .collect::<Vec<_>>())
+                            peer_info: serde_json::to_value(peer_info).map_err(|e| {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "unable to serialize peer_info: {e:?}",
+                                ))
+                            })?,
+                        });
+                    }
+                    Ok(peers)
                 })
             },
         );

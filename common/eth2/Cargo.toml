@@ -12,7 +12,6 @@ serde_json = { workspace = true }
 ssz_types = { workspace = true }
 types = { workspace = true }
 reqwest = { workspace = true }
-lighthouse_network = { workspace = true }
 proto_array = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 eth2_keystore = { workspace = true }

@@ -19,7 +19,6 @@ use self::types::{Error as ResponseError, *};
 use derivative::Derivative;
 use futures::Stream;
 use futures_util::StreamExt;
-use lighthouse_network::PeerId;
 use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
 use reqwest::{
@@ -47,6 +46,8 @@ pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
 
 pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
 pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
+
+type PeerId = String;
 
 #[derive(Debug)]
 pub enum Error {
