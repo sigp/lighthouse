@@ -28,6 +28,8 @@ Commands:
   delete
           Deletes one or more validators from a validator client using the HTTP
           API.
+  exit
+          Exit validator using the HTTP API for a given validator keystore.
   help
           Print this message or the help of the given subcommand(s)
 
