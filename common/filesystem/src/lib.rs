@@ -15,8 +15,10 @@ const OWNER_SID_STR: &str = "S-1-3-4";
 const OWNER_ACL_ENTRY_FLAGS: u8 = 0;
 /// Generic Rights:
 ///  - https://docs.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights
+///
 /// Individual Read/Write/Execute Permissions (referenced in generic rights link):
 ///  - https://docs.microsoft.com/en-us/windows/win32/wmisdk/file-and-directory-access-rights-constants
+///
 /// STANDARD_RIGHTS_ALL
 ///  - https://docs.microsoft.com/en-us/windows/win32/secauthz/access-mask
 #[cfg(windows)]
