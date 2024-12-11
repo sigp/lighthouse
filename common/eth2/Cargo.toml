@@ -12,7 +12,7 @@ serde_json = { workspace = true }
 ssz_types = { workspace = true }
 types = { workspace = true }
 reqwest = { workspace = true }
-lighthouse_network = { workspace = true }
+libp2p-identity = { version = "0.2", features = ["peerid"] }
 proto_array = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 eth2_keystore = { workspace = true }
@@ -25,11 +25,12 @@ ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 futures-util = "0.3.8"
 futures = { workspace = true }
-store = { workspace = true }
 slashing_protection = { workspace = true }
 mediatype = "0.19.13"
 pretty_reqwest_error = { workspace = true }
 derivative = { workspace = true }
+enr = { version = "0.13.0", features = ["ed25519"] }
+multiaddr = "0.18.2"
 
 [dev-dependencies]
 tokio = { workspace = true }
@@ -40,4 +41,4 @@ procfs = { version = "0.15.1", optional = true }
 
 [features]
 default = ["lighthouse"]
-lighthouse = ["psutil", "procfs"]
+lighthouse = ["dep:psutil", "dep:procfs"]

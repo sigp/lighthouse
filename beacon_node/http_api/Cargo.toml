@@ -43,9 +43,9 @@ store = { workspace = true }
 bytes = { workspace = true }
 beacon_processor = { workspace = true }
 rand = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
 proto_array = { workspace = true }
 genesis = { workspace = true }
 logging = { workspace = true }

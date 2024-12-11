@@ -44,6 +44,7 @@ bytes = { workspace = true }
 either = { workspace = true }
 itertools = { workspace = true }
 alloy-rlp = { workspace = true }
+eth2 = { workspace = true }
 
 # Local dependencies
 void = "1.0.2"
