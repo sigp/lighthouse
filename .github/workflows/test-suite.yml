@@ -468,6 +468,7 @@ jobs:
       'compile-with-beta-compiler',
       'cli-check',
       'lockbud',
+      'cargo-sort',
     ]
     steps:
       - uses: actions/checkout@v4
