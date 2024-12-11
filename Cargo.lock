@@ -2571,7 +2571,6 @@ dependencies = [
  "futures",
  "futures-util",
  "libsecp256k1",
- "lighthouse_network",
  "mediatype",
  "pretty_reqwest_error",
  "procfs",
