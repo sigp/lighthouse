@@ -8,7 +8,6 @@ use beacon_node_health::{
     IsOptimistic, SyncDistanceTier,
 };
 use clap::ValueEnum;
-use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
 use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
@@ -21,6 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::vec::Vec;
 use strum::EnumVariantNames;
+use task_executor::TaskExecutor;
 use tokio::{sync::RwLock, time::sleep};
 use tracing::{debug, error, warn};
 use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
@@ -60,10 +60,9 @@ pub struct LatencyMeasurement {
 ///
 /// See `SLOT_LOOKAHEAD` for information about when this should run.
 pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
-    context: RuntimeContext<E>,
+    executor: TaskExecutor,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
 ) -> Result<(), &'static str> {
-    let executor = context.executor;
     if beacon_nodes.slot_clock.is_none() {
         return Err("Cannot start fallback updater without slot clock");
     }
