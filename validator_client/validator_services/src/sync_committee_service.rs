@@ -4,13 +4,14 @@ use environment::RuntimeContext;
 use eth2::types::BlockId;
 use futures::future::join_all;
 use futures::future::FutureExt;
-use slog::{crit, debug, error, info, trace, warn};
+use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 use types::{
     ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,
     SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
@@ -92,7 +93,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
     }
 
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let log = self.context.log().clone();
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
@@ -100,9 +100,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             .ok_or("Unable to determine duration to next slot")?;
 
         info!(
-            log,
-            "Sync committee service started";
-            "next_update_millis" => duration_to_next_slot.as_millis()
+            next_update_millis = duration_to_next_slot.as_millis(),
+            "Sync committee service started"
         );
 
         let executor = self.context.executor.clone();
@@ -111,7 +110,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     // Wait for contribution broadcast interval 1/3 of the way through the slot.
-                    let log = self.context.log();
                     sleep(duration_to_next_slot + slot_duration / 3).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
@@ -121,21 +119,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
 
                     if let Err(e) = self.spawn_contribution_tasks(slot_duration).await {
                         crit!(
-                            log,
-                            "Failed to spawn sync contribution tasks";
-                            "error" => e
+                            error = ?e,
+                            "Failed to spawn sync contribution tasks"
                         )
                     } else {
-                        trace!(
-                            log,
-                            "Spawned sync contribution tasks";
-                        )
+                        trace!("Spawned sync contribution tasks")
                     }
 
                     // Do subscriptions for future slots/epochs.
                     self.spawn_subscription_tasks();
                 } else {
-                    error!(log, "Failed to read slot clock");
+                    error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
                     sleep(slot_duration).await;
                 }
@@ -147,7 +141,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
     }
 
     async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
-        let log = self.context.log().clone();
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -166,16 +159,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             .sync_duties
             .get_duties_for_slot(slot, &self.duties_service.spec)
         else {
-            debug!(log, "No duties known for slot {}", slot);
+            debug!("No duties known for slot {}", slot);
             return Ok(());
         };
 
         if slot_duties.duties.is_empty() {
-            debug!(
-                log,
-                "No local validators in current sync committee";
-                "slot" => slot,
-            );
+            debug!(%slot, "No local validators in current sync committee");
             return Ok(());
         }
 
@@ -202,11 +191,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             Ok(block) => block.data.root,
             Err(errs) => {
                 warn!(
-                    log,
+                    errors = errs.to_string(),
+                    %slot,
                     "Refusing to sign sync committee messages for an optimistic head block or \
-                    a block head with unknown optimistic status";
-                    "errors" => errs.to_string(),
-                    "slot" => slot,
+                    a block head with unknown optimistic status"
                 );
                 return Ok(());
             }
@@ -252,8 +240,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         beacon_block_root: Hash256,
         validator_duties: Vec<SyncDuty>,
     ) -> Result<(), ()> {
-        let log = self.context.log();
-
         // Create futures to produce sync committee signatures.
         let signature_futures = validator_duties.iter().map(|duty| async move {
             match self
@@ -271,21 +257,19 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
                     // A pubkey can be missing when a validator was recently
                     // removed via the API.
                     debug!(
-                        log,
-                        "Missing pubkey for sync committee signature";
-                        "pubkey" => ?pubkey,
-                        "validator_index" => duty.validator_index,
-                        "slot" => slot,
+                        ?pubkey,
+                        validator_index = duty.validator_index,
+                        %slot,
+                        "Missing pubkey for sync committee signature"
                     );
                     None
                 }
                 Err(e) => {
                     crit!(
-                        log,
-                        "Failed to sign sync committee signature";
-                        "validator_index" => duty.validator_index,
-                        "slot" => slot,
-                        "error" => ?e,
+                        validator_index = duty.validator_index,
+                        %slot,
+                        error = ?e,
+                        "Failed to sign sync committee signature"
                     );
                     None
                 }
@@ -308,19 +292,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             .await
             .map_err(|e| {
                 error!(
-                    log,
-                    "Unable to publish sync committee messages";
-                    "slot" => slot,
-                    "error" => %e,
+                    %slot,
+                    error = %e,
+                    "Unable to publish sync committee messages"
                 );
             })?;
 
         info!(
-            log,
-            "Successfully published sync committee messages";
-            "count" => committee_signatures.len(),
-            "head_block" => ?beacon_block_root,
-            "slot" => slot,
+            count = committee_signatures.len(),
+            head_block = ?beacon_block_root,
+            %slot,
+            "Successfully published sync committee messages"
         );
 
         Ok(())
@@ -363,8 +345,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
     ) -> Result<(), ()> {
         sleep_until(aggregate_instant).await;
 
-        let log = self.context.log();
-
         let contribution = &self
             .beacon_nodes
             .first_success(|beacon_node| async move {
@@ -381,20 +361,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             .await
             .map_err(|e| {
                 crit!(
-                    log,
-                    "Failed to produce sync contribution";
-                    "slot" => slot,
-                    "beacon_block_root" => ?beacon_block_root,
-                    "error" => %e,
+                    %slot,
+                    ?beacon_block_root,
+                    error = %e,
+                    "Failed to produce sync contribution"
                 )
             })?
             .ok_or_else(|| {
-                crit!(
-                    log,
-                    "No aggregate contribution found";
-                    "slot" => slot,
-                    "beacon_block_root" => ?beacon_block_root,
-                );
+                crit!(%slot, ?beacon_block_root, "No aggregate contribution found");
             })?
             .data;
 
@@ -415,20 +389,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
                     Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
                         // A pubkey can be missing when a validator was recently
                         // removed via the API.
-                        debug!(
-                            log,
-                            "Missing pubkey for sync contribution";
-                            "pubkey" => ?pubkey,
-                            "slot" => slot,
-                        );
+                        debug!(?pubkey, %slot, "Missing pubkey for sync contribution");
                         None
                     }
                     Err(e) => {
                         crit!(
-                            log,
-                            "Unable to sign sync committee contribution";
-                            "slot" => slot,
-                            "error" => ?e,
+                            %slot,
+                            error = ?e,
+                            "Unable to sign sync committee contribution"
                         );
                         None
                     }
@@ -453,20 +421,18 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             .await
             .map_err(|e| {
                 error!(
-                    log,
-                    "Unable to publish signed contributions and proofs";
-                    "slot" => slot,
-                    "error" => %e,
+                    %slot,
+                    error = %e,
+                    "Unable to publish signed contributions and proofs"
                 );
             })?;
 
         info!(
-            log,
-            "Successfully published sync contributions";
-            "subnet" => %subnet_id,
-            "beacon_block_root" => %beacon_block_root,
-            "num_signers" => contribution.aggregation_bits.num_set_bits(),
-            "slot" => slot,
+            subnet = %subnet_id,
+            beacon_block_root = %beacon_block_root,
+            num_signers = contribution.aggregation_bits.num_set_bits(),
+            %slot,
+            "Successfully published sync contributions"
         );
 
         Ok(())
@@ -474,14 +440,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
 
     fn spawn_subscription_tasks(&self) {
         let service = self.clone();
-        let log = self.context.log().clone();
+
         self.inner.context.executor.spawn(
             async move {
                 service.publish_subscriptions().await.unwrap_or_else(|e| {
                     error!(
-                        log,
-                        "Error publishing subscriptions";
-                        "error" => ?e,
+                        error = ?e,
+                        "Error publishing subscriptions"
                     )
                 });
             },
@@ -490,7 +455,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
     }
 
     async fn publish_subscriptions(self) -> Result<(), String> {
-        let log = self.context.log().clone();
         let spec = &self.duties_service.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
 
@@ -527,12 +491,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         let mut subscriptions = vec![];
 
         for (duty_slot, sync_committee_period) in duty_slots {
-            debug!(
-                log,
-                "Fetching subscription duties";
-                "duty_slot" => duty_slot,
-                "current_slot" => slot,
-            );
+            debug!(%duty_slot, %slot, "Fetching subscription duties");
             match self
                 .duties_service
                 .sync_duties
@@ -545,9 +504,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
                 )),
                 None => {
                     debug!(
-                        log,
-                        "No duties for subscription";
-                        "slot" => duty_slot,
+                        slot = %duty_slot,
+                        "No duties for subscription"
                     );
                     all_succeeded = false;
                 }
@@ -555,29 +513,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         }
 
         if subscriptions.is_empty() {
-            debug!(
-                log,
-                "No sync subscriptions to send";
-                "slot" => slot,
-            );
+            debug!(%slot, "No sync subscriptions to send");
             return Ok(());
         }
 
         // Post subscriptions to BN.
         debug!(
-            log,
-            "Posting sync subscriptions to BN";
-            "count" => subscriptions.len(),
+            count = subscriptions.len(),
+            "Posting sync subscriptions to BN"
         );
         let subscriptions_slice = &subscriptions;
 
         for subscription in subscriptions_slice {
             debug!(
-                log,
-                "Subscription";
-                "validator_index" => subscription.validator_index,
-                "validator_sync_committee_indices" => ?subscription.sync_committee_indices,
-                "until_epoch" => subscription.until_epoch,
+                validator_index = subscription.validator_index,
+                validator_sync_committee_indices = ?subscription.sync_committee_indices,
+                until_epoch = %subscription.until_epoch,
+                "Subscription"
             );
         }
 
@@ -591,10 +543,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             .await
         {
             error!(
-                log,
-                "Unable to post sync committee subscriptions";
-                "slot" => slot,
-                "error" => %e,
+                %slot,
+                error = %e,
+                "Unable to post sync committee subscriptions"
             );
             all_succeeded = false;
         }

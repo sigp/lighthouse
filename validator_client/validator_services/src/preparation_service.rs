@@ -2,7 +2,6 @@ use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use bls::PublicKeyBytes;
 use environment::RuntimeContext;
 use parking_lot::RwLock;
-use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -10,6 +9,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, Duration};
+use tracing::{debug, error, info, warn};
 use types::{
     Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
     ValidatorRegistrationData,
@@ -174,13 +174,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
 
     /// Starts the service which periodically produces proposer preparations.
     pub fn start_proposer_prepare_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let log = self.context.log().clone();
-
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
-        info!(
-            log,
-            "Proposer preparation service started";
-        );
+        info!("Proposer preparation service started");
 
         let executor = self.context.executor.clone();
         let spec = spec.clone();
@@ -193,9 +188,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
                         .await
                         .map_err(|e| {
                             error!(
-                                log,
-                                "Error during proposer preparation";
-                                "error" => ?e,
+                                error = ?e,
+                                "Error during proposer preparation"
                             )
                         })
                         .unwrap_or(());
@@ -204,7 +198,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     sleep(duration_to_next_slot).await;
                 } else {
-                    error!(log, "Failed to read slot clock");
+                    error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
                     sleep(slot_duration).await;
                 }
@@ -217,12 +211,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
 
     /// Starts the service which periodically sends connected beacon nodes validator registration information.
     pub fn start_validator_registration_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let log = self.context.log().clone();
-
-        info!(
-            log,
-            "Validator registration service started";
-        );
+        info!("Validator registration service started");
 
         let spec = spec.clone();
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
@@ -233,14 +222,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
             loop {
                 // Poll the endpoint immediately to ensure fee recipients are received.
                 if let Err(e) = self.register_validators().await {
-                    error!(log,"Error during validator registration";"error" => ?e);
+                    error!(error = ?e,"Error during validator registration");
                 }
 
                 // Wait one slot if the register validator request fails or if we should not publish at the current slot.
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     sleep(duration_to_next_slot).await;
                 } else {
-                    error!(log, "Failed to read slot clock");
+                    error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
                     sleep(slot_duration).await;
                 }
@@ -275,7 +264,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
     }
 
     fn collect_preparation_data(&self, spec: &ChainSpec) -> Vec<ProposerPreparationData> {
-        let log = self.context.log();
         self.collect_proposal_data(|pubkey, proposal_data| {
             if let Some(fee_recipient) = proposal_data.fee_recipient {
                 Some(ProposerPreparationData {
@@ -286,10 +274,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
             } else {
                 if spec.bellatrix_fork_epoch.is_some() {
                     error!(
-                        log,
-                        "Validator is missing fee recipient";
-                        "msg" => "update validator_definitions.yml",
-                        "pubkey" => ?pubkey
+                        msg = "update validator_definitions.yml",
+                        ?pubkey,
+                        "Validator is missing fee recipient"
                     );
                 }
                 None
@@ -337,8 +324,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
         &self,
         preparation_data: Vec<ProposerPreparationData>,
     ) -> Result<(), String> {
-        let log = self.context.log();
-
         // Post the proposer preparations to the BN.
         let preparation_data_len = preparation_data.len();
         let preparation_entries = preparation_data.as_slice();
@@ -352,14 +337,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
             .await
         {
             Ok(()) => debug!(
-                log,
-                "Published proposer preparation";
-                "count" => preparation_data_len,
+                count = preparation_data_len,
+                "Published proposer preparation"
             ),
             Err(e) => error!(
-                log,
-                "Unable to publish proposer preparation to all beacon nodes";
-                "error" => %e,
+                error = %e,
+                "Unable to publish proposer preparation to all beacon nodes"
             ),
         }
         Ok(())
@@ -401,8 +384,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
         &self,
         registration_keys: Vec<ValidatorRegistrationKey>,
     ) -> Result<(), String> {
-        let log = self.context.log();
-
         let registration_data_len = registration_keys.len();
         let mut signed = Vec::with_capacity(registration_data_len);
 
@@ -443,19 +424,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
                     Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
                         // A pubkey can be missing when a validator was recently
                         // removed via the API.
-                        debug!(
-                            log,
-                            "Missing pubkey for registration data";
-                            "pubkey" => ?pubkey,
-                        );
+                        debug!(?pubkey, "Missing pubkey for registration data");
                         continue;
                     }
                     Err(e) => {
                         error!(
-                            log,
-                            "Unable to sign validator registration data";
-                            "error" => ?e,
-                            "pubkey" => ?pubkey
+                            error = ?e,
+                            ?pubkey,
+                            "Unable to sign validator registration data"
                         );
                         continue;
                     }
@@ -480,14 +456,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Preparatio
                     .await
                 {
                     Ok(()) => info!(
-                        log,
-                        "Published validator registrations to the builder network";
-                        "count" => batch.len(),
+                        count = batch.len(),
+                        "Published validator registrations to the builder network"
                     ),
                     Err(e) => warn!(
-                        log,
-                        "Unable to publish validator registrations to the builder network";
-                        "error" => %e,
+                        error = %e,
+                        "Unable to publish validator registrations to the builder network"
                     ),
                 }
             }

@@ -1,11 +1,12 @@
 use crate::duties_service::{DutiesService, Error};
 use futures::future::join_all;
+use logging::crit;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use slog::{crit, debug, info, warn};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use tracing::{debug, info, warn};
 use types::{ChainSpec, EthSpec, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId};
 use validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
 
@@ -419,23 +420,20 @@ pub async fn poll_sync_committee_duties_for_period<
     sync_committee_period: u64,
 ) -> Result<(), Error<S::Error>> {
     let spec = &duties_service.spec;
-    let log = duties_service.context.log();
 
     // no local validators don't need to poll for sync committee
     if local_indices.is_empty() {
         debug!(
-            duties_service.context.log(),
-            "No validators, not polling for sync committee duties";
-            "sync_committee_period" => sync_committee_period,
+            sync_committee_period,
+            "No validators, not polling for sync committee duties"
         );
         return Ok(());
     }
 
     debug!(
-        log,
-        "Fetching sync committee duties";
-        "sync_committee_period" => sync_committee_period,
-        "num_validators" => local_indices.len(),
+        sync_committee_period,
+        num_validators = local_indices.len(),
+        "Fetching sync committee duties"
     );
 
     let period_start_epoch = spec.epochs_per_sync_committee_period * sync_committee_period;
@@ -457,16 +455,15 @@ pub async fn poll_sync_committee_duties_for_period<
         Ok(res) => res.data,
         Err(e) => {
             warn!(
-                log,
-                "Failed to download sync committee duties";
-                "sync_committee_period" => sync_committee_period,
-                "error" => %e,
+                sync_committee_period,
+                error = %e,
+                "Failed to download sync committee duties"
             );
             return Ok(());
         }
     };
 
-    debug!(log, "Fetched sync duties from BN"; "count" => duties.len());
+    debug!(count = duties.len(), "Fetched sync duties from BN");
 
     // Add duties to map.
     let committee_duties = duties_service
@@ -484,9 +481,8 @@ pub async fn poll_sync_committee_duties_for_period<
                 != duty.validator_sync_committee_indices;
             if updated_due_to_reorg {
                 warn!(
-                    log,
-                    "Sync committee duties changed";
-                    "message" => "this could be due to a really long re-org, or a bug"
+                    message = "this could be due to a really long re-org, or a bug",
+                    "Sync committee duties changed"
                 );
             }
             updated_due_to_reorg
@@ -494,10 +490,8 @@ pub async fn poll_sync_committee_duties_for_period<
 
         if updated {
             info!(
-                log,
-                "Validator in sync committee";
-                "validator_index" => duty.validator_index,
-                "sync_committee_period" => sync_committee_period,
+                validator_index = duty.validator_index,
+                sync_committee_period, "Validator in sync committee"
             );
 
             *validator_duties = Some(ValidatorDuties::new(duty));
@@ -514,14 +508,11 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
     current_slot: Slot,
     pre_compute_slot: Slot,
 ) {
-    let log = duties_service.context.log();
-
     debug!(
-        log,
-        "Calculating sync selection proofs";
-        "period" => sync_committee_period,
-        "current_slot" => current_slot,
-        "pre_compute_slot" => pre_compute_slot
+        period = sync_committee_period,
+        %current_slot,
+        %pre_compute_slot,
+        "Calculating sync selection proofs"
     );
 
     // Generate selection proofs for each validator at each slot, one slot at a time.
@@ -537,9 +528,8 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
                 Ok(subnet_ids) => subnet_ids,
                 Err(e) => {
                     crit!(
-                        log,
-                        "Arithmetic error computing subnet IDs";
-                        "error" => ?e,
+                        error = ?e,
+                        "Arithmetic error computing subnet IDs"
                     );
                     continue;
                 }
@@ -561,21 +551,19 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
                         // A pubkey can be missing when a validator was recently
                         // removed via the API.
                         debug!(
-                            log,
-                            "Missing pubkey for sync selection proof";
-                            "pubkey" => ?pubkey,
-                            "pubkey" => ?duty.pubkey,
-                            "slot" => proof_slot,
+                            ?pubkey,
+                            pubkey = ?duty.pubkey,
+                            slot = %proof_slot,
+                            "Missing pubkey for sync selection proof"
                         );
                         return None;
                     }
                     Err(e) => {
                         warn!(
-                            log,
-                            "Unable to sign selection proof";
-                            "error" => ?e,
-                            "pubkey" => ?duty.pubkey,
-                            "slot" => proof_slot,
+                            error = ?e,
+                            pubkey = ?duty.pubkey,
+                            slot = %proof_slot,
+                            "Unable to sign selection proof"
                         );
                         return None;
                     }
@@ -584,22 +572,20 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
                 match proof.is_aggregator::<E>() {
                     Ok(true) => {
                         debug!(
-                            log,
-                            "Validator is sync aggregator";
-                            "validator_index" => duty.validator_index,
-                            "slot" => proof_slot,
-                            "subnet_id" => %subnet_id,
+                            validator_index = duty.validator_index,
+                            slot = %proof_slot,
+                            %subnet_id,
+                            "Validator is sync aggregator"
                         );
                         Some(((proof_slot, *subnet_id), proof))
                     }
                     Ok(false) => None,
                     Err(e) => {
                         warn!(
-                            log,
-                            "Error determining is_aggregator";
-                            "pubkey" => ?duty.pubkey,
-                            "slot" => proof_slot,
-                            "error" => ?e,
+                            pubkey = ?duty.pubkey,
+                            slot = %proof_slot,
+                            error = ?e,
+                            "Error determining is_aggregator"
                         );
                         None
                     }
@@ -619,11 +605,7 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
         // Add to global storage (we add regularly so the proofs can be used ASAP).
         let sync_map = duties_service.sync_duties.committees.read();
         let Some(committee_duties) = sync_map.get(&sync_committee_period) else {
-            debug!(
-                log,
-                "Missing sync duties";
-                "period" => sync_committee_period,
-            );
+            debug!(period = sync_committee_period, "Missing sync duties");
             continue;
         };
         let validators = committee_duties.validators.read();
@@ -634,20 +616,18 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
                 duty.aggregation_duties.proofs.write().extend(proofs);
             } else {
                 debug!(
-                    log,
-                    "Missing sync duty to update";
-                    "validator_index" => validator_index,
-                    "period" => sync_committee_period,
+                    validator_index,
+                    period = sync_committee_period,
+                    "Missing sync duty to update"
                 );
             }
         }
 
         if num_validators_updated > 0 {
             debug!(
-                log,
-                "Finished computing sync selection proofs";
-                "slot" => slot,
-                "updated_validators" => num_validators_updated,
+                %slot,
+                updated_validators = num_validators_updated,
+                "Finished computing sync selection proofs"
             );
         }
     }

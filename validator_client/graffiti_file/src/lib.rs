@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use slog::warn;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
@@ -108,19 +107,14 @@ fn read_line(line: &str) -> Result<(Option<PublicKeyBytes>, Graffiti), Error> {
 // the next block produced by the validator with the given public key.
 pub fn determine_graffiti(
     validator_pubkey: &PublicKeyBytes,
-    log: &slog::Logger,
     graffiti_file: Option<GraffitiFile>,
     validator_definition_graffiti: Option<Graffiti>,
     graffiti_flag: Option<Graffiti>,
 ) -> Option<Graffiti> {
+    // TODO when merging make sure logging on failure is back:
+    // warn!(log, "Failed to read graffiti file"; "error" => ?e);
     graffiti_file
-        .and_then(|mut g| match g.load_graffiti(validator_pubkey) {
-            Ok(g) => g,
-            Err(e) => {
-                warn!(log, "Failed to read graffiti file"; "error" => ?e);
-                None
-            }
-        })
+        .and_then(|mut g| g.load_graffiti(validator_pubkey).unwrap_or(None))
         .or(validator_definition_graffiti)
         .or(graffiti_flag)
 }

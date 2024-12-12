@@ -401,7 +401,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             |validator_store: Arc<LighthouseValidatorStore<T>>,
              graffiti_file: Option<GraffitiFile>,
              graffiti_flag: Option<Graffiti>,
-             log| {
+             _log| {
                 blocking_json_task(move || {
                     let mut result = HashMap::new();
                     for (key, graffiti_definition) in validator_store
@@ -411,7 +411,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     {
                         let graffiti = determine_graffiti(
                             key,
-                            &log,
                             graffiti_file.clone(),
                             graffiti_definition,
                             graffiti_flag,
