@@ -73,7 +73,7 @@ pub trait ValidatorStore: Send + Sync {
     /// 2. process level fee recipient
     fn get_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address>;
 
-    /// Translate the per validator `builder_proposals`, `builder_boost_factor` and
+    /// Translate the `builder_proposals`, `builder_boost_factor` and
     /// `prefer_builder_proposals` to a boost factor, if available.
     /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
     ///   preference for builder payloads.
@@ -81,20 +81,7 @@ pub trait ValidatorStore: Send + Sync {
     /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
     ///   local payloads.
     /// - Else return `None` to indicate no preference between builder and local payloads.
-    fn determine_validator_builder_boost_factor(
-        &self,
-        validator_pubkey: &PublicKeyBytes,
-    ) -> Option<u64>;
-
-    /// Translate the process-wide `builder_proposals`, `builder_boost_factor` and
-    /// `prefer_builder_proposals` configurations to a boost factor.
-    /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
-    ///   preference for builder payloads.
-    /// - If `builder_boost_factor` is a value other than None, return its value as the boost factor.
-    /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
-    ///   local payloads.
-    /// - Else return `None` to indicate no preference between builder and local payloads.
-    fn determine_default_builder_boost_factor(&self) -> Option<u64>;
+    fn determine_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64>;
 
     fn randao_reveal<E: EthSpec>(
         &self,

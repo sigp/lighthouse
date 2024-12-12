@@ -572,15 +572,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // Apply per validator configuration first.
         let validator_builder_boost_factor = self
             .validator_store
-            .determine_validator_builder_boost_factor(validator_pubkey);
+            .determine_builder_boost_factor(validator_pubkey);
 
-        // Fallback to process-wide configuration if needed.
-        let maybe_builder_boost_factor = validator_builder_boost_factor.or_else(|| {
-            self.validator_store
-                .determine_default_builder_boost_factor()
-        });
-
-        if let Some(builder_boost_factor) = maybe_builder_boost_factor {
+        if let Some(builder_boost_factor) = validator_builder_boost_factor {
             // if builder boost factor is set to 100 it should be treated
             // as None to prevent unnecessary calculations that could
             // lead to loss of information.
