@@ -123,8 +123,10 @@ pub(crate) struct PeerConnections {
     pub(crate) sender: RpcSender,
     /// Subscribed topics.
     pub(crate) topics: BTreeSet<TopicHash>,
-    /// Don't send messages.
-    pub(crate) dont_send: LinkedHashMap<MessageId, Instant>,
+    /// IDONTWANT messages received from the peer.
+    pub(crate) dont_send_received: LinkedHashMap<MessageId, Instant>,
+    /// IDONTWANT messages we sent to the peer.
+    pub(crate) dont_send_sent: LinkedHashMap<MessageId, Instant>,
 }
 
 /// Describes the types of peers that can exist in the gossipsub context.

@@ -401,7 +401,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     request: RequestType::BlobsByRange(BlobsByRangeRequest {
                         start_slot: *request.start_slot(),
                         count: *request.count(),
-                        max_blobs_per_block: T::EthSpec::max_blobs_per_block(),
                     }),
                     request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
                 })
@@ -770,7 +769,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log.clone(),
         );
 
-        // TODO(das): start request
         // Note that you can only send, but not handle a response here
         match request.continue_requests(self) {
             Ok(_) => {
@@ -780,7 +778,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 self.custody_by_root_requests.insert(requester, request);
                 Ok(LookupRequestResult::RequestSent(req_id))
             }
-            // TODO(das): handle this error properly
             Err(e) => Err(RpcRequestSendError::CustodyRequestError(e)),
         }
     }

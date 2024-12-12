@@ -179,12 +179,12 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
             .to_ref()
             .block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
-        return Ok(LightClientHeaderCapella {
+        Ok(LightClientHeaderCapella {
             beacon: block.message().block_header(),
             execution: header,
             execution_branch: FixedVector::new(execution_branch)?,
             _phantom_data: PhantomData,
-        });
+        })
     }
 }
 
@@ -305,5 +305,33 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
                 "LightClientHeader deserialization for {fork_name} not implemented"
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // `ssz_tests!` can only be defined once per namespace
+    #[cfg(test)]
+    mod altair {
+        use crate::{LightClientHeaderAltair, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderAltair<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod capella {
+        use crate::{LightClientHeaderCapella, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderCapella<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod deneb {
+        use crate::{LightClientHeaderDeneb, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderDeneb<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod electra {
+        use crate::{LightClientHeaderElectra, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderElectra<MainnetEthSpec>);
     }
 }

@@ -505,8 +505,8 @@ impl<E: EthSpec> Tester<E> {
                         }
                         Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
                     };
-                let result = self
-                    .block_on_dangerous(self.harness.chain.process_gossip_blob(blob, || Ok(())))?;
+                let result =
+                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
                 if valid {
                     assert!(result.is_ok());
                 }
@@ -871,7 +871,7 @@ pub struct ManuallyVerifiedAttestation<'a, T: BeaconChainTypes> {
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
-impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for ManuallyVerifiedAttestation<'a, T> {
+impl<T: BeaconChainTypes> VerifiedAttestation<T> for ManuallyVerifiedAttestation<'_, T> {
     fn attestation(&self) -> AttestationRef<T::EthSpec> {
         self.attestation.to_ref()
     }

@@ -61,7 +61,7 @@ pub enum RPCSend<Id, E: EthSpec> {
     ///
     /// The `Id` is given by the application making the request. These
     /// go over *outbound* connections.
-    Request(Id, RequestType),
+    Request(Id, RequestType<E>),
     /// A response sent from Lighthouse.
     ///
     /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
@@ -79,7 +79,7 @@ pub enum RPCReceived<Id, E: EthSpec> {
     ///
     /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    Request(Request),
+    Request(Request<E>),
     /// A response received from the outside.
     ///
     /// The `Id` corresponds to the application given ID of the original request sent to the
@@ -113,10 +113,10 @@ impl RequestId {
 
 /// An Rpc Request.
 #[derive(Debug, Clone)]
-pub struct Request {
+pub struct Request<E: EthSpec> {
     pub id: RequestId,
     pub substream_id: SubstreamId,
-    pub r#type: RequestType,
+    pub r#type: RequestType<E>,
 }
 
 impl<E: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, E> {
@@ -221,7 +221,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: RequestType) {
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: RequestType<E>) {
         let event = if let Some(self_limiter) = self.self_limiter.as_mut() {
             match self_limiter.allows(peer_id, request_id, req) {
                 Ok(event) => event,

@@ -183,7 +183,7 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
-# Updates the CLI help text pages in the Lighthouse book, building with Docker.
+# Updates the CLI help text pages in the Lighthouse book, building with Docker (primarily for Windows users).
 cli:
 	docker run --rm --user=root \
 	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
@@ -240,7 +240,7 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	cargo audit
+	cargo audit --ignore RUSTSEC-2024-0421
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:

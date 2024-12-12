@@ -178,7 +178,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             executor.spawn(
                 async move {
                     let mut validator_config = testing_validator_config();
-                    validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
+                    validator_config.validator_store.fee_recipient =
+                        Some(SUGGESTED_FEE_RECIPIENT.into());
                     println!("Adding validator client {}", i);
                     network_1
                         .add_validator_client_with_fallbacks(
@@ -194,7 +195,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             );
         }
 
-        let duration_to_genesis = network.duration_to_genesis().await;
+        let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 

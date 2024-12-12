@@ -2,7 +2,7 @@ use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERA
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
+use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use itertools::process_results;
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::{
@@ -682,12 +682,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .forwards_iter_block_roots(Slot::from(*req.start_slot()))
         {
             Ok(iter) => iter,
-            Err(BeaconChainError::HistoricalBlockError(
-                HistoricalBlockError::BlockOutOfRange {
-                    slot,
-                    oldest_block_slot,
-                },
-            )) => {
+            Err(BeaconChainError::HistoricalBlockOutOfRange {
+                slot,
+                oldest_block_slot,
+            }) => {
                 debug!(self.log, "Range request failed during backfill";
                     "requested_slot" => slot,
                     "oldest_known_slot" => oldest_block_slot
@@ -893,7 +891,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        if req.max_blobs_requested() > self.chain.spec.max_request_blob_sidecars {
+        if req.max_blobs_requested::<T::EthSpec>() > self.chain.spec.max_request_blob_sidecars {
             return Err((
                 RpcErrorResponse::InvalidRequest,
                 "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
@@ -941,12 +939,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let forwards_block_root_iter =
             match self.chain.forwards_iter_block_roots(request_start_slot) {
                 Ok(iter) => iter,
-                Err(BeaconChainError::HistoricalBlockError(
-                    HistoricalBlockError::BlockOutOfRange {
-                        slot,
-                        oldest_block_slot,
-                    },
-                )) => {
+                Err(BeaconChainError::HistoricalBlockOutOfRange {
+                    slot,
+                    oldest_block_slot,
+                }) => {
                     debug!(self.log, "Range request failed during backfill";
                         "requested_slot" => slot,
                         "oldest_known_slot" => oldest_block_slot
@@ -1098,7 +1094,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request data columns
-        if req.max_requested() > self.chain.spec.max_request_data_column_sidecars {
+        if req.max_requested::<T::EthSpec>() > self.chain.spec.max_request_data_column_sidecars {
             return Err((
                 RpcErrorResponse::InvalidRequest,
                 "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
@@ -1147,12 +1143,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let forwards_block_root_iter =
             match self.chain.forwards_iter_block_roots(request_start_slot) {
                 Ok(iter) => iter,
-                Err(BeaconChainError::HistoricalBlockError(
-                    HistoricalBlockError::BlockOutOfRange {
-                        slot,
-                        oldest_block_slot,
-                    },
-                )) => {
+                Err(BeaconChainError::HistoricalBlockOutOfRange {
+                    slot,
+                    oldest_block_slot,
+                }) => {
                     debug!(self.log, "Range request failed during backfill";
                         "requested_slot" => slot,
                         "oldest_known_slot" => oldest_block_slot

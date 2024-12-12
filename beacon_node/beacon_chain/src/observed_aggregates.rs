@@ -113,7 +113,7 @@ pub trait SubsetItem {
     fn root(&self) -> Result<Hash256, Error>;
 }
 
-impl<'a, E: EthSpec> SubsetItem for AttestationRef<'a, E> {
+impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
     type Item = BitList<E::MaxValidatorsPerSlot>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         match self {
@@ -159,7 +159,7 @@ impl<'a, E: EthSpec> SubsetItem for AttestationRef<'a, E> {
     }
 }
 
-impl<'a, E: EthSpec> SubsetItem for &'a SyncCommitteeContribution<E> {
+impl<E: EthSpec> SubsetItem for &SyncCommitteeContribution<E> {
     type Item = BitVector<E::SyncSubcommitteeSize>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)

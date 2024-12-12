@@ -20,7 +20,6 @@ use slog::{crit, debug, trace};
 use smallvec::SmallVec;
 use std::{
     collections::{hash_map::Entry, VecDeque},
-    marker::PhantomData,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -97,7 +96,7 @@ where
     events_out: SmallVec<[HandlerEvent<Id, E>; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(Id, RequestType); 4]>,
+    dial_queue: SmallVec<[(Id, RequestType<E>); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
@@ -207,7 +206,7 @@ pub enum OutboundSubstreamState<E: EthSpec> {
         /// The framed negotiated substream.
         substream: Box<OutboundFramed<Stream, E>>,
         /// Keeps track of the actual request sent.
-        request: RequestType,
+        request: RequestType<E>,
     },
     /// Closing an outbound substream>
     Closing(Box<OutboundFramed<Stream, E>>),
@@ -275,7 +274,7 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    fn send_request(&mut self, id: Id, req: RequestType) {
+    fn send_request(&mut self, id: Id, req: RequestType<E>) {
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
@@ -331,7 +330,7 @@ where
     type ToBehaviour = HandlerEvent<Id, E>;
     type InboundProtocol = RPCProtocol<E>;
     type OutboundProtocol = OutboundRequestContainer<E>;
-    type OutboundOpenInfo = (Id, RequestType); // Keep track of the id and the request
+    type OutboundOpenInfo = (Id, RequestType<E>); // Keep track of the id and the request
     type InboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
@@ -789,7 +788,6 @@ where
                         req: req.clone(),
                         fork_context: self.fork_context.clone(),
                         max_rpc_size: self.listen_protocol().upgrade().max_rpc_size,
-                        phantom: PhantomData,
                     },
                     (),
                 )
@@ -907,7 +905,7 @@ where
     fn on_fully_negotiated_outbound(
         &mut self,
         substream: OutboundFramed<Stream, E>,
-        (id, request): (Id, RequestType),
+        (id, request): (Id, RequestType<E>),
     ) {
         self.dial_negotiated -= 1;
         // Reset any io-retries counter.
@@ -963,7 +961,7 @@ where
     }
     fn on_dial_upgrade_error(
         &mut self,
-        request_info: (Id, RequestType),
+        request_info: (Id, RequestType<E>),
         error: StreamUpgradeError<RPCError>,
     ) {
         let (id, req) = request_info;

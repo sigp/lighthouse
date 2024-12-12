@@ -18,11 +18,11 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
-    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, ForkContext, ForkName,
-    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, EthSpecId, ForkContext,
+    ForkName, LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
-    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
+    Signature, SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -104,6 +104,20 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
+
+pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
+    LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
+
+pub static BLOB_SIDECAR_SIZE_MINIMAL: LazyLock<usize> =
+    LazyLock::new(BlobSidecar::<MinimalEthSpec>::max_size);
+
+pub static DATA_COLUMNS_SIDECAR_MIN: LazyLock<usize> = LazyLock::new(|| {
+    DataColumnSidecar::<MainnetEthSpec>::empty()
+        .as_ssz_bytes()
+        .len()
+});
+pub static DATA_COLUMNS_SIDECAR_MAX: LazyLock<usize> =
+    LazyLock::new(DataColumnSidecar::<MainnetEthSpec>::max_size);
 
 pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
     VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
@@ -597,8 +611,8 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
-            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(),
-            Protocol::DataColumnsByRange => rpc_data_column_limits::<E>(),
+            Protocol::DataColumnsByRoot => rpc_data_column_limits(),
+            Protocol::DataColumnsByRange => rpc_data_column_limits(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -668,17 +682,18 @@ impl ProtocolId {
 }
 
 pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
-    RpcLimits::new(
-        BlobSidecar::<E>::empty().as_ssz_bytes().len(),
-        BlobSidecar::<E>::max_size(),
-    )
+    match E::spec_name() {
+        EthSpecId::Minimal => {
+            RpcLimits::new(*BLOB_SIDECAR_SIZE_MINIMAL, *BLOB_SIDECAR_SIZE_MINIMAL)
+        }
+        EthSpecId::Mainnet | EthSpecId::Gnosis => {
+            RpcLimits::new(*BLOB_SIDECAR_SIZE, *BLOB_SIDECAR_SIZE)
+        }
+    }
 }
 
-pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
-    RpcLimits::new(
-        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
-        DataColumnSidecar::<E>::max_size(),
-    )
+pub fn rpc_data_column_limits() -> RpcLimits {
+    RpcLimits::new(*DATA_COLUMNS_SIDECAR_MIN, *DATA_COLUMNS_SIDECAR_MAX)
 }
 
 /* Inbound upgrade */
@@ -686,7 +701,7 @@ pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, E> = (RequestType, InboundFramed<TSocket, E>);
+pub type InboundOutput<TSocket, E> = (RequestType<E>, InboundFramed<TSocket, E>);
 pub type InboundFramed<TSocket, E> =
     Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, SSZSnappyInboundCodec<E>>;
 
@@ -754,7 +769,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RequestType {
+pub enum RequestType<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
@@ -768,11 +783,11 @@ pub enum RequestType {
     LightClientFinalityUpdate,
     LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     Ping(Ping),
-    MetaData(MetadataRequest),
+    MetaData(MetadataRequest<E>),
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl RequestType {
+impl<E: EthSpec> RequestType<E> {
     /* These functions are used in the handler for stream management */
 
     /// Maximum number of responses expected for this request.
@@ -782,16 +797,16 @@ impl RequestType {
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
-            RequestType::BlobsByRange(req) => req.max_blobs_requested(),
+            RequestType::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
-            RequestType::DataColumnsByRange(req) => req.max_requested(),
+            RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
             RequestType::Ping(_) => 1,
             RequestType::MetaData(_) => 1,
             RequestType::LightClientBootstrap(_) => 1,
             RequestType::LightClientOptimisticUpdate => 1,
             RequestType::LightClientFinalityUpdate => 1,
-            RequestType::LightClientUpdatesByRange(req) => req.max_requested(),
+            RequestType::LightClientUpdatesByRange(req) => req.count,
         }
     }
 
@@ -1027,7 +1042,7 @@ impl std::error::Error for RPCError {
     }
 }
 
-impl std::fmt::Display for RequestType {
+impl<E: EthSpec> std::fmt::Display for RequestType<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RequestType::Status(status) => write!(f, "Status Message: {}", status),

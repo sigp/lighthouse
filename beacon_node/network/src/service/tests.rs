@@ -169,21 +169,18 @@ mod tests {
         // Subscribe to the topics.
         runtime.block_on(async {
             while network_globals.gossipsub_subscriptions.read().len() < 2 {
-                if let Some(msg) = network_service.attestation_service.next().await {
-                    network_service.on_attestation_service_msg(msg);
+                if let Some(msg) = network_service.subnet_service.next().await {
+                    network_service.on_subnet_service_msg(msg);
                 }
             }
         });
 
         // Make sure the service is subscribed to the topics.
         let (old_topic1, old_topic2) = {
-            let mut subnets = SubnetId::compute_subnets_for_epoch::<MinimalEthSpec>(
+            let mut subnets = SubnetId::compute_attestation_subnets(
                 network_globals.local_enr().node_id().raw(),
-                beacon_chain.epoch().unwrap(),
                 &spec,
             )
-            .unwrap()
-            .0
             .collect::<Vec<_>>();
             assert_eq!(2, subnets.len());
 
