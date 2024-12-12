@@ -1444,6 +1444,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         }
 
+        // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
+        // from kzg commitments, without having to wait for all blobs to be sent from the peers.
+        let publish_blobs = true;
+        let self_clone = self.clone();
+        let block_clone = block.clone();
+        self.executor.spawn(
+            async move {
+                self_clone
+                    .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
+                    .await
+            },
+            "fetch_blobs_gossip",
+        );
+
         let result = self
             .chain
             .process_block_with_early_caching(
@@ -1494,13 +1508,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "slot" => slot,
                     "block_root" => %block_root,
                 );
-
-                // Block is valid, we can now attempt fetching blobs from EL using version hashes
-                // derived from kzg commitments from the block, without having to wait for all blobs
-                // to be sent from the peers if we already have them.
-                let publish_blobs = true;
-                self.fetch_engine_blobs_and_publish(block.clone(), *block_root, publish_blobs)
-                    .await;
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 // This should not occur. It should be checked by `should_forward_block`.

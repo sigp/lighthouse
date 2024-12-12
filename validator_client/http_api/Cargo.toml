@@ -43,6 +43,7 @@ validator_services =  { workspace = true }
 url =  { workspace = true }
 warp_utils = { workspace = true }
 warp = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 itertools = { workspace = true }

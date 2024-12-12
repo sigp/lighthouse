@@ -1,6 +1,6 @@
 use super::common::*;
 use crate::DumpConfig;
-use account_utils::{read_password_from_user, ZeroizeString};
+use account_utils::read_password_from_user;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::{
     lighthouse_vc::{
@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
 use types::{Address, PublicKeyBytes};
+use zeroize::Zeroizing;
 
 pub const MOVE_DIR_NAME: &str = "lighthouse-validator-move";
 pub const VALIDATOR_SPECIFICATION_FILE: &str = "validator-specification.json";
@@ -48,7 +49,7 @@ pub enum PasswordSource {
 }
 
 impl PasswordSource {
-    fn read_password(&mut self, pubkey: &PublicKeyBytes) -> Result<ZeroizeString, String> {
+    fn read_password(&mut self, pubkey: &PublicKeyBytes) -> Result<Zeroizing<String>, String> {
         match self {
             PasswordSource::Interactive { stdin_inputs } => {
                 eprintln!("Please enter a password for keystore {:?}:", pubkey);

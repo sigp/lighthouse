@@ -120,7 +120,7 @@ pub struct Eth2NetArchiveAndDirectory<'a> {
     pub genesis_state_source: GenesisStateSource,
 }
 
-impl<'a> Eth2NetArchiveAndDirectory<'a> {
+impl Eth2NetArchiveAndDirectory<'_> {
     /// The directory that should be used to store files downloaded for this net.
     pub fn dir(&self) -> PathBuf {
         env::var("CARGO_MANIFEST_DIR")

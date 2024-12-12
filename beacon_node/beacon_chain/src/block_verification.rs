@@ -2072,6 +2072,7 @@ pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
 ///
 /// The signature verifier is empty because it does not yet have any of this block's signatures
 /// added to it. Use `Self::apply_to_signature_verifier` to apply the signatures.
+#[allow(clippy::type_complexity)]
 fn get_signature_verifier<'a, T: BeaconChainTypes>(
     state: &'a BeaconState<T::EthSpec>,
     validator_pubkey_cache: &'a ValidatorPubkeyCache<T>,

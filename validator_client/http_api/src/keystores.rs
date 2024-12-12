@@ -1,5 +1,5 @@
 //! Implementation of the standard keystore management API.
-use account_utils::{validator_definitions::PasswordStorage, ZeroizeString};
+use account_utils::validator_definitions::PasswordStorage;
 use eth2::lighthouse_vc::{
     std_types::{
         DeleteKeystoreStatus, DeleteKeystoresRequest, DeleteKeystoresResponse,
@@ -22,6 +22,7 @@ use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
 use validator_store::ValidatorStore;
 use warp::Rejection;
 use warp_utils::reject::{custom_bad_request, custom_server_error};
+use zeroize::Zeroizing;
 
 pub fn list<T: SlotClock + 'static, E: EthSpec>(
     validator_store: Arc<ValidatorStore<T, E>>,
@@ -167,7 +168,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
 
 fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     keystore: Keystore,
-    password: ZeroizeString,
+    password: Zeroizing<String>,
     validator_dir_path: PathBuf,
     secrets_dir: Option<PathBuf>,
     validator_store: &ValidatorStore<T, E>,

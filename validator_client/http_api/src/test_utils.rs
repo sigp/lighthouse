@@ -2,7 +2,6 @@ use crate::{ApiSecret, Config as HttpConfig, Context};
 use account_utils::validator_definitions::ValidatorDefinitions;
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
-    ZeroizeString,
 };
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
@@ -28,6 +27,7 @@ use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
 use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
+use zeroize::Zeroizing;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -321,7 +321,7 @@ impl ApiTester {
             .collect::<Vec<_>>();
 
         let (response, mnemonic) = if s.specify_mnemonic {
-            let mnemonic = ZeroizeString::from(random_mnemonic().phrase().to_string());
+            let mnemonic = Zeroizing::from(random_mnemonic().phrase().to_string());
             let request = CreateValidatorsMnemonicRequest {
                 mnemonic: mnemonic.clone(),
                 key_derivation_path_offset: s.key_derivation_path_offset,
