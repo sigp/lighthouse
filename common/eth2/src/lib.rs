@@ -912,7 +912,7 @@ impl BeaconNodeHttpClient {
         block_contents: &PublishBlockRequest<E>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
-        
+
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
