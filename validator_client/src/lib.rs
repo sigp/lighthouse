@@ -78,15 +78,14 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     context: RuntimeContext<E>,
     duties_service:
         Arc<DutiesService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>>,
-    block_service:
-        BlockService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
+    block_service: BlockService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock>,
     attestation_service:
         AttestationService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
     sync_committee_service:
         SyncCommitteeService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service:
-        PreparationService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
+        PreparationService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock>,
     validator_store: Arc<LighthouseValidatorStore<SystemTimeSlotClock>>,
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
@@ -471,7 +470,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             validator_store.prune_slashing_protection_db(slot.epoch(E::slots_per_epoch()), true);
         }
 
-        let duties_context = context.service_context("duties".into());
         let duties_service = Arc::new(DutiesService {
             attesters: <_>::default(),
             proposers: <_>::default(),
@@ -481,7 +479,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             validator_store: validator_store.clone(),
             unknown_validator_next_poll_slots: <_>::default(),
             spec: context.eth2_config.spec.clone(),
-            context: duties_context,
+            executor: context.executor.clone(),
             enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
             distributed: config.distributed,
         });
@@ -496,7 +494,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
-            .runtime_context(context.service_context("block".into()))
+            .executor(context.executor.clone())
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone());
 
@@ -512,14 +510,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
-            .runtime_context(context.service_context("attestation".into()))
+            .executor(context.executor.clone())
+            .chain_spec(context.eth2_config.spec.clone())
             .build()?;
 
         let preparation_service = PreparationServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
-            .runtime_context(context.service_context("preparation".into()))
+            .executor(context.executor.clone())
             .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
             .validator_registration_batch_size(config.validator_registration_batch_size)
             .build()?;
@@ -529,7 +528,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             validator_store.clone(),
             slot_clock.clone(),
             beacon_nodes.clone(),
-            context.service_context("sync_committee".into()),
+            context.executor.clone(),
         );
 
         Ok(Self {
@@ -578,7 +577,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
             let exit = self.context.executor.exit();
 
-            let (listen_addr, server) = validator_http_api::serve(ctx, exit)
+            let (listen_addr, server) = validator_http_api::serve::<_, E>(ctx, exit)
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             self.context
@@ -599,7 +598,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         self.block_service
             .clone()
-            .start_update_service(block_service_rx)
+            .start_update_service::<E>(block_service_rx)
             .map_err(|e| format!("Unable to start block service: {}", e))?;
 
         self.attestation_service
@@ -614,7 +613,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         self.preparation_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service::<E>(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start preparation service: {}", e))?;
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {

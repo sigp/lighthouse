@@ -10,7 +10,6 @@ use crate::block_service::BlockServiceNotification;
 use crate::sync::poll_sync_committee_duties;
 use crate::sync::SyncDutiesMap;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
-use environment::RuntimeContext;
 use eth2::types::{
     AttesterData, BeaconCommitteeSubscription, DutiesResponse, ProposerData, StateId, ValidatorId,
 };
@@ -23,6 +22,7 @@ use std::collections::{hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use task_executor::TaskExecutor;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use tracing::{debug, error, info, warn};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
@@ -222,7 +222,7 @@ pub struct DutiesService<S, T, E: EthSpec> {
     /// Provides HTTP access to remote beacon nodes.
     pub beacon_nodes: Arc<BeaconNodeFallback<T>>,
     /// The runtime for spawning tasks.
-    pub context: RuntimeContext<E>,
+    pub executor: TaskExecutor,
     /// The current chain spec.
     pub spec: Arc<ChainSpec>,
     //// Whether we permit large validator counts in the metrics.
@@ -353,7 +353,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static,
      * Spawn the task which updates the map of pubkey to validator index.
      */
     let duties_service = core_duties_service.clone();
-    core_duties_service.context.executor.spawn(
+    core_duties_service.executor.spawn(
         async move {
             loop {
                 // Run this poll before the wait, this should hopefully download all the indices
@@ -376,7 +376,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static,
      * Spawn the task which keeps track of local block proposal duties.
      */
     let duties_service = core_duties_service.clone();
-    core_duties_service.context.executor.spawn(
+    core_duties_service.executor.spawn(
         async move {
             loop {
                 if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
@@ -404,7 +404,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static,
      * Spawn the task which keeps track of local attestation duties.
      */
     let duties_service = core_duties_service.clone();
-    core_duties_service.context.executor.spawn(
+    core_duties_service.executor.spawn(
         async move {
             loop {
                 if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
@@ -429,7 +429,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static,
 
     // Spawn the task which keeps track of local sync committee duties.
     let duties_service = core_duties_service.clone();
-    core_duties_service.context.executor.spawn(
+    core_duties_service.executor.spawn(
         async move {
             loop {
                 if let Err(e) = poll_sync_committee_duties(&duties_service).await {
@@ -921,7 +921,7 @@ async fn poll_beacon_attesters_for_epoch<
 
     // Spawn the background task to compute selection proofs.
     let subservice = duties_service.clone();
-    duties_service.context.executor.spawn(
+    duties_service.executor.spawn(
         async move {
             fill_in_selection_proofs(subservice, new_duties, dependent_root).await;
         },

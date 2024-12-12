@@ -9702,8 +9702,6 @@ version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
  "bls",
- "doppelganger_service",
- "environment",
  "eth2",
  "futures",
  "graffiti_file",
@@ -9711,6 +9709,7 @@ dependencies = [
  "parking_lot 0.12.3",
  "safe_arith",
  "slot_clock",
+ "task_executor",
  "tokio",
  "tracing",
  "tree_hash",

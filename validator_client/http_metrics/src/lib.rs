@@ -35,12 +35,12 @@ impl From<String> for Error {
     }
 }
 
+type ValidatorStore = LighthouseValidatorStore<SystemTimeSlotClock>;
+
 /// Contains objects which have shared access from inside/outside of the metrics server.
 pub struct Shared<E: EthSpec> {
-    pub validator_store: Option<Arc<LighthouseValidatorStore<SystemTimeSlotClock>>>,
-    pub duties_service: Option<
-        Arc<DutiesService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>>,
-    >,
+    pub validator_store: Option<Arc<ValidatorStore>>,
+    pub duties_service: Option<Arc<DutiesService<ValidatorStore, SystemTimeSlotClock, E>>>,
     pub genesis_time: Option<u64>,
 }
 

@@ -1,6 +1,5 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
-use environment::RuntimeContext;
 use eth2::types::BlockId;
 use futures::future::join_all;
 use futures::future::FutureExt;
@@ -10,6 +9,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
 use types::{
@@ -49,7 +49,7 @@ pub struct Inner<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> {
     validator_store: Arc<S>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
-    context: RuntimeContext<E>,
+    executor: TaskExecutor,
     /// Boolean to track whether the service has posted subscriptions to the BN at least once.
     ///
     /// This acts as a latch that fires once upon start-up, and then never again.
@@ -64,7 +64,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         validator_store: Arc<S>,
         slot_clock: T,
         beacon_nodes: Arc<BeaconNodeFallback<T>>,
-        context: RuntimeContext<E>,
+        executor: TaskExecutor,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -72,7 +72,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
                 validator_store,
                 slot_clock,
                 beacon_nodes,
-                context,
+                executor,
                 first_subscription_done: AtomicBool::new(false),
             }),
         }
@@ -104,7 +104,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             "Sync committee service started"
         );
 
-        let executor = self.context.executor.clone();
+        let executor = self.executor.clone();
 
         let interval_fut = async move {
             loop {
@@ -203,7 +203,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         // Spawn one task to publish all of the sync committee signatures.
         let validator_duties = slot_duties.duties;
         let service = self.clone();
-        self.inner.context.executor.spawn(
+        self.inner.executor.spawn(
             async move {
                 service
                     .publish_sync_committee_signatures(slot, block_root, validator_duties)
@@ -215,7 +215,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
 
         let aggregators = slot_duties.aggregators;
         let service = self.clone();
-        self.inner.context.executor.spawn(
+        self.inner.executor.spawn(
             async move {
                 service
                     .publish_sync_committee_aggregates(
@@ -317,7 +317,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
     ) {
         for (subnet_id, subnet_aggregators) in aggregators {
             let service = self.clone();
-            self.inner.context.executor.spawn(
+            self.inner.executor.spawn(
                 async move {
                     service
                         .publish_sync_committee_aggregate_for_subnet(
@@ -441,7 +441,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
     fn spawn_subscription_tasks(&self) {
         let service = self.clone();
 
-        self.inner.context.executor.spawn(
+        self.inner.executor.spawn(
             async move {
                 service.publish_subscriptions().await.unwrap_or_else(|e| {
                     error!(

@@ -1,6 +1,5 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
 use bls::SignatureBytes;
-use environment::RuntimeContext;
 use eth2::types::{FullBlockContents, PublishBlockRequest};
 use eth2::{BeaconNodeHttpClient, StatusCode};
 use graffiti_file::{determine_graffiti, GraffitiFile};
@@ -11,11 +10,12 @@ use std::future::Future;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
+use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
 use types::{
-    BlindedBeaconBlock, BlockType, EthSpec, Graffiti, PublicKeyBytes, SignedBlindedBeaconBlock,
-    Slot,
+    BlindedBeaconBlock, BlockType, ChainSpec, EthSpec, Graffiti, PublicKeyBytes,
+    SignedBlindedBeaconBlock, Slot,
 };
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
@@ -45,24 +45,26 @@ impl From<Errors<BlockError>> for BlockError {
 
 /// Builds a `BlockService`.
 #[derive(Default)]
-pub struct BlockServiceBuilder<S, T, E: EthSpec> {
+pub struct BlockServiceBuilder<S, T> {
     validator_store: Option<Arc<S>>,
     slot_clock: Option<Arc<T>>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
-    context: Option<RuntimeContext<E>>,
+    executor: Option<TaskExecutor>,
+    chain_spec: Option<ChainSpec>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
 }
 
-impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<S, T, E> {
+impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
     pub fn new() -> Self {
         Self {
             validator_store: None,
             slot_clock: None,
             beacon_nodes: None,
             proposer_nodes: None,
-            context: None,
+            executor: None,
+            chain_spec: None,
             graffiti: None,
             graffiti_file: None,
         }
@@ -88,8 +90,8 @@ impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<
         self
     }
 
-    pub fn runtime_context(mut self, context: RuntimeContext<E>) -> Self {
-        self.context = Some(context);
+    pub fn executor(mut self, executor: TaskExecutor) -> Self {
+        self.executor = Some(executor);
         self
     }
 
@@ -103,7 +105,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<
         self
     }
 
-    pub fn build(self) -> Result<BlockService<S, T, E>, String> {
+    pub fn build(self) -> Result<BlockService<S, T>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
                 validator_store: self
@@ -115,9 +117,12 @@ impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<
                 beacon_nodes: self
                     .beacon_nodes
                     .ok_or("Cannot build BlockService without beacon_node")?,
-                context: self
-                    .context
-                    .ok_or("Cannot build BlockService without runtime_context")?,
+                executor: self
+                    .executor
+                    .ok_or("Cannot build BlockService without executor")?,
+                chain_spec: self
+                    .chain_spec
+                    .ok_or("Cannot build BlockService without chain_spec")?,
                 proposer_nodes: self.proposer_nodes,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
@@ -178,22 +183,23 @@ impl<T: SlotClock> ProposerFallback<T> {
 }
 
 /// Helper to minimise `Arc` usage.
-pub struct Inner<S, T, E: EthSpec> {
+pub struct Inner<S, T> {
     validator_store: Arc<S>,
     slot_clock: Arc<T>,
     pub beacon_nodes: Arc<BeaconNodeFallback<T>>,
     pub proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
-    context: RuntimeContext<E>,
+    executor: TaskExecutor,
+    chain_spec: ChainSpec,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
-pub struct BlockService<S, T, E: EthSpec> {
-    inner: Arc<Inner<S, T, E>>,
+pub struct BlockService<S, T> {
+    inner: Arc<Inner<S, T>>,
 }
 
-impl<S, T, E: EthSpec> Clone for BlockService<S, T, E> {
+impl<S, T> Clone for BlockService<S, T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -201,8 +207,8 @@ impl<S, T, E: EthSpec> Clone for BlockService<S, T, E> {
     }
 }
 
-impl<S, T, E: EthSpec> Deref for BlockService<S, T, E> {
-    type Target = Inner<S, T, E>;
+impl<S, T> Deref for BlockService<S, T> {
+    type Target = Inner<S, T>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
@@ -215,19 +221,19 @@ pub struct BlockServiceNotification {
     pub block_proposers: Vec<PublicKeyBytes>,
 }
 
-impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockService<S, T, E> {
-    pub fn start_update_service(
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
+    pub fn start_update_service<E: EthSpec>(
         self,
         mut notification_rx: mpsc::Receiver<BlockServiceNotification>,
     ) -> Result<(), String> {
         info!("Block production service started");
 
-        let executor = self.inner.context.executor.clone();
+        let executor = self.inner.executor.clone();
 
         executor.spawn(
             async move {
                 while let Some(notif) = notification_rx.recv().await {
-                    self.do_update(notif).await.ok();
+                    self.do_update::<E>(notif).await.ok();
                 }
                 debug!("Block service shutting down");
             },
@@ -238,7 +244,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockServi
     }
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
-    async fn do_update(&self, notification: BlockServiceNotification) -> Result<(), ()> {
+    async fn do_update<E: EthSpec>(
+        &self,
+        notification: BlockServiceNotification,
+    ) -> Result<(), ()> {
         let _timer = validator_metrics::start_timer_vec(
             &validator_metrics::BLOCK_SERVICE_TIMES,
             &[validator_metrics::FULL_UPDATE],
@@ -258,7 +267,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockServi
             return Ok(());
         }
 
-        if slot == self.context.eth2_config.spec.genesis_slot {
+        if slot == self.chain_spec.genesis_slot {
             debug!(
                 proposers = format!("{:?}", notification.block_proposers),
                 "Not producing block at genesis slot"
@@ -287,10 +296,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockServi
         for validator_pubkey in proposers {
             let builder_boost_factor = self.get_builder_boost_factor(&validator_pubkey);
             let service = self.clone();
-            self.inner.context.executor.spawn(
+            self.inner.executor.spawn(
                 async move {
                     let result = service
-                        .publish_block(slot, validator_pubkey, builder_boost_factor)
+                        .publish_block::<E>(slot, validator_pubkey, builder_boost_factor)
                         .await;
 
                     match result {
@@ -312,7 +321,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockServi
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn sign_and_publish_block(
+    async fn sign_and_publish_block<E: EthSpec>(
         &self,
         proposer_fallback: ProposerFallback<T>,
         slot: Slot,
@@ -391,7 +400,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockServi
         Ok(())
     }
 
-    async fn publish_block(
+    async fn publish_block<E: EthSpec>(
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
@@ -454,7 +463,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockServi
                     &validator_metrics::BLOCK_SERVICE_TIMES,
                     &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                 );
-                Self::get_validator_block(
+                Self::get_validator_block::<E>(
                     &beacon_node,
                     slot,
                     randao_reveal_ref,
@@ -485,7 +494,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockServi
         Ok(())
     }
 
-    async fn publish_signed_block_contents(
+    async fn publish_signed_block_contents<E: EthSpec>(
         &self,
         signed_block: &SignedBlock<E>,
         beacon_node: BeaconNodeHttpClient,
@@ -516,7 +525,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> BlockServi
         Ok::<_, BlockError>(())
     }
 
-    async fn get_validator_block(
+    async fn get_validator_block<E: EthSpec>(
         beacon_node: &BeaconNodeHttpClient,
         slot: Slot,
         randao_reveal_ref: &SignatureBytes,

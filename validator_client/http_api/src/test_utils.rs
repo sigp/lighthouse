@@ -65,11 +65,11 @@ pub struct ApiTester {
 }
 
 impl ApiTester {
-    pub async fn new() -> Self {
-        Self::new_with_http_config(Self::default_http_config()).await
+    pub async fn new<E: EthSpec>() -> Self {
+        Self::new_with_http_config::<E>(Self::default_http_config()).await
     }
 
-    pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
+    pub async fn new_with_http_config<E: EthSpec>(http_config: HttpConfig) -> Self {
         let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
@@ -127,7 +127,7 @@ impl ApiTester {
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
-            block_service: None::<BlockService<LighthouseValidatorStore<_>, _, E>>,
+            block_service: None::<BlockService<LighthouseValidatorStore<_>, _>>,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
@@ -145,7 +145,7 @@ impl ApiTester {
             // It's not really interesting why this triggered, just that it happened.
             let _ = shutdown_rx.await;
         };
-        let (listening_socket, server) = super::serve(ctx, server_shutdown).unwrap();
+        let (listening_socket, server) = super::serve::<_, E>(ctx, server_shutdown).unwrap();
 
         tokio::spawn(server);
 
