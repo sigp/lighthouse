@@ -636,10 +636,10 @@ fn is_valid_switch_to_compounding_request<E: EthSpec>(
     state: &BeaconState<E>,
     consolidation_request: &ConsolidationRequest,
     spec: &ChainSpec,
-) -> bool {
+) -> Result<bool, BlockProcessingError> {
     // Switch to compounding requires source and target be equal
     if consolidation_request.source_pubkey != consolidation_request.target_pubkey {
-        return false;
+        return Ok(false);
     }
 
     // Verify pubkey exists
@@ -648,13 +648,10 @@ fn is_valid_switch_to_compounding_request<E: EthSpec>(
         .get(&consolidation_request.source_pubkey)
     else {
         // source validator doesn't exist
-        return false;
+        return Ok(false);
     };
 
-    let Ok(source_validator) = state.get_validator(source_index) else {
-        // Validator must exist in the state else it wouldn't exist in the pubkey cache either
-        return false;
-    };
+    let source_validator = state.get_validator(source_index)?;
     // Verify the source withdrawal credentials
     // Note: We need to specifically check for eth1 withdrawal credentials here
     // If the validator is already compounding, the compounding request is not valid.
@@ -670,24 +667,24 @@ fn is_valid_switch_to_compounding_request<E: EthSpec>(
         .flatten()
     {
         if withdrawal_address != consolidation_request.source_address {
-            return false;
+            return Ok(false);
         }
     } else {
         // Source doesn't have eth1 withdrawal credentials
-        return false;
+        return Ok(false);
     }
 
     // Verify the source is active
     let current_epoch = state.current_epoch();
     if !source_validator.is_active_at(current_epoch) {
-        return false;
+        return Ok(false);
     }
     // Verify exits for source has not been initiated
     if source_validator.exit_epoch != spec.far_future_epoch {
-        return false;
+        return Ok(false);
     }
 
-    true
+    Ok(true)
 }
 
 pub fn process_consolidation_request<E: EthSpec>(
@@ -695,7 +692,7 @@ pub fn process_consolidation_request<E: EthSpec>(
     consolidation_request: &ConsolidationRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    if is_valid_switch_to_compounding_request(state, consolidation_request, spec) {
+    if is_valid_switch_to_compounding_request(state, consolidation_request, spec)? {
         let Some(source_index) = state
             .pubkey_cache()
             .get(&consolidation_request.source_pubkey)
