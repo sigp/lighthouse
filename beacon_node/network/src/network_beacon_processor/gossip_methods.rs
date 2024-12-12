@@ -710,8 +710,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
+                    GossipDataColumnError::PriorKnown { .. } => {
+                        // Data column is available via either the EL or reconstruction.
+                        // Do not penalise the peer.
+                        // Gossip filter should filter any duplicates received after this.
+                        debug!(
+                            self.log,
+                            "Received already available column sidecar. Ignoring the column sidecar";
+                            "slot" => %slot,
+                            "block_root" => %block_root,
+                            "index" => %index,
+                        )
+                    }
                     GossipDataColumnError::FutureSlot { .. }
-                    | GossipDataColumnError::PriorKnown { .. }
                     | GossipDataColumnError::PastFinalizedSlot { .. } => {
                         debug!(
                             self.log,
@@ -852,7 +863,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
-                    GossipBlobError::FutureSlot { .. } | GossipBlobError::RepeatBlob { .. } => {
+                    GossipBlobError::RepeatBlob { .. } => {
+                        // We may have received the blob from the EL. Do not penalise the peer.
+                        // Gossip filter should filter any duplicates received after this.
+                        debug!(
+                            self.log,
+                            "Received already available blob sidecar. Ignoring the blob sidecar";
+                            "slot" => %slot,
+                            "root" => %root,
+                            "index" => %index,
+                        )
+                    }
+                    GossipBlobError::FutureSlot { .. } => {
                         debug!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
