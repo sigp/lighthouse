@@ -77,10 +77,14 @@ impl ExitConfig {
     fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
         let validators_to_exit_str = clap_utils::parse_required::<String>(matches, VALIDATOR_FLAG)?;
 
-        let validators_to_exit = validators_to_exit_str
-            .split(',')
-            .map(|s| s.trim().parse())
-            .collect::<Result<Vec<PublicKeyBytes>, _>>()?;
+        let validators_to_exit = if validators_to_exit_str.trim() == "all" {
+            Vec::new()
+        } else {
+            validators_to_exit_str
+                .split(',')
+                .map(|s| s.trim().parse())
+                .collect::<Result<Vec<PublicKeyBytes>, _>>()?
+        };
 
         Ok(Self {
             vc_url: clap_utils::parse_required(matches, VC_URL_FLAG)?,
@@ -106,13 +110,16 @@ async fn run(config: ExitConfig) -> Result<(), String> {
     let ExitConfig {
         vc_url,
         vc_token_path,
-        validators_to_exit,
+        mut validators_to_exit,
         beacon_url,
         exit_epoch,
     } = config;
 
     let (http_client, validators) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
+    if validators_to_exit.is_empty() {
+        validators_to_exit = validators.iter().map(|v| v.validating_pubkey).collect();
+    }
     // Check that the validators_to_exit is in the validator client
     for validator_to_exit in &validators_to_exit {
         if !validators
