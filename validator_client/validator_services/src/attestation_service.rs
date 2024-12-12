@@ -1,13 +1,13 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use either::Either;
-use environment::RuntimeContext;
 use futures::future::join_all;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
 use tree_hash::TreeHash;
@@ -21,7 +21,8 @@ pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static, 
     validator_store: Option<Arc<S>>,
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
-    context: Option<RuntimeContext<E>>,
+    executor: Option<TaskExecutor>,
+    chain_spec: Option<Arc<ChainSpec>>,
     disable: bool,
 }
 
@@ -34,7 +35,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             validator_store: None,
             slot_clock: None,
             beacon_nodes: None,
-            context: None,
+            executor: None,
+            chain_spec: None,
             disable: false,
         }
     }
@@ -59,8 +61,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         self
     }
 
-    pub fn runtime_context(mut self, context: RuntimeContext<E>) -> Self {
-        self.context = Some(context);
+    pub fn executor(mut self, executor: TaskExecutor) -> Self {
+        self.executor = Some(executor);
+        self
+    }
+
+    pub fn chain_spec(mut self, chain_spec: Arc<ChainSpec>) -> Self {
+        self.chain_spec = Some(chain_spec);
         self
     }
 
@@ -84,9 +91,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
                 beacon_nodes: self
                     .beacon_nodes
                     .ok_or("Cannot build AttestationService without beacon_nodes")?,
-                context: self
-                    .context
-                    .ok_or("Cannot build AttestationService without runtime_context")?,
+                executor: self
+                    .executor
+                    .ok_or("Cannot build AttestationService without executor")?,
+                chain_spec: self
+                    .chain_spec
+                    .ok_or("Cannot build AttestationService without chain_spec")?,
                 disable: self.disable,
             }),
         })
@@ -99,7 +109,8 @@ pub struct Inner<S, T, E: EthSpec> {
     validator_store: Arc<S>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
-    context: RuntimeContext<E>,
+    executor: TaskExecutor,
+    chain_spec: Arc<ChainSpec>,
     disable: bool,
 }
 
@@ -147,7 +158,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
             "Attestation production service started"
         );
 
-        let executor = self.context.executor.clone();
+        let executor = self.executor.clone();
 
         let interval_fut = async move {
             loop {
@@ -207,7 +218,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                self.inner.context.executor.spawn_ignoring_error(
+                self.inner.executor.spawn_ignoring_error(
                     self.clone().publish_attestations_and_aggregates(
                         slot,
                         committee_index,
@@ -359,7 +370,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
             let attestation_data = attestation_data_ref;
 
             // Ensure that the attestation matches the duties.
-            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
+            if !duty.match_attestation_data::<E>(attestation_data, &self.chain_spec) {
                 crit!(
                     validator = ?duty.pubkey,
                     duty_slot = %duty.slot,
@@ -378,7 +389,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
                 attestation_data.beacon_block_root,
                 attestation_data.source,
                 attestation_data.target,
-                &self.context.eth2_config.spec,
+                &self.chain_spec,
             ) {
                 Ok(attestation) => attestation,
                 Err(err) => {
@@ -441,9 +452,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
             return Ok(None);
         }
         let fork_name = self
-            .context
-            .eth2_config
-            .spec
+            .chain_spec
             .fork_name_at_slot::<E>(attestation_data.slot);
 
         // Post the attestations to the BN.
@@ -540,9 +549,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
         }
 
         let fork_name = self
-            .context
-            .eth2_config
-            .spec
+            .chain_spec
             .fork_name_at_slot::<E>(attestation_data.slot);
 
         let aggregated_attestation = &self
@@ -587,7 +594,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
             let duty = &duty_and_proof.duty;
             let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
-            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
+            if !duty.match_attestation_data::<E>(attestation_data, &self.chain_spec) {
                 crit!("Inconsistent validator duties during signing");
                 return None;
             }
@@ -691,11 +698,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
     /// Start the task at `pruning_instant` to avoid interference with other tasks.
     fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
         let attestation_service = self.clone();
-        let executor = self.inner.context.executor.clone();
+        let executor = self.inner.executor.clone();
         let current_epoch = slot.epoch(E::slots_per_epoch());
 
         // Wait for `pruning_instant` in a regular task, and then switch to a blocking one.
-        self.inner.context.executor.spawn(
+        self.inner.executor.spawn(
             async move {
                 sleep_until(pruning_instant).await;
 

@@ -385,6 +385,7 @@ pub mod tests {
     use crate::create_validators::tests::TestBuilder as CreateTestBuilder;
     use std::fs::{self, File};
     use tempfile::{tempdir, TempDir};
+    use types::MainnetEthSpec;
     use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
 
     const VC_TOKEN_FILE_NAME: &str = "vc_token.json";
@@ -405,7 +406,7 @@ pub mod tests {
 
         pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
             let dir = tempdir().unwrap();
-            let vc = ApiTester::new_with_http_config(http_config).await;
+            let vc = ApiTester::new_with_http_config::<MainnetEthSpec>(http_config).await;
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
             fs::write(&vc_token_path, &vc.api_token).unwrap();
 

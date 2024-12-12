@@ -77,10 +77,10 @@ impl From<String> for Error {
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<T: SlotClock, E: EthSpec> {
+pub struct Context<T: SlotClock> {
     pub task_executor: TaskExecutor,
     pub api_secret: ApiSecret,
-    pub block_service: Option<BlockService<LighthouseValidatorStore<T>, T, E>>,
+    pub block_service: Option<BlockService<LighthouseValidatorStore<T>, T>>,
     pub validator_store: Option<Arc<LighthouseValidatorStore<T>>>,
     pub validator_dir: Option<PathBuf>,
     pub secrets_dir: Option<PathBuf>,
@@ -141,7 +141,7 @@ impl Default for Config {
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
 pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
-    ctx: Arc<Context<T, E>>,
+    ctx: Arc<Context<T>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -424,7 +424,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(block_service_filter.clone())
         .then(
-            |block_filter: BlockService<LighthouseValidatorStore<T>, T, E>| async move {
+            |block_filter: BlockService<LighthouseValidatorStore<T>, T>| async move {
                 let mut result: HashMap<String, Vec<CandidateInfo>> = HashMap::new();
 
                 let mut beacon_nodes = Vec::new();

@@ -347,7 +347,7 @@ pub async fn poll_sync_committee_duties<
 
     if !new_pre_compute_duties.is_empty() {
         let sub_duties_service = duties_service.clone();
-        duties_service.context.executor.spawn(
+        duties_service.executor.spawn(
             async move {
                 fill_in_aggregation_proofs(
                     sub_duties_service,
@@ -391,7 +391,7 @@ pub async fn poll_sync_committee_duties<
 
         if !new_pre_compute_duties.is_empty() {
             let sub_duties_service = duties_service.clone();
-            duties_service.context.executor.spawn(
+            duties_service.executor.spawn(
                 async move {
                     fill_in_aggregation_proofs(
                         sub_duties_service,

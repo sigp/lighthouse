@@ -669,6 +669,7 @@ mod test {
     use account_utils::validator_definitions::SigningDefinition;
     use std::fs;
     use tempfile::{tempdir, TempDir};
+    use types::MainnetEthSpec;
     use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
 
     const SRC_VC_TOKEN_FILE_NAME: &str = "src_vc_token.json";
@@ -956,7 +957,7 @@ mod test {
                 assert!(import_test_result.result.is_ok());
                 import_test_result.vc
             } else {
-                ApiTester::new_with_http_config(self.http_config.clone()).await
+                ApiTester::new_with_http_config::<MainnetEthSpec>(self.http_config.clone()).await
             };
 
             // If enabled, set all the validator definitions on the src_vc to
@@ -994,7 +995,7 @@ mod test {
                 assert!(import_test_result.result.is_ok());
                 import_test_result.vc
             } else {
-                ApiTester::new_with_http_config(self.http_config.clone()).await
+                ApiTester::new_with_http_config::<MainnetEthSpec>(self.http_config.clone()).await
             };
 
             if self.remove_passwords_from_src_vc {

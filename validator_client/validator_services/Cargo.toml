@@ -8,7 +8,6 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 beacon_node_fallback = { workspace = true }
 bls = { workspace = true }
 either = { workspace = true }
-environment = { workspace = true }
 eth2 = { workspace = true }
 futures = { workspace = true }
 graffiti_file = { workspace = true }
@@ -16,6 +15,7 @@ logging = { workspace = true }
 parking_lot = { workspace = true }
 safe_arith = { workspace = true }
 slot_clock =  { workspace = true }
+task_executor = { workspace = true }
 tokio =  { workspace = true }
 tracing = { workspace = true }
 tree_hash =  { workspace = true }
