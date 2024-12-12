@@ -426,10 +426,10 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         proposer_nodes.set_slot_clock(slot_clock.clone());
 
         let beacon_nodes = Arc::new(beacon_nodes);
-        start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
+        start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
 
         let proposer_nodes = Arc::new(proposer_nodes);
-        start_fallback_updater_service(context.clone(), proposer_nodes.clone())?;
+        start_fallback_updater_service::<_, E>(context.executor.clone(), proposer_nodes.clone())?;
 
         let doppelganger_service = if config.enable_doppelganger_protection {
             Some(Arc::new(DoppelgangerService::new(
