@@ -518,10 +518,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
     /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
     ///   local payloads.
     /// - Else return `None` to indicate no preference between builder and local payloads.
-    fn determine_validator_builder_boost_factor(
-        &self,
-        validator_pubkey: &PublicKeyBytes,
-    ) -> Option<u64> {
+    fn determine_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
         let validator_prefer_builder_proposals = self
             .validators
             .read()
@@ -531,7 +528,8 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
             return Some(u64::MAX);
         }
 
-        self.validators
+        let factor = self
+            .validators
             .read()
             .builder_boost_factor(validator_pubkey)
             .or_else(|| {
@@ -542,27 +540,19 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
                     return Some(0);
                 }
                 None
-            })
-    }
+            });
 
-    /// Translate the process-wide `builder_proposals`, `builder_boost_factor` and
-    /// `prefer_builder_proposals` configurations to a boost factor.
-    /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
-    ///   preference for builder payloads.
-    /// - If `builder_boost_factor` is a value other than None, return its value as the boost factor.
-    /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
-    ///   local payloads.
-    /// - Else return `None` to indicate no preference between builder and local payloads.
-    fn determine_default_builder_boost_factor(&self) -> Option<u64> {
-        if self.prefer_builder_proposals {
-            return Some(u64::MAX);
-        }
-        self.builder_boost_factor.or({
-            if !self.builder_proposals {
-                Some(0)
-            } else {
-                None
+        factor.or_else(|| {
+            if self.prefer_builder_proposals {
+                return Some(u64::MAX);
             }
+            self.builder_boost_factor.or({
+                if !self.builder_proposals {
+                    Some(0)
+                } else {
+                    None
+                }
+            })
         })
     }
 
