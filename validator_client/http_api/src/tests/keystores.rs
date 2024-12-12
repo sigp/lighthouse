@@ -14,8 +14,9 @@ use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
 use types::{attestation::AttestationBase, Address};
 use validator_store::DEFAULT_GAS_LIMIT;
+use zeroize::Zeroizing;
 
-fn new_keystore(password: ZeroizeString) -> Keystore {
+fn new_keystore(password: Zeroizing<String>) -> Keystore {
     let keypair = Keypair::random();
     Keystore(
         KeystoreBuilder::new(&keypair, password.as_ref(), String::new())

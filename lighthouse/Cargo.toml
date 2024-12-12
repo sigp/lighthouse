@@ -73,6 +73,7 @@ eth2 = { workspace = true }
 beacon_processor = { workspace = true }
 beacon_node_fallback = { workspace = true }
 initialized_validators = { workspace = true }
+zeroize = { workspace = true }
 
 
 [[test]]

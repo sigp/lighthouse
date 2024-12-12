@@ -1,6 +1,6 @@
 use super::common::*;
 use crate::DumpConfig;
-use account_utils::{eth2_keystore::Keystore, ZeroizeString};
+use account_utils::eth2_keystore::Keystore;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use derivative::Derivative;
@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use types::Address;
+use zeroize::Zeroizing;
 
 pub const CMD: &str = "import";
 pub const VALIDATORS_FILE_FLAG: &str = "validators-file";
@@ -167,7 +168,7 @@ pub struct ImportConfig {
     pub vc_token_path: PathBuf,
     pub ignore_duplicates: bool,
     #[derivative(Debug = "ignore")]
-    pub password: Option<ZeroizeString>,
+    pub password: Option<Zeroizing<String>>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
     pub builder_proposals: Option<bool>,
@@ -184,7 +185,7 @@ impl ImportConfig {
             vc_url: clap_utils::parse_required(matches, VC_URL_FLAG)?,
             vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
             ignore_duplicates: matches.get_flag(IGNORE_DUPLICATES_FLAG),
-            password: clap_utils::parse_optional(matches, PASSWORD)?,
+            password: clap_utils::parse_optional(matches, PASSWORD)?.map(Zeroizing::new),
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT)?,
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS)?,
@@ -382,10 +383,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 pub mod tests {
     use super::*;
     use crate::create_validators::tests::TestBuilder as CreateTestBuilder;
-    use std::{
-        fs::{self, File},
-        str::FromStr,
-    };
+    use std::fs::{self, File};
     use tempfile::{tempdir, TempDir};
     use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
 
@@ -419,7 +417,7 @@ pub mod tests {
                     vc_url: vc.url.clone(),
                     vc_token_path,
                     ignore_duplicates: false,
-                    password: Some(ZeroizeString::from_str("password").unwrap()),
+                    password: Some(Zeroizing::new("password".into())),
                     fee_recipient: None,
                     builder_boost_factor: None,
                     gas_limit: None,
