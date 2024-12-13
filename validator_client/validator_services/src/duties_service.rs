@@ -204,6 +204,105 @@ type DependentRoot = Hash256;
 type AttesterMap = HashMap<PublicKeyBytes, HashMap<Epoch, (DependentRoot, DutyAndProof)>>;
 type ProposerMap = HashMap<Epoch, (DependentRoot, Vec<ProposerData>)>;
 
+pub struct DutiesServiceBuilder<S, T> {
+    /// Provides the canonical list of locally-managed validators.
+    validator_store: Option<Arc<S>>,
+    /// Tracks the current slot.
+    slot_clock: Option<T>,
+    /// Provides HTTP access to remote beacon nodes.
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
+    /// The runtime for spawning tasks.
+    executor: Option<TaskExecutor>,
+    /// The current chain spec.
+    spec: Option<Arc<ChainSpec>>,
+    //// Whether we permit large validator counts in the metrics.
+    enable_high_validator_count_metrics: bool,
+    /// If this validator is running in distributed mode.
+    distributed: bool,
+}
+
+impl<S, T> Default for DutiesServiceBuilder<S, T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<S, T> DutiesServiceBuilder<S, T> {
+    pub fn new() -> Self {
+        Self {
+            validator_store: None,
+            slot_clock: None,
+            beacon_nodes: None,
+            executor: None,
+            spec: None,
+            enable_high_validator_count_metrics: false,
+            distributed: false,
+        }
+    }
+
+    pub fn validator_store(mut self, validator_store: Arc<S>) -> Self {
+        self.validator_store = Some(validator_store);
+        self
+    }
+
+    pub fn slot_clock(mut self, slot_clock: T) -> Self {
+        self.slot_clock = Some(slot_clock);
+        self
+    }
+
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
+        self.beacon_nodes = Some(beacon_nodes);
+        self
+    }
+
+    pub fn executor(mut self, executor: TaskExecutor) -> Self {
+        self.executor = Some(executor);
+        self
+    }
+
+    pub fn spec(mut self, spec: Arc<ChainSpec>) -> Self {
+        self.spec = Some(spec);
+        self
+    }
+
+    pub fn enable_high_validator_count_metrics(
+        mut self,
+        enable_high_validator_count_metrics: bool,
+    ) -> Self {
+        self.enable_high_validator_count_metrics = enable_high_validator_count_metrics;
+        self
+    }
+
+    pub fn distributed(mut self, distributed: bool) -> Self {
+        self.distributed = distributed;
+        self
+    }
+
+    pub fn build<E: EthSpec>(self) -> Result<DutiesService<S, T, E>, String> {
+        Ok(DutiesService {
+            attesters: Default::default(),
+            proposers: Default::default(),
+            sync_duties: SyncDutiesMap::new(self.distributed),
+            validator_store: self
+                .validator_store
+                .ok_or("Cannot build DutiesService without validator_store")?,
+            unknown_validator_next_poll_slots: Default::default(),
+            slot_clock: self
+                .slot_clock
+                .ok_or("Cannot build DutiesService without slot_clock")?,
+            beacon_nodes: self
+                .beacon_nodes
+                .ok_or("Cannot build DutiesService without beacon_nodes")?,
+            executor: self
+                .executor
+                .ok_or("Cannot build DutiesService without executor")?,
+            spec: self.spec.ok_or("Cannot build DutiesService without spec")?,
+            enable_high_validator_count_metrics: self.enable_high_validator_count_metrics,
+            distributed: self.distributed,
+        })
+    }
+}
+
 /// See the module-level documentation.
 pub struct DutiesService<S, T, E: EthSpec> {
     /// Maps a validator public key to their duties for each epoch.
