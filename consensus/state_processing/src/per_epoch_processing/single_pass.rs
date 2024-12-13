@@ -945,7 +945,8 @@ impl PendingDepositsContext {
             // `true` both for the actual value & the default placeholder value (`FAR_FUTURE_EPOCH`).
             let mut is_validator_exited = false;
             let mut is_validator_withdrawn = false;
-            if let Some(validator_index) = state.pubkey_cache().get(&deposit.pubkey) {
+            let opt_validator_index = state.pubkey_cache().get(&deposit.pubkey);
+            if let Some(validator_index) = opt_validator_index {
                 let validator = state.get_validator(validator_index)?;
                 let already_exited = validator.exit_epoch < spec.far_future_epoch;
                 // In the spec process_registry_updates is called before process_pending_deposits
@@ -964,20 +965,15 @@ impl PendingDepositsContext {
             }
 
             if is_validator_withdrawn {
-                // Deposited balance will never become active. Queue a balance increase
-                // but do not consume churn
-                if let Some(validator_index) = state.pubkey_cache().get(&deposit.pubkey) {
-                    validator_deposits_to_process
-                        .entry(validator_index)
-                        .or_insert(0)
-                        .safe_add_assign(deposit.amount)?;
-                } else {
-                    // The `PendingDeposit` is for a new validator
-                    // We add the new validator to the state at the end of all processing.
-                    // Note that the new validator will not be eligible for activation until
-                    // next epoch, so none of the operations will affect a newly added validator.
-                    new_validator_deposits.push(deposit.clone());
-                }
+                // Deposited balance will never become active. Queue a balance increase but do not
+                // consume churn. Validator index must be known if the validator is known to be
+                // withdrawn (see calculation of `is_validator_withdrawn` above).
+                let validator_index =
+                    opt_validator_index.ok_or(Error::PendingDepositsLogicError)?;
+                validator_deposits_to_process
+                    .entry(validator_index)
+                    .or_insert(0)
+                    .safe_add_assign(deposit.amount)?;
             } else if is_validator_exited {
                 // Validator is exiting, postpone the deposit until after withdrawable epoch
                 deposits_to_postpone.push(deposit.clone());
