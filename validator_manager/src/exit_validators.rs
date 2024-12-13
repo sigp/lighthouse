@@ -154,6 +154,19 @@ async fn run(config: ExitConfig) -> Result<(), String> {
                 return Err("Beacon URL is not provided".into());
             };
 
+            if beacon_node
+                .get_node_syncing()
+                .await
+                .map_err(|e| format!("Failed to get sync status: {:?}", e))?
+                .data
+                .is_syncing
+            {
+                return Err(
+                    "Beacon node is syncing, submit the voluntary exit later when beacon node is synced"
+                        .to_string(),
+                );
+            }
+
             beacon_node
                 .post_beacon_pool_voluntary_exits(&exit_message.data)
                 .await
