@@ -42,12 +42,11 @@ use validator_http_api::ApiSecret;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
     block_service::{BlockService, BlockServiceBuilder},
-    duties_service::{self, DutiesService},
+    duties_service::{self, DutiesService, DutiesServiceBuilder},
     preparation_service::{PreparationService, PreparationServiceBuilder},
-    sync::SyncDutiesMap,
     sync_committee_service::SyncCommitteeService,
 };
-use validator_store::ValidatorStore;
+use validator_store::ValidatorStore as ValidatorStoreTrait;
 
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -72,20 +71,18 @@ const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
+type ValidatorStore = LighthouseValidatorStore<SystemTimeSlotClock>;
+
 #[derive(Clone)]
 pub struct ProductionValidatorClient<E: EthSpec> {
     context: RuntimeContext<E>,
-    duties_service:
-        Arc<DutiesService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>>,
-    block_service: BlockService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock>,
-    attestation_service:
-        AttestationService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
-    sync_committee_service:
-        SyncCommitteeService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock, E>,
+    duties_service: Arc<DutiesService<ValidatorStore, SystemTimeSlotClock, E>>,
+    block_service: BlockService<ValidatorStore, SystemTimeSlotClock>,
+    attestation_service: AttestationService<ValidatorStore, SystemTimeSlotClock, E>,
+    sync_committee_service: SyncCommitteeService<ValidatorStore, SystemTimeSlotClock, E>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
-    preparation_service:
-        PreparationService<LighthouseValidatorStore<SystemTimeSlotClock>, SystemTimeSlotClock>,
-    validator_store: Arc<LighthouseValidatorStore<SystemTimeSlotClock>>,
+    preparation_service: PreparationService<ValidatorStore, SystemTimeSlotClock>,
+    validator_store: Arc<ValidatorStore>,
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
@@ -444,20 +441,18 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             validator_store.prune_slashing_protection_db(slot.epoch(E::slots_per_epoch()), true);
         }
 
-        let duties_service = Arc::new(DutiesService {
-            attesters: <_>::default(),
-            proposers: <_>::default(),
-            sync_duties: SyncDutiesMap::new(config.distributed),
-            slot_clock: slot_clock.clone(),
-            beacon_nodes: beacon_nodes.clone(),
-            validator_store: validator_store.clone(),
-            unknown_validator_next_poll_slots: <_>::default(),
-            spec: context.eth2_config.spec.clone(),
-            executor: context.executor.clone(),
-            enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
-            distributed: config.distributed,
-            disable_attesting: config.disable_attesting,
-        });
+        let duties_service = Arc::new(
+            DutiesServiceBuilder::new()
+                .slot_clock(slot_clock.clone())
+                .beacon_nodes(beacon_nodes.clone())
+                .validator_store(validator_store.clone())
+                .spec(context.eth2_config.spec.clone())
+                .executor(context.executor.clone())
+                .enable_high_validator_count_metrics(config.enable_high_validator_count_metrics)
+                .distributed(config.distributed)
+                .disable_attesting(config.disable_attesting)
+                .build()?,
+        );
 
         // Update the metrics server.
         if let Some(ctx) = &validator_metrics_ctx {
