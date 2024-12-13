@@ -124,7 +124,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         let (header_hash, rlp_transactions_root) = calculate_execution_block_hash(
             payload,
             parent_beacon_block_root,
-            self.execution_requests().ok().cloned(),
+            self.execution_requests().ok().copied(),
         );
 
         if header_hash != self.block_hash() {
