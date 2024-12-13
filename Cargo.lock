@@ -36,6 +36,7 @@ dependencies = [
  "tokio",
  "types",
  "validator_dir",
+ "zeroize",
 ]
 
 [[package]]
@@ -2561,8 +2562,6 @@ dependencies = [
 name = "eth2"
 version = "0.1.0"
 dependencies = [
- "account_utils",
- "bytes",
  "derivative",
  "eth2_keystore",
  "ethereum_serde_utils",
@@ -2570,7 +2569,6 @@ dependencies = [
  "ethereum_ssz_derive",
  "futures",
  "futures-util",
- "libsecp256k1",
  "lighthouse_network",
  "mediatype",
  "pretty_reqwest_error",
@@ -2578,7 +2576,6 @@ dependencies = [
  "proto_array",
  "psutil",
  "reqwest",
- "ring 0.16.20",
  "sensitive_url",
  "serde",
  "serde_json",
@@ -2587,6 +2584,7 @@ dependencies = [
  "store",
  "tokio",
  "types",
+ "zeroize",
 ]
 
 [[package]]
@@ -4433,6 +4431,7 @@ dependencies = [
  "url",
  "validator_dir",
  "validator_metrics",
+ "zeroize",
 ]
 
 [[package]]
@@ -5287,6 +5286,7 @@ dependencies = [
  "validator_client",
  "validator_dir",
  "validator_manager",
+ "zeroize",
 ]
 
 [[package]]
@@ -9584,6 +9584,7 @@ dependencies = [
  "validator_store",
  "warp",
  "warp_utils",
+ "zeroize",
 ]
 
 [[package]]
@@ -9627,6 +9628,7 @@ dependencies = [
  "tree_hash",
  "types",
  "validator_http_api",
+ "zeroize",
 ]
 
 [[package]]
@@ -10562,6 +10564,7 @@ version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
 dependencies = [
+ "serde",
  "zeroize_derive",
 ]
 

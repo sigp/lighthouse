@@ -27,6 +27,7 @@ safe_arith = { workspace = true }
 slot_clock = { workspace = true }
 filesystem = { workspace = true }
 sensitive_url = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
