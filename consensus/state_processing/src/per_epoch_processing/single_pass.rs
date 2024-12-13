@@ -364,35 +364,28 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         // the first deposit creates the new validator and the others are topups.
         // Each item in the vec is a (pubkey, validator_index)
         let mut added_validators = Vec::new();
-        for deposit in ctxt.new_validator_deposits.into_iter() {
+        for deposit in ctxt.new_validator_deposits {
             let deposit_data = DepositData {
                 pubkey: deposit.pubkey,
                 withdrawal_credentials: deposit.withdrawal_credentials,
                 amount: deposit.amount,
                 signature: deposit.signature,
             };
-            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                // If a validator with the same pubkey has already been added, do not add a new
-                // validator, just update the balance.
-                // Note: updating the `effective_balance` for the new validator is done after
-                // adding them to the state.
-                if let Some((_, validator_index)) = added_validators
-                    .iter()
-                    .find(|(pubkey, _)| *pubkey == deposit_data.pubkey)
-                {
-                    let balance = state.get_balance_mut(*validator_index)?;
-                    balance.safe_add_assign(deposit_data.amount)?;
-                } else {
-                    // Apply the new deposit to the state
-                    state.add_validator_to_registry(
-                        deposit_data.pubkey,
-                        deposit_data.withdrawal_credentials,
-                        deposit_data.amount,
-                        spec,
-                    )?;
-                    added_validators
-                        .push((deposit_data.pubkey, state.validators().len().safe_sub(1)?));
-                }
+            // Only check the signature if this is the first deposit for the validator,
+            // following the logic from `apply_pending_deposit` in the spec.
+            if let Some(validator_index) = state.get_validator_index(&deposit_data.pubkey)? {
+                state
+                    .get_balance_mut(validator_index)?
+                    .safe_add_assign(deposit_data.amount)?;
+            } else if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
+                // Apply the new deposit to the state
+                let validator_index = state.add_validator_to_registry(
+                    deposit_data.pubkey,
+                    deposit_data.withdrawal_credentials,
+                    deposit_data.amount,
+                    spec,
+                )?;
+                added_validators.push((deposit_data.pubkey, validator_index));
             }
         }
         if conf.effective_balance_updates {

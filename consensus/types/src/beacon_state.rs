@@ -1547,13 +1547,15 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(Error::UnknownValidator(validator_index))
     }
 
+    /// Add a validator to the registry and return the validator index that was allocated for it.
     pub fn add_validator_to_registry(
         &mut self,
         pubkey: PublicKeyBytes,
         withdrawal_credentials: Hash256,
         amount: u64,
         spec: &ChainSpec,
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
+        let index = self.validators().len();
         let fork_name = self.fork_name_unchecked();
         self.validators_mut().push(Validator::from_deposit(
             pubkey,
@@ -1575,7 +1577,20 @@ impl<E: EthSpec> BeaconState<E> {
             inactivity_scores.push(0)?;
         }
 
-        Ok(())
+        // Keep the pubkey cache up to date if it was up to date prior to this call.
+        //
+        // Doing this here while we know the pubkey and index is marginally quicker than doing it in
+        // a call to `update_pubkey_cache` later because we don't need to index into the validators
+        // tree again.
+        let pubkey_cache = self.pubkey_cache_mut();
+        if pubkey_cache.len() == index {
+            let success = pubkey_cache.insert(pubkey, index);
+            if !success {
+                return Err(Error::PubkeyCacheInconsistent);
+            }
+        }
+
+        Ok(index)
     }
 
     /// Safe copy-on-write accessor for the `validators` list.
