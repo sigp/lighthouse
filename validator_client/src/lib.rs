@@ -390,7 +390,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
-            log.clone(),
         );
 
         let mut proposer_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
@@ -398,7 +397,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
-            log.clone(),
         );
 
         // Perform some potentially long-running initialization tasks.

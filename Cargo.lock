@@ -872,11 +872,11 @@ dependencies = [
  "futures",
  "itertools 0.10.5",
  "serde",
- "slog",
  "slot_clock",
  "strum",
  "task_executor",
  "tokio",
+ "tracing",
  "types",
  "validator_metrics",
 ]

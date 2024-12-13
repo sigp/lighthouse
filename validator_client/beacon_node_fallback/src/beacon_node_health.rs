@@ -2,10 +2,10 @@ use super::CandidateError;
 use eth2::BeaconNodeHttpClient;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use slog::{warn, Logger};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::str::FromStr;
+use tracing::warn;
 use types::Slot;
 
 /// Sync distances between 0 and DEFAULT_SYNC_TOLERANCE are considered `synced`.
@@ -290,15 +290,13 @@ impl BeaconNodeHealth {
 
 pub async fn check_node_health(
     beacon_node: &BeaconNodeHttpClient,
-    log: &Logger,
 ) -> Result<(Slot, bool, bool), CandidateError> {
     let resp = match beacon_node.get_node_syncing().await {
         Ok(resp) => resp,
         Err(e) => {
             warn!(
-                log,
-                "Unable connect to beacon node";
-                "error" => %e
+                error = %e,
+                "Unable connect to beacon node"
             );
 
             return Err(CandidateError::Offline);
