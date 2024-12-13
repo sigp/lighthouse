@@ -51,7 +51,7 @@ pub struct BlockServiceBuilder<S, T> {
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     executor: Option<TaskExecutor>,
-    chain_spec: Option<ChainSpec>,
+    chain_spec: Option<Arc<ChainSpec>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
 }
@@ -92,6 +92,11 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
 
     pub fn executor(mut self, executor: TaskExecutor) -> Self {
         self.executor = Some(executor);
+        self
+    }
+
+    pub fn chain_spec(mut self, chain_spec: Arc<ChainSpec>) -> Self {
+        self.chain_spec = Some(chain_spec);
         self
     }
 
@@ -189,7 +194,7 @@ pub struct Inner<S, T> {
     pub beacon_nodes: Arc<BeaconNodeFallback<T>>,
     pub proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     executor: TaskExecutor,
-    chain_spec: ChainSpec,
+    chain_spec: Arc<ChainSpec>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
 }
