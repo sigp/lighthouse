@@ -278,6 +278,21 @@ impl ElectraPreset {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
+pub struct FuluPreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub fulu_placeholder: u64,
+}
+
+impl FuluPreset {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
+        Self {
+            fulu_placeholder: spec.fulu_placeholder,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
 pub struct Eip7594Preset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub field_elements_per_cell: u64,
@@ -342,6 +357,9 @@ mod test {
 
         let electra: ElectraPreset = preset_from_file(&preset_name, "electra.yaml");
         assert_eq!(electra, ElectraPreset::from_chain_spec::<E>(&spec));
+
+        let fulu: FuluPreset = preset_from_file(&preset_name, "fulu.yaml");
+        assert_eq!(fulu, FuluPreset::from_chain_spec::<E>(&spec));
 
         let eip7594: Eip7594Preset = preset_from_file(&preset_name, "eip7594.yaml");
         assert_eq!(eip7594, Eip7594Preset::from_chain_spec::<E>(&spec));

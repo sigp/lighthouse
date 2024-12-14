@@ -242,6 +242,10 @@ impl<E: EthSpec> PubsubMessage<E> {
                                     SignedBeaconBlockElectra::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
+                                Some(ForkName::Fulu) => SignedBeaconBlock::<E>::Electra(
+                                    SignedBeaconBlockElectra::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
                                 None => {
                                     return Err(format!(
                                         "Unknown gossipsub fork digest: {:?}",

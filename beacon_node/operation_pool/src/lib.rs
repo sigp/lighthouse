@@ -1248,7 +1248,7 @@ mod release_tests {
         let fork_name = state.fork_name_unchecked();
 
         match fork_name {
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Fulu => {
                 assert_eq!(stats.num_attestation_data, 1);
             }
             _ => {
@@ -1267,7 +1267,7 @@ mod release_tests {
             .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have best attestations");
         match fork_name {
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Fulu => {
                 assert_eq!(best_attestations.len(), 8);
             }
             _ => {
@@ -1278,7 +1278,7 @@ mod release_tests {
         // All the best attestations should be signed by at least `big_step_size` (4) validators.
         for att in &best_attestations {
             match fork_name {
-                ForkName::Electra => {
+                ForkName::Electra | ForkName::Fulu => {
                     assert!(att.num_set_aggregation_bits() >= small_step_size);
                 }
                 _ => {
@@ -1366,7 +1366,7 @@ mod release_tests {
         let fork_name = state.fork_name_unchecked();
 
         match fork_name {
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Fulu => {
                 assert_eq!(op_pool.attestation_stats().num_attestation_data, 1);
             }
             _ => {
@@ -1389,7 +1389,7 @@ mod release_tests {
             .expect("should have valid best attestations");
 
         match fork_name {
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Fulu => {
                 assert_eq!(best_attestations.len(), 8);
             }
             _ => {

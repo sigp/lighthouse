@@ -1,5 +1,5 @@
 # Extends the mainnet preset
-PRESET_BASE: 'mainnet'
+PRESET_BASE: "mainnet"
 CONFIG_NAME: holesky
 
 # Genesis
@@ -11,7 +11,6 @@ MIN_GENESIS_TIME: 1695902100
 GENESIS_FORK_VERSION: 0x01017000
 # Genesis delay 5 mins
 GENESIS_DELAY: 300
-
 
 # Forking
 # ---------------------------------------------------------------
@@ -37,6 +36,9 @@ DENEB_FORK_EPOCH: 29696
 # Electra
 ELECTRA_FORK_VERSION: 0x06017000
 ELECTRA_FORK_EPOCH: 18446744073709551615
+# Fulu
+FULU_FORK_VERSION: 0x07017000
+FULU_FORK_EPOCH: 18446744073709551615
 
 # Time parameters
 # ---------------------------------------------------------------
@@ -50,7 +52,6 @@ MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
 SHARD_COMMITTEE_PERIOD: 256
 # 2**11 (= 2,048) Eth1 blocks ~8 hours
 ETH1_FOLLOW_DISTANCE: 2048
-
 
 # Validator cycle
 # ---------------------------------------------------------------

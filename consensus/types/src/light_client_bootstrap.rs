@@ -96,7 +96,9 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella::from_ssz_bytes(bytes)?),
             ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb::from_ssz_bytes(bytes)?),
-            ForkName::Electra => Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?),
+            ForkName::Electra | ForkName::Fulu => {
+                Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?)
+            }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientBootstrap decoding for {fork_name} not implemented"
@@ -116,7 +118,9 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }
             ForkName::Capella => <LightClientBootstrapCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientBootstrapDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra => <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra | ForkName::Fulu => {
+                <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len()
+            }
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
@@ -147,7 +151,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
-            ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
+            ForkName::Electra | ForkName::Fulu => Self::Electra(LightClientBootstrapElectra {
                 header: LightClientHeaderElectra::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
@@ -187,7 +191,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
-            ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
+            ForkName::Electra | ForkName::Fulu => Self::Electra(LightClientBootstrapElectra {
                 header: LightClientHeaderElectra::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),

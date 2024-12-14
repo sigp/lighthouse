@@ -266,7 +266,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block_slot,
                 })
             }
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Fulu => {
                 let attested_header =
                     LightClientHeaderElectra::block_to_light_client_header(attested_block)?;
 
@@ -300,7 +300,9 @@ impl<E: EthSpec> LightClientUpdate<E> {
             }
             ForkName::Capella => Self::Capella(LightClientUpdateCapella::from_ssz_bytes(bytes)?),
             ForkName::Deneb => Self::Deneb(LightClientUpdateDeneb::from_ssz_bytes(bytes)?),
-            ForkName::Electra => Self::Electra(LightClientUpdateElectra::from_ssz_bytes(bytes)?),
+            ForkName::Electra | ForkName::Fulu => {
+                Self::Electra(LightClientUpdateElectra::from_ssz_bytes(bytes)?)
+            }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientUpdate decoding for {fork_name} not implemented"
@@ -440,7 +442,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
         let fixed_len = match fork_name {
-            ForkName::Base | ForkName::Bellatrix => 0,
+            ForkName::Base | ForkName::Bellatrix | ForkName::Fulu => 0,
             ForkName::Altair => <LightClientUpdateAltair<E> as Encode>::ssz_fixed_len(),
             ForkName::Capella => <LightClientUpdateCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientUpdateDeneb<E> as Encode>::ssz_fixed_len(),

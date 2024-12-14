@@ -95,13 +95,15 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
-            ForkName::Electra => Self::Electra(LightClientOptimisticUpdateElectra {
-                attested_header: LightClientHeaderElectra::block_to_light_client_header(
-                    attested_block,
-                )?,
-                sync_aggregate,
-                signature_slot,
-            }),
+            ForkName::Electra | ForkName::Fulu => {
+                Self::Electra(LightClientOptimisticUpdateElectra {
+                    attested_header: LightClientHeaderElectra::block_to_light_client_header(
+                        attested_block,
+                    )?,
+                    sync_aggregate,
+                    signature_slot,
+                })
+            }
             ForkName::Base => return Err(Error::AltairForkNotActive),
         };
 
@@ -152,7 +154,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Deneb => {
                 Self::Deneb(LightClientOptimisticUpdateDeneb::from_ssz_bytes(bytes)?)
             }
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Fulu => {
                 Self::Electra(LightClientOptimisticUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
@@ -174,7 +176,9 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             }
             ForkName::Capella => <LightClientOptimisticUpdateCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientOptimisticUpdateDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra => <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra | ForkName::Fulu => {
+                <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len()
+            }
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }

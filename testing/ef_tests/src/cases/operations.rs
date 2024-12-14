@@ -110,7 +110,8 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_) => {
                 initialize_progressive_balances_cache(state, spec)?;
                 altair_deneb::process_attestation(
                     state,
@@ -137,7 +138,7 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
             | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb => Self::Base(ssz_decode_file(path)?),
-            ForkName::Electra => Self::Electra(ssz_decode_file(path)?),
+            ForkName::Electra | ForkName::Fulu => Self::Electra(ssz_decode_file(path)?),
         })
     }
 
@@ -308,6 +309,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Fulu => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
                 _ => panic!(),
             })
         })
@@ -360,6 +362,10 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                     BeaconBlockBody::Deneb(inner.clone_as_blinded())
                 }
                 ForkName::Electra => {
+                    let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Electra(inner.clone_as_blinded())
+                }
+                ForkName::Fulu => {
                     let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Electra(inner.clone_as_blinded())
                 }

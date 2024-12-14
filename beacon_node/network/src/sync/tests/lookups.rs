@@ -173,7 +173,10 @@ impl TestRig {
     }
 
     fn after_deneb(&self) -> bool {
-        matches!(self.fork_name, ForkName::Deneb | ForkName::Electra)
+        matches!(
+            self.fork_name,
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu
+        )
     }
 
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {

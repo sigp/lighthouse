@@ -124,7 +124,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
-            ForkName::Electra => Self::Electra(LightClientFinalityUpdateElectra {
+            ForkName::Electra | ForkName::Fulu => Self::Electra(LightClientFinalityUpdateElectra {
                 attested_header: LightClientHeaderElectra::block_to_light_client_header(
                     attested_block,
                 )?,
@@ -170,7 +170,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 Self::Capella(LightClientFinalityUpdateCapella::from_ssz_bytes(bytes)?)
             }
             ForkName::Deneb => Self::Deneb(LightClientFinalityUpdateDeneb::from_ssz_bytes(bytes)?),
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Fulu => {
                 Self::Electra(LightClientFinalityUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
@@ -192,7 +192,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             }
             ForkName::Capella => <LightClientFinalityUpdateCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientFinalityUpdateDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra => <LightClientFinalityUpdateElectra<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra | ForkName::Fulu => {
+                <LightClientFinalityUpdateElectra<E> as Encode>::ssz_fixed_len()
+            }
         };
         // `2 *` because there are two headers in the update
         fixed_size + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)

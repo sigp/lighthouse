@@ -287,6 +287,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Electra])
     }
 
+    pub fn fulu_only() -> Self {
+        Self::for_forks(vec![ForkName::Fulu])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -305,6 +309,10 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn electra_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[5..].to_vec())
+    }
+
+    pub fn fulu_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[6..].to_vec())
     }
 
     pub fn pre_electra() -> Self {

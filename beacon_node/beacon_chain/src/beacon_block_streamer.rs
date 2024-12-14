@@ -15,7 +15,7 @@ use types::{
 };
 use types::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
-    ExecutionPayloadHeader,
+    ExecutionPayloadFulu, ExecutionPayloadHeader,
 };
 
 #[derive(PartialEq)]
@@ -99,6 +99,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
+        ForkName::Fulu => ExecutionPayloadFulu::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
