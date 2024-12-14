@@ -154,17 +154,17 @@ impl TestRig {
         }
     }
 
-    fn create_canonical_block(&mut self) -> SignedBeaconBlock<E> {
+    async fn create_canonical_block(&mut self) -> SignedBeaconBlock<E> {
         self.harness.advance_slot();
 
-        let block_root =
-            tokio::runtime::Runtime::new()
-                .unwrap()
-                .block_on(self.harness.extend_chain(
-                    1,
-                    BlockStrategy::OnCanonicalHead,
-                    AttestationStrategy::AllValidators,
-                ));
+        let block_root = self
+            .harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
         self.harness
             .chain
             .store
@@ -173,14 +173,10 @@ impl TestRig {
             .unwrap()
     }
 
-    fn remember_block(&mut self, block: SignedBeaconBlock<E>) {
-        tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(self.harness.process_block(
-                block.slot(),
-                block.canonical_root(),
-                (block.into(), None),
-            ))
+    async fn remember_block(&mut self, block: SignedBeaconBlock<E>) {
+        self.harness
+            .process_block(block.slot(), block.canonical_root(), (block.into(), None))
+            .await
             .unwrap();
     }
 }
@@ -210,8 +206,8 @@ fn head_chain_removed_while_finalized_syncing() {
     rig.assert_state(RangeSyncType::Finalized);
 }
 
-#[test]
-fn state_update_while_purging() {
+#[tokio::test]
+async fn state_update_while_purging() {
     // NOTE: this is a regression test.
     // Added in PR https://github.com/sigp/lighthouse/pull/2827
     let mut rig = TestRig::test_setup();
@@ -220,9 +216,9 @@ fn state_update_while_purging() {
     let mut rig_2 = TestRig::test_setup();
     // Need to create blocks that can be inserted into the fork-choice and fit the "known
     // conditions" below.
-    let head_peer_block = rig_2.create_canonical_block();
+    let head_peer_block = rig_2.create_canonical_block().await;
     let head_peer_root = head_peer_block.canonical_root();
-    let finalized_peer_block = rig_2.create_canonical_block();
+    let finalized_peer_block = rig_2.create_canonical_block().await;
     let finalized_peer_root = finalized_peer_block.canonical_root();
 
     // Get a peer with an advanced head
@@ -240,8 +236,8 @@ fn state_update_while_purging() {
     let _ = rig.find_blocks_by_range_request(&finalized_peer);
 
     // Now the chain knows both chains target roots.
-    rig.remember_block(head_peer_block);
-    rig.remember_block(finalized_peer_block);
+    rig.remember_block(head_peer_block).await;
+    rig.remember_block(finalized_peer_block).await;
 
     // Add an additional peer to the second chain to make range update it's status
     rig.add_finalized_peer();
