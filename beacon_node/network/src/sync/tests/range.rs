@@ -188,6 +188,7 @@ impl TestRig {
 #[test]
 fn head_chain_removed_while_finalized_syncing() {
     // NOTE: this is a regression test.
+    // Added in PR https://github.com/sigp/lighthouse/pull/2821
     let mut rig = TestRig::test_setup();
 
     // Get a peer with an advanced head
@@ -212,6 +213,7 @@ fn head_chain_removed_while_finalized_syncing() {
 #[test]
 fn state_update_while_purging() {
     // NOTE: this is a regression test.
+    // Added in PR https://github.com/sigp/lighthouse/pull/2827
     let mut rig = TestRig::test_setup();
 
     // Create blocks on a separate harness
