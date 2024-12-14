@@ -2,8 +2,7 @@ use crate::beacon_block_body::KzgCommitments;
 use crate::{
     ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDeserialize, SignedRoot,
-    Uint256,
+    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionDeserialize, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -34,8 +33,6 @@ pub struct BuilderBid<E: EthSpec> {
     pub header: ExecutionPayloadHeaderElectra<E>,
     #[superstruct(only(Deneb, Electra))]
     pub blob_kzg_commitments: KzgCommitments<E>,
-    #[superstruct(only(Electra))]
-    pub execution_requests: ExecutionRequests<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
