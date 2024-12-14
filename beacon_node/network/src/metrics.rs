@@ -83,7 +83,7 @@ pub static BEACON_PROCESSOR_IMPORT_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVe
     LazyLock::new(|| {
         try_create_int_counter_vec(
             "beacon_processor_import_errors_total",
-            "Total number of block components verified",
+            "Total number of block components that were not verified",
             &["source", "component", "type"],
         )
     });
