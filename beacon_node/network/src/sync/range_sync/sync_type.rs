@@ -1,9 +1,8 @@
 //! Contains logic about identifying which Sync to perform given PeerSyncInfo of ourselves and
 //! of a remote.
 
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::SyncInfo;
-
-use super::block_storage::BlockStorage;
 
 /// The type of Range sync that should be done relative to our current state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,8 +16,8 @@ pub enum RangeSyncType {
 impl RangeSyncType {
     /// Determines the type of sync given our local `PeerSyncInfo` and the remote's
     /// `PeerSyncInfo`.
-    pub fn new<C: BlockStorage>(
-        chain: &C,
+    pub fn new<T: BeaconChainTypes>(
+        chain: &BeaconChain<T>,
         local_info: &SyncInfo,
         remote_info: &SyncInfo,
     ) -> RangeSyncType {
@@ -29,7 +28,7 @@ impl RangeSyncType {
         //    not seen the finalized hash before.
 
         if remote_info.finalized_epoch > local_info.finalized_epoch
-            && !chain.is_block_known(&remote_info.finalized_root)
+            && !chain.block_is_known_to_fork_choice(&remote_info.finalized_root)
         {
             RangeSyncType::Finalized
         } else {
