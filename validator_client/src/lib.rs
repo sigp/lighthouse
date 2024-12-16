@@ -446,6 +446,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             slot_clock.clone(),
             &config.validator_store,
             context.executor.clone(),
+            E::slots_per_epoch(),
             log.clone(),
         ));
 

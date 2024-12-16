@@ -400,17 +400,18 @@ impl DoppelgangerService {
     ///
     /// Validators added during the genesis epoch will not have doppelganger protection applied to
     /// them.
-    pub fn register_new_validator<E: EthSpec, T: SlotClock>(
+    pub fn register_new_validator<T: SlotClock>(
         &self,
         validator: PublicKeyBytes,
         slot_clock: &T,
+        slots_per_epoch: u64,
     ) -> Result<(), String> {
         let current_epoch = slot_clock
             // If registering before genesis, use the genesis slot.
             .now_or_genesis()
             .ok_or_else(|| "Unable to read slot clock when registering validator".to_string())?
-            .epoch(E::slots_per_epoch());
-        let genesis_epoch = slot_clock.genesis_slot().epoch(E::slots_per_epoch());
+            .epoch(slots_per_epoch);
+        let genesis_epoch = slot_clock.genesis_slot().epoch(slots_per_epoch);
 
         let remaining_epochs = if current_epoch <= genesis_epoch {
             // Disable doppelganger protection when the validator was initialized before genesis.
