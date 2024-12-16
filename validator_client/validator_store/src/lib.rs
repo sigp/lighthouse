@@ -92,6 +92,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     prefer_builder_proposals: bool,
     builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
+    slots_per_epoch: u64,
     _phantom: PhantomData<E>,
 }
 
@@ -114,6 +115,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slot_clock: T,
         config: &Config,
         task_executor: TaskExecutor,
+        slots_per_epoch: u64,
     ) -> Self {
         Self {
             validators: Arc::new(RwLock::new(validators)),
@@ -130,6 +132,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
+            slots_per_epoch,
             _phantom: PhantomData,
         }
     }
@@ -141,7 +144,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn register_all_in_doppelganger_protection_if_enabled(&self) -> Result<(), String> {
         if let Some(doppelganger_service) = &self.doppelganger_service {
             for pubkey in self.validators.read().iter_voting_pubkeys() {
-                doppelganger_service.register_new_validator::<E, _>(*pubkey, &self.slot_clock)?
+                doppelganger_service.register_new_validator(
+                    *pubkey,
+                    &self.slot_clock,
+                    self.slots_per_epoch,
+                )?
             }
         }
 
@@ -217,8 +224,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .map_err(|e| format!("failed to register validator: {:?}", e))?;
 
         if let Some(doppelganger_service) = &self.doppelganger_service {
-            doppelganger_service
-                .register_new_validator::<E, _>(validator_pubkey, &self.slot_clock)?;
+            doppelganger_service.register_new_validator(
+                validator_pubkey,
+                &self.slot_clock,
+                self.slots_per_epoch,
+            )?;
         }
 
         self.validators
@@ -850,7 +860,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
     ) -> Result<SelectionProof, Error> {
-        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_epoch = slot.epoch(self.slots_per_epoch);
         let signing_context = self.signing_context(Domain::SelectionProof, signing_epoch);
 
         // Bypass the `with_validator_signing_method` function.
@@ -887,7 +897,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slot: Slot,
         subnet_id: SyncSubnetId,
     ) -> Result<SyncSelectionProof, Error> {
-        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_epoch = slot.epoch(self.slots_per_epoch);
         let signing_context =
             self.signing_context(Domain::SyncCommitteeSelectionProof, signing_epoch);
 
@@ -924,7 +934,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_index: u64,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<SyncCommitteeMessage, Error> {
-        let signing_epoch = slot.epoch(E::slots_per_epoch());
+        let signing_epoch = slot.epoch(self.slots_per_epoch);
         let signing_context = self.signing_context(Domain::SyncCommittee, signing_epoch);
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
@@ -963,7 +973,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         contribution: SyncCommitteeContribution<E>,
         selection_proof: SyncSelectionProof,
     ) -> Result<SignedContributionAndProof<E>, Error> {
-        let signing_epoch = contribution.slot.epoch(E::slots_per_epoch());
+        let signing_epoch = contribution.slot.epoch(self.slots_per_epoch);
         let signing_context = self.signing_context(Domain::ContributionAndProof, signing_epoch);
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
@@ -1064,7 +1074,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             validator_metrics::start_timer(&validator_metrics::SLASHING_PROTECTION_PRUNE_TIMES);
 
         let new_min_target_epoch = current_epoch.saturating_sub(SLASHING_PROTECTION_HISTORY_EPOCHS);
-        let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());
+        let new_min_slot = new_min_target_epoch.start_slot(self.slots_per_epoch);
 
         let all_pubkeys: Vec<_> = self.voting_pubkeys(DoppelgangerStatus::ignored);
 

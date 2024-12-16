@@ -100,6 +100,7 @@ impl ApiTester {
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
+            E::slots_per_epoch(),
         ));
 
         validator_store
