@@ -413,7 +413,7 @@ async fn invalid_payload_invalidates_parent() {
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
-    let roots = vec![
+    let roots = [
         rig.import_block(Payload::Syncing).await,
         rig.import_block(Payload::Syncing).await,
         rig.import_block(Payload::Syncing).await,
@@ -1052,7 +1052,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.clone().verify_block_for_gossip(block.clone().into()).await,
+        rig.harness.chain.clone().verify_block_for_gossip(block.clone()).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));

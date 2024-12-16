@@ -58,7 +58,7 @@ fn eip2335_test_vector_scrypt() {
         }
         "#;
 
-    let keystore = decode_and_check_sk(&vector);
+    let keystore = decode_and_check_sk(vector);
     assert_eq!(
         *keystore.uuid(),
         Uuid::parse_str("1d85ae20-35c5-4611-98e8-aa14a633906f").unwrap(),
@@ -102,7 +102,7 @@ fn eip2335_test_vector_pbkdf() {
         }
         "#;
 
-    let keystore = decode_and_check_sk(&vector);
+    let keystore = decode_and_check_sk(vector);
     assert_eq!(
         *keystore.uuid(),
         Uuid::parse_str("64625def-3331-4eea-ab6f-782f3ed16a83").unwrap(),

@@ -136,7 +136,7 @@ fn beacon_nodes_tls_certs_flag() {
         .flag(
             "beacon-nodes-tls-certs",
             Some(
-                vec![
+                [
                     dir.path().join("certificate.crt").to_str().unwrap(),
                     dir.path().join("certificate2.crt").to_str().unwrap(),
                 ]
@@ -205,7 +205,7 @@ fn graffiti_file_with_pk_flag() {
     let mut file = File::create(dir.path().join("graffiti.txt")).expect("Unable to create file");
     let new_key = Keypair::random();
     let pubkeybytes = PublicKeyBytes::from(new_key.pk);
-    let contents = format!("{}:nice-graffiti", pubkeybytes.to_string());
+    let contents = format!("{}:nice-graffiti", pubkeybytes);
     file.write_all(contents.as_bytes())
         .expect("Unable to write to file");
     CommandLineTest::new()
@@ -419,13 +419,13 @@ pub fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
         .run()
-        .with_config(|config| assert_eq!(config.http_metrics.allocator_metrics_enabled, false));
+        .with_config(|config| assert!(!config.http_metrics.allocator_metrics_enabled));
 }
 #[test]
 pub fn malloc_tuning_default() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert_eq!(config.http_metrics.allocator_metrics_enabled, true));
+        .with_config(|config| assert!(config.http_metrics.allocator_metrics_enabled));
 }
 #[test]
 fn doppelganger_protection_flag() {
