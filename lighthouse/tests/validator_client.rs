@@ -344,6 +344,21 @@ fn http_store_keystore_passwords_in_secrets_dir_present() {
         .with_config(|config| assert!(config.http_api.store_passwords_in_secrets_dir));
 }
 
+#[test]
+fn http_token_path_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-token-path", dir.path().join("api-token.txt").to_str())
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.http_api.http_token_path,
+                dir.path().join("api-token.txt")
+            );
+        });
+}
+
 // Tests for Metrics flags.
 #[test]
 fn metrics_flag() {
