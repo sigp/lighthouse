@@ -13,8 +13,10 @@ use eth2::{
     Error::ServerMessage,
     StatusCode, Timeouts,
 };
+use execution_layer::expected_gas_limit;
 use execution_layer::test_utils::{
-    MockBuilder, Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+    mock_builder_extra_data, mock_el_extra_data, MockBuilder, Operation,
+    DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_GAS_LIMIT, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
@@ -348,7 +350,6 @@ impl ApiTester {
         let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
-
         let log = test_logger();
 
         let ApiServer {
@@ -3755,7 +3756,11 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_validator_register_validator(self) -> Self {
+    async fn generate_validator_registration_data(
+        &self,
+        fee_recipient_generator: impl Fn(usize) -> Address,
+        gas_limit: u64,
+    ) -> (Vec<SignedValidatorRegistrationData>, Vec<Address>) {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
@@ -3766,15 +3771,13 @@ impl ApiTester {
             epoch: genesis_epoch,
         };
 
-        let expected_gas_limit = 11_111_111;
-
         for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
             let pubkey = keypair.pk.compress();
-            let fee_recipient = Address::from_low_u64_be(val_index as u64);
+            let fee_recipient = fee_recipient_generator(val_index);
 
             let data = ValidatorRegistrationData {
                 fee_recipient,
-                gas_limit: expected_gas_limit,
+                gas_limit,
                 timestamp: 0,
                 pubkey,
             };
@@ -3797,6 +3800,17 @@ impl ApiTester {
             registrations.push(signed);
         }
 
+        (registrations, fee_recipients)
+    }
+
+    pub async fn test_post_validator_register_validator(self) -> Self {
+        let (registrations, fee_recipients) = self
+            .generate_validator_registration_data(
+                |val_index| Address::from_low_u64_be(val_index as u64),
+                DEFAULT_GAS_LIMIT,
+            )
+            .await;
+
         self.client
             .post_validator_register_validator(&registrations)
             .await
@@ -3811,14 +3825,22 @@ impl ApiTester {
             .zip(fee_recipients.into_iter())
             .enumerate()
         {
-            let actual = self
+            let actual_fee_recipient = self
                 .chain
                 .execution_layer
                 .as_ref()
                 .unwrap()
                 .get_suggested_fee_recipient(val_index as u64)
                 .await;
-            assert_eq!(actual, fee_recipient);
+            let actual_gas_limit = self
+                .chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_proposer_gas_limit(val_index as u64)
+                .await;
+            assert_eq!(actual_fee_recipient, fee_recipient);
+            assert_eq!(actual_gas_limit, Some(DEFAULT_GAS_LIMIT));
         }
 
         self
@@ -3839,46 +3861,12 @@ impl ApiTester {
             )
             .await;
 
-        let mut registrations = vec![];
-        let mut fee_recipients = vec![];
-
-        let genesis_epoch = self.chain.spec.genesis_slot.epoch(E::slots_per_epoch());
-        let fork = Fork {
-            current_version: self.chain.spec.genesis_fork_version,
-            previous_version: self.chain.spec.genesis_fork_version,
-            epoch: genesis_epoch,
-        };
-
-        let expected_gas_limit = 11_111_111;
-
-        for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
-            let pubkey = keypair.pk.compress();
-            let fee_recipient = Address::from_low_u64_be(val_index as u64);
-
-            let data = ValidatorRegistrationData {
-                fee_recipient,
-                gas_limit: expected_gas_limit,
-                timestamp: 0,
-                pubkey,
-            };
-
-            let domain = self.chain.spec.get_domain(
-                genesis_epoch,
-                Domain::ApplicationMask(ApplicationDomain::Builder),
-                &fork,
-                Hash256::zero(),
-            );
-            let message = data.signing_root(domain);
-            let signature = keypair.sk.sign(message);
-
-            let signed = SignedValidatorRegistrationData {
-                message: data,
-                signature,
-            };
-
-            fee_recipients.push(fee_recipient);
-            registrations.push(signed);
-        }
+        let (registrations, fee_recipients) = self
+            .generate_validator_registration_data(
+                |val_index| Address::from_low_u64_be(val_index as u64),
+                DEFAULT_GAS_LIMIT,
+            )
+            .await;
 
         self.client
             .post_validator_register_validator(&registrations)
@@ -3909,6 +3897,47 @@ impl ApiTester {
         }
 
         self
+    }
+
+    pub async fn test_post_validator_register_validator_higher_gas_limit(&self) {
+        let (registrations, fee_recipients) = self
+            .generate_validator_registration_data(
+                |val_index| Address::from_low_u64_be(val_index as u64),
+                DEFAULT_GAS_LIMIT + 10_000_000,
+            )
+            .await;
+
+        self.client
+            .post_validator_register_validator(&registrations)
+            .await
+            .unwrap();
+
+        for (val_index, (_, fee_recipient)) in self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .validators()
+            .into_iter()
+            .zip(fee_recipients.into_iter())
+            .enumerate()
+        {
+            let actual_fee_recipient = self
+                .chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_suggested_fee_recipient(val_index as u64)
+                .await;
+            let actual_gas_limit = self
+                .chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_proposer_gas_limit(val_index as u64)
+                .await;
+            assert_eq!(actual_fee_recipient, fee_recipient);
+            assert_eq!(actual_gas_limit, Some(DEFAULT_GAS_LIMIT + 10_000_000));
+        }
     }
 
     pub async fn test_post_validator_liveness_epoch(self) -> Self {
@@ -4031,7 +4060,7 @@ impl ApiTester {
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
-        assert_eq!(payload.gas_limit(), 11_111_111);
+        assert_eq!(payload.gas_limit(), DEFAULT_GAS_LIMIT);
 
         self
     }
@@ -4058,7 +4087,8 @@ impl ApiTester {
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
-        assert_eq!(payload.gas_limit(), 16_384);
+        // This is the graffiti of the mock execution layer, not the builder.
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
         self
     }
@@ -4085,7 +4115,7 @@ impl ApiTester {
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
-        assert_eq!(payload.gas_limit(), 11_111_111);
+        assert_eq!(payload.gas_limit(), DEFAULT_GAS_LIMIT);
 
         self
     }
@@ -4109,7 +4139,7 @@ impl ApiTester {
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
-        assert_eq!(payload.gas_limit(), 11_111_111);
+        assert_eq!(payload.gas_limit(), DEFAULT_GAS_LIMIT);
 
         // If this cache is empty, it indicates fallback was not used, so the payload came from the
         // mock builder.
@@ -4126,10 +4156,16 @@ impl ApiTester {
 
     pub async fn test_payload_accepts_mutated_gas_limit(self) -> Self {
         // Mutate gas limit.
+        let builder_limit = expected_gas_limit(
+            DEFAULT_GAS_LIMIT,
+            DEFAULT_GAS_LIMIT + 10_000_000,
+            self.chain.spec.as_ref(),
+        )
+        .expect("calculate expected gas limit");
         self.mock_builder
             .as_ref()
             .unwrap()
-            .add_operation(Operation::GasLimit(30_000_000));
+            .add_operation(Operation::GasLimit(builder_limit as usize));
 
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
@@ -4149,7 +4185,7 @@ impl ApiTester {
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
-        assert_eq!(payload.gas_limit(), 30_000_000);
+        assert_eq!(payload.gas_limit(), builder_limit);
 
         // This cache should not be populated because fallback should not have been used.
         assert!(self
@@ -4159,6 +4195,49 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
+        // Another way is to check for the extra data of the mock builder
+        assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
+
+        self
+    }
+
+    pub async fn test_builder_payload_rejected_when_gas_limit_incorrect(self) -> Self {
+        self.test_post_validator_register_validator_higher_gas_limit()
+            .await;
+
+        // Mutate gas limit.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .add_operation(Operation::GasLimit(1));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload: BlindedPayload<E> = self
+            .client
+            .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .into();
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
+
         self
     }
 
@@ -4232,6 +4311,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
+        // Another way is to check for the extra data of the mock builder
+        assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
+
         self
     }
 
@@ -4315,6 +4397,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
+
         self
     }
 
@@ -4404,6 +4489,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
+
         self
     }
 
@@ -4491,6 +4579,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
+
         self
     }
 
@@ -4577,6 +4668,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
+
         self
     }
 
@@ -4647,6 +4741,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
+
         self
     }
 
@@ -4707,6 +4804,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
+
         self
     }
 
@@ -4780,6 +4880,8 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
+        // Another way is to check for the extra data of the mock builder
+        assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
         // Without proposing, advance into the next slot, this should make us cross the threshold
         // number of skips, causing us to use the fallback.
@@ -4809,6 +4911,8 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
         self
     }
@@ -4915,6 +5019,8 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
         // Fill another epoch with blocks, should be enough to finalize. (Sneaky plus 1 because this
         // scenario starts at an epoch boundary).
@@ -4954,6 +5060,8 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
+        // Another way is to check for the extra data of the mock builder
+        assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
         self
     }
@@ -5072,6 +5180,8 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
         self
     }
@@ -5149,6 +5259,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
+        // Another way is to check for the extra data of the mock builder
+        assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
+
         self
     }
 
@@ -5214,6 +5327,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
+
         self
     }
 
@@ -5279,6 +5395,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
+        // another way is to check for the extra data of the local EE
+        assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
+
         self
     }
 
@@ -5343,6 +5462,9 @@ impl ApiTester {
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
+        // Another way is to check for the extra data of the mock builder
+        assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
+
         self
     }
 
@@ -6682,6 +6804,8 @@ async fn post_validator_register_valid_v3() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_gas_limit_mutation() {
     ApiTester::new_mev_tester()
+        .await
+        .test_builder_payload_rejected_when_gas_limit_incorrect()
         .await
         .test_payload_accepts_mutated_gas_limit()
         .await;
