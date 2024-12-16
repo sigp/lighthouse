@@ -225,7 +225,7 @@ mod test {
         let mut committee_count = 1;
         let mut subnet = Subnet::Attestation(
             SubnetId::compute_subnet::<MainnetEthSpec>(
-                current_slot,
+                subscription_slot,
                 committee_index,
                 committee_count,
                 &subnet_service.beacon_chain.spec,
@@ -250,7 +250,7 @@ mod test {
 
         let subscriptions = vec![get_subscription(
             committee_index,
-            current_slot,
+            subscription_slot,
             committee_count,
             true,
         )];
@@ -500,12 +500,15 @@ mod test {
         // subscription config
         let committee_count = 1;
 
-        // Makes 2 validator subscriptions to the same subnet but at different slots.
-        // There should be just 1 unsubscription event for the later slot subscription (subscription_slot2).
+        // Makes 3 validator subscriptions to the same subnet but at different slots.
+        // There should be just 1 unsubscription event for each of the later slots subscriptions
+        // (subscription_slot2 and subscription_slot3).
         let subscription_slot1 = 0;
         let subscription_slot2 = MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD + 4;
+        let subscription_slot3 = subscription_slot2 * 2;
         let com1 = MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD + 4;
         let com2 = 0;
+        let com3 = CHAIN.chain.spec.attestation_subnet_count - com1;
 
         // create the attestation service and subscriptions
         let mut subnet_service = get_subnet_service();
@@ -532,6 +535,13 @@ mod test {
             true,
         );
 
+        let sub3 = get_subscription(
+            com3,
+            current_slot + Slot::new(subscription_slot3),
+            committee_count,
+            true,
+        );
+
         let subnet_id1 = SubnetId::compute_subnet::<MainnetEthSpec>(
             current_slot + Slot::new(subscription_slot1),
             com1,
@@ -548,15 +558,27 @@ mod test {
         )
         .unwrap();
 
+        let subnet_id3 = SubnetId::compute_subnet::<MainnetEthSpec>(
+            current_slot + Slot::new(subscription_slot3),
+            com3,
+            committee_count,
+            &subnet_service.beacon_chain.spec,
+        )
+        .unwrap();
+
         // Assert that subscriptions are different but their subnet is the same
         assert_ne!(sub1, sub2);
+        assert_ne!(sub1, sub3);
+        assert_ne!(sub2, sub3);
         assert_eq!(subnet_id1, subnet_id2);
+        assert_eq!(subnet_id1, subnet_id3);
 
         // submit the subscriptions
-        subnet_service.validator_subscriptions(vec![sub1, sub2].into_iter());
+        subnet_service.validator_subscriptions(vec![sub1, sub2, sub3].into_iter());
 
         // Unsubscription event should happen at the end of the slot.
-        let events = get_events(&mut subnet_service, None, 1).await;
+        // We wait for 2 slots, to avoid timeout issues
+        let events = get_events(&mut subnet_service, None, 2).await;
 
         let expected_subscription =
             SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
@@ -567,6 +589,7 @@ mod test {
             assert_eq!(expected_subscription, events[0]);
             assert_eq!(expected_unsubscription, events[2]);
         }
+        // Check that there are no more subscriptions
         assert_eq!(subnet_service.subscriptions().count(), 0);
 
         println!("{events:?}");
@@ -588,8 +611,34 @@ mod test {
         // If the permanent and short lived subnets are different, we should get an unsubscription event.
         if !subnet_service.is_subscribed(&Subnet::Attestation(subnet_id1)) {
             assert_eq!(
-                [expected_subscription, expected_unsubscription],
+                [
+                    expected_subscription.clone(),
+                    expected_unsubscription.clone(),
+                ],
                 second_subscribe_event[..]
+            );
+        }
+
+        let subscription_slot = current_slot + subscription_slot3 - 1;
+
+        let wait_slots = subnet_service
+            .beacon_chain
+            .slot_clock
+            .duration_to_slot(subscription_slot)
+            .unwrap()
+            .as_millis() as u64
+            / SLOT_DURATION_MILLIS;
+
+        let no_events = dbg!(get_events(&mut subnet_service, None, wait_slots as u32).await);
+
+        assert_eq!(no_events, []);
+
+        let third_subscribe_event = get_events(&mut subnet_service, None, 2).await;
+
+        if !subnet_service.is_subscribed(&Subnet::Attestation(subnet_id1)) {
+            assert_eq!(
+                [expected_subscription, expected_unsubscription],
+                third_subscribe_event[..]
             );
         }
     }
