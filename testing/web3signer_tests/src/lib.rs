@@ -130,7 +130,11 @@ mod tests {
     }
 
     fn client_identity_path() -> PathBuf {
-        tls_dir().join("lighthouse").join("key.p12")
+        if cfg!(target_os = "macos") {
+            tls_dir().join("lighthouse").join("key_legacy.p12")
+        } else {
+            tls_dir().join("lighthouse").join("key.p12")
+        }
     }
 
     fn client_identity_password() -> String {
