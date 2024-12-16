@@ -71,7 +71,8 @@ pub fn cli_app() -> Command {
                 .long(SIGNATURE_FLAG)
                 .help("Display the signature of the voluntary exit.")
                 .help_heading(FLAG_HEADER)
-                .action(ArgAction::SetTrue)
+                .value_parser(["true", "false"])
+                .action(ArgAction::Set)
                 .display_order(0),
         )
 }
