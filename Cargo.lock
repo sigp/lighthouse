@@ -9614,6 +9614,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "slot_clock",
  "tempfile",
  "tokio",
  "tree_hash",

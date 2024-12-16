@@ -97,7 +97,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), 
                         delete_validators::cli_run(matches, dump_config).await
                     }
                     Some((exit_validators::CMD, matches)) => {
-                        exit_validators::cli_run(matches, dump_config).await
+                        exit_validators::cli_run::<E>(matches, dump_config).await
                     }
                     Some(("", _)) => Err("No command supplied. See --help.".to_string()),
                     Some((unknown, _)) => Err(format!(

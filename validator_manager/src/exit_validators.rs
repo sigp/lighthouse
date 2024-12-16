@@ -1,13 +1,15 @@
 use crate::{common::vc_http_client, DumpConfig};
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use eth2::types::Epoch;
+use eth2::types::{ConfigAndPreset, Epoch, StateId, ValidatorId, ValidatorStatus};
 use eth2::{BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;
 use std::time::Duration;
-use types::PublicKeyBytes;
+use types::{ChainSpec, EthSpec, PublicKeyBytes};
+// use validator_http_api::create_signed_voluntary_exit::get_current_epoch;
 
 pub const CMD: &str = "exit";
 pub const BEACON_URL_FLAG: &str = "beacon-node";
@@ -96,17 +98,20 @@ impl ExitConfig {
     }
 }
 
-pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<(), String> {
+pub async fn cli_run<E: EthSpec>(
+    matches: &ArgMatches,
+    dump_config: DumpConfig,
+) -> Result<(), String> {
     let config = ExitConfig::from_cli(matches)?;
 
     if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
-        run(config).await
+        run::<E>(config).await
     }
 }
 
-async fn run(config: ExitConfig) -> Result<(), String> {
+async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
     let ExitConfig {
         vc_url,
         vc_token_path,
@@ -130,9 +135,9 @@ async fn run(config: ExitConfig) -> Result<(), String> {
         }
     }
 
-    for validator_to_exit in &validators_to_exit {
+    for validator_to_exit in validators_to_exit {
         let exit_message = http_client
-            .post_validator_voluntary_exit(validator_to_exit, exit_epoch)
+            .post_validator_voluntary_exit(&validator_to_exit, exit_epoch)
             .await
             .map_err(|e| format!("Failed to generate voluntary exit message: {}", e))?;
 
@@ -143,6 +148,7 @@ async fn run(config: ExitConfig) -> Result<(), String> {
             Err(e) => eprintln!("Failed to serialize voluntary exit message: {}", e),
         }
 
+        // only publish the voluntary exit if the --beacon-node flag is present
         if beacon_url.is_some() {
             let beacon_node = if let Some(ref beacon_url) = beacon_url {
                 BeaconNodeHttpClient::new(
@@ -157,7 +163,7 @@ async fn run(config: ExitConfig) -> Result<(), String> {
             if beacon_node
                 .get_node_syncing()
                 .await
-                .map_err(|e| format!("Failed to get sync status: {:?}", e))?
+                .map_err(|e| format!("Failed to get beacon node sync status: {:?}", e))?
                 .data
                 .is_syncing
             {
@@ -176,6 +182,97 @@ async fn run(config: ExitConfig) -> Result<(), String> {
                 "Successfully validated and published voluntary exit for validator {}",
                 validator_to_exit
             );
+
+            // check validator status
+            let validator_data = beacon_node
+                .get_beacon_states_validator_id(
+                    StateId::Head,
+                    &ValidatorId::PublicKey(validator_to_exit),
+                )
+                .await
+                .map_err(|e| format!("Failed to get validator details: {:?}", e))?
+                .ok_or_else(|| {
+                    format!(
+                        "Validator {} is not present in the beacon state. \
+                        Please ensure that your beacon node is synced and the validator has been deposited.",
+                        validator_to_exit)})?
+                .data;
+
+            match validator_data.status {
+                ValidatorStatus::ActiveExiting => {
+                    let exit_epoch = validator_data.validator.exit_epoch;
+                    let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
+
+                    let genesis_data = beacon_node
+                        .get_beacon_genesis()
+                        .await
+                        .map_err(|e| format!("Failed to get genesis data: {}", e))?
+                        .data;
+
+                    let spec = beacon_node
+                        .get_config_spec::<ConfigAndPreset>()
+                        .await
+                        .map_err(|e| format!("Failed to get config spec: {}", e))?
+                        .data;
+
+                    let chain_spec = ChainSpec::from_config::<E>(spec.config())
+                        .ok_or_else(|| "Failed to create chain spec".to_string())?;
+
+                    // let slot_clock = SystemTimeSlotClock::new(
+                    //     spec.genesis_slot,
+                    //     Duration::from_secs(genesis_data.genesis_time),
+                    //     Duration::from_secs(spec.config().seconds_per_slot),
+                    // );
+
+                    // let current_epoch = get_current_epoch::<SystemTimeSlotClock, E>(slot_clock)
+                    //     .ok_or_else(|| "Unable to determine current epoch".to_string())?;
+
+                    fn get_current_epoch<E: EthSpec>(
+                        genesis_time: u64,
+                        spec: &ChainSpec,
+                    ) -> Option<Epoch> {
+                        let slot_clock = SystemTimeSlotClock::new(
+                            spec.genesis_slot,
+                            Duration::from_secs(genesis_time),
+                            Duration::from_secs(spec.seconds_per_slot),
+                        );
+                        slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
+                    }
+
+                    let current_epoch =
+                        get_current_epoch::<E>(genesis_data.genesis_time, &chain_spec)
+                            .ok_or("Failed to get current epoch. Please check your system time")?;
+                    eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
+                        Finalization may take several minutes or longer. Before finalization there is a low \
+                        probability that the exit may be reverted.");
+                    eprintln!(
+                        "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
+                        current_epoch, exit_epoch, withdrawal_epoch
+                    );
+                    eprintln!("Please keep your validator running till exit epoch");
+                    eprintln!(
+                        "Exit epoch in approximately {} secs",
+                        (exit_epoch - current_epoch)
+                            * chain_spec.seconds_per_slot
+                            * E::slots_per_epoch()
+                    );
+                }
+
+                _ => {
+                    eprintln!("Waiting for voluntary exit to be accepted into the beacon chain...")
+                }
+                // fn get_current_epoch<T: 'static + SlotClock + Clone, E: EthSpec>(
+                //     slot_clock: T,
+                // ) -> Option<Epoch> {
+                //     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
+                // }
+
+                // let spec = ChainSpec::mainnet();
+
+                // let current_epoch =
+                //     get_current_epoch::<E>(genesis_time, &spec).ok_or("Failed to get current epoch")?;
+                //let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec);
+            }
         }
     }
     Ok(())
