@@ -1,4 +1,5 @@
 use bls::Signature;
+use itertools::Itertools;
 use safe_arith::SafeArith;
 use std::mem;
 use types::{
@@ -39,22 +40,12 @@ pub fn upgrade_to_electra<E: EthSpec>(
 
     // Add validators that are not yet active to pending balance deposits
     let validators = post.validators().clone();
-    let mut pre_activation = validators
+    let pre_activation = validators
         .iter()
         .enumerate()
         .filter(|(_, validator)| validator.activation_epoch == spec.far_future_epoch)
+        .sorted_by_key(|(index, validator)| (validator.activation_eligibility_epoch, *index))
         .collect::<Vec<_>>();
-
-    // Sort the indices by activation_eligibility_epoch and then by index
-    pre_activation.sort_by(|(index_a, val_a), (index_b, val_b)| {
-        if val_a.activation_eligibility_epoch == val_b.activation_eligibility_epoch {
-            index_a.cmp(index_b)
-        } else {
-            val_a
-                .activation_eligibility_epoch
-                .cmp(&val_b.activation_eligibility_epoch)
-        }
-    });
 
     // Process validators to queue entire balance and reset them
     for (index, _) in pre_activation {
