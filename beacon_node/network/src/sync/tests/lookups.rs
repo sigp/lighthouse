@@ -83,6 +83,7 @@ impl TestRig {
             .logger(log.clone())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .testing_slot_clock(TestingSlotClock::new(
                 Slot::new(0),
                 Duration::from_secs(0),
