@@ -9552,6 +9552,8 @@ dependencies = [
  "beacon_node_fallback",
  "bls",
  "deposit_contract",
+ "directory",
+ "dirs",
  "doppelganger_service",
  "eth2",
  "eth2_keystore",
