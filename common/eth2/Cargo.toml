@@ -16,10 +16,7 @@ lighthouse_network = { workspace = true }
 proto_array = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 eth2_keystore = { workspace = true }
-libsecp256k1 = { workspace = true }
-ring = { workspace = true }
-bytes = { workspace = true }
-account_utils = { workspace = true }
+zeroize = { workspace = true }
 sensitive_url = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }

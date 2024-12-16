@@ -15,7 +15,7 @@ use account_manager::{
 use account_utils::{
     eth2_keystore::KeystoreBuilder,
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
-    ZeroizeString, STDIN_INPUTS_FLAG,
+    STDIN_INPUTS_FLAG,
 };
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::env;
@@ -27,6 +27,7 @@ use std::str::from_utf8;
 use tempfile::{tempdir, TempDir};
 use types::{Keypair, PublicKey};
 use validator_dir::ValidatorDir;
+use zeroize::Zeroizing;
 
 /// Returns the `lighthouse account` command.
 fn account_cmd() -> Command {
@@ -498,7 +499,7 @@ fn validator_import_launchpad() {
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
             voting_keystore_password_path: None,
-            voting_keystore_password: Some(ZeroizeString::from(PASSWORD.to_string())),
+            voting_keystore_password: Some(Zeroizing::from(PASSWORD.to_string())),
         },
     };
 
@@ -650,7 +651,7 @@ fn validator_import_launchpad_no_password_then_add_password() {
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path: dst_keystore_dir.join(KEYSTORE_NAME),
             voting_keystore_password_path: None,
-            voting_keystore_password: Some(ZeroizeString::from(PASSWORD.to_string())),
+            voting_keystore_password: Some(Zeroizing::from(PASSWORD.to_string())),
         },
     };
 
@@ -753,7 +754,7 @@ fn validator_import_launchpad_password_file() {
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
             voting_keystore_password_path: None,
-            voting_keystore_password: Some(ZeroizeString::from(PASSWORD.to_string())),
+            voting_keystore_password: Some(Zeroizing::from(PASSWORD.to_string())),
         },
     };
 
