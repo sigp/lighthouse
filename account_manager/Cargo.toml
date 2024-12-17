@@ -22,6 +22,11 @@ eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 filesystem = { workspace = true }
 safe_arith = { workspace = true }
 sensitive_url = { workspace = true }
+slashing_protection = { workspace = true }
+slot_clock = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }
+validator_dir = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
