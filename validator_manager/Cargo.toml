@@ -22,7 +22,7 @@ eth2 = { workspace = true }
 hex = { workspace = true }
 tokio = { workspace = true }
 derivative = { workspace = true }
-logging = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }
