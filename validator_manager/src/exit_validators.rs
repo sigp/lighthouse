@@ -315,7 +315,7 @@ mod test {
         vc_token: Option<String>,
         validators: Vec<ValidatorSpecification>,
         beacon_node: InteractiveTester<E>,
-        index_of_validators_to_exit: usize,
+        index_of_validators_to_exit: Vec<usize>,
         spec: Arc<ChainSpec>,
     }
 
@@ -342,7 +342,7 @@ mod test {
                 .move_to_terminal_block()
                 .unwrap();
 
-            println!("Beacon node spec: {:?}", beacon_node.harness.chain.spec);
+            // println!("Beacon node spec: {:?}", beacon_node.harness.chain.spec);
 
             Self {
                 exit_config: None,
@@ -351,19 +351,19 @@ mod test {
                 vc_token: None,
                 validators: vec![],
                 beacon_node,
-                index_of_validators_to_exit: 0,
+                index_of_validators_to_exit: vec![],
                 spec: spec.into(),
             }
         }
 
-        async fn with_validators(mut self, index_of_validators_to_exit: usize) -> Self {
+        async fn with_validators(mut self, index_of_validators_to_exit: Vec<usize>) -> Self {
             // Ensure genesis validators root matches the beacon node.
             let genesis_validators_root = self
                 .beacon_node
                 .harness
                 .get_current_state()
                 .genesis_validators_root();
-            // And use a single slot clock for BN and VC to keep things simple.
+            // And use a single slot clock and same spec for BN and VC to keep things simple.
             let slot_clock = self.beacon_node.harness.chain.slot_clock.clone();
             let vc = ApiTester::new_with_options(
                 self.http_config.clone(),
@@ -374,44 +374,56 @@ mod test {
             .await;
             let mut builder = ImportTestBuilder::new_with_vc(vc).await;
 
-            println!("Validator client spec: {:?}", builder.vc.spec);
+            // println!("Validator client spec: {:?}", builder.vc.spec);
 
             self.vc_token =
                 Some(fs::read_to_string(builder.get_import_config().vc_token_path).unwrap());
 
-            let keystore = KeystoreBuilder::new(
-                &self.beacon_node.harness.validator_keypairs[index_of_validators_to_exit],
-                "password".as_bytes(),
-                "".into(),
-            )
-            .unwrap()
-            .build()
-            .unwrap();
+            let local_validators: Vec<ValidatorSpecification> = index_of_validators_to_exit
+                .iter()
+                .map(|&index| {
+                    let keystore = KeystoreBuilder::new(
+                        &self.beacon_node.harness.validator_keypairs[index],
+                        "password".as_bytes(),
+                        "".into(),
+                    )
+                    .unwrap()
+                    .build()
+                    .unwrap();
 
-            let local_validators: Vec<ValidatorSpecification> = vec![ValidatorSpecification {
-                voting_keystore: KeystoreJsonStr(keystore),
-                voting_keystore_password: Zeroizing::new("password".into()),
-                slashing_protection: None,
-                fee_recipient: None,
-                gas_limit: None,
-                builder_proposals: None,
-                builder_boost_factor: None,
-                prefer_builder_proposals: None,
-                enabled: Some(true),
-            }];
+                    ValidatorSpecification {
+                        voting_keystore: KeystoreJsonStr(keystore),
+                        voting_keystore_password: Zeroizing::new("password".into()),
+                        slashing_protection: None,
+                        fee_recipient: None,
+                        gas_limit: None,
+                        builder_proposals: None,
+                        builder_boost_factor: None,
+                        prefer_builder_proposals: None,
+                        enabled: Some(true),
+                    }
+                })
+                .collect();
 
             let beacon_url = SensitiveUrl::parse(self.beacon_node.client.as_ref()).unwrap();
 
             println!(
                 "Validator pubkey on beacon chain = {:?}",
-                self.beacon_node.harness.validator_keypairs[index_of_validators_to_exit].pk
+                index_of_validators_to_exit
+                    .iter()
+                    .map(|&index| &self.beacon_node.harness.validator_keypairs[index].pk)
+                    .collect::<Vec<_>>()
             );
 
-            let validators_to_exit = vec![self.beacon_node.harness.validator_keypairs
-                [index_of_validators_to_exit]
-                .pk
-                .clone()
-                .into()];
+            let validators_to_exit = index_of_validators_to_exit
+                .iter()
+                .map(|&index| {
+                    self.beacon_node.harness.validator_keypairs[index]
+                        .pk
+                        .clone()
+                        .into()
+                })
+                .collect();
 
             let import_config = builder.get_import_config();
 
@@ -452,12 +464,14 @@ mod test {
             assert!(import_test_result.result.is_ok());
 
             // only assign the validator index after validator is imported to the VC
-            initialized_validators.write().set_index(
-                &self.beacon_node.harness.validator_keypairs[self.index_of_validators_to_exit]
-                    .pk
-                    .compress(),
-                self.index_of_validators_to_exit as u64,
-            );
+            for &index in &self.index_of_validators_to_exit {
+                initialized_validators.write().set_index(
+                    &self.beacon_node.harness.validator_keypairs[index]
+                        .pk
+                        .compress(),
+                    index as u64,
+                );
+            }
 
             let path = self.exit_config.clone().unwrap().vc_token_path;
             let url = self.exit_config.clone().unwrap().vc_url;
@@ -550,7 +564,18 @@ mod test {
     async fn exit_single_validator() {
         TestBuilder::new()
             .await
-            .with_validators(0)
+            .with_validators(vec![0])
+            .await
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn exit_multiple_validators() {
+        TestBuilder::new()
+            .await
+            .with_validators(vec![10, 20, 30])
             .await
             .run_test()
             .await
