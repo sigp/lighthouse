@@ -1,6 +1,6 @@
 # 📦 Installation
 
-Siren supports any operating system that supports container runtimes and/or NodeJS 18, this includes Linux, MacOS, and Windows. The recommended way of running Siren is by launching the [docker container](https://hub.docker.com/r/sigp/siren).
+Siren supports any operating system that supports containers and/or NodeJS 18, this includes Linux, MacOS, and Windows. The recommended way of running Siren is by launching the [docker container](https://hub.docker.com/r/sigp/siren).
 
 ## Version Requirement
 
@@ -54,7 +54,7 @@ We recommend running Siren's container next to your beacon node (on the same ser
     http://localhost:5062 unreachable, check settings and connection
     ```
 
-    means that the validator client is not running, or the `--http` flag is not provided, or otherwise unaccessible from within the container. Another common error is:
+    means that the validator client is not running, or the `--http` flag is not provided, or otherwise inaccessible from within the container. Another common error is:
 
     ```
     validator api issue, server response: 403
