@@ -56,6 +56,7 @@ pub fn cli_app() -> Command {
                 .value_name("STRING")
                 .help("List of validators (pubkey) to exit.")
                 .action(ArgAction::Set)
+                .required(true)
                 .display_order(0),
         )
         .arg(
@@ -159,7 +160,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         if signature {
             let exit_message_json = serde_json::to_string(&exit_message.data);
             match exit_message_json {
-                Ok(json) => println!("{}", json),
+                Ok(json) => println!("Validator {}: {}", validator_to_exit, json),
                 Err(e) => eprintln!("Failed to serialize voluntary exit message: {}", e),
             }
         }
@@ -248,56 +249,51 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                     "Successfully validated and published voluntary exit for validator {}",
                     validator_to_exit
                 );
+            }
+            // sleep(Duration::from_secs(spec.seconds_per_slot)).await;
 
-                // sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+            // Check validator status after publishing voluntary exit
+            match validator_data.status {
+                ValidatorStatus::ActiveExiting => {
+                    let exit_epoch = validator_data.validator.exit_epoch;
+                    let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
 
-                // Check validator status after publishing voluntary exit
-                match validator_data.status {
-                    ValidatorStatus::ActiveExiting => {
-                        let exit_epoch = validator_data.validator.exit_epoch;
-                        let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
+                    // let slot_clock = SystemTimeSlotClock::new(
+                    //     spec.genesis_slot,
+                    //     Duration::from_secs(genesis_data.genesis_time),
+                    //     Duration::from_secs(spec.config().seconds_per_slot),
+                    // );
 
-                        // let slot_clock = SystemTimeSlotClock::new(
-                        //     spec.genesis_slot,
-                        //     Duration::from_secs(genesis_data.genesis_time),
-                        //     Duration::from_secs(spec.config().seconds_per_slot),
-                        // );
+                    // let current_epoch = get_current_epoch::<SystemTimeSlotClock, E>(slot_clock)
+                    //     .ok_or_else(|| "Unable to determine current epoch".to_string())?;
 
-                        // let current_epoch = get_current_epoch::<SystemTimeSlotClock, E>(slot_clock)
-                        //     .ok_or_else(|| "Unable to determine current epoch".to_string())?;
-
-                        eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
+                    eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
                         Finalization may take several minutes or longer. Before finalization there is a low \
                         probability that the exit may be reverted.");
-                        eprintln!(
-                            "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
-                            current_epoch, exit_epoch, withdrawal_epoch
-                        );
-                        eprintln!("Please keep your validator running till exit epoch");
-                        eprintln!(
-                            "Exit epoch in approximately {} secs",
-                            (exit_epoch - current_epoch)
-                                * spec.seconds_per_slot
-                                * E::slots_per_epoch()
-                        );
-                    }
-
-                    _ => {
-                        eprintln!(
-                            "Waiting for voluntary exit to be accepted into the beacon chain..."
-                        )
-                    } // fn get_current_epoch<T: 'static + SlotClock + Clone, E: EthSpec>(
-                      //     slot_clock: T,
-                      // ) -> Option<Epoch> {
-                      //     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
-                      // }
-
-                      // let spec = ChainSpec::mainnet();
-
-                      // let current_epoch =
-                      //     get_current_epoch::<E>(genesis_time, &spec).ok_or("Failed to get current epoch")?;
-                      //let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec);
+                    eprintln!(
+                        "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
+                        current_epoch, exit_epoch, withdrawal_epoch
+                    );
+                    eprintln!("Please keep your validator running till exit epoch");
+                    eprintln!(
+                        "Exit epoch in approximately {} secs",
+                        (exit_epoch - current_epoch) * spec.seconds_per_slot * E::slots_per_epoch()
+                    );
                 }
+
+                _ => {
+                    eprintln!("Waiting for voluntary exit to be accepted into the beacon chain...")
+                } // fn get_current_epoch<T: 'static + SlotClock + Clone, E: EthSpec>(
+                  //     slot_clock: T,
+                  // ) -> Option<Epoch> {
+                  //     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
+                  // }
+
+                  // let spec = ChainSpec::mainnet();
+
+                  // let current_epoch =
+                  //     get_current_epoch::<E>(genesis_time, &spec).ok_or("Failed to get current epoch")?;
+                  //let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec);
             }
         }
     }

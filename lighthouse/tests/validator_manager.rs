@@ -10,6 +10,7 @@ use types::*;
 use validator_manager::{
     create_validators::CreateConfig,
     delete_validators::DeleteConfig,
+    exit_validators::ExitConfig,
     import_validators::ImportConfig,
     list_validators::ListConfig,
     move_validators::{MoveConfig, PasswordSource, Validators},
@@ -116,6 +117,12 @@ impl CommandLineTest<ListConfig> {
 impl CommandLineTest<DeleteConfig> {
     fn validators_delete() -> Self {
         Self::default().flag("delete", None)
+    }
+}
+
+impl CommandLineTest<ExitConfig> {
+    fn validators_exit() -> Self {
+        Self::default().flag("exit", None)
     }
 }
 
@@ -467,4 +474,42 @@ pub fn validator_delete_defaults() {
             };
             assert_eq!(expected, config);
         });
+}
+
+#[test]
+pub fn validator_delete_missing_validator_flag() {
+    CommandLineTest::validators_delete()
+        .flag("--vc-token", Some("./token.json"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_defaults() {
+    CommandLineTest::validators_exit()
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--vc-token", Some("./token.json"))
+        .assert_success(|config| {
+            let expected = ExitConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                validators_to_exit: vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
+                ],
+                beacon_url: None,
+                exit_epoch: None,
+                signature: false,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_exit_missing_validator_flag() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .assert_failed();
 }
