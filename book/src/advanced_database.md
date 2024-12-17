@@ -14,7 +14,7 @@ more detail below).
 The full states upon which blocks are replayed are referred to as _snapshots_ in the case of the
 freezer DB, and _epoch boundary states_ in the case of the hot DB.
 
-The frequency at which the hot database stores full `BeaconState` is fixed to one-state-per-epoch
+The frequency at which the hot database stores full `BeaconState`s is fixed to one-state-per-epoch
 in order to keep loads of recent states performant. For the freezer DB, the frequency is
 configurable via the `--hierarchy-exponents` CLI flag, which is the topic of the next section.
 
