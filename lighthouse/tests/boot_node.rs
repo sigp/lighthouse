@@ -149,7 +149,7 @@ fn disable_packet_filter_flag() {
         .flag("disable-packet-filter", None)
         .run_with_ip()
         .with_config(|config| {
-            assert_eq!(config.disable_packet_filter, true);
+            assert!(config.disable_packet_filter);
         });
 }
 
@@ -159,7 +159,7 @@ fn enable_enr_auto_update_flag() {
         .flag("enable-enr-auto-update", None)
         .run_with_ip()
         .with_config(|config| {
-            assert_eq!(config.enable_enr_auto_update, true);
+            assert!(config.enable_enr_auto_update);
         });
 }
 

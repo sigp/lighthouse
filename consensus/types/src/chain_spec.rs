@@ -128,6 +128,11 @@ pub struct ChainSpec {
     pub deposit_contract_address: Address,
 
     /*
+     * Execution Specs
+     */
+    pub gas_limit_adjustment_factor: u64,
+
+    /*
      * Altair hard fork params
      */
     pub inactivity_penalty_quotient_altair: u64,
@@ -716,6 +721,11 @@ impl ChainSpec {
                 .expect("chain spec deposit contract address"),
 
             /*
+             * Execution Specs
+             */
+            gas_limit_adjustment_factor: 1024,
+
+            /*
              * Altair hard fork params
              */
             inactivity_penalty_quotient_altair: option_wrapper(|| {
@@ -1030,6 +1040,11 @@ impl ChainSpec {
                 .expect("chain spec deposit contract address"),
 
             /*
+             * Execution Specs
+             */
+            gas_limit_adjustment_factor: 1024,
+
+            /*
              * Altair hard fork params
              */
             inactivity_penalty_quotient_altair: option_wrapper(|| {
@@ -1285,6 +1300,10 @@ pub struct Config {
     #[serde(with = "serde_utils::address_hex")]
     deposit_contract_address: Address,
 
+    #[serde(default = "default_gas_limit_adjustment_factor")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    gas_limit_adjustment_factor: u64,
+
     #[serde(default = "default_gossip_max_size")]
     #[serde(with = "serde_utils::quoted_u64")]
     gossip_max_size: u64,
@@ -1405,6 +1424,10 @@ fn default_attestation_subnet_prefix_bits() -> u8 {
 
 const fn default_max_per_epoch_activation_churn_limit() -> u64 {
     8
+}
+
+const fn default_gas_limit_adjustment_factor() -> u64 {
+    1024
 }
 
 const fn default_gossip_max_size() -> u64 {
@@ -1659,6 +1682,8 @@ impl Config {
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
 
+            gas_limit_adjustment_factor: spec.gas_limit_adjustment_factor,
+
             gossip_max_size: spec.gossip_max_size,
             max_request_blocks: spec.max_request_blocks,
             min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
@@ -1733,6 +1758,7 @@ impl Config {
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            gas_limit_adjustment_factor,
             gossip_max_size,
             min_epochs_for_block_requests,
             max_chunk_size,
@@ -1794,6 +1820,7 @@ impl Config {
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            gas_limit_adjustment_factor,
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,

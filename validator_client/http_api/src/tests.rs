@@ -53,8 +53,10 @@ struct ApiTester {
 
 impl ApiTester {
     pub async fn new() -> Self {
-        let mut config = ValidatorStoreConfig::default();
-        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
+        let config = ValidatorStoreConfig {
+            fee_recipient: Some(TEST_DEFAULT_FEE_RECIPIENT),
+            ..Default::default()
+        };
         Self::new_with_config(config).await
     }
 
@@ -63,6 +65,7 @@ impl ApiTester {
 
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
+        let token_path = tempdir().unwrap().path().join("api-token.txt");
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -75,7 +78,7 @@ impl ApiTester {
         .await
         .unwrap();
 
-        let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
+        let api_secret = ApiSecret::create_or_open(&token_path).unwrap();
         let api_pubkey = api_secret.api_token();
 
         let spec = Arc::new(E::default_spec());
@@ -127,6 +130,7 @@ impl ApiTester {
                 allow_origin: None,
                 allow_keystore_export: true,
                 store_passwords_in_secrets_dir: false,
+                http_token_path: token_path,
             },
             sse_logging_components: None,
             log,
@@ -137,7 +141,7 @@ impl ApiTester {
         let (listening_socket, server) =
             super::serve(ctx, test_runtime.task_executor.exit()).unwrap();
 
-        tokio::spawn(async { server.await });
+        tokio::spawn(server);
 
         let url = SensitiveUrl::parse(&format!(
             "http://{}:{}",
@@ -161,8 +165,8 @@ impl ApiTester {
     }
 
     pub fn invalid_token_client(&self) -> ValidatorClientHttpClient {
-        let tmp = tempdir().unwrap();
-        let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
+        let tmp = tempdir().unwrap().path().join("invalid-token.txt");
+        let api_secret = ApiSecret::create_or_open(tmp).unwrap();
         let invalid_pubkey = api_secret.api_token();
         ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey.clone()).unwrap()
     }
@@ -343,22 +347,21 @@ impl ApiTester {
             .set_nextaccount(s.key_derivation_path_offset)
             .unwrap();
 
-        for i in 0..s.count {
+        for validator in response.iter().take(s.count) {
             let keypairs = wallet
                 .next_validator(PASSWORD_BYTES, PASSWORD_BYTES, PASSWORD_BYTES)
                 .unwrap();
             let voting_keypair = keypairs.voting.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
             assert_eq!(
-                response[i].voting_pubkey,
+                validator.voting_pubkey,
                 voting_keypair.pk.clone().into(),
                 "the locally generated voting pk should match the server response"
             );
 
             let withdrawal_keypair = keypairs.withdrawal.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
-            let deposit_bytes =
-                serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
+            let deposit_bytes = serde_utils::hex::decode(&validator.eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
                 decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)
