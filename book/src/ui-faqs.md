@@ -15,7 +15,7 @@ If you receive a red notification with a BEACON or VALIDATOR NODE NETWORK ERROR 
 ## 4. How do I connect Siren to Lighthouse from a different computer on the same network?
 
 Siren is a webapp, you can access it like any other website. We don't recommend exposing it to the internet; if you require remote access a VPN or (authenticated) reverse proxy is highly recommended.  
-That being said, it is entirely possible to have it published over the internet, how to do that goes well beyond the scope of this document but we want to emphasize once more the need for *at least* ssl encryption if you choose to do so.
+That being said, it is entirely possible to have it published over the internet, how to do that goes well beyond the scope of this document but we want to emphasize once more the need for *at least* SSL encryption if you choose to do so.
 
 ## 5. How can I use Siren to monitor my validators remotely when I am not at home?
 
