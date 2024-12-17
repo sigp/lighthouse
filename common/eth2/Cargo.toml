@@ -27,6 +27,7 @@ slashing_protection = { workspace = true }
 mediatype = "0.19.13"
 pretty_reqwest_error = { workspace = true }
 derivative = { workspace = true }
+reqwest-eventsource = "0.5.0"
 
 [dev-dependencies]
 tokio = { workspace = true }
