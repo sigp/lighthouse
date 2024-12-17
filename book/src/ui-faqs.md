@@ -6,7 +6,7 @@ Yes, the most current Siren version requires Lighthouse v4.3.0 or higher to func
 
 ## 2. Where can I find my API token?
 
-The required Api token may be found in the default data directory of the validator client. For more information please refer to the lighthouse ui configuration [`api token section`](./api-vc-auth-header.md).
+The required API token may be found in the default data directory of the validator client. For more information please refer to the lighthouse ui configuration [`api token section`](./api-vc-auth-header.md).
 
 ## 3. How do I fix the Node Network Errors?
 
