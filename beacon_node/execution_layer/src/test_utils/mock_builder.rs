@@ -1,4 +1,4 @@
-use crate::test_utils::DEFAULT_JWT_SECRET;
+use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
 use eth2::types::{BlobsBundle, BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER};
@@ -536,7 +536,7 @@ impl<E: EthSpec> MockBuilder<E> {
         let mut message = match payload_response_type {
             crate::GetPayloadResponseType::Full(payload_response) => {
                 #[allow(clippy::type_complexity)]
-                let (payload, value, maybe_blobs_bundle, maybe_requests): (
+                let (payload, _value, maybe_blobs_bundle, maybe_requests): (
                     ExecutionPayload<E>,
                     Uint256,
                     Option<BlobsBundle<E>>,
@@ -552,7 +552,8 @@ impl<E: EthSpec> MockBuilder<E> {
                         blob_kzg_commitments: maybe_blobs_bundle
                             .map(|b| b.commitments)
                             .unwrap_or_default(),
-                        value,
+                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+
                         pubkey: self.builder_sk.public_key().compress(),
                         execution_requests: maybe_requests.unwrap_or_default(),
                     }),
@@ -564,7 +565,7 @@ impl<E: EthSpec> MockBuilder<E> {
                         blob_kzg_commitments: maybe_blobs_bundle
                             .map(|b| b.commitments)
                             .unwrap_or_default(),
-                        value,
+                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                         pubkey: self.builder_sk.public_key().compress(),
                     }),
                     ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
@@ -572,7 +573,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .as_capella()
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
-                        value,
+                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                         pubkey: self.builder_sk.public_key().compress(),
                     }),
                     ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
@@ -580,7 +581,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .as_bellatrix()
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
-                        value,
+                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                         pubkey: self.builder_sk.public_key().compress(),
                     }),
                     ForkName::Base | ForkName::Altair => return Err("invalid fork".to_string()),
@@ -588,7 +589,7 @@ impl<E: EthSpec> MockBuilder<E> {
             }
             crate::GetPayloadResponseType::Blinded(payload_response) => {
                 #[allow(clippy::type_complexity)]
-                let (payload, value, maybe_blobs_bundle, maybe_requests): (
+                let (payload, _value, maybe_blobs_bundle, maybe_requests): (
                     ExecutionPayload<E>,
                     Uint256,
                     Option<BlobsBundle<E>>,
@@ -603,7 +604,7 @@ impl<E: EthSpec> MockBuilder<E> {
                         blob_kzg_commitments: maybe_blobs_bundle
                             .map(|b| b.commitments)
                             .unwrap_or_default(),
-                        value,
+                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                         pubkey: self.builder_sk.public_key().compress(),
                         execution_requests: maybe_requests.unwrap_or_default(),
                     }),
@@ -615,7 +616,7 @@ impl<E: EthSpec> MockBuilder<E> {
                         blob_kzg_commitments: maybe_blobs_bundle
                             .map(|b| b.commitments)
                             .unwrap_or_default(),
-                        value,
+                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                         pubkey: self.builder_sk.public_key().compress(),
                     }),
                     ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
@@ -623,7 +624,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .as_capella()
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
-                        value,
+                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                         pubkey: self.builder_sk.public_key().compress(),
                     }),
                     ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
@@ -631,7 +632,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .as_bellatrix()
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
-                        value,
+                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
                         pubkey: self.builder_sk.public_key().compress(),
                     }),
                     ForkName::Base | ForkName::Altair => return Err("invalid fork".to_string()),
