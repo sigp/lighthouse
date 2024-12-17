@@ -316,18 +316,17 @@ mod test {
         common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
     };
     use account_utils::eth2_keystore::KeystoreBuilder;
-    use account_utils::ZeroizeString;
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
     use eth2::lighthouse_vc::types::KeystoreJsonStr;
     use http_api::test_utils::InteractiveTester;
     use std::{
         fs::{self, File},
         io::Write,
-        str::FromStr,
         sync::Arc,
     };
     use types::{ChainSpec, MainnetEthSpec};
     use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use zeroize::Zeroizing;
     type E = MainnetEthSpec;
 
     struct TestBuilder {
@@ -412,7 +411,7 @@ mod test {
 
             let local_validators: Vec<ValidatorSpecification> = vec![ValidatorSpecification {
                 voting_keystore: KeystoreJsonStr(keystore),
-                voting_keystore_password: ZeroizeString::from_str("password").unwrap(),
+                voting_keystore_password: Zeroizing::new("password".into()),
                 slashing_protection: None,
                 fee_recipient: None,
                 gas_limit: None,
@@ -429,11 +428,11 @@ mod test {
                 self.beacon_node.harness.validator_keypairs[index_of_validators_to_exit].pk
             );
 
-            let validators_to_exit = self.beacon_node.harness.validator_keypairs
+            let validators_to_exit = vec![self.beacon_node.harness.validator_keypairs
                 [index_of_validators_to_exit]
                 .pk
                 .clone()
-                .into();
+                .into()];
 
             let import_config = builder.get_import_config();
 
@@ -458,6 +457,7 @@ mod test {
                 validators_to_exit,
                 beacon_url: Some(beacon_url),
                 exit_epoch: None,
+                signature: false,
             });
 
             self.validators = local_validators.clone();
@@ -528,7 +528,7 @@ mod test {
                 self.beacon_node.harness.get_current_slot()
             );
 
-            let validator_to_exit = self.exit_config.as_ref().unwrap().validators_to_exit;
+            let validator_to_exit = self.exit_config.as_ref().unwrap().validators_to_exit[0];
             println!("Attempting to exit validator {:?}", validator_to_exit);
 
             let mut current_state = self.beacon_node.harness.get_current_state();
@@ -545,7 +545,7 @@ mod test {
                 validator.activation_epoch, validator.exit_epoch
             );
 
-            let result = run(self.exit_config.clone().unwrap()).await;
+            let result = run::<E>(self.exit_config.clone().unwrap()).await;
 
             if result.is_ok() {
                 return TestResult { result: Ok(()) };

@@ -9624,7 +9624,6 @@ dependencies = [
  "ethereum_serde_utils",
  "hex",
  "http_api",
- "logging",
  "regex",
  "serde",
  "serde_json",
