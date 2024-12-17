@@ -26,7 +26,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::str;
 use unicode_normalization::UnicodeNormalization;
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 /// The byte-length of a BLS secret key.
 const SECRET_KEY_LEN: usize = 32;
@@ -59,45 +59,6 @@ pub const IV_SIZE: usize = 16;
 pub const HASH_SIZE: usize = 32;
 /// The default iteraction count, `c`, for PBKDF2.
 pub const DEFAULT_PBKDF2_C: u32 = 262_144;
-
-/// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
-///
-/// Useful for ensuring that password memory is zeroed-out on drop.
-#[derive(Clone, PartialEq, Serialize, Deserialize, Zeroize)]
-#[zeroize(drop)]
-#[serde(transparent)]
-struct ZeroizeString(String);
-
-impl From<String> for ZeroizeString {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl AsRef<[u8]> for ZeroizeString {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_bytes()
-    }
-}
-
-impl std::ops::Deref for ZeroizeString {
-    type Target = String;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for ZeroizeString {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl FromIterator<char> for ZeroizeString {
-    fn from_iter<T: IntoIterator<Item = char>>(iter: T) -> Self {
-        ZeroizeString(String::from_iter(iter))
-    }
-}
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -451,11 +412,12 @@ fn is_control_character(c: char) -> bool {
 /// Takes a slice of bytes and returns a NFKD normalized string representation.
 ///
 /// Returns an error if the bytes are not valid utf8.
-fn normalize(bytes: &[u8]) -> Result<ZeroizeString, Error> {
+fn normalize(bytes: &[u8]) -> Result<Zeroizing<String>, Error> {
     Ok(str::from_utf8(bytes)
         .map_err(|_| Error::InvalidPasswordBytes)?
         .nfkd()
-        .collect::<ZeroizeString>())
+        .collect::<String>()
+        .into())
 }
 
 /// Generates a checksum to indicate that the `derived_key` is associated with the
