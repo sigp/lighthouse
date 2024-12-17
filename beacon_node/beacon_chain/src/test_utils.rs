@@ -501,7 +501,7 @@ where
             spec.electra_fork_epoch.map(|epoch| {
                 genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
             });
-        mock.server.execution_block_generator().fulu_time = spec.fulu_fork_epoch.map(|epoch| {
+        mock.server.execution_block_generator().osaka_time = spec.fulu_fork_epoch.map(|epoch| {
             genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
 
@@ -626,7 +626,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
     let prague_time = spec.electra_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
-    let fulu_time = spec.fulu_fork_epoch.map(|epoch| {
+    let osaka_time = spec.fulu_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
 
@@ -638,7 +638,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         shanghai_time,
         cancun_time,
         prague_time,
-        fulu_time,
+        osaka_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
         Some(kzg),

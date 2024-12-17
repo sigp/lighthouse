@@ -89,7 +89,7 @@ fn default_mock_execution_config<E: EthSpec>(
         )
     }
     if let Some(fulu_fork_epoch) = spec.fulu_fork_epoch {
-        mock_execution_config.fulu_time = Some(
+        mock_execution_config.osaka_time = Some(
             genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * fulu_fork_epoch.as_u64(),
         )
     }

@@ -136,7 +136,7 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     pub shanghai_time: Option<u64>, // capella
     pub cancun_time: Option<u64>,   // deneb
     pub prague_time: Option<u64>,   // electra
-    pub fulu_time: Option<u64>,     // fulu
+    pub osaka_time: Option<u64>,    // fulu
     /*
      * deneb stuff
      */
@@ -160,7 +160,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
-        fulu_time: Option<u64>,
+        osaka_time: Option<u64>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let mut gen = Self {
@@ -177,7 +177,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             shanghai_time,
             cancun_time,
             prague_time,
-            fulu_time,
+            osaka_time,
             blobs_bundles: <_>::default(),
             kzg,
             rng: make_rng(),
@@ -226,7 +226,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     }
 
     pub fn get_fork_at_timestamp(&self, timestamp: u64) -> ForkName {
-        match self.fulu_time {
+        match self.osaka_time {
             Some(fork_time) if timestamp >= fork_time => ForkName::Fulu,
             _ => match self.prague_time {
                 Some(fork_time) if timestamp >= fork_time => ForkName::Electra,

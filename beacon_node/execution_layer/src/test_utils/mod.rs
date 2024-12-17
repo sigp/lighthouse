@@ -83,7 +83,7 @@ pub struct MockExecutionConfig {
     pub shanghai_time: Option<u64>,
     pub cancun_time: Option<u64>,
     pub prague_time: Option<u64>,
-    pub fulu_time: Option<u64>,
+    pub osaka_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -97,7 +97,7 @@ impl Default for MockExecutionConfig {
             shanghai_time: None,
             cancun_time: None,
             prague_time: None,
-            fulu_time: None,
+            osaka_time: None,
         }
     }
 }
@@ -139,7 +139,7 @@ impl<E: EthSpec> MockServer<E> {
             shanghai_time,
             cancun_time,
             prague_time,
-            fulu_time,
+            osaka_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -150,7 +150,7 @@ impl<E: EthSpec> MockServer<E> {
             shanghai_time,
             cancun_time,
             prague_time,
-            fulu_time,
+            osaka_time,
             kzg,
         );
 
@@ -214,7 +214,7 @@ impl<E: EthSpec> MockServer<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
-        fulu_time: Option<u64>,
+        osaka_time: Option<u64>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         Self::new_with_config(
@@ -228,7 +228,7 @@ impl<E: EthSpec> MockServer<E> {
                 shanghai_time,
                 cancun_time,
                 prague_time,
-                fulu_time,
+                osaka_time,
             },
             kzg,
         )
