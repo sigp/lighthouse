@@ -67,6 +67,7 @@ pub fn cli_app() -> Command {
                 .value_name("EPOCH")
                 .help("Provide the minimum epoch for processing voluntary exit.")
                 .action(ArgAction::Set)
+                .requires(SIGNATURE_FLAG)
                 .display_order(0),
         )
         .arg(
@@ -250,14 +251,28 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                 );
             }
 
-            // Sleep a constant 12s as in testnet 3s would be too short for validator status to update
-            sleep(Duration::from_secs(12)).await;
+            sleep(Duration::from_secs(spec.seconds_per_slot)).await;
 
             // Check validator status after publishing voluntary exit
-            match validator_data.status {
+            let updated_validator_data = beacon_node
+                .get_beacon_states_validator_id(
+                    StateId::Head,
+                    &ValidatorId::PublicKey(validator_to_exit),
+                )
+                .await
+                .map_err(|e| format!("Failed to get updated validator details: {:?}", e))?
+                .ok_or_else(|| {
+                    format!(
+                        "Validator {} is not present in the beacon state",
+                        validator_to_exit
+                    )
+                })?
+                .data;
+
+            match updated_validator_data.status {
                 ValidatorStatus::ActiveExiting => {
-                    let exit_epoch = validator_data.validator.exit_epoch;
-                    let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
+                    let exit_epoch = updated_validator_data.validator.exit_epoch;
+                    let withdrawal_epoch = updated_validator_data.validator.withdrawable_epoch;
 
                     eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
                         Finalization may take several minutes or longer. Before finalization there is a low \
