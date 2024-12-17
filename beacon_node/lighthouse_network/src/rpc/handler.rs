@@ -964,6 +964,9 @@ where
         request_info: (Id, RequestType<E>),
         error: StreamUpgradeError<RPCError>,
     ) {
+        // This dialing is now considered failed
+        self.dial_negotiated -= 1;
+
         let (id, req) = request_info;
 
         // map the error
@@ -988,9 +991,6 @@ where
             }
             StreamUpgradeError::Apply(other) => other,
         };
-
-        // This dialing is now considered failed
-        self.dial_negotiated -= 1;
 
         self.outbound_io_error_retries = 0;
         self.events_out
