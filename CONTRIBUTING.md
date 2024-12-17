@@ -85,7 +85,7 @@ steps:
 5. Commit your changes and push them to your fork with `$ git push origin
    your_feature_name`.
 6. Go to your fork on github.com and use the web interface to create a pull
-   request into the sigp/lighthouse repo.
+   request into the sigp/lighthouse repository.
 
 From there, the repository maintainers will review the PR and either accept it
 or provide some constructive feedback.
