@@ -147,10 +147,6 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 debug!(?peer_id, error = %ClearDialError(error),"Failed to dial peer");
                 self.on_dial_failure(peer_id);
             }
-            FromSwarm::ExternalAddrConfirmed(_) => {
-                // We have an external address confirmed, means we are able to do NAT traversal.
-                metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p"], 1);
-            }
             _ => {
                 // NOTE: FromSwarm is a non exhaustive enum so updates should be based on release
                 // notes more than compiler feedback

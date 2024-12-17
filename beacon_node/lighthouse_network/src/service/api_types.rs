@@ -67,7 +67,6 @@ pub struct SamplingRequestId(pub usize);
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodyId {
     pub requester: CustodyRequester,
-    pub req_id: Id,
 }
 
 /// Downstream components that perform custody by root requests.

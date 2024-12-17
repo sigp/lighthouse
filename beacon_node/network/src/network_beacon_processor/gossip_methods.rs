@@ -697,8 +697,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
+                    GossipDataColumnError::PriorKnown { .. } => {
+                        // Data column is available via either the EL or reconstruction.
+                        // Do not penalise the peer.
+                        // Gossip filter should filter any duplicates received after this.
+                        debug!(
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Received already available column sidecar. Ignoring the column sidecar"
+                        )
+                    }
                     GossipDataColumnError::FutureSlot { .. }
-                    | GossipDataColumnError::PriorKnown { .. }
                     | GossipDataColumnError::PastFinalizedSlot { .. } => {
                         debug!(
                             error = ?err,
@@ -833,7 +843,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
-                    GossipBlobError::FutureSlot { .. } | GossipBlobError::RepeatBlob { .. } => {
+                    GossipBlobError::RepeatBlob { .. } => {
+                        // We may have received the blob from the EL. Do not penalise the peer.
+                        // Gossip filter should filter any duplicates received after this.
+                        debug!(
+                            %slot,
+                            %root,
+                            %index,
+                            "Received already available blob sidecar. Ignoring the blob sidecar"
+                        )
+                    }
+                    GossipBlobError::FutureSlot { .. } => {
                         debug!(
                             error = ?err,
                             %slot,

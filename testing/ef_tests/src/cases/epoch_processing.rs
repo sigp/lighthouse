@@ -86,7 +86,7 @@ type_name!(RewardsAndPenalties, "rewards_and_penalties");
 type_name!(RegistryUpdates, "registry_updates");
 type_name!(Slashings, "slashings");
 type_name!(Eth1DataReset, "eth1_data_reset");
-type_name!(PendingBalanceDeposits, "pending_balance_deposits");
+type_name!(PendingBalanceDeposits, "pending_deposits");
 type_name!(PendingConsolidations, "pending_consolidations");
 type_name!(EffectiveBalanceUpdates, "effective_balance_updates");
 type_name!(SlashingsReset, "slashings_reset");
@@ -193,7 +193,7 @@ impl<E: EthSpec> EpochTransition<E> for PendingBalanceDeposits {
             state,
             spec,
             SinglePassConfig {
-                pending_balance_deposits: true,
+                pending_deposits: true,
                 ..SinglePassConfig::disable_all()
             },
         )
@@ -363,7 +363,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         }
 
         if !fork_name.electra_enabled()
-            && (T::name() == "pending_consolidations" || T::name() == "pending_balance_deposits")
+            && (T::name() == "pending_consolidations" || T::name() == "pending_deposits")
         {
             return false;
         }
