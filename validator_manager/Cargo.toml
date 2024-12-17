@@ -18,8 +18,8 @@ hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
-tree_hash = { workspace = true }
-types = { workspace = true }
+derivative = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 regex = { workspace = true }

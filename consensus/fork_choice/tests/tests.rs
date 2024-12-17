@@ -1156,18 +1156,20 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
     };
 
     // recreate the chain exactly
-    ForkChoiceTest::new_with_chain_config(chain_config.clone())
-        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .skip_slots(E::slots_per_epoch() as usize)
-        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch < 5)
-        .await
-        .unwrap()
-        .apply_blocks(1)
-        .await
-        .assert_finalized_epoch(5)
-        .assert_shutdown_signal_not_sent();
+    Box::pin(
+        ForkChoiceTest::new_with_chain_config(chain_config.clone())
+            .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+            .await
+            .unwrap()
+            .skip_slots(E::slots_per_epoch() as usize)
+            .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch < 5)
+            .await
+            .unwrap()
+            .apply_blocks(1),
+    )
+    .await
+    .assert_finalized_epoch(5)
+    .assert_shutdown_signal_not_sent();
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "6.0.0"
+version = "6.0.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
@@ -68,11 +68,8 @@ beacon_processor = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
 initialized_validators = { workspace = true }
-lighthouse_network = { workspace = true }
-sensitive_url = { workspace = true }
-slashing_protection = { workspace = true }
-tempfile = { workspace = true }
-validator_dir = { workspace = true }
+zeroize = { workspace = true }
+
 
 [[test]]
 name = "lighthouse_tests"

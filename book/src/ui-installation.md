@@ -1,6 +1,6 @@
 # 📦 Installation
 
-Siren supports any operating system that supports container runtimes and/or NodeJS 18, this includes Linux, MacOS, and Windows. The recommended way of running Siren is by launching the [docker container](https://hub.docker.com/r/sigp/siren) , but running the application directly is also possible.
+Siren supports any operating system that supports containers and/or NodeJS 18, this includes Linux, macOS, and Windows. The recommended way of running Siren is by launching the [docker container](https://hub.docker.com/r/sigp/siren) , but running the application directly is also possible.
 
 ## Version Requirement
 
