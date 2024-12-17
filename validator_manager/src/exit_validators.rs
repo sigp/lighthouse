@@ -53,7 +53,10 @@ pub fn cli_app() -> Command {
             Arg::new(VALIDATOR_FLAG)
                 .long(VALIDATOR_FLAG)
                 .value_name("STRING")
-                .help("List of validators (pubkey) to exit.")
+                .help(
+                    "Comma-separated list of validators (pubkey) to exit. \
+                 To exit all validators, use the keyword \"all\".",
+                )
                 .action(ArgAction::Set)
                 .required(true)
                 .display_order(0),
