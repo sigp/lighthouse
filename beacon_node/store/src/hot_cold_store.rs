@@ -2484,6 +2484,45 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
+    /// Run a compaction pass on the freezer DB to free up space used by deleted states.
+    pub fn compact_freezer(&self) -> Result<(), Error> {
+        let current_schema_columns = vec![
+            DBColumn::BeaconColdStateSummary,
+            DBColumn::BeaconStateSnapshot,
+            DBColumn::BeaconStateDiff,
+            DBColumn::BeaconStateRoots,
+        ];
+
+        // We can remove this once schema V21 has been gone for a while.
+        let previous_schema_columns = vec![
+            DBColumn::BeaconState,
+            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconBlockRootsChunked,
+            DBColumn::BeaconStateRootsChunked,
+            DBColumn::BeaconRestorePoint,
+            DBColumn::BeaconHistoricalRoots,
+            DBColumn::BeaconRandaoMixes,
+            DBColumn::BeaconHistoricalSummaries,
+        ];
+        let mut columns = current_schema_columns;
+        columns.extend(previous_schema_columns);
+
+        for column in columns {
+            info!(
+                self.log,
+                "Starting compaction";
+                "column" => ?column
+            );
+            self.cold_db.compact_column(column)?;
+            info!(
+                self.log,
+                "Finishing compaction";
+                "column" => ?column
+            );
+        }
+        Ok(())
+    }
+
     /// Return `true` if compaction on finalization/pruning is enabled.
     pub fn compact_on_prune(&self) -> bool {
         self.config.compact_on_prune
@@ -2875,6 +2914,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         //
         // We can remove this once schema V21 has been gone for a while.
         let previous_schema_columns = vec![
+            DBColumn::BeaconState,
             DBColumn::BeaconStateSummary,
             DBColumn::BeaconBlockRootsChunked,
             DBColumn::BeaconStateRootsChunked,
@@ -2916,7 +2956,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.cold_db.do_atomically(cold_ops)?;
 
         // In order to reclaim space, we need to compact the freezer DB as well.
-        self.cold_db.compact()?;
+        self.compact_freezer()?;
 
         Ok(())
     }

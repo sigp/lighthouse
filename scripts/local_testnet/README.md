@@ -1,6 +1,6 @@
 # Simple Local Testnet
 
-These scripts allow for running a small local testnet with a default of 4 beacon nodes, 4 validator clients and 4 geth execution clients using Kurtosis.
+These scripts allow for running a small local testnet with a default of 4 beacon nodes, 4 validator clients and 4 Geth execution clients using Kurtosis.
 This setup can be useful for testing and development.
 
 ## Installation
@@ -9,7 +9,7 @@ This setup can be useful for testing and development.
 
 1. Install [Kurtosis](https://docs.kurtosis.com/install/). Verify that Kurtosis has been successfully installed by running `kurtosis version` which should display the version.
 
-1. Install [yq](https://github.com/mikefarah/yq). If you are on Ubuntu, you can install `yq` by running `snap install yq`.
+1. Install [`yq`](https://github.com/mikefarah/yq). If you are on Ubuntu, you can install `yq` by running `snap install yq`.
 
 ## Starting the testnet
 
@@ -22,7 +22,7 @@ cd ./scripts/local_testnet
 
 It will build a Lighthouse docker image from the root of the directory and will take an approximately 12 minutes to complete. Once built, the testing will be started automatically. You will see a list of services running and "Started!" at the end. 
 You can also select your own Lighthouse docker image to use by specifying it in `network_params.yml` under the `cl_image` key.
-Full configuration reference for kurtosis is specified [here](https://github.com/ethpandaops/ethereum-package?tab=readme-ov-file#configuration).
+Full configuration reference for Kurtosis is specified [here](https://github.com/ethpandaops/ethereum-package?tab=readme-ov-file#configuration).
 
 To view all running services:
 
@@ -36,7 +36,7 @@ To view the logs:
 kurtosis service logs local-testnet $SERVICE_NAME
 ```
 
-where `$SERVICE_NAME` is obtained by inspecting the running services above. For example, to view the logs of the first beacon node, validator client and geth:
+where `$SERVICE_NAME` is obtained by inspecting the running services above. For example, to view the logs of the first beacon node, validator client and Geth:
 
 ```bash
 kurtosis service logs local-testnet -f cl-1-lighthouse-geth 

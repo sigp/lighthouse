@@ -1,3 +1,4 @@
+use crate::api_secret::PK_FILENAME;
 use crate::{ApiSecret, Config as HttpConfig, Context};
 use account_utils::validator_definitions::ValidatorDefinitions;
 use account_utils::{
@@ -73,6 +74,7 @@ impl ApiTester {
 
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
+        let token_path = tempdir().unwrap().path().join(PK_FILENAME);
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -85,7 +87,7 @@ impl ApiTester {
         .await
         .unwrap();
 
-        let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
+        let api_secret = ApiSecret::create_or_open(token_path).unwrap();
         let api_pubkey = api_secret.api_token();
 
         let config = ValidatorStoreConfig {
@@ -177,6 +179,7 @@ impl ApiTester {
             allow_origin: None,
             allow_keystore_export: true,
             store_passwords_in_secrets_dir: false,
+            http_token_path: tempdir().unwrap().path().join(PK_FILENAME),
         }
     }
 
@@ -199,8 +202,8 @@ impl ApiTester {
     }
 
     pub fn invalid_token_client(&self) -> ValidatorClientHttpClient {
-        let tmp = tempdir().unwrap();
-        let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
+        let tmp = tempdir().unwrap().path().join("invalid-token.txt");
+        let api_secret = ApiSecret::create_or_open(tmp).unwrap();
         let invalid_pubkey = api_secret.api_token();
         ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap()
     }
