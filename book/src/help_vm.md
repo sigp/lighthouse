@@ -29,7 +29,8 @@ Commands:
           Deletes one or more validators from a validator client using the HTTP
           API.
   exit
-          Exit validator using the HTTP API for a given validator keystore.
+          Exits one or more validators using the HTTP API. It can also be used
+          to generate voluntary exit message for a particular future epoch.
   help
           Print this message or the help of the given subcommand(s)
 
@@ -102,7 +103,7 @@ Flags:
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
       --stdin-inputs
-          If present, read all user inputs from stdin instead of tty.
+          If present, read all user inputs from stdin instead of tty.          
 ```
 
 <style> .content main {max-width:88%;} </style>
