@@ -385,8 +385,6 @@ mod test {
                 .move_to_terminal_block()
                 .unwrap();
 
-            // println!("Beacon node spec: {:?}", beacon_node.harness.chain.spec);
-
             Self {
                 exit_config: None,
                 src_import_builder: None,
@@ -416,8 +414,6 @@ mod test {
             )
             .await;
             let mut builder = ImportTestBuilder::new_with_vc(vc).await;
-
-            // println!("Validator client spec: {:?}", builder.vc.spec);
 
             self.vc_token =
                 Some(fs::read_to_string(builder.get_import_config().vc_token_path).unwrap());
@@ -450,14 +446,6 @@ mod test {
 
             let beacon_url = SensitiveUrl::parse(self.beacon_node.client.as_ref()).unwrap();
 
-            println!(
-                "Validator pubkey on beacon chain = {:?}",
-                index_of_validators_to_exit
-                    .iter()
-                    .map(|&index| &self.beacon_node.harness.validator_keypairs[index].pk)
-                    .collect::<Vec<_>>()
-            );
-
             let validators_to_exit = index_of_validators_to_exit
                 .iter()
                 .map(|&index| {
@@ -482,8 +470,6 @@ mod test {
                 serde_json::to_string(&local_validators).unwrap(),
             )
             .unwrap();
-
-            //println!("{:?}", builder.get_import_config());
 
             self.exit_config = Some(ExitConfig {
                 vc_url: import_config.vc_url,
@@ -518,7 +504,6 @@ mod test {
             }
 
             let path = self.exit_config.clone().unwrap().vc_token_path;
-            let url = self.exit_config.clone().unwrap().vc_url;
             let parent = path.parent().unwrap();
 
             fs::create_dir_all(parent).expect("Was not able to create parent directory");
@@ -533,16 +518,8 @@ mod test {
                 .write_all(self.vc_token.clone().unwrap().as_bytes())
                 .unwrap();
 
-            let (_, validators) = vc_http_client(url, path).await.unwrap();
-            println!("Validators pubkey on VC = {:?}", validators);
-
             // Advance beacon chain
             self.beacon_node.harness.advance_slot();
-
-            println!(
-                "current slot_first_advance_slot: {:?}",
-                self.beacon_node.harness.get_current_slot()
-            );
 
             self.beacon_node
                 .harness
@@ -552,35 +529,6 @@ mod test {
                     AttestationStrategy::AllValidators,
                 )
                 .await;
-
-            println!(
-                "current slot_extend_chain: {:?}",
-                self.beacon_node.harness.get_current_slot()
-            );
-
-            self.beacon_node.harness.advance_slot();
-
-            println!(
-                "current slot_second_advance_slot: {:?}",
-                self.beacon_node.harness.get_current_slot()
-            );
-
-            let validator_to_exit = self.exit_config.as_ref().unwrap().validators_to_exit[0];
-            println!("Attempting to exit validator {:?}", validator_to_exit);
-
-            let mut current_state = self.beacon_node.harness.get_current_state();
-            let validator_index = current_state
-                .get_validator_index(&validator_to_exit)
-                .expect("should find validator");
-            let validator = &current_state
-                .validators()
-                .get(validator_index.unwrap())
-                .expect("validator should exist");
-
-            println!(
-                "validator status: activation_epoch={},exit_epoch{}",
-                validator.activation_epoch, validator.exit_epoch
-            );
 
             let result = run::<E>(self.exit_config.clone().unwrap()).await;
 
