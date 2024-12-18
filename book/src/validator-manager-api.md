@@ -53,7 +53,7 @@ When the exit epoch is reached, querying the status will return:
 Validator 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572425706b343117b48bdca56808416 has exited at epoch: 7
 ```
 
-You can safely shut down the validator client at this point. 
+You can safely shut down the validator client at this point.
 
 The following exit command will only generate the exit message and will not publish the message to the network, i.e., there will be no voluntary exit.
 
