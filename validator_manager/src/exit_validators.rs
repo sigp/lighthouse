@@ -255,28 +255,28 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                 );
             }
 
-            // Check validator status after publishing voluntary exit
-            let updated_validator_data = beacon_node
-                .get_beacon_states_validator_id(
-                    StateId::Head,
-                    &ValidatorId::PublicKey(validator_to_exit),
-                )
-                .await
-                .map_err(|e| format!("Failed to get updated validator details: {:?}", e))?
-                .ok_or_else(|| {
-                    format!(
-                        "Validator {} is not present in the beacon state",
-                        validator_to_exit
-                    )
-                })?
-                .data;
-
             if first_sleep {
                 sleep(Duration::from_secs(spec.seconds_per_slot)).await;
                 first_sleep = false;
             }
 
             loop {
+                // Check validator status after publishing voluntary exit
+                let updated_validator_data = beacon_node
+                    .get_beacon_states_validator_id(
+                        StateId::Head,
+                        &ValidatorId::PublicKey(validator_to_exit),
+                    )
+                    .await
+                    .map_err(|e| format!("Failed to get updated validator details: {:?}", e))?
+                    .ok_or_else(|| {
+                        format!(
+                            "Validator {} is not present in the beacon state",
+                            validator_to_exit
+                        )
+                    })?
+                    .data;
+
                 if validator_data.status == ValidatorStatus::ActiveOngoing
                     && updated_validator_data.status == ValidatorStatus::ActiveOngoing
                 // The case where the beacon node has not yet published the voluntary exit
