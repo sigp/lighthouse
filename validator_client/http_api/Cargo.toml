@@ -14,7 +14,6 @@ bls = { workspace = true }
 beacon_node_fallback = { workspace = true }
 deposit_contract = { workspace = true }
 directory = { workspace = true }
-doppelganger_service = { workspace = true }
 dirs = { workspace = true }
 graffiti_file = { workspace = true }
 eth2  = { workspace = true }

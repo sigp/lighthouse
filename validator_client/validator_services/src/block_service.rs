@@ -45,10 +45,10 @@ impl From<Errors<BlockError>> for BlockError {
 /// Builds a `BlockService`.
 #[derive(Default)]
 pub struct BlockServiceBuilder<T, E: EthSpec> {
-    validator_store: Option<Arc<ValidatorStore<T, E>>>,
+    validator_store: Option<Arc<ValidatorStore<T>>>,
     slot_clock: Option<Arc<T>>,
-    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
-    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
+    proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
@@ -67,7 +67,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         }
     }
 
-    pub fn validator_store(mut self, store: Arc<ValidatorStore<T, E>>) -> Self {
+    pub fn validator_store(mut self, store: Arc<ValidatorStore<T>>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -77,12 +77,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
         self
     }
 
-    pub fn proposer_nodes(mut self, proposer_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+    pub fn proposer_nodes(mut self, proposer_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         self.proposer_nodes = Some(proposer_nodes);
         self
     }
@@ -127,12 +127,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 
 // Combines a set of non-block-proposing `beacon_nodes` and only-block-proposing
 // `proposer_nodes`.
-pub struct ProposerFallback<T, E: EthSpec> {
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+pub struct ProposerFallback<T> {
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
+    proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
 }
 
-impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
+impl<T: SlotClock> ProposerFallback<T> {
     // Try `func` on `self.proposer_nodes` first. If that doesn't work, try `self.beacon_nodes`.
     pub async fn request_proposers_first<F, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
     where
@@ -178,10 +178,10 @@ impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<ValidatorStore<T>>,
     slot_clock: Arc<T>,
-    pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    pub proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    pub beacon_nodes: Arc<BeaconNodeFallback<T>>,
+    pub proposer_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
@@ -326,7 +326,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     #[allow(clippy::too_many_arguments)]
     async fn sign_and_publish_block(
         &self,
-        proposer_fallback: ProposerFallback<T, E>,
+        proposer_fallback: ProposerFallback<T>,
         slot: Slot,
         graffiti: Option<Graffiti>,
         validator_pubkey: &PublicKeyBytes,
@@ -421,7 +421,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let randao_reveal = match self
             .validator_store
-            .randao_reveal(validator_pubkey, slot.epoch(E::slots_per_epoch()))
+            .randao_reveal::<E>(validator_pubkey, slot.epoch(E::slots_per_epoch()))
             .await
         {
             Ok(signature) => signature.into(),

@@ -17,7 +17,6 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Debug;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use strum::{EnumString, EnumVariantNames};
@@ -60,7 +59,7 @@ pub struct LatencyMeasurement {
 /// See `SLOT_LOOKAHEAD` for information about when this should run.
 pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     context: RuntimeContext<E>,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
 ) -> Result<(), &'static str> {
     let executor = context.executor;
     if beacon_nodes.slot_clock.is_none() {
@@ -69,7 +68,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 
     let future = async move {
         loop {
-            beacon_nodes.update_all_candidates().await;
+            beacon_nodes.update_all_candidates::<E>().await;
 
             let sleep_time = beacon_nodes
                 .slot_clock
@@ -184,29 +183,27 @@ impl Serialize for CandidateInfo {
 /// Represents a `BeaconNodeHttpClient` inside a `BeaconNodeFallback` that may or may not be used
 /// for a query.
 #[derive(Clone, Debug)]
-pub struct CandidateBeaconNode<E> {
+pub struct CandidateBeaconNode {
     pub index: usize,
     pub beacon_node: BeaconNodeHttpClient,
     pub health: Arc<RwLock<Result<BeaconNodeHealth, CandidateError>>>,
-    _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> PartialEq for CandidateBeaconNode<E> {
+impl PartialEq for CandidateBeaconNode {
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index && self.beacon_node == other.beacon_node
     }
 }
 
-impl<E: EthSpec> Eq for CandidateBeaconNode<E> {}
+impl Eq for CandidateBeaconNode {}
 
-impl<E: EthSpec> CandidateBeaconNode<E> {
+impl CandidateBeaconNode {
     /// Instantiate a new node.
     pub fn new(beacon_node: BeaconNodeHttpClient, index: usize) -> Self {
         Self {
             index,
             beacon_node,
             health: Arc::new(RwLock::new(Err(CandidateError::Uninitialized))),
-            _phantom: PhantomData,
         }
     }
 
@@ -215,14 +212,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         *self.health.read().await
     }
 
-    pub async fn refresh_health<T: SlotClock>(
+    pub async fn refresh_health<E: EthSpec, T: SlotClock>(
         &self,
         distance_tiers: &BeaconNodeSyncDistanceTiers,
         slot_clock: Option<&T>,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<(), CandidateError> {
-        if let Err(e) = self.is_compatible(spec, log).await {
+        if let Err(e) = self.is_compatible::<E>(spec, log).await {
             *self.health.write().await = Err(e);
             return Err(e);
         }
@@ -286,7 +283,11 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     }
 
     /// Checks if the node has the correct specification.
-    async fn is_compatible(&self, spec: &ChainSpec, log: &Logger) -> Result<(), CandidateError> {
+    async fn is_compatible<E: EthSpec>(
+        &self,
+        spec: &ChainSpec,
+        log: &Logger,
+    ) -> Result<(), CandidateError> {
         let config = self
             .beacon_node
             .get_config_spec::<ConfigSpec>()
@@ -371,8 +372,8 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 /// behaviour, where the failure of one candidate results in the next candidate receiving an
 /// identical query.
 #[derive(Clone, Debug)]
-pub struct BeaconNodeFallback<T, E> {
-    pub candidates: Arc<RwLock<Vec<CandidateBeaconNode<E>>>>,
+pub struct BeaconNodeFallback<T> {
+    pub candidates: Arc<RwLock<Vec<CandidateBeaconNode>>>,
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
     broadcast_topics: Vec<ApiTopic>,
@@ -380,9 +381,9 @@ pub struct BeaconNodeFallback<T, E> {
     log: Logger,
 }
 
-impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
+impl<T: SlotClock> BeaconNodeFallback<T> {
     pub fn new(
-        candidates: Vec<CandidateBeaconNode<E>>,
+        candidates: Vec<CandidateBeaconNode>,
         config: Config,
         broadcast_topics: Vec<ApiTopic>,
         spec: Arc<ChainSpec>,
@@ -466,7 +467,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// It is possible for a node to return an unsynced status while continuing to serve
     /// low quality responses. To route around this it's best to poll all connected beacon nodes.
     /// A previous implementation of this function polled only the unavailable BNs.
-    pub async fn update_all_candidates(&self) {
+    pub async fn update_all_candidates<E: EthSpec>(&self) {
         // Clone the vec, so we release the read lock immediately.
         // `candidate.health` is behind an Arc<RwLock>, so this would still allow us to mutate the values.
         let candidates = self.candidates.read().await.clone();
@@ -474,7 +475,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         let mut nodes = Vec::with_capacity(candidates.len());
 
         for candidate in candidates.iter() {
-            futures.push(candidate.refresh_health(
+            futures.push(candidate.refresh_health::<E, T>(
                 &self.distance_tiers,
                 self.slot_clock.as_ref(),
                 &self.spec,
@@ -693,7 +694,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 }
 
 /// Helper functions to allow sorting candidate nodes by health.
-async fn sort_nodes_by_health<E: EthSpec>(nodes: &mut Vec<CandidateBeaconNode<E>>) {
+async fn sort_nodes_by_health(nodes: &mut Vec<CandidateBeaconNode>) {
     // Fetch all health values.
     let health_results: Vec<Result<BeaconNodeHealth, CandidateError>> =
         future::join_all(nodes.iter().map(|node| node.health())).await;
@@ -711,7 +712,7 @@ async fn sort_nodes_by_health<E: EthSpec>(nodes: &mut Vec<CandidateBeaconNode<E>
     });
 
     // Reorder candidates based on the sorted indices.
-    let sorted_nodes: Vec<CandidateBeaconNode<E>> = indices_with_health
+    let sorted_nodes: Vec<CandidateBeaconNode> = indices_with_health
         .into_iter()
         .map(|(index, _)| nodes[index].clone())
         .collect();
@@ -743,9 +744,7 @@ mod tests {
     use eth2::Timeouts;
     use std::str::FromStr;
     use strum::VariantNames;
-    use types::{MainnetEthSpec, Slot};
-
-    type E = MainnetEthSpec;
+    use types::Slot;
 
     #[test]
     fn api_topic_all() {
@@ -764,7 +763,7 @@ mod tests {
         let optimistic_status = IsOptimistic::No;
         let execution_status = ExecutionEngineHealth::Healthy;
 
-        fn new_candidate(index: usize) -> CandidateBeaconNode<E> {
+        fn new_candidate(index: usize) -> CandidateBeaconNode {
             let beacon_node = BeaconNodeHttpClient::new(
                 SensitiveUrl::parse(&format!("http://example_{index}.com")).unwrap(),
                 Timeouts::set_all(Duration::from_secs(index as u64)),

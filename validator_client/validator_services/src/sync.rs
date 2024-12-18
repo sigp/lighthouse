@@ -1,5 +1,4 @@
 use crate::duties_service::{DutiesService, Error};
-use doppelganger_service::DoppelgangerStatus;
 use futures::future::join_all;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, info, warn};
@@ -8,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{ChainSpec, EthSpec, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId};
+use validator_store::doppelganger_service::DoppelgangerStatus;
 use validator_store::Error as ValidatorStoreError;
 
 /// Number of epochs in advance to compute selection proofs when not in `distributed` mode.
@@ -548,7 +548,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
                 let proof = match duties_service_ref
                     .validator_store
-                    .produce_sync_selection_proof(&duty.pubkey, proof_slot, *subnet_id)
+                    .produce_sync_selection_proof::<E>(&duty.pubkey, proof_slot, *subnet_id)
                     .await
                 {
                     Ok(proof) => proof,

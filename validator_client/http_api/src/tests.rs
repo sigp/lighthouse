@@ -3,8 +3,8 @@
 
 mod keystores;
 
-use doppelganger_service::DoppelgangerService;
 use initialized_validators::{Config as InitializedValidatorsConfig, InitializedValidators};
+use validator_store::doppelganger_service::DoppelgangerService;
 
 use crate::{ApiSecret, Config as HttpConfig, Context};
 use account_utils::{
@@ -24,7 +24,6 @@ use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
-use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -43,7 +42,7 @@ type E = MainnetEthSpec;
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
-    validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+    validator_store: Arc<ValidatorStore<TestingSlotClock>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
     _validator_dir: TempDir,
@@ -93,7 +92,7 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(ValidatorStore::<_, E>::new(
+        let validator_store = Arc::new(ValidatorStore::<_>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -102,16 +101,17 @@ impl ApiTester {
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
+            E::slots_per_epoch(),
             log.clone(),
         ));
 
         validator_store
-            .register_all_in_doppelganger_protection_if_enabled()
+            .register_all_in_doppelganger_protection_if_enabled::<E>()
             .expect("Should attach doppelganger service");
 
         let initialized_validators = validator_store.initialized_validators();
 
-        let context = Arc::new(Context {
+        let context = Arc::new(Context::<_, E> {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
             block_service: None,
@@ -133,7 +133,6 @@ impl ApiTester {
             sse_logging_components: None,
             log,
             slot_clock: slot_clock.clone(),
-            _phantom: PhantomData,
         });
         let ctx = context.clone();
         let (listening_socket, server) =

@@ -2236,23 +2236,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "doppelganger_service"
-version = "0.1.0"
-dependencies = [
- "beacon_node_fallback",
- "environment",
- "eth2",
- "futures",
- "logging",
- "parking_lot 0.12.3",
- "slog",
- "slot_clock",
- "task_executor",
- "tokio",
- "types",
-]
-
-[[package]]
 name = "dsl_auto_type"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9501,7 +9484,6 @@ dependencies = [
  "clap_utils",
  "directory",
  "dirs",
- "doppelganger_service",
  "environment",
  "eth2",
  "fdlimit",
@@ -9554,7 +9536,6 @@ dependencies = [
  "deposit_contract",
  "directory",
  "dirs",
- "doppelganger_service",
  "eth2",
  "eth2_keystore",
  "ethereum_serde_utils",
@@ -9646,7 +9627,6 @@ version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
  "bls",
- "doppelganger_service",
  "environment",
  "eth2",
  "futures",
@@ -9667,8 +9647,12 @@ name = "validator_store"
 version = "0.1.0"
 dependencies = [
  "account_utils",
- "doppelganger_service",
+ "beacon_node_fallback",
+ "environment",
+ "eth2",
+ "futures",
  "initialized_validators",
+ "logging",
  "parking_lot 0.12.3",
  "serde",
  "signing_method",
@@ -9676,6 +9660,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "task_executor",
+ "tokio",
  "types",
  "validator_metrics",
 ]

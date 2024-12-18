@@ -9,7 +9,7 @@ use validator_store::ValidatorStore;
 pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
     pubkey: PublicKey,
     maybe_epoch: Option<Epoch>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<ValidatorStore<T>>,
     slot_clock: T,
     log: Logger,
 ) -> Result<GenericResponse<SignedVoluntaryExit>, warp::Rejection> {
@@ -52,7 +52,7 @@ pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: Eth
     );
 
     let signed_voluntary_exit = validator_store
-        .sign_voluntary_exit(pubkey_bytes, voluntary_exit)
+        .sign_voluntary_exit::<E>(pubkey_bytes, voluntary_exit)
         .await
         .map_err(|e| {
             warp_utils::reject::custom_server_error(format!(

@@ -41,9 +41,9 @@ impl<T: SlotClock + 'static, E: EthSpec> Deref for SyncCommitteeService<T, E> {
 
 pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
     duties_service: Arc<DutiesService<T, E>>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<ValidatorStore<T>>,
     slot_clock: T,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
     context: RuntimeContext<E>,
     /// Boolean to track whether the service has posted subscriptions to the BN at least once.
     ///
@@ -54,9 +54,9 @@ pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
 impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     pub fn new(
         duties_service: Arc<DutiesService<T, E>>,
-        validator_store: Arc<ValidatorStore<T, E>>,
+        validator_store: Arc<ValidatorStore<T>>,
         slot_clock: T,
-        beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+        beacon_nodes: Arc<BeaconNodeFallback<T>>,
         context: RuntimeContext<E>,
     ) -> Self {
         Self {
@@ -252,7 +252,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let signature_futures = validator_duties.iter().map(|duty| async move {
             match self
                 .validator_store
-                .produce_sync_committee_signature(
+                .produce_sync_committee_signature::<E>(
                     slot,
                     beacon_block_root,
                     duty.validator_index,

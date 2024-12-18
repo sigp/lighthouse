@@ -42,6 +42,8 @@ use task_executor::ShutdownReason;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
+use crate::ValidatorStore;
+
 /// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator
 /// pubkey with regards to doppelganger protection.
 #[derive(Debug, PartialEq)]
@@ -113,13 +115,6 @@ struct LivenessResponses {
 /// validators on the network.
 pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 1;
 
-/// This crate cannot depend on ValidatorStore as validator_store depends on this crate and
-/// initialises the doppelganger protection. For this reason, we abstract the validator store
-/// functions this service needs through the following trait
-pub trait DoppelgangerValidatorStore {
-    fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64>;
-}
-
 /// Store the per-validator status of doppelganger checking.
 #[derive(Debug, PartialEq)]
 pub struct DoppelgangerState {
@@ -162,8 +157,8 @@ impl DoppelgangerState {
 /// If the BN fails to respond to either of these requests, simply return an empty response.
 /// This behaviour is to help prevent spurious failures on the BN from needlessly preventing
 /// doppelganger progression.
-async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+async fn beacon_node_liveness<'a, T: 'static + SlotClock>(
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
     log: Logger,
     current_epoch: Epoch,
     validator_indices: Vec<u64>,
@@ -286,17 +281,16 @@ impl DoppelgangerService {
 
     /// Starts a reoccurring future which will try to keep the doppelganger service updated each
     /// slot.
-    pub fn start_update_service<E, T, V>(
+    pub fn start_update_service<E, T>(
         service: Arc<Self>,
         context: RuntimeContext<E>,
-        validator_store: Arc<V>,
-        beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+        validator_store: Arc<ValidatorStore<T>>,
+        beacon_nodes: Arc<BeaconNodeFallback<T>>,
         slot_clock: T,
     ) -> Result<(), String>
     where
         E: EthSpec,
         T: 'static + SlotClock,
-        V: DoppelgangerValidatorStore + Send + Sync + 'static,
     {
         // Define the `get_index` function as one that uses the validator store.
         let get_index = move |pubkey| validator_store.get_validator_index(&pubkey);
@@ -400,18 +394,17 @@ impl DoppelgangerService {
     ///
     /// Validators added during the genesis epoch will not have doppelganger protection applied to
     /// them.
-    pub fn register_new_validator<T: SlotClock>(
+    pub fn register_new_validator<T: SlotClock, E: EthSpec>(
         &self,
         validator: PublicKeyBytes,
         slot_clock: &T,
-        slots_per_epoch: u64,
     ) -> Result<(), String> {
         let current_epoch = slot_clock
             // If registering before genesis, use the genesis slot.
             .now_or_genesis()
             .ok_or_else(|| "Unable to read slot clock when registering validator".to_string())?
-            .epoch(slots_per_epoch);
-        let genesis_epoch = slot_clock.genesis_slot().epoch(slots_per_epoch);
+            .epoch(E::slots_per_epoch());
+        let genesis_epoch = slot_clock.genesis_slot().epoch(E::slots_per_epoch());
 
         let remaining_epochs = if current_epoch <= genesis_epoch {
             // Disable doppelganger protection when the validator was initialized before genesis.
@@ -806,7 +799,7 @@ mod test {
                 .expect("index should exist");
 
             self.doppelganger
-                .register_new_validator::<E, _>(pubkey, &self.slot_clock)
+                .register_new_validator::<_, E>(pubkey, &self.slot_clock)
                 .unwrap();
             self.doppelganger
                 .doppelganger_states

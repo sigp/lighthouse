@@ -7,8 +7,7 @@ use account_utils::{
 use eth2::lighthouse_vc::types::{self as api_types};
 use slot_clock::SlotClock;
 use std::path::{Path, PathBuf};
-use types::ChainSpec;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
 use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
 use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
@@ -30,7 +29,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
     validator_requests: &[api_types::ValidatorRequest],
     validator_dir: P,
     secrets_dir: Option<PathBuf>,
-    validator_store: &ValidatorStore<T, E>,
+    validator_store: &ValidatorStore<T>,
     spec: &ChainSpec,
 ) -> Result<(Vec<api_types::CreatedValidator>, Mnemonic), warp::Rejection> {
     let mnemonic = mnemonic_opt.unwrap_or_else(random_mnemonic);
@@ -141,7 +140,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
         drop(validator_dir);
 
         validator_store
-            .add_validator_keystore(
+            .add_validator_keystore::<_, E>(
                 voting_keystore_path,
                 voting_password_storage,
                 request.enable,
@@ -178,11 +177,11 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
 
 pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
     validators: Vec<ValidatorDefinition>,
-    validator_store: &ValidatorStore<T, E>,
+    validator_store: &ValidatorStore<T>,
 ) -> Result<(), warp::Rejection> {
     for validator in validators {
         validator_store
-            .add_validator(validator)
+            .add_validator::<E>(validator)
             .await
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(

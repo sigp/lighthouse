@@ -17,7 +17,6 @@ use beacon_node_fallback::{
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use clap::ArgMatches;
-use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
@@ -29,7 +28,6 @@ use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::fs::File;
 use std::io::Read;
-use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -48,6 +46,7 @@ use validator_services::{
     sync::SyncDutiesMap,
     sync_committee_service::SyncCommitteeService,
 };
+use validator_store::doppelganger_service::DoppelgangerService;
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -82,11 +81,11 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, E>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<SystemTimeSlotClock, E>,
-    validator_store: Arc<ValidatorStore<SystemTimeSlotClock, E>>,
+    validator_store: Arc<ValidatorStore<SystemTimeSlotClock>>,
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
-    beacon_nodes: Arc<BeaconNodeFallback<SystemTimeSlotClock, E>>,
+    beacon_nodes: Arc<BeaconNodeFallback<SystemTimeSlotClock>>,
     genesis_time: u64,
 }
 
@@ -384,7 +383,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // Initialize the number of connected, avaliable beacon nodes to 0.
         set_gauge(&validator_metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
-        let mut beacon_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
+        let mut beacon_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             candidates,
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
@@ -392,7 +391,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             log.clone(),
         );
 
-        let mut proposer_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
+        let mut proposer_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             proposer_candidates,
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
@@ -451,7 +450,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         ));
 
         // Ensure all validators are registered in doppelganger protection.
-        validator_store.register_all_in_doppelganger_protection_if_enabled()?;
+        validator_store.register_all_in_doppelganger_protection_if_enabled::<E>()?;
 
         info!(
             log,
@@ -569,7 +568,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 sse_logging_components: self.context.sse_logging_components.clone(),
                 slot_clock: self.slot_clock.clone(),
                 log: log.clone(),
-                _phantom: PhantomData,
             });
 
             let exit = self.context.executor.exit();
@@ -642,13 +640,13 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 }
 
 async fn init_from_beacon_node<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
-    proposer_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
+    proposer_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
     context: &RuntimeContext<E>,
 ) -> Result<(u64, Hash256), String> {
     loop {
-        beacon_nodes.update_all_candidates().await;
-        proposer_nodes.update_all_candidates().await;
+        beacon_nodes.update_all_candidates::<E>().await;
+        proposer_nodes.update_all_candidates::<E>().await;
 
         let num_available = beacon_nodes.num_available().await;
         let num_total = beacon_nodes.num_total().await;
@@ -734,7 +732,7 @@ async fn init_from_beacon_node<E: EthSpec>(
 }
 
 async fn wait_for_genesis<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
     genesis_time: u64,
     context: &RuntimeContext<E>,
 ) -> Result<(), String> {
@@ -780,8 +778,8 @@ async fn wait_for_genesis<E: EthSpec>(
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
-async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
+async fn poll_whilst_waiting_for_genesis(
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
     genesis_time: Duration,
     log: &Logger,
 ) -> Result<(), String> {

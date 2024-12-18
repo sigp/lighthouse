@@ -9,7 +9,6 @@ beacon_node_fallback = { workspace = true }
 validator_metrics = { workspace = true }
 validator_store = { workspace = true }
 graffiti_file = { workspace = true }
-doppelganger_service = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
 futures = { workspace = true }

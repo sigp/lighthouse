@@ -17,7 +17,6 @@ beacon_node_fallback = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
 directory = { workspace = true }
-doppelganger_service = { workspace = true }
 dirs = { workspace = true }
 eth2 = { workspace = true }
 environment = { workspace = true }

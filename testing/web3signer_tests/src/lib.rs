@@ -307,7 +307,7 @@ mod tests {
 
     /// A testing rig which holds a `ValidatorStore`.
     struct ValidatorStoreRig {
-        validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+        validator_store: Arc<ValidatorStore<TestingSlotClock>>,
         _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: async_channel::Sender<()>,
@@ -361,7 +361,7 @@ mod tests {
                 ..Default::default()
             };
 
-            let validator_store = ValidatorStore::<_, E>::new(
+            let validator_store = ValidatorStore::<_>::new(
                 initialized_validators,
                 slashing_protection,
                 Hash256::repeat_byte(42),
@@ -370,6 +370,7 @@ mod tests {
                 slot_clock,
                 &config,
                 executor,
+                E::slots_per_epoch(),
                 log.clone(),
             );
 
@@ -486,7 +487,7 @@ mod tests {
             generate_sig: F,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock>>) -> R,
             R: Future<Output = S>,
             // We use the `SignedObject` trait to white-list objects for comparison. This avoids
             // accidentally comparing something meaningless like a `()`.
@@ -521,7 +522,7 @@ mod tests {
             web3signer_should_sign: bool,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock>>) -> R,
             R: Future<Output = Result<(), ValidatorStoreError>>,
         {
             for validator_rig in &self.validator_rigs {
@@ -588,7 +589,7 @@ mod tests {
         .await
         .assert_signatures_match("randao_reveal", |pubkey, validator_store| async move {
             validator_store
-                .randao_reveal(pubkey, Epoch::new(0))
+                .randao_reveal::<E>(pubkey, Epoch::new(0))
                 .await
                 .unwrap()
         })
@@ -629,7 +630,7 @@ mod tests {
         .await
         .assert_signatures_match("selection_proof", |pubkey, validator_store| async move {
             validator_store
-                .produce_selection_proof(pubkey, Slot::new(0))
+                .produce_selection_proof::<E>(pubkey, Slot::new(0))
                 .await
                 .unwrap()
         })
@@ -639,7 +640,7 @@ mod tests {
             |pubkey, validator_store| async move {
                 let val_reg_data = get_validator_registration(pubkey);
                 validator_store
-                    .sign_validator_registration_data(val_reg_data)
+                    .sign_validator_registration_data::<E>(val_reg_data)
                     .await
                     .unwrap()
             },
@@ -679,7 +680,11 @@ mod tests {
             "sync_selection_proof",
             |pubkey, validator_store| async move {
                 validator_store
-                    .produce_sync_selection_proof(&pubkey, altair_fork_slot, SyncSubnetId::from(0))
+                    .produce_sync_selection_proof::<E>(
+                        &pubkey,
+                        altair_fork_slot,
+                        SyncSubnetId::from(0),
+                    )
                     .await
                     .unwrap()
             },
@@ -689,7 +694,12 @@ mod tests {
             "sync_committee_signature",
             |pubkey, validator_store| async move {
                 validator_store
-                    .produce_sync_committee_signature(altair_fork_slot, Hash256::zero(), 0, &pubkey)
+                    .produce_sync_committee_signature::<E>(
+                        altair_fork_slot,
+                        Hash256::zero(),
+                        0,
+                        &pubkey,
+                    )
                     .await
                     .unwrap()
             },
@@ -722,7 +732,7 @@ mod tests {
             |pubkey, validator_store| async move {
                 let val_reg_data = get_validator_registration(pubkey);
                 validator_store
-                    .sign_validator_registration_data(val_reg_data)
+                    .sign_validator_registration_data::<E>(val_reg_data)
                     .await
                     .unwrap()
             },
