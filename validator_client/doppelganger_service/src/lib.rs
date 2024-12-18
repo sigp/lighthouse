@@ -163,8 +163,8 @@ impl DoppelgangerState {
 /// If the BN fails to respond to either of these requests, simply return an empty response.
 /// This behaviour is to help prevent spurious failures on the BN from needlessly preventing
 /// doppelganger progression.
-async fn beacon_node_liveness<T: 'static + SlotClock, E: EthSpec>(
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+async fn beacon_node_liveness<T: 'static + SlotClock>(
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
     current_epoch: Epoch,
     validator_indices: Vec<u64>,
 ) -> LivenessResponses {
@@ -280,7 +280,7 @@ impl DoppelgangerService {
         service: Arc<Self>,
         context: RuntimeContext<E>,
         validator_store: Arc<V>,
-        beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+        beacon_nodes: Arc<BeaconNodeFallback<T>>,
         slot_clock: T,
     ) -> Result<(), String>
     where
@@ -293,7 +293,7 @@ impl DoppelgangerService {
 
         // Define the `get_liveness` function as one that queries the beacon node API.
         let get_liveness = move |current_epoch, validator_indices| {
-            beacon_node_liveness(beacon_nodes.clone(), current_epoch, validator_indices)
+            beacon_node_liveness::<T>(beacon_nodes.clone(), current_epoch, validator_indices)
         };
 
         let mut shutdown_sender = context.executor.shutdown_sender();

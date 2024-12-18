@@ -127,11 +127,11 @@ pub struct SubscriptionSlots {
 /// Return `Ok(None)` if the attesting validator is not an aggregator.
 async fn make_selection_proof<T: SlotClock + 'static, E: EthSpec>(
     duty: &AttesterData,
-    validator_store: &ValidatorStore<T, E>,
+    validator_store: &ValidatorStore<T>,
     spec: &ChainSpec,
 ) -> Result<Option<SelectionProof>, Error> {
     let selection_proof = validator_store
-        .produce_selection_proof(duty.pubkey, duty.slot)
+        .produce_selection_proof::<E>(duty.pubkey, duty.slot)
         .await
         .map_err(Error::FailedToProduceSelectionProof)?;
 
@@ -215,13 +215,13 @@ pub struct DutiesService<T, E: EthSpec> {
     /// Map from validator index to sync committee duties.
     pub sync_duties: SyncDutiesMap<E>,
     /// Provides the canonical list of locally-managed validators.
-    pub validator_store: Arc<ValidatorStore<T, E>>,
+    pub validator_store: Arc<ValidatorStore<T>>,
     /// Maps unknown validator pubkeys to the next slot time when a poll should be conducted again.
     pub unknown_validator_next_poll_slots: RwLock<HashMap<PublicKeyBytes, Slot>>,
     /// Tracks the current slot.
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
-    pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    pub beacon_nodes: Arc<BeaconNodeFallback<T>>,
     /// The runtime for spawning tasks.
     pub context: RuntimeContext<E>,
     /// The current chain spec.
@@ -1073,7 +1073,7 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
             // Sign selection proofs (serially).
             let duty_and_proof_results = stream::iter(relevant_duties.into_values().flatten())
                 .then(|duty| async {
-                    let opt_selection_proof = make_selection_proof(
+                    let opt_selection_proof = make_selection_proof::<T, E>(
                         &duty,
                         &duties_service.validator_store,
                         &duties_service.spec,
@@ -1210,7 +1210,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
     //
     // See the function-level documentation for more information.
     let initial_block_proposers = duties_service.block_proposers(current_slot);
-    notify_block_production_service(
+    notify_block_production_service::<T>(
         current_slot,
         &initial_block_proposers,
         block_service_tx,
@@ -1296,7 +1296,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
         //
         // See the function-level documentation for more reasoning about this behaviour.
         if !additional_block_producers.is_empty() {
-            notify_block_production_service(
+            notify_block_production_service::<T>(
                 current_slot,
                 &additional_block_producers,
                 block_service_tx,
@@ -1321,11 +1321,11 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
 }
 
 /// Notify the block service if it should produce a block.
-async fn notify_block_production_service<T: SlotClock + 'static, E: EthSpec>(
+async fn notify_block_production_service<T: SlotClock + 'static>(
     current_slot: Slot,
     block_proposers: &HashSet<PublicKeyBytes>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
-    validator_store: &ValidatorStore<T, E>,
+    validator_store: &ValidatorStore<T>,
 ) {
     let non_doppelganger_proposers = block_proposers
         .iter()

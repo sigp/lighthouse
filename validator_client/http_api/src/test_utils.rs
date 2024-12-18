@@ -19,13 +19,13 @@ use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
-use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
+use validator_services::block_service::BlockService;
 use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
 use zeroize::Zeroizing;
 
@@ -54,7 +54,7 @@ pub struct Web3SignerValidatorScenario {
 pub struct ApiTester {
     pub client: ValidatorClientHttpClient,
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
-    pub validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+    pub validator_store: Arc<ValidatorStore<TestingSlotClock>>,
     pub url: SensitiveUrl,
     pub api_token: String,
     pub test_runtime: TestRuntime,
@@ -101,7 +101,7 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(ValidatorStore::<_, E>::new(
+        let validator_store = Arc::new(ValidatorStore::<_>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -114,7 +114,7 @@ impl ApiTester {
         ));
 
         validator_store
-            .register_all_in_doppelganger_protection_if_enabled()
+            .register_all_in_doppelganger_protection_if_enabled::<E>()
             .expect("Should attach doppelganger service");
 
         let initialized_validators = validator_store.initialized_validators();
@@ -122,7 +122,7 @@ impl ApiTester {
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
-            block_service: None,
+            block_service: None::<BlockService<_, E>>,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
@@ -132,7 +132,6 @@ impl ApiTester {
             config: http_config,
             sse_logging_components: None,
             slot_clock,
-            _phantom: PhantomData,
         });
         let ctx = context;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();

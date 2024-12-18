@@ -9,7 +9,6 @@ use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
 };
 use slot_clock::SlotClock;
-use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -77,7 +76,7 @@ const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 /// https://github.com/ethereum/builder-specs/issues/17
 pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
 
-pub struct ValidatorStore<T, E: EthSpec> {
+pub struct ValidatorStore<T> {
     validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,
@@ -93,16 +92,15 @@ pub struct ValidatorStore<T, E: EthSpec> {
     builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
     slots_per_epoch: u64,
-    _phantom: PhantomData<E>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> DoppelgangerValidatorStore for ValidatorStore<T, E> {
+impl<T: SlotClock + 'static> DoppelgangerValidatorStore for ValidatorStore<T> {
     fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
         self.validator_index(pubkey)
     }
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
+impl<T: SlotClock + 'static> ValidatorStore<T> {
     // All arguments are different types. Making the fields `pub` is undesired. A builder seems
     // unnecessary.
     #[allow(clippy::too_many_arguments)]
@@ -133,7 +131,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
             slots_per_epoch,
-            _phantom: PhantomData,
         }
     }
 
@@ -141,13 +138,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// duplicate validators operating on the network at the same time.
     ///
     /// This function has no effect if doppelganger protection is disabled.
-    pub fn register_all_in_doppelganger_protection_if_enabled(&self) -> Result<(), String> {
+    pub fn register_all_in_doppelganger_protection_if_enabled<E: EthSpec>(
+        &self,
+    ) -> Result<(), String> {
         if let Some(doppelganger_service) = &self.doppelganger_service {
             for pubkey in self.validators.read().iter_voting_pubkeys() {
                 doppelganger_service.register_new_validator(
                     *pubkey,
                     &self.slot_clock,
-                    self.slots_per_epoch,
+                    E::slots_per_epoch(),
                 )?
             }
         }
@@ -175,7 +174,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
     /// keystore on the filesystem.
     #[allow(clippy::too_many_arguments)]
-    pub async fn add_validator_keystore<P: AsRef<Path>>(
+    pub async fn add_validator_keystore<P: AsRef<Path>, E: EthSpec>(
         &self,
         voting_keystore_path: P,
         password_storage: PasswordStorage,
@@ -201,7 +200,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         validator_def.enabled = enable;
 
-        self.add_validator(validator_def).await
+        self.add_validator::<E>(validator_def).await
     }
 
     /// Insert a new validator to `self`.
@@ -213,7 +212,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// - If `enable == true`, starting to perform duties for the validator.
     // FIXME: ignore this clippy lint until the validator store is refactored to use async locks
     #[allow(clippy::await_holding_lock)]
-    pub async fn add_validator(
+    pub async fn add_validator<E: EthSpec>(
         &self,
         validator_def: ValidatorDefinition,
     ) -> Result<ValidatorDefinition, String> {
@@ -227,7 +226,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             doppelganger_service.register_new_validator(
                 validator_pubkey,
                 &self.slot_clock,
-                self.slots_per_epoch,
+                E::slots_per_epoch(),
             )?;
         }
 
@@ -415,7 +414,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    pub async fn randao_reveal(
+    pub async fn randao_reveal<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         signing_epoch: Epoch,
@@ -580,7 +579,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         })
     }
 
-    pub async fn sign_block<Payload: AbstractExecPayload<E>>(
+    pub async fn sign_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
         &self,
         validator_pubkey: PublicKeyBytes,
         block: BeaconBlock<E, Payload>,
@@ -627,7 +626,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 );
 
                 let signature = signing_method
-                    .get_signature::<E, Payload>(
+                    .get_signature(
                         SignableMessage::BeaconBlock(&block),
                         signing_context,
                         &self.spec,
@@ -667,7 +666,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    pub async fn sign_attestation(
+    pub async fn sign_attestation<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         validator_committee_position: usize,
@@ -758,7 +757,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    pub async fn sign_voluntary_exit(
+    pub async fn sign_voluntary_exit<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         voluntary_exit: VoluntaryExit,
@@ -787,7 +786,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         })
     }
 
-    pub async fn sign_validator_registration_data(
+    pub async fn sign_validator_registration_data<E: EthSpec>(
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
@@ -820,7 +819,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     ///
     /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
     /// modified by actors other than the signing validator.
-    pub async fn produce_signed_aggregate_and_proof(
+    pub async fn produce_signed_aggregate_and_proof<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         aggregator_index: u64,
@@ -855,7 +854,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
     /// `validator_pubkey`.
-    pub async fn produce_selection_proof(
+    pub async fn produce_selection_proof<E: EthSpec>(
         &self,
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
@@ -891,7 +890,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
-    pub async fn produce_sync_selection_proof(
+    pub async fn produce_sync_selection_proof<E: EthSpec>(
         &self,
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
@@ -927,7 +926,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Ok(signature.into())
     }
 
-    pub async fn produce_sync_committee_signature(
+    pub async fn produce_sync_committee_signature<E: EthSpec>(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -966,7 +965,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         })
     }
 
-    pub async fn produce_signed_contribution_and_proof(
+    pub async fn produce_signed_contribution_and_proof<E: EthSpec>(
         &self,
         aggregator_index: u64,
         aggregator_pubkey: PublicKeyBytes,

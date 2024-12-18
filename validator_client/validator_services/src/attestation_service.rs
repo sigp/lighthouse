@@ -18,9 +18,9 @@ use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 #[derive(Default)]
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     duties_service: Option<Arc<DutiesService<T, E>>>,
-    validator_store: Option<Arc<ValidatorStore<T, E>>>,
+    validator_store: Option<Arc<ValidatorStore<T>>>,
     slot_clock: Option<T>,
-    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     context: Option<RuntimeContext<E>>,
     disable: bool,
 }
@@ -42,7 +42,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
-    pub fn validator_store(mut self, store: Arc<ValidatorStore<T, E>>) -> Self {
+    pub fn validator_store(mut self, store: Arc<ValidatorStore<T>>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -52,7 +52,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
         self
     }
@@ -94,9 +94,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
     duties_service: Arc<DutiesService<T, E>>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<ValidatorStore<T>>,
     slot_clock: T,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
     context: RuntimeContext<E>,
     disable: bool,
 }
@@ -552,7 +552,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 );
                 if fork_name.electra_enabled() {
                     beacon_node
-                        .get_validator_aggregate_attestation_v2(
+                        .get_validator_aggregate_attestation_v2::<E>(
                             attestation_data.slot,
                             attestation_data.tree_hash_root(),
                             committee_index,

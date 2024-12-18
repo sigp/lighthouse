@@ -26,9 +26,9 @@ const EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION: u64 = 1;
 /// Builds an `PreparationService`.
 #[derive(Default)]
 pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
-    validator_store: Option<Arc<ValidatorStore<T, E>>>,
+    validator_store: Option<Arc<ValidatorStore<T>>>,
     slot_clock: Option<T>,
-    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     context: Option<RuntimeContext<E>>,
     builder_registration_timestamp_override: Option<u64>,
     validator_registration_batch_size: Option<usize>,
@@ -46,7 +46,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         }
     }
 
-    pub fn validator_store(mut self, store: Arc<ValidatorStore<T, E>>) -> Self {
+    pub fn validator_store(mut self, store: Arc<ValidatorStore<T>>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -56,7 +56,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
         self
     }
@@ -110,9 +110,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
 
 /// Helper to minimise `Arc` usage.
 pub struct Inner<T, E: EthSpec> {
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<ValidatorStore<T>>,
     slot_clock: T,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
     context: RuntimeContext<E>,
     builder_registration_timestamp_override: Option<u64>,
     // Used to track unpublished validator registration changes.
@@ -411,7 +411,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
                 match self
                     .validator_store
-                    .sign_validator_registration_data(ValidatorRegistrationData {
+                    .sign_validator_registration_data::<E>(ValidatorRegistrationData {
                         fee_recipient,
                         gas_limit,
                         timestamp,

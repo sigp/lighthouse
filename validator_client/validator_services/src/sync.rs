@@ -538,7 +538,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
                 let proof = match duties_service_ref
                     .validator_store
-                    .produce_sync_selection_proof(&duty.pubkey, proof_slot, *subnet_id)
+                    .produce_sync_selection_proof::<E>(&duty.pubkey, proof_slot, *subnet_id)
                     .await
                 {
                     Ok(proof) => proof,
