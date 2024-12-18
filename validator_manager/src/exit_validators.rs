@@ -22,7 +22,10 @@ pub const SIGNATURE_FLAG: &str = "signature";
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
-        .about("Exit validator using the HTTP API for a given validator keystore.")
+        .about(
+            "Exits one or more validators using the HTTP API. It can \
+        also be used to generate voluntary exit message for a particular future epoch.",
+        )
         .arg(
             Arg::new(BEACON_URL_FLAG)
                 .long(BEACON_URL_FLAG)
@@ -144,46 +147,19 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         validators_to_exit = validators.iter().map(|v| v.validating_pubkey).collect();
     }
 
-    // Beacon node data to be used later
-    let beacon_node = if let Some(ref beacon_url) = beacon_url {
-        BeaconNodeHttpClient::new(
-            SensitiveUrl::parse(beacon_url.as_ref())
-                .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
-            Timeouts::set_all(Duration::from_secs(12)),
-        )
-    } else {
-        return Err("Beacon URL is not provided".into());
-    };
+    let mut first_sleep = true;
 
-    let genesis_data = beacon_node
-        .get_beacon_genesis()
-        .await
-        .map_err(|e| format!("Failed to get genesis data: {}", e))?
-        .data;
-
-    let config_and_preset = beacon_node
-        .get_config_spec::<ConfigAndPreset>()
-        .await
-        .map_err(|e| format!("Failed to get config spec: {}", e))?
-        .data;
-
-    let spec = ChainSpec::from_config::<E>(config_and_preset.config())
-        .ok_or("Failed to create chain spec")?;
-
-    let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, &spec)
-        .ok_or("Failed to get current epoch. Please check your system time")?;
-
-    for validator_to_exit in &validators_to_exit {
+    for validator_to_exit in validators_to_exit {
         // Check that the validators_to_exit is in the validator client
         if !validators
             .iter()
-            .any(|validator| &validator.validating_pubkey == validator_to_exit)
+            .any(|validator| validator.validating_pubkey == validator_to_exit)
         {
             return Err(format!("Validator {} doesn't exist", validator_to_exit));
         }
 
         let exit_message = http_client
-            .post_validator_voluntary_exit(validator_to_exit, exit_epoch)
+            .post_validator_voluntary_exit(&validator_to_exit, exit_epoch)
             .await
             .map_err(|e| format!("Failed to generate voluntary exit message: {}", e))?;
 
@@ -197,6 +173,16 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
 
         // only publish the voluntary exit if the --beacon-node flag is present
         if beacon_url.is_some() {
+            let beacon_node = if let Some(ref beacon_url) = beacon_url {
+                BeaconNodeHttpClient::new(
+                    SensitiveUrl::parse(beacon_url.as_ref())
+                        .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
+                    Timeouts::set_all(Duration::from_secs(12)),
+                )
+            } else {
+                return Err("Beacon URL is not provided".into());
+            };
+
             if beacon_node
                 .get_node_syncing()
                 .await
@@ -210,8 +196,23 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                 );
             }
 
+            let genesis_data = beacon_node
+                .get_beacon_genesis()
+                .await
+                .map_err(|e| format!("Failed to get genesis data: {}", e))?
+                .data;
+
+            let config_and_preset = beacon_node
+                .get_config_spec::<ConfigAndPreset>()
+                .await
+                .map_err(|e| format!("Failed to get config spec: {}", e))?
+                .data;
+
+            let spec = ChainSpec::from_config::<E>(config_and_preset.config())
+                .ok_or("Failed to create chain spec")?;
+
             let validator_data = beacon_node
-            .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(*validator_to_exit))
+            .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(validator_to_exit))
             .await
             .map_err(|e| format!("Failed to get validator details: {:?}", e))?
             .ok_or_else(|| {
@@ -224,6 +225,8 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
             .data;
 
             let activation_epoch = validator_data.validator.activation_epoch;
+            let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, &spec)
+                .ok_or("Failed to get current epoch. Please check your system time")?;
 
             // Check if validator is eligible for exit
             if validator_data.status == ValidatorStatus::ActiveOngoing
@@ -251,49 +254,57 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                     validator_to_exit
                 );
             }
-        }
-    }
 
-    sleep(Duration::from_secs(spec.seconds_per_slot)).await;
-
-    // Check validator status after publishing voluntary exit
-    for validator_to_exit in validators_to_exit {
-        let updated_validator_data = beacon_node
-            .get_beacon_states_validator_id(
-                StateId::Head,
-                &ValidatorId::PublicKey(validator_to_exit),
-            )
-            .await
-            .map_err(|e| format!("Failed to get updated validator details: {:?}", e))?
-            .ok_or_else(|| {
-                format!(
-                    "Validator {} is not present in the beacon state",
-                    validator_to_exit
+            // Check validator status after publishing voluntary exit
+            let updated_validator_data = beacon_node
+                .get_beacon_states_validator_id(
+                    StateId::Head,
+                    &ValidatorId::PublicKey(validator_to_exit),
                 )
-            })?
-            .data;
+                .await
+                .map_err(|e| format!("Failed to get updated validator details: {:?}", e))?
+                .ok_or_else(|| {
+                    format!(
+                        "Validator {} is not present in the beacon state",
+                        validator_to_exit
+                    )
+                })?
+                .data;
 
-        match updated_validator_data.status {
-            ValidatorStatus::ActiveExiting => {
-                let exit_epoch = updated_validator_data.validator.exit_epoch;
-                let withdrawal_epoch = updated_validator_data.validator.withdrawable_epoch;
-
-                eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
-                        Finalization may take several minutes or longer. Before finalization there is a low \
-                        probability that the exit may be reverted.");
-                eprintln!(
-                    "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
-                    current_epoch, exit_epoch, withdrawal_epoch
-                );
-                eprintln!("Please keep your validator running till exit epoch");
-                eprintln!(
-                    "Exit epoch in approximately {} secs",
-                    (exit_epoch - current_epoch) * spec.seconds_per_slot * E::slots_per_epoch()
-                );
+            if first_sleep {
+                sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+                first_sleep = false;
             }
 
-            _ => {
-                eprintln!("Waiting for voluntary exit to be accepted into the beacon chain...")
+            loop {
+                if validator_data.status == ValidatorStatus::ActiveOngoing
+                    && updated_validator_data.status == ValidatorStatus::ActiveOngoing
+                // The case where the beacon node has not yet published the voluntary exit
+                {
+                    eprintln!("Waiting for voluntary exit to be accepted into the beacon chain...");
+                } else if updated_validator_data.status == ValidatorStatus::ActiveExiting {
+                    let exit_epoch = updated_validator_data.validator.exit_epoch;
+                    let withdrawal_epoch = updated_validator_data.validator.withdrawable_epoch;
+
+                    eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
+                        Finalization may take several minutes or longer. Before finalization there is a low \
+                        probability that the exit may be reverted.");
+                    eprintln!(
+                        "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
+                        current_epoch, exit_epoch, withdrawal_epoch
+                    );
+                    eprintln!("Please keep your validator running till exit epoch");
+                    eprintln!(
+                        "Exit epoch in approximately {} secs",
+                        (exit_epoch - current_epoch) * spec.seconds_per_slot * E::slots_per_epoch()
+                    );
+                    break;
+                } else {
+                    eprintln!(
+                        "Validator has not exited. Validator status is: {}",
+                        updated_validator_data.status
+                    )
+                }
             }
         }
     }
