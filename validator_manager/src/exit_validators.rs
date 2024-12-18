@@ -106,6 +106,7 @@ impl ExitConfig {
     fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
         let validators_to_exit_str = clap_utils::parse_required::<String>(matches, VALIDATOR_FLAG)?;
 
+        // Keyword "all" to exit all validators, vector to be created later
         let validators_to_exit = if validators_to_exit_str.trim() == "all" {
             Vec::new()
         } else {
@@ -153,7 +154,6 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
 
     let (http_client, validators) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
-    // Exit all validators on the VC
     if validators_to_exit.is_empty() {
         validators_to_exit = validators.iter().map(|v| v.validating_pubkey).collect();
     }
@@ -180,7 +180,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
             }
         }
 
-        // only publish the voluntary exit if the --beacon-node flag is present
+        // Only publish the voluntary exit if the --beacon-node flag is present
         if beacon_url.is_some() {
             let beacon_node = if let Some(ref beacon_url) = beacon_url {
                 BeaconNodeHttpClient::new(
@@ -238,32 +238,29 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                 .ok_or("Failed to get current epoch. Please check your system time")?;
 
             // Check if validator is eligible for exit
-            if !exit_status {
-                if validator_data.status == ValidatorStatus::ActiveOngoing
-                    && current_epoch < activation_epoch + spec.shard_committee_period
-                {
-                    eprintln!(
+            if validator_data.status == ValidatorStatus::ActiveOngoing
+                && current_epoch < activation_epoch + spec.shard_committee_period
+            {
+                eprintln!(
                     "Validator {} is not eligible for exit. It will become eligible at epoch {}",
                     validator_to_exit,
                     activation_epoch + spec.shard_committee_period
                 )
-                } else if validator_data.status != ValidatorStatus::ActiveOngoing {
-                    eprintln!(
-                        "Validator {} is not eligible for exit. Validator status is: {:?}",
-                        validator_to_exit, validator_data.status
-                    )
-                } else {
-                    // Only publish voluntary exit if validator status is ActiveOngoing
-                    beacon_node
-                        .post_beacon_pool_voluntary_exits(&exit_message.data)
-                        .await
-                        .map_err(|e| format!("Failed to publish voluntary exit: {}", e))?;
-                    // tokio::time::sleep(std::time::Duration::from_secs(1)).await; // Provides nicer UX.
-                    eprintln!(
-                        "Successfully validated and published voluntary exit for validator {}",
-                        validator_to_exit
-                    );
-                }
+            } else if validator_data.status != ValidatorStatus::ActiveOngoing {
+                eprintln!(
+                    "Validator {} is not eligible for exit. Validator status is: {:?}",
+                    validator_to_exit, validator_data.status
+                )
+            } else {
+                // Only publish voluntary exit if validator status is ActiveOngoing
+                beacon_node
+                    .post_beacon_pool_voluntary_exits(&exit_message.data)
+                    .await
+                    .map_err(|e| format!("Failed to publish voluntary exit: {}", e))?;
+                eprintln!(
+                    "Successfully validated and published voluntary exit for validator {}",
+                    validator_to_exit
+                );
             }
 
             // Check validator status after publishing voluntary exit
@@ -332,6 +329,7 @@ fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<
     );
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }
+
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {

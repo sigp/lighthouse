@@ -491,6 +491,7 @@ pub fn validator_exit_defaults() {
             Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
         )
         .flag("--vc-token", Some("./token.json"))
+        .flag("--beacon-node", Some("http://localhost:5052"))
         .assert_success(|config| {
             let expected = ExitConfig {
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
@@ -499,7 +500,7 @@ pub fn validator_exit_defaults() {
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
                 ],
-                beacon_url: None,
+                beacon_url: Some(SensitiveUrl::parse("http://localhost:5052").unwrap()),
                 exit_epoch: None,
                 signature: false,
                 exit_status: false,

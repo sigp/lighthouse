@@ -30,4 +30,3 @@ http_api = { workspace = true }
 regex = { workspace = true }
 tempfile = { workspace = true }
 validator_http_api = { workspace = true }
-
