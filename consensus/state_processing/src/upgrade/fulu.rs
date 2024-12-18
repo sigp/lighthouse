@@ -78,7 +78,7 @@ pub fn upgrade_state_to_fulu<E: EthSpec>(
         earliest_exit_epoch: pre.earliest_exit_epoch,
         consolidation_balance_to_consume: pre.consolidation_balance_to_consume,
         earliest_consolidation_epoch: pre.earliest_consolidation_epoch,
-        pending_balance_deposits: pre.pending_balance_deposits.clone(),
+        pending_deposits: pre.pending_deposits.clone(),
         pending_partial_withdrawals: pre.pending_partial_withdrawals.clone(),
         pending_consolidations: pre.pending_consolidations.clone(),
         // Caches

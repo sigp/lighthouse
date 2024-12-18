@@ -1,6 +1,5 @@
 use super::types::*;
 use crate::Error;
-use account_utils::ZeroizeString;
 use reqwest::{
     header::{HeaderMap, HeaderValue},
     IntoUrl,
@@ -14,6 +13,7 @@ use std::path::Path;
 pub use reqwest;
 pub use reqwest::{Response, StatusCode, Url};
 use types::graffiti::GraffitiString;
+use zeroize::Zeroizing;
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Validator Client HTTP server (`validator_client/src/http_api`).
@@ -21,7 +21,7 @@ use types::graffiti::GraffitiString;
 pub struct ValidatorClientHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
-    api_token: Option<ZeroizeString>,
+    api_token: Option<Zeroizing<String>>,
     authorization_header: AuthorizationHeader,
 }
 
@@ -79,18 +79,18 @@ impl ValidatorClientHttpClient {
     }
 
     /// Get a reference to this client's API token, if any.
-    pub fn api_token(&self) -> Option<&ZeroizeString> {
+    pub fn api_token(&self) -> Option<&Zeroizing<String>> {
         self.api_token.as_ref()
     }
 
     /// Read an API token from the specified `path`, stripping any trailing whitespace.
-    pub fn load_api_token_from_file(path: &Path) -> Result<ZeroizeString, Error> {
+    pub fn load_api_token_from_file(path: &Path) -> Result<Zeroizing<String>, Error> {
         let token = fs::read_to_string(path).map_err(|e| Error::TokenReadError(path.into(), e))?;
-        Ok(ZeroizeString::from(token.trim_end().to_string()))
+        Ok(token.trim_end().to_string().into())
     }
 
     /// Add an authentication token to use when making requests.
-    pub fn add_auth_token(&mut self, token: ZeroizeString) -> Result<(), Error> {
+    pub fn add_auth_token(&mut self, token: Zeroizing<String>) -> Result<(), Error> {
         self.api_token = Some(token);
         self.authorization_header = AuthorizationHeader::Bearer;
 

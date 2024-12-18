@@ -25,12 +25,13 @@ use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
 use crate::EngineCapabilities;
+pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
     generate_blobs, generate_genesis_block, generate_genesis_header, generate_pow_block,
-    static_valid_tx, Block, ExecutionBlockGenerator,
+    mock_el_extra_data, static_valid_tx, Block, ExecutionBlockGenerator,
 };
 pub use hook::Hook;
-pub use mock_builder::{MockBuilder, Operation};
+pub use mock_builder::{mock_builder_extra_data, MockBuilder, Operation};
 pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;

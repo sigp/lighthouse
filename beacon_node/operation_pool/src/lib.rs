@@ -877,11 +877,11 @@ mod release_tests {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
         // Only run this test on the phase0 hard-fork.
-        if spec.altair_fork_epoch != None {
+        if spec.altair_fork_epoch.is_some() {
             return;
         }
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
         let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
@@ -902,10 +902,10 @@ mod release_tests {
         );
 
         for (atts, aggregate) in &attestations {
-            let att2 = aggregate.as_ref().unwrap().message().aggregate().clone();
+            let att2 = aggregate.as_ref().unwrap().message().aggregate();
 
             let att1 = atts
-                .into_iter()
+                .iter()
                 .map(|(att, _)| att)
                 .take(2)
                 .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
@@ -946,7 +946,7 @@ mod release_tests {
                 .unwrap();
 
             assert_eq!(
-                committees.get(0).unwrap().committee.len() - 2,
+                committees.first().unwrap().committee.len() - 2,
                 earliest_attestation_validators(
                     &att2_split.as_ref(),
                     &state,
@@ -963,7 +963,7 @@ mod release_tests {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let slot = state.slot();
         let committees = state
@@ -1020,7 +1020,7 @@ mod release_tests {
         let agg_att = &block_attestations[0];
         assert_eq!(
             agg_att.num_set_aggregation_bits(),
-            spec.target_committee_size as usize
+            spec.target_committee_size
         );
 
         // Prune attestations shouldn't do anything at this point.
@@ -1039,7 +1039,7 @@ mod release_tests {
     fn attestation_duplicate() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let state = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1082,7 +1082,7 @@ mod release_tests {
     fn attestation_pairwise_overlapping() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let state = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1113,19 +1113,17 @@ mod release_tests {
             let aggs1 = atts1
                 .chunks_exact(step_size * 2)
                 .map(|chunk| {
-                    let agg = chunk.into_iter().map(|(att, _)| att).fold::<Option<
-                        Attestation<MainnetEthSpec>,
-                    >, _>(
-                        None,
-                        |att, new_att| {
+                    let agg = chunk
+                        .iter()
+                        .map(|(att, _)| att)
+                        .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
                             if let Some(mut a) = att {
                                 a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
                             }
-                        },
-                    );
+                        });
                     agg.unwrap()
                 })
                 .collect::<Vec<_>>();
@@ -1136,19 +1134,17 @@ mod release_tests {
                 .as_slice()
                 .chunks_exact(step_size * 2)
                 .map(|chunk| {
-                    let agg = chunk.into_iter().map(|(att, _)| att).fold::<Option<
-                        Attestation<MainnetEthSpec>,
-                    >, _>(
-                        None,
-                        |att, new_att| {
+                    let agg = chunk
+                        .iter()
+                        .map(|(att, _)| att)
+                        .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
                             if let Some(mut a) = att {
                                 a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
                             }
-                        },
-                    );
+                        });
                     agg.unwrap()
                 })
                 .collect::<Vec<_>>();
@@ -1181,7 +1177,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1194,7 +1190,7 @@ mod release_tests {
             .collect::<Vec<_>>();
 
         let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
-        let target_committee_size = spec.target_committee_size as usize;
+        let target_committee_size = spec.target_committee_size;
         let num_validators = num_committees
             * MainnetEthSpec::slots_per_epoch() as usize
             * spec.target_committee_size;
@@ -1209,12 +1205,12 @@ mod release_tests {
 
         let insert_attestations = |attestations: Vec<(Attestation<MainnetEthSpec>, SubnetId)>,
                                    step_size| {
-            let att_0 = attestations.get(0).unwrap().0.clone();
+            let att_0 = attestations.first().unwrap().0.clone();
             let aggs = attestations
                 .chunks_exact(step_size)
                 .map(|chunk| {
                     chunk
-                        .into_iter()
+                        .iter()
                         .map(|(att, _)| att)
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
@@ -1296,7 +1292,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slot = state.slot();
@@ -1308,7 +1304,7 @@ mod release_tests {
             .collect::<Vec<_>>();
 
         let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
-        let target_committee_size = spec.target_committee_size as usize;
+        let target_committee_size = spec.target_committee_size;
 
         // Each validator will have a multiple of 1_000_000_000 wei.
         // Safe from overflow unless there are about 18B validators (2^64 / 1_000_000_000).
@@ -1329,12 +1325,12 @@ mod release_tests {
 
         let insert_attestations = |attestations: Vec<(Attestation<MainnetEthSpec>, SubnetId)>,
                                    step_size| {
-            let att_0 = attestations.get(0).unwrap().0.clone();
+            let att_0 = attestations.first().unwrap().0.clone();
             let aggs = attestations
                 .chunks_exact(step_size)
                 .map(|chunk| {
                     chunk
-                        .into_iter()
+                        .iter()
                         .map(|(att, _)| att)
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
@@ -1615,7 +1611,6 @@ mod release_tests {
 
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
-            .ok()
             .expect("block root should exist at slot");
         let contributions = harness.make_sync_contributions(
             &state,
@@ -1674,7 +1669,6 @@ mod release_tests {
         let state = harness.get_current_state();
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
-            .ok()
             .expect("block root should exist at slot");
         let contributions = harness.make_sync_contributions(
             &state,
@@ -1711,7 +1705,6 @@ mod release_tests {
         let state = harness.get_current_state();
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
-            .ok()
             .expect("block root should exist at slot");
         let contributions = harness.make_sync_contributions(
             &state,
@@ -1791,7 +1784,6 @@ mod release_tests {
         let state = harness.get_current_state();
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
-            .ok()
             .expect("block root should exist at slot");
         let contributions = harness.make_sync_contributions(
             &state,

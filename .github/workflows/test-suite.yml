@@ -363,6 +363,8 @@ jobs:
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
     - name: Markdown-linter
       run: make mdlint
+    - name: Spell-check
+      uses: rojopolis/spellcheck-github-actions@v0
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest

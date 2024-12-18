@@ -36,6 +36,7 @@ dependencies = [
  "tokio",
  "types",
  "validator_dir",
+ "zeroize",
 ]
 
 [[package]]
@@ -833,7 +834,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "6.0.0"
+version = "6.0.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -1078,7 +1079,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "6.0.0"
+version = "6.0.1"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -2561,8 +2562,6 @@ dependencies = [
 name = "eth2"
 version = "0.1.0"
 dependencies = [
- "account_utils",
- "bytes",
  "derivative",
  "eth2_keystore",
  "ethereum_serde_utils",
@@ -2570,7 +2569,6 @@ dependencies = [
  "ethereum_ssz_derive",
  "futures",
  "futures-util",
- "libsecp256k1",
  "lighthouse_network",
  "mediatype",
  "pretty_reqwest_error",
@@ -2578,7 +2576,7 @@ dependencies = [
  "proto_array",
  "psutil",
  "reqwest",
- "ring 0.16.20",
+ "reqwest-eventsource",
  "sensitive_url",
  "serde",
  "serde_json",
@@ -2587,6 +2585,7 @@ dependencies = [
  "store",
  "tokio",
  "types",
+ "zeroize",
 ]
 
 [[package]]
@@ -2976,6 +2975,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f214dc438f977e6d4e3500aaa277f5ad94ca83fbbd9b1a15713ce2344ccc5a1"
 dependencies = [
  "event-listener 5.3.1",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "eventsource-stream"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74fef4569247a5f429d9156b9d0a2599914385dd189c539334c625d8099d90ab"
+dependencies = [
+ "futures-core",
+ "nom",
  "pin-project-lite",
 ]
 
@@ -4433,6 +4443,7 @@ dependencies = [
  "url",
  "validator_dir",
  "validator_metrics",
+ "zeroize",
 ]
 
 [[package]]
@@ -4678,7 +4689,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "6.0.0"
+version = "6.0.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5248,7 +5259,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "6.0.0"
+version = "6.0.1"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5287,6 +5298,7 @@ dependencies = [
  "validator_client",
  "validator_dir",
  "validator_manager",
+ "zeroize",
 ]
 
 [[package]]
@@ -7177,6 +7189,22 @@ dependencies = [
  "web-sys",
  "webpki-roots",
  "winreg",
+]
+
+[[package]]
+name = "reqwest-eventsource"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f529a5ff327743addc322af460761dff5b50e0c826b9e6ac44c3195c50bb2026"
+dependencies = [
+ "eventsource-stream",
+ "futures-core",
+ "futures-timer",
+ "mime",
+ "nom",
+ "pin-project-lite",
+ "reqwest",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -9552,6 +9580,8 @@ dependencies = [
  "beacon_node_fallback",
  "bls",
  "deposit_contract",
+ "directory",
+ "dirs",
  "doppelganger_service",
  "eth2",
  "eth2_keystore",
@@ -9584,6 +9614,7 @@ dependencies = [
  "validator_store",
  "warp",
  "warp_utils",
+ "zeroize",
 ]
 
 [[package]]
@@ -9627,6 +9658,7 @@ dependencies = [
  "tree_hash",
  "types",
  "validator_http_api",
+ "zeroize",
 ]
 
 [[package]]
@@ -10562,6 +10594,7 @@ version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
 dependencies = [
+ "serde",
  "zeroize_derive",
 ]
 
