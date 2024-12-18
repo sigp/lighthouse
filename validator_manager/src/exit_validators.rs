@@ -238,30 +238,32 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                 .ok_or("Failed to get current epoch. Please check your system time")?;
 
             // Check if validator is eligible for exit
-            if validator_data.status == ValidatorStatus::ActiveOngoing
-                && current_epoch < activation_epoch + spec.shard_committee_period
-            {
-                eprintln!(
+            if !exit_status {
+                if validator_data.status == ValidatorStatus::ActiveOngoing
+                    && current_epoch < activation_epoch + spec.shard_committee_period
+                {
+                    eprintln!(
                     "Validator {} is not eligible for exit. It will become eligible at epoch {}",
                     validator_to_exit,
                     activation_epoch + spec.shard_committee_period
                 )
-            } else if validator_data.status != ValidatorStatus::ActiveOngoing {
-                eprintln!(
-                    "Validator {} is not eligible for exit. Validator status is: {:?}",
-                    validator_to_exit, validator_data.status
-                )
-            } else {
-                // Only publish voluntary exit if validator status is ActiveOngoing
-                beacon_node
-                    .post_beacon_pool_voluntary_exits(&exit_message.data)
-                    .await
-                    .map_err(|e| format!("Failed to publish voluntary exit: {}", e))?;
-                // tokio::time::sleep(std::time::Duration::from_secs(1)).await; // Provides nicer UX.
-                eprintln!(
-                    "Successfully validated and published voluntary exit for validator {}",
-                    validator_to_exit
-                );
+                } else if validator_data.status != ValidatorStatus::ActiveOngoing {
+                    eprintln!(
+                        "Validator {} is not eligible for exit. Validator status is: {:?}",
+                        validator_to_exit, validator_data.status
+                    )
+                } else {
+                    // Only publish voluntary exit if validator status is ActiveOngoing
+                    beacon_node
+                        .post_beacon_pool_voluntary_exits(&exit_message.data)
+                        .await
+                        .map_err(|e| format!("Failed to publish voluntary exit: {}", e))?;
+                    // tokio::time::sleep(std::time::Duration::from_secs(1)).await; // Provides nicer UX.
+                    eprintln!(
+                        "Successfully validated and published voluntary exit for validator {}",
+                        validator_to_exit
+                    );
+                }
             }
 
             // Check validator status after publishing voluntary exit

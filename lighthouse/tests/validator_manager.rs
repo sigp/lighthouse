@@ -502,6 +502,7 @@ pub fn validator_exit_defaults() {
                 beacon_url: None,
                 exit_epoch: None,
                 signature: false,
+                exit_status: false,
             };
             assert_eq!(expected, config);
         });
