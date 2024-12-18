@@ -2,7 +2,7 @@ use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition}
 use account_utils::{
     eth2_keystore::Keystore,
     eth2_wallet::{bip39::Mnemonic, WalletBuilder},
-    random_mnemonic, random_password, ZeroizeString,
+    random_mnemonic, random_password,
 };
 use eth2::lighthouse_vc::types::{self as api_types};
 use slot_clock::SlotClock;
@@ -11,6 +11,7 @@ use types::ChainSpec;
 use types::EthSpec;
 use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
 use validator_store::ValidatorStore;
+use zeroize::Zeroizing;
 
 /// Create some validator EIP-2335 keystores and store them on disk. Then, enroll the validators in
 /// this validator client.
@@ -59,7 +60,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
     for request in validator_requests {
         let voting_password = random_password();
         let withdrawal_password = random_password();
-        let voting_password_string = ZeroizeString::from(
+        let voting_password_string = Zeroizing::from(
             String::from_utf8(voting_password.as_bytes().to_vec()).map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(
                     "locally generated password is not utf8: {:?}",
@@ -199,7 +200,7 @@ pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
 pub fn get_voting_password_storage(
     secrets_dir: &Option<PathBuf>,
     voting_keystore: &Keystore,
-    voting_password_string: &ZeroizeString,
+    voting_password_string: &Zeroizing<String>,
 ) -> Result<PasswordStorage, warp::Rejection> {
     if let Some(secrets_dir) = &secrets_dir {
         let password_path = keystore_password_path(secrets_dir, voting_keystore);

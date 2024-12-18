@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "6.0.0"
+version = "6.0.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
@@ -73,6 +73,7 @@ eth2 = { workspace = true }
 beacon_processor = { workspace = true }
 beacon_node_fallback = { workspace = true }
 initialized_validators = { workspace = true }
+zeroize = { workspace = true }
 
 
 [[test]]

@@ -6,7 +6,9 @@ use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
-use types::execution_requests::{ConsolidationRequests, DepositRequests, WithdrawalRequests};
+use types::execution_requests::{
+    ConsolidationRequests, DepositRequests, RequestPrefix, WithdrawalRequests,
+};
 use types::{Blob, FixedVector, KzgProof, Unsigned};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -339,25 +341,6 @@ impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
     }
 }
 
-/// This is used to index into the `execution_requests` array.
-#[derive(Debug, Copy, Clone)]
-enum RequestPrefix {
-    Deposit,
-    Withdrawal,
-    Consolidation,
-}
-
-impl RequestPrefix {
-    pub fn from_prefix(prefix: u8) -> Option<Self> {
-        match prefix {
-            0 => Some(Self::Deposit),
-            1 => Some(Self::Withdrawal),
-            2 => Some(Self::Consolidation),
-            _ => None,
-        }
-    }
-}
-
 /// Format of `ExecutionRequests` received over the engine api.
 ///
 /// Array of ssz-encoded requests list encoded as hex bytes.
@@ -379,7 +362,8 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
 
         for (i, request) in value.0.into_iter().enumerate() {
             // hex string
-            let decoded_bytes = hex::decode(request).map_err(|e| format!("Invalid hex {:?}", e))?;
+            let decoded_bytes = hex::decode(request.strip_prefix("0x").unwrap_or(&request))
+                .map_err(|e| format!("Invalid hex {:?}", e))?;
             match RequestPrefix::from_prefix(i as u8) {
                 Some(RequestPrefix::Deposit) => {
                     requests.deposits = DepositRequests::<E>::from_ssz_bytes(&decoded_bytes)
@@ -431,7 +415,7 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     #[superstruct(only(V3, V4))]
     pub should_override_builder: bool,
     #[superstruct(only(V4))]
-    pub requests: JsonExecutionRequests,
+    pub execution_requests: JsonExecutionRequests,
 }
 
 impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
@@ -464,7 +448,7 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
-                    requests: response.requests.try_into()?,
+                    requests: response.execution_requests.try_into()?,
                 }))
             }
         }

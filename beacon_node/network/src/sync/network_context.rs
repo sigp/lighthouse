@@ -763,8 +763,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let requester = CustodyRequester(id);
         let mut request = ActiveCustodyRequest::new(
             block_root,
-            // TODO(das): req_id is duplicated here, also present in id
-            CustodyId { requester, req_id },
+            CustodyId { requester },
             &custody_indexes_to_fetch,
             self.log.clone(),
         );

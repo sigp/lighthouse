@@ -250,18 +250,17 @@ impl futures::stream::Stream for GossipCache {
             Poll::Ready(Some(expired)) => {
                 let expected_key = expired.key();
                 let (topic, data) = expired.into_inner();
-                match self.topic_msgs.get_mut(&topic) {
-                    Some(msgs) => {
-                        let key = msgs.remove(&data);
-                        debug_assert_eq!(key, Some(expected_key));
-                        if msgs.is_empty() {
-                            // no more messages for this topic.
-                            self.topic_msgs.remove(&topic);
-                        }
-                    }
-                    None => {
-                        #[cfg(debug_assertions)]
-                        panic!("Topic for registered message is not present.")
+                let topic_msg = self.topic_msgs.get_mut(&topic);
+                debug_assert!(
+                    topic_msg.is_some(),
+                    "Topic for registered message is not present."
+                );
+                if let Some(msgs) = topic_msg {
+                    let key = msgs.remove(&data);
+                    debug_assert_eq!(key, Some(expected_key));
+                    if msgs.is_empty() {
+                        // no more messages for this topic.
+                        self.topic_msgs.remove(&topic);
                     }
                 }
                 Poll::Ready(Some(Ok(topic)))

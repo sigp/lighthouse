@@ -362,6 +362,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.sampling.get_request_status(block_root, index)
     }
 
+    #[cfg(test)]
+    pub(crate) fn range_sync_state(&self) -> super::range_sync::SyncChainStatus {
+        self.range_sync.state()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_execution_engine_state(&mut self, state: EngineState) {
+        self.handle_new_execution_engine_state(state);
+    }
+
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
         self.network.network_globals()
     }

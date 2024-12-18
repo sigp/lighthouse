@@ -68,7 +68,7 @@ The steps to do port forwarding depends on the router, but the general steps are
 1. Determine the default gateway IP:
 
     - On Linux: open a terminal and run `ip route | grep default`, the result should look something similar to `default via 192.168.50.1 dev wlp2s0 proto dhcp metric 600`. The `192.168.50.1` is your router management default gateway IP.
-    - On MacOS: open a terminal and run `netstat -nr|grep default` and it should return the default gateway IP.
+    - On macOS: open a terminal and run `netstat -nr|grep default` and it should return the default gateway IP.
     - On Windows: open a command prompt and run `ipconfig` and look for the `Default Gateway` which will show you the gateway IP.
 
     The default gateway IP usually looks like 192.168.X.X. Once you obtain the IP, enter it to a web browser and it will lead you to the router management page.
@@ -91,7 +91,7 @@ The steps to do port forwarding depends on the router, but the general steps are
     - Internal port: `9001`
     - IP address: Choose the device that is running  Lighthouse.
 
-1. To check that you have successfully opened the ports, go to [yougetsignal](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. Note: this will only confirm if port 9000/TCP is open. You will need to ensure you have correctly setup port forwarding for the UDP ports (`9000` and `9001` by default).
+1. To check that you have successfully opened the ports, go to [`yougetsignal`](https://www.yougetsignal.com/tools/open-ports/) and enter `9000` in the `port number`. If it shows "open", then you have successfully set up port forwarding. If it shows "closed", double check your settings, and also check that you have allowed firewall rules on port 9000. Note: this will only confirm if port 9000/TCP is open. You will need to ensure you have correctly setup port forwarding for the UDP ports (`9000` and `9001` by default).
 
 ## ENR Configuration
 
@@ -141,7 +141,7 @@ To listen over both IPv4 and IPv6:
 - Set two listening addresses using the `--listen-address` flag twice ensuring
   the two addresses are one IPv4, and the other IPv6. When doing so, the
   `--port` and `--discovery-port` flags will apply exclusively to IPv4. Note
-  that this behaviour differs from the Ipv6 only case described above.
+  that this behaviour differs from the IPv6 only case described above.
 - If necessary, set the `--port6` flag to configure the port used for TCP and
   UDP over IPv6. This flag has no effect when listening over IPv6 only.
 - If necessary, set the `--discovery-port6` flag to configure the IPv6 UDP
