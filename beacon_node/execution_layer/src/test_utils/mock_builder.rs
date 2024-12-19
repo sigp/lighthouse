@@ -449,7 +449,6 @@ impl<E: EthSpec> MockBuilder<E> {
         parent_hash: ExecutionBlockHash,
         pubkey: PublicKeyBytes,
     ) -> Result<SignedBuilderBid<E>, String> {
-        dbg!(&parent_hash);
         // Check if the pubkey has registered with the builder if required
         if self.validate_pubkey && !self.val_registration_cache.read().contains_key(&pubkey) {
             return Err("validator not registered with builder".to_string());
@@ -460,14 +459,8 @@ impl<E: EthSpec> MockBuilder<E> {
         };
 
         let payload_parameters = match payload_parameters {
-            Some(params) => {
-                dbg!("got matching params");
-                params
-            }
-            None => {
-                dbg!("no matching params, preparing yet again");
-                self.get_payload_params(slot, None, pubkey, None).await?
-            }
+            Some(params) => params,
+            None => self.get_payload_params(slot, None, pubkey, None).await?,
         };
 
         let fork = self.fork_name_at_slot(slot);
@@ -559,7 +552,7 @@ impl<E: EthSpec> MockBuilder<E> {
         if self.apply_operations {
             self.apply_operations(&mut message);
         }
-        dbg!(&message.value());
+
         let mut signature = message.sign_builder_message(&self.builder_sk, &self.spec);
 
         if *self.invalidate_signatures.read() {
@@ -576,6 +569,10 @@ impl<E: EthSpec> MockBuilder<E> {
     /// Prepare the execution layer for payload creation every slot for the correct
     /// proposer index
     pub async fn prepare_execution_layer(&self) -> Result<(), String> {
+        info!(
+            self.log,
+            "Starting a task to prepare the execution layer";
+        );
         let mut head_event_stream = self
             .beacon_client
             .get_events::<E>(&[EventTopic::Head])
@@ -585,7 +582,11 @@ impl<E: EthSpec> MockBuilder<E> {
         while let Some(Ok(event)) = head_event_stream.next().await {
             match event {
                 EventKind::Head(head) => {
-                    println!("Got head event {}", head.block);
+                    debug!(
+                        self.log,
+                        "Got a new head event";
+                        "block_hash" => %head.block
+                    );
                     let next_slot = head.slot + 1;
                     // Find the next proposer index from the cached data or through a beacon api call
                     let epoch = next_slot.epoch(E::slots_per_epoch());
@@ -596,9 +597,10 @@ impl<E: EthSpec> MockBuilder<E> {
                             proposers_cache.get(&epoch).cloned()
                         };
                         match proposers_opt {
-                            Some(proposers) => {
-                                proposers.get(position_in_slot as usize).unwrap().clone()
-                            }
+                            Some(proposers) => proposers
+                                .get(position_in_slot as usize)
+                                .expect("position in slot is max epoch size")
+                                .clone(),
                             None => {
                                 // make a call to the beacon api and populate the cache
                                 let duties: Vec<_> = self
@@ -612,8 +614,10 @@ impl<E: EthSpec> MockBuilder<E> {
                                         )
                                     })?
                                     .data;
-                                let proposer_data =
-                                    duties.get(position_in_slot as usize).unwrap().clone();
+                                let proposer_data = duties
+                                    .get(position_in_slot as usize)
+                                    .expect("position in slot is max epoch size")
+                                    .clone();
                                 self.proposers_cache.write().insert(epoch, duties);
                                 proposer_data
                             }
@@ -646,8 +650,6 @@ impl<E: EthSpec> MockBuilder<E> {
         validator_index: u64,
         pubkey: PublicKeyBytes,
     ) -> Result<(), String> {
-        info!(self.log, "Preparing internal");
-        dbg!(&current_slot, &head_block_root, &validator_index, &pubkey);
         let next_slot = current_slot + 1;
         let payload_parameters = self
             .get_payload_params(
@@ -703,7 +705,6 @@ impl<E: EthSpec> MockBuilder<E> {
             .execution_payload()
             .map_err(|_| "pre-merge block".to_string())?;
         let head_execution_hash = head_execution_payload.block_hash();
-        dbg!(&head_execution_hash);
         let head_gas_limit = head_execution_payload.gas_limit();
 
         let finalized_execution_hash = self
@@ -771,7 +772,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 self.beacon_client
                     .get_expected_withdrawals(&StateId::Head)
                     .await
-                    .unwrap()
+                    .map_err(|e| format!("Failed to get expected withdrawals: {:?}", e))?
                     .data,
             )
         } else {
@@ -814,10 +815,6 @@ impl<E: EthSpec> MockBuilder<E> {
                 .index,
         );
 
-        println!(
-            "Inserting proposer slot: {}, head_block_root: {}, val_index: {}",
-            slot, head_block_root, val_index
-        );
         self.el
             .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
             .await;
@@ -828,8 +825,8 @@ impl<E: EthSpec> MockBuilder<E> {
             justified_hash: Some(justified_execution_hash),
             head_root: head_block_root,
         };
-        dbg!(&forkchoice_update_params);
-        let status = self
+
+        let _status = self
             .el
             .notify_forkchoice_updated(
                 head_execution_hash,
@@ -840,7 +837,6 @@ impl<E: EthSpec> MockBuilder<E> {
             )
             .await
             .map_err(|e| format!("fcu call failed : {:?}", e))?;
-        dbg!(&status);
 
         let payload_parameters = PayloadParametersCloned {
             parent_hash: head_execution_hash,
