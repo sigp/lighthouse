@@ -2,31 +2,30 @@
 name = "web3signer_tests"
 version = "0.1.0"
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 
 [dev-dependencies]
+account_utils = { workspace = true }
 async-channel = { workspace = true }
+environment = { workspace = true }
 eth2_keystore = { workspace = true }
-types = { workspace = true }
+eth2_network_config = { workspace = true }
+futures = { workspace = true }
+initialized_validators = { workspace = true }
+logging = { workspace = true }
+parking_lot = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+slashing_protection = { workspace = true }
+slot_clock = { workspace = true }
+task_executor = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
-reqwest = { workspace = true }
+types = { workspace = true }
 url = { workspace = true }
-slot_clock = { workspace = true }
-futures = { workspace = true }
-task_executor = { workspace = true }
-environment = { workspace = true }
-account_utils = { workspace = true }
-serde = { workspace = true }
-serde_yaml = { workspace = true }
-eth2_network_config = { workspace = true }
-serde_json = { workspace = true }
-zip = { workspace = true }
-parking_lot = { workspace = true }
-logging = { workspace = true }
-initialized_validators = { workspace = true }
-slashing_protection = { workspace = true }
 validator_store = { workspace = true }
+zip = { workspace = true }

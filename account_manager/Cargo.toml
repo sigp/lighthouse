@@ -8,25 +8,25 @@ authors = [
 edition = { workspace = true }
 
 [dependencies]
+account_utils = { workspace = true }
 bls = { workspace = true }
 clap = { workspace = true }
-types = { workspace = true }
-environment = { workspace = true }
-eth2_network_config = { workspace = true }
 clap_utils = { workspace = true }
 directory = { workspace = true }
+environment = { workspace = true }
+eth2 = { workspace = true }
+eth2_keystore = { workspace = true }
+eth2_network_config = { workspace = true }
 eth2_wallet = { workspace = true }
 eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
-validator_dir = { workspace = true }
-tokio = { workspace = true }
-eth2_keystore = { workspace = true }
-account_utils = { workspace = true }
-slashing_protection = { workspace = true }
-eth2 = { workspace = true }
-safe_arith = { workspace = true }
-slot_clock = { workspace = true }
 filesystem = { workspace = true }
+safe_arith = { workspace = true }
 sensitive_url = { workspace = true }
+slashing_protection = { workspace = true }
+slot_clock = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }
+validator_dir = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
