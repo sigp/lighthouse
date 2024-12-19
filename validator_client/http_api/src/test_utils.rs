@@ -1,8 +1,8 @@
+use crate::api_secret::PK_FILENAME;
 use crate::{ApiSecret, Config as HttpConfig, Context};
 use account_utils::validator_definitions::ValidatorDefinitions;
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
-    ZeroizeString,
 };
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
@@ -28,6 +28,7 @@ use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
 use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
+use zeroize::Zeroizing;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -73,6 +74,7 @@ impl ApiTester {
 
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
+        let token_path = tempdir().unwrap().path().join(PK_FILENAME);
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -85,7 +87,7 @@ impl ApiTester {
         .await
         .unwrap();
 
-        let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
+        let api_secret = ApiSecret::create_or_open(token_path).unwrap();
         let api_pubkey = api_secret.api_token();
 
         let config = ValidatorStoreConfig {
@@ -177,6 +179,7 @@ impl ApiTester {
             allow_origin: None,
             allow_keystore_export: true,
             store_passwords_in_secrets_dir: false,
+            http_token_path: tempdir().unwrap().path().join(PK_FILENAME),
         }
     }
 
@@ -199,8 +202,8 @@ impl ApiTester {
     }
 
     pub fn invalid_token_client(&self) -> ValidatorClientHttpClient {
-        let tmp = tempdir().unwrap();
-        let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
+        let tmp = tempdir().unwrap().path().join("invalid-token.txt");
+        let api_secret = ApiSecret::create_or_open(tmp).unwrap();
         let invalid_pubkey = api_secret.api_token();
         ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap()
     }
@@ -321,7 +324,7 @@ impl ApiTester {
             .collect::<Vec<_>>();
 
         let (response, mnemonic) = if s.specify_mnemonic {
-            let mnemonic = ZeroizeString::from(random_mnemonic().phrase().to_string());
+            let mnemonic = Zeroizing::from(random_mnemonic().phrase().to_string());
             let request = CreateValidatorsMnemonicRequest {
                 mnemonic: mnemonic.clone(),
                 key_derivation_path_offset: s.key_derivation_path_offset,

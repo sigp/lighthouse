@@ -551,7 +551,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
         let log = self.context.log();
 
-        let api_secret = ApiSecret::create_or_open(&self.config.validator_dir)?;
+        let api_secret = ApiSecret::create_or_open(&self.config.http_api.http_token_path)?;
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx = Arc::new(validator_http_api::Context {

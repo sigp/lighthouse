@@ -90,6 +90,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         };
 
         let parent_hash = latest_execution_block.block_hash();
+        let parent_gas_limit = latest_execution_block.gas_limit();
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
         let prev_randao = Hash256::from_low_u64_be(block_number);
@@ -131,14 +132,20 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
 
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: ForkName::Bellatrix,
+        };
+
         let block_proposal_content_type = self
             .el
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,
@@ -171,14 +178,20 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
 
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: ForkName::Bellatrix,
+        };
+
         let block_proposal_content_type = self
             .el
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::BlindedV2,

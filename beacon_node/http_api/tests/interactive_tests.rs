@@ -139,7 +139,7 @@ impl ForkChoiceUpdates {
     fn insert(&mut self, update: ForkChoiceUpdateMetadata) {
         self.updates
             .entry(update.state.head_block_hash)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(update);
     }
 
@@ -447,9 +447,14 @@ pub async fn proposer_boost_re_org_test(
     // Send proposer preparation data for all validators.
     let proposer_preparation_data = all_validators
         .iter()
-        .map(|i| ProposerPreparationData {
-            validator_index: *i as u64,
-            fee_recipient: Address::from_low_u64_be(*i as u64),
+        .map(|i| {
+            (
+                ProposerPreparationData {
+                    validator_index: *i as u64,
+                    fee_recipient: Address::from_low_u64_be(*i as u64),
+                },
+                None,
+            )
         })
         .collect::<Vec<_>>();
     harness
@@ -459,7 +464,7 @@ pub async fn proposer_boost_re_org_test(
         .unwrap()
         .update_proposer_preparation(
             head_slot.epoch(E::slots_per_epoch()) + 1,
-            &proposer_preparation_data,
+            proposer_preparation_data.iter().map(|(a, b)| (a, b)),
         )
         .await;
 
