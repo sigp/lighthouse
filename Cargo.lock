@@ -9798,7 +9798,6 @@ dependencies = [
 name = "validator_test_rig"
 version = "0.1.0"
 dependencies = [
- "account_utils",
  "env_logger 0.9.3",
  "eth2",
  "eth2_config",

@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = { workspace = true }
 
 [dependencies]
-account_utils = { workspace = true }
 env_logger = { workspace = true }
 eth2 = { workspace = true }
 eth2_config = { workspace = true }
