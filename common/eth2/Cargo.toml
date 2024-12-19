@@ -13,13 +13,12 @@ ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 futures = { workspace = true }
 futures-util = "0.3.8"
-libsecp256k1 = { workspace = true }
 lighthouse_network = { workspace = true }
 mediatype = "0.19.13"
 pretty_reqwest_error = { workspace = true }
 proto_array = { workspace = true }
 reqwest = { workspace = true }
-ring = { workspace = true }
+reqwest-eventsource = "0.5.0"
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
