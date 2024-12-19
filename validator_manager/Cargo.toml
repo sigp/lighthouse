@@ -17,6 +17,7 @@ ethereum_serde_utils = { workspace = true }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+slot_clock = { workspace = true }
 tokio = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
