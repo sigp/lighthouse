@@ -80,8 +80,9 @@ members = [
     "testing/simulator",
     "testing/state_transition_vectors",
     "testing/test-test_logger",
-    "testing/web3signer_tests",
     "testing/validator_test_rig",
+    "testing/web3signer_tests",
+
 
     "validator_client",
     "validator_client/beacon_node_fallback",
