@@ -95,11 +95,11 @@ members = [
     "validator_client/http_api",
     "validator_client/http_metrics",
     "validator_client/initialized_validators",
+    "validator_client/lighthouse_validator_store",
     "validator_client/signing_method",
     "validator_client/slashing_protection",
     "validator_client/validator_metrics",
     "validator_client/validator_services",
-    "validator_client/validator_store",
 
     "validator_manager",
 ]
@@ -274,7 +274,7 @@ validator_http_api = { path = "validator_client/http_api" }
 validator_http_metrics = { path = "validator_client/http_metrics" }
 validator_metrics = { path = "validator_client/validator_metrics" }
 validator_services = { path = "validator_client/validator_services" }
-validator_store = { path = "validator_client/validator_store" }
+validator_store = { path = "validator_client/lighthouse_validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
 warp_utils = { path = "common/warp_utils" }
 xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "50d63cdf1878e5cf3538e9aae5eed34a22c64e4a" }
