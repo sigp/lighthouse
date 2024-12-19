@@ -358,6 +358,7 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
     }
 }
 
+#[derive(Debug)]
 pub enum GetPayloadResponseType<E: EthSpec> {
     Full(GetPayloadResponse<E>),
     Blinded(GetPayloadResponse<E>),

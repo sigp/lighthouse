@@ -1,10 +1,15 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
-use eth2::types::{BlobsBundle, BlockId, StateId, ValidatorId};
+use eth2::types::PublishBlockRequest;
+use eth2::types::{
+    BlobsBundle, BlockId, BroadcastValidation, EventKind, EventTopic, ProposerData, StateId,
+    ValidatorId,
+};
 use eth2::{BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER};
 use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
+use slog::{debug, error, info, warn, Logger};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -13,19 +18,23 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
+use tokio_stream::StreamExt;
 use tree_hash::TreeHash;
 use types::builder_bid::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     SignedBuilderBid,
 };
 use types::{
-    Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, FixedBytesExtended, ForkName,
-    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedBlindedBeaconBlock,
-    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
+    Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionedResponse, Hash256,
+    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
+    SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
 use warp::{Filter, Rejection};
+
+pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
+pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
 
 #[derive(Clone)]
 pub enum Operation {
@@ -234,6 +243,17 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
     }
 }
 
+// Non referenced version of `PayloadParameters`
+#[derive(Clone)]
+pub struct PayloadParametersCloned {
+    pub parent_hash: ExecutionBlockHash,
+    pub parent_gas_limit: u64,
+    pub proposer_gas_limit: Option<u64>,
+    pub payload_attributes: PayloadAttributes,
+    pub forkchoice_update_params: ForkchoiceUpdateParameters,
+    pub current_fork: ForkName,
+}
+
 #[derive(Clone)]
 pub struct MockBuilder<E: EthSpec> {
     el: ExecutionLayer<E>,
@@ -243,6 +263,18 @@ pub struct MockBuilder<E: EthSpec> {
     builder_sk: SecretKey,
     operations: Arc<RwLock<Vec<Operation>>>,
     invalidate_signatures: Arc<RwLock<bool>>,
+    genesis_time: Option<u64>,
+    /// Only returns bids for registered validators if set to true. `true` by default.
+    validate_pubkey: bool,
+    /// Do not apply any operations if set to `false`.
+    /// Applying operations might modify the cached header in the execution layer.
+    /// Use this if you want get_header to return a valid bid that can be eventually submitted as
+    /// a valid block.
+    apply_operations: bool,
+    payload_id_cache: Arc<RwLock<HashMap<ExecutionBlockHash, PayloadParametersCloned>>>,
+    /// A cache that stores the proposers index for a given epoch
+    proposers_cache: Arc<RwLock<HashMap<Epoch, Vec<ProposerData>>>>,
+    log: Logger,
 }
 
 impl<E: EthSpec> MockBuilder<E> {
@@ -270,7 +302,10 @@ impl<E: EthSpec> MockBuilder<E> {
         let builder = MockBuilder::new(
             el,
             BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(Duration::from_secs(1))),
+            true,
+            true,
             spec,
+            executor.log().clone(),
         );
         let host: Ipv4Addr = Ipv4Addr::LOCALHOST;
         let port = 0;
@@ -281,7 +316,10 @@ impl<E: EthSpec> MockBuilder<E> {
     pub fn new(
         el: ExecutionLayer<E>,
         beacon_client: BeaconNodeHttpClient,
+        validate_pubkey: bool,
+        apply_operations: bool,
         spec: Arc<ChainSpec>,
+        log: Logger,
     ) -> Self {
         let sk = SecretKey::random();
         Self {
@@ -291,8 +329,14 @@ impl<E: EthSpec> MockBuilder<E> {
             spec,
             val_registration_cache: Arc::new(RwLock::new(HashMap::new())),
             builder_sk: sk,
+            validate_pubkey,
             operations: Arc::new(RwLock::new(vec![])),
             invalidate_signatures: Arc::new(RwLock::new(false)),
+            payload_id_cache: Arc::new(RwLock::new(HashMap::new())),
+            proposers_cache: Arc::new(RwLock::new(HashMap::new())),
+            apply_operations,
+            genesis_time: None,
+            log,
         }
     }
 
@@ -327,8 +371,19 @@ impl<E: EthSpec> MockBuilder<E> {
         &self,
         registrations: Vec<SignedValidatorRegistrationData>,
     ) -> Result<(), String> {
+        info!(
+            self.log,
+            "Registering validators";
+            "count" => registrations.len(),
+        );
         for registration in registrations {
             if !registration.verify_signature(&self.spec) {
+                error!(
+                    self.log,
+                    "Failed to register validator";
+                    "error" => "invalid signature",
+                    "validator" => %registration.message.pubkey
+                );
                 return Err("invalid signature".to_string());
             }
             self.val_registration_cache
@@ -359,15 +414,30 @@ impl<E: EthSpec> MockBuilder<E> {
                 block.message.body.execution_payload.tree_hash_root()
             }
         };
+        info!(
+            self.log,
+            "Submitting blinded beacon block to builder";
+            "block_hash" => %root
+        );
         let payload = self
             .el
             .get_payload_by_root(&root)
             .ok_or_else(|| "missing payload for tx root".to_string())?;
-        let (payload, _) = payload.deconstruct();
-        // TODO(pawan): the reconstruction in the beacon client should propagate the
-        // blobs as well. If that doesn't happen then its probably a bug here
+
+        let (payload, blobs) = payload.deconstruct();
+        let full_block = block
+            .try_into_full_block(Some(payload.clone()))
+            .ok_or("Internal error, just provided a payload")?;
+        debug!(
+            self.log,
+            "Got full payload, sending to local beacon node for propagation";
+            "txs_count" => payload.transactions().len(),
+            "blob_count" => blobs.as_ref().map(|b| b.commitments.len())
+        );
+        let publish_block_request =
+            PublishBlockRequest::new(Arc::new(full_block), blobs.map(|b| (b.proofs, b.blobs)));
         self.beacon_client
-            .post_beacon_blinded_blocks(&block)
+            .post_beacon_blocks_v2(&publish_block_request, Some(BroadcastValidation::Gossip))
             .await
             .map_err(|e| format!("Failed to post blinded block {:?}", e))?;
         Ok(payload)
@@ -379,33 +449,262 @@ impl<E: EthSpec> MockBuilder<E> {
         parent_hash: ExecutionBlockHash,
         pubkey: PublicKeyBytes,
     ) -> Result<SignedBuilderBid<E>, String> {
-        let fork = self.fork_name_at_slot(slot);
-        let signed_cached_data = self
-            .val_registration_cache
-            .read()
-            .get(&pubkey)
-            .ok_or_else(|| "missing registration".to_string())?
-            .clone();
-        let cached_data = signed_cached_data.message;
+        dbg!(&parent_hash);
+        // Check if the pubkey has registered with the builder if required
+        if self.validate_pubkey && !self.val_registration_cache.read().contains_key(&pubkey) {
+            return Err("validator not registered with builder".to_string());
+        }
+        let payload_parameters = {
+            let mut guard = self.payload_id_cache.write();
+            guard.remove(&parent_hash)
+        };
 
+        let payload_parameters = match payload_parameters {
+            Some(params) => {
+                dbg!("got matching params");
+                params
+            }
+            None => {
+                dbg!("no matching params, preparing yet again");
+                self.get_payload_params(slot, None, pubkey, None).await?
+            }
+        };
+
+        let fork = self.fork_name_at_slot(slot);
+        let payload_response_type = self
+            .el
+            .get_full_payload_caching(PayloadParameters {
+                parent_hash: payload_parameters.parent_hash,
+                parent_gas_limit: payload_parameters.parent_gas_limit,
+                proposer_gas_limit: payload_parameters.proposer_gas_limit,
+                payload_attributes: &payload_parameters.payload_attributes,
+                forkchoice_update_params: &payload_parameters.forkchoice_update_params,
+                current_fork: payload_parameters.current_fork,
+            })
+            .await
+            .map_err(|e| format!("couldn't get payload {:?}", e))?;
+
+        let mut message = match payload_response_type {
+            crate::GetPayloadResponseType::Full(payload_response) => {
+                #[allow(clippy::type_complexity)]
+                let (payload, value, maybe_blobs_bundle, maybe_requests): (
+                    ExecutionPayload<E>,
+                    Uint256,
+                    Option<BlobsBundle<E>>,
+                    Option<ExecutionRequests<E>>,
+                ) = payload_response.into();
+
+                match fork {
+                    ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
+                        header: payload
+                            .as_electra()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        blob_kzg_commitments: maybe_blobs_bundle
+                            .map(|b| b.commitments)
+                            .unwrap_or_default(),
+                        value: if !self.apply_operations {
+                            value
+                        } else {
+                            Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI)
+                        },
+                        pubkey: self.builder_sk.public_key().compress(),
+                        execution_requests: maybe_requests.unwrap_or_default(),
+                    }),
+                    ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
+                        header: payload
+                            .as_deneb()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        blob_kzg_commitments: maybe_blobs_bundle
+                            .map(|b| b.commitments)
+                            .unwrap_or_default(),
+                        value: if !self.apply_operations {
+                            value
+                        } else {
+                            Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI)
+                        },
+                        pubkey: self.builder_sk.public_key().compress(),
+                    }),
+                    ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
+                        header: payload
+                            .as_capella()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        value: if !self.apply_operations {
+                            value
+                        } else {
+                            Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI)
+                        },
+                        pubkey: self.builder_sk.public_key().compress(),
+                    }),
+                    ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
+                        header: payload
+                            .as_bellatrix()
+                            .map_err(|_| "incorrect payload variant".to_string())?
+                            .into(),
+                        value: if !self.apply_operations {
+                            value
+                        } else {
+                            Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI)
+                        },
+                        pubkey: self.builder_sk.public_key().compress(),
+                    }),
+                    ForkName::Base | ForkName::Altair => return Err("invalid fork".to_string()),
+                }
+            }
+            _ => panic!("just requested full payload, cannot get blinded"),
+        };
+
+        if self.apply_operations {
+            self.apply_operations(&mut message);
+        }
+        dbg!(&message.value());
+        let mut signature = message.sign_builder_message(&self.builder_sk, &self.spec);
+
+        if *self.invalidate_signatures.read() {
+            signature = Signature::empty();
+        };
+        let signed_bid = SignedBuilderBid { message, signature };
+        Ok(signed_bid)
+    }
+
+    fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
+        self.spec.fork_name_at_slot::<E>(slot)
+    }
+
+    /// Prepare the execution layer for payload creation every slot for the correct
+    /// proposer index
+    pub async fn prepare_execution_layer(&self) -> Result<(), String> {
+        let mut head_event_stream = self
+            .beacon_client
+            .get_events::<E>(&[EventTopic::Head])
+            .await
+            .map_err(|e| format!("Failed to get head event {:?}", e))?;
+
+        while let Some(Ok(event)) = head_event_stream.next().await {
+            match event {
+                EventKind::Head(head) => {
+                    println!("Got head event {}", head.block);
+                    let next_slot = head.slot + 1;
+                    // Find the next proposer index from the cached data or through a beacon api call
+                    let epoch = next_slot.epoch(E::slots_per_epoch());
+                    let position_in_slot = next_slot.as_u64() % E::slots_per_epoch();
+                    let proposer_data = {
+                        let proposers_opt = {
+                            let proposers_cache = self.proposers_cache.read();
+                            proposers_cache.get(&epoch).cloned()
+                        };
+                        match proposers_opt {
+                            Some(proposers) => {
+                                proposers.get(position_in_slot as usize).unwrap().clone()
+                            }
+                            None => {
+                                // make a call to the beacon api and populate the cache
+                                let duties: Vec<_> = self
+                                    .beacon_client
+                                    .get_validator_duties_proposer(epoch)
+                                    .await
+                                    .map_err(|e| {
+                                        format!(
+                                            "Failed to get proposer duties for epoch: {}, {:?}",
+                                            epoch, e
+                                        )
+                                    })?
+                                    .data;
+                                let proposer_data =
+                                    duties.get(position_in_slot as usize).unwrap().clone();
+                                self.proposers_cache.write().insert(epoch, duties);
+                                proposer_data
+                            }
+                        }
+                    };
+                    self.prepare_execution_layer_internal(
+                        head.slot,
+                        head.block,
+                        proposer_data.validator_index,
+                        proposer_data.pubkey,
+                    )
+                    .await?;
+                }
+                e => {
+                    warn!(
+                        self.log,
+                        "Got an unexpected event";
+                        "event" => %e.topic_name()
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn prepare_execution_layer_internal(
+        &self,
+        current_slot: Slot,
+        head_block_root: Hash256,
+        validator_index: u64,
+        pubkey: PublicKeyBytes,
+    ) -> Result<(), String> {
+        info!(self.log, "Preparing internal");
+        dbg!(&current_slot, &head_block_root, &validator_index, &pubkey);
+        let next_slot = current_slot + 1;
+        let payload_parameters = self
+            .get_payload_params(
+                next_slot,
+                Some(head_block_root),
+                pubkey,
+                Some(validator_index),
+            )
+            .await?;
+
+        self.payload_id_cache.write().insert(
+            payload_parameters.parent_hash,
+            PayloadParametersCloned {
+                current_fork: payload_parameters.current_fork,
+                forkchoice_update_params: payload_parameters.forkchoice_update_params,
+                parent_gas_limit: payload_parameters.parent_gas_limit,
+                parent_hash: payload_parameters.parent_hash,
+                payload_attributes: payload_parameters.payload_attributes.clone(),
+                proposer_gas_limit: payload_parameters.proposer_gas_limit,
+            },
+        );
+        Ok(())
+    }
+
+    /// Get the `PayloadParameters` for requesting an ExecutionPayload for `slot`
+    /// for the given `validator_index` and `pubkey`.
+    async fn get_payload_params(
+        &self,
+        slot: Slot,
+        head_block_root: Option<Hash256>,
+        pubkey: PublicKeyBytes,
+        validator_index: Option<u64>,
+    ) -> Result<PayloadParametersCloned, String> {
+        let fork = self.fork_name_at_slot(slot);
+
+        let block_id = match head_block_root {
+            Some(block_root) => BlockId::Root(block_root),
+            None => BlockId::Head,
+        };
         let head = self
             .beacon_client
-            .get_beacon_blocks::<E>(BlockId::Head)
+            .get_beacon_blocks::<E>(block_id)
             .await
             .map_err(|_| "couldn't get head".to_string())?
-            .ok_or_else(|| "missing head block".to_string())?;
+            .ok_or_else(|| "missing head block".to_string())?
+            .data;
 
-        let block = head.data.message();
-        let head_block_root = block.tree_hash_root();
-        let head_execution_payload = block
+        let head_block_root = head_block_root.unwrap_or(head.canonical_root());
+
+        let head_execution_payload = head
+            .message()
             .body()
             .execution_payload()
             .map_err(|_| "pre-merge block".to_string())?;
         let head_execution_hash = head_execution_payload.block_hash();
+        dbg!(&head_execution_hash);
         let head_gas_limit = head_execution_payload.gas_limit();
-        if head_execution_hash != parent_hash {
-            return Err("head mismatch".to_string());
-        }
 
         let finalized_execution_hash = self
             .beacon_client
@@ -433,25 +732,26 @@ impl<E: EthSpec> MockBuilder<E> {
             .map_err(|_| "pre-merge block".to_string())?
             .block_hash();
 
-        let val_index = self
-            .beacon_client
-            .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(pubkey))
-            .await
-            .map_err(|_| "couldn't get validator".to_string())?
-            .ok_or_else(|| "missing validator".to_string())?
-            .data
-            .index;
-        let fee_recipient = cached_data.fee_recipient;
+        let (fee_recipient, proposer_gas_limit) =
+            match self.val_registration_cache.read().get(&pubkey) {
+                Some(cached_data) => (
+                    cached_data.message.fee_recipient,
+                    cached_data.message.gas_limit,
+                ),
+                None => (DEFAULT_FEE_RECIPIENT, DEFAULT_GAS_LIMIT),
+            };
         let slots_since_genesis = slot.as_u64() - self.spec.genesis_slot.as_u64();
 
-        // TODO(pawan): cache this call
-        let genesis_data = self
-            .beacon_client
-            .get_beacon_genesis()
-            .await
-            .map_err(|_| "couldn't get beacon genesis".to_string())?
-            .data;
-        let genesis_time = genesis_data.genesis_time;
+        let genesis_time = if let Some(genesis_time) = self.genesis_time {
+            genesis_time
+        } else {
+            self.beacon_client
+                .get_beacon_genesis()
+                .await
+                .map_err(|_| "couldn't get beacon genesis".to_string())?
+                .data
+                .genesis_time
+        };
         let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
 
         let head_state: BeaconState<E> = self
@@ -461,6 +761,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .map_err(|_| "couldn't get state".to_string())?
             .ok_or_else(|| "missing state".to_string())?
             .data;
+
         let prev_randao = head_state
             .get_randao_mix(head_state.current_epoch())
             .map_err(|_| "couldn't get prev randao".to_string())?;
@@ -501,158 +802,55 @@ impl<E: EthSpec> MockBuilder<E> {
             }
         };
 
+        // Tells the execution layer that the `validator_index` is expected to propose
+        // a block on top of `head_block_root` for the given slot
+        let val_index = validator_index.unwrap_or(
+            self.beacon_client
+                .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(pubkey))
+                .await
+                .map_err(|_| "couldn't get validator".to_string())?
+                .ok_or_else(|| "missing validator".to_string())?
+                .data
+                .index,
+        );
+
+        println!(
+            "Inserting proposer slot: {}, head_block_root: {}, val_index: {}",
+            slot, head_block_root, val_index
+        );
         self.el
             .insert_proposer(slot, head_block_root, val_index, payload_attributes.clone())
             .await;
 
         let forkchoice_update_params = ForkchoiceUpdateParameters {
-            head_root: Hash256::zero(),
-            head_hash: None,
-            justified_hash: Some(justified_execution_hash),
+            head_hash: Some(head_execution_hash),
             finalized_hash: Some(finalized_execution_hash),
+            justified_hash: Some(justified_execution_hash),
+            head_root: head_block_root,
         };
+        dbg!(&forkchoice_update_params);
+        let status = self
+            .el
+            .notify_forkchoice_updated(
+                head_execution_hash,
+                justified_execution_hash,
+                finalized_execution_hash,
+                slot - 1,
+                head_block_root,
+            )
+            .await
+            .map_err(|e| format!("fcu call failed : {:?}", e))?;
+        dbg!(&status);
 
-        let proposer_gas_limit = self
-            .val_registration_cache
-            .read()
-            .get(&pubkey)
-            .map(|v| v.message.gas_limit);
-
-        let payload_parameters = PayloadParameters {
+        let payload_parameters = PayloadParametersCloned {
             parent_hash: head_execution_hash,
             parent_gas_limit: head_gas_limit,
-            proposer_gas_limit,
-            payload_attributes: &payload_attributes,
-            forkchoice_update_params: &forkchoice_update_params,
+            proposer_gas_limit: Some(proposer_gas_limit),
+            payload_attributes,
+            forkchoice_update_params,
             current_fork: fork,
         };
-
-        let payload_response_type = self
-            .el
-            .get_full_payload_caching(payload_parameters)
-            .await
-            .map_err(|_| "couldn't get payload".to_string())?;
-
-        let mut message = match payload_response_type {
-            crate::GetPayloadResponseType::Full(payload_response) => {
-                #[allow(clippy::type_complexity)]
-                let (payload, _value, maybe_blobs_bundle, maybe_requests): (
-                    ExecutionPayload<E>,
-                    Uint256,
-                    Option<BlobsBundle<E>>,
-                    Option<ExecutionRequests<E>>,
-                ) = payload_response.into();
-
-                match fork {
-                    ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
-                        header: payload
-                            .as_electra()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
-                            .unwrap_or_default(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-
-                        pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
-                    }),
-                    ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
-                        header: payload
-                            .as_deneb()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
-                            .unwrap_or_default(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: self.builder_sk.public_key().compress(),
-                    }),
-                    ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
-                        header: payload
-                            .as_capella()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: self.builder_sk.public_key().compress(),
-                    }),
-                    ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
-                        header: payload
-                            .as_bellatrix()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: self.builder_sk.public_key().compress(),
-                    }),
-                    ForkName::Base | ForkName::Altair => return Err("invalid fork".to_string()),
-                }
-            }
-            crate::GetPayloadResponseType::Blinded(payload_response) => {
-                #[allow(clippy::type_complexity)]
-                let (payload, _value, maybe_blobs_bundle, maybe_requests): (
-                    ExecutionPayload<E>,
-                    Uint256,
-                    Option<BlobsBundle<E>>,
-                    Option<ExecutionRequests<E>>,
-                ) = payload_response.into();
-                match fork {
-                    ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
-                        header: payload
-                            .as_electra()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
-                            .unwrap_or_default(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: self.builder_sk.public_key().compress(),
-                        execution_requests: maybe_requests.unwrap_or_default(),
-                    }),
-                    ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
-                        header: payload
-                            .as_deneb()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
-                            .unwrap_or_default(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: self.builder_sk.public_key().compress(),
-                    }),
-                    ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
-                        header: payload
-                            .as_capella()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: self.builder_sk.public_key().compress(),
-                    }),
-                    ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
-                        header: payload
-                            .as_bellatrix()
-                            .map_err(|_| "incorrect payload variant".to_string())?
-                            .into(),
-                        value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                        pubkey: self.builder_sk.public_key().compress(),
-                    }),
-                    ForkName::Base | ForkName::Altair => return Err("invalid fork".to_string()),
-                }
-            }
-        };
-
-        self.apply_operations(&mut message);
-
-        let mut signature = message.sign_builder_message(&self.builder_sk, &self.spec);
-
-        if *self.invalidate_signatures.read() {
-            signature = Signature::empty();
-        };
-        let signed_bid = SignedBuilderBid { message, signature };
-        Ok(signed_bid)
-    }
-
-    fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
-        self.spec.fork_name_at_slot::<E>(slot)
+        Ok(payload_parameters)
     }
 }
 
@@ -678,11 +876,16 @@ pub fn serve<E: EthSpec>(
         .and(warp::path::end())
         .and(ctx_filter.clone())
         .and_then(
-            |registrations: Vec<SignedValidatorRegistrationData>, builder: MockBuilder<E>| async move {
-                builder.register_validators(registrations).await.map_err(|e|warp::reject::custom(Custom(e)))?;
+            |registrations: Vec<SignedValidatorRegistrationData>,
+             builder: MockBuilder<E>| async move {
+                builder
+                    .register_validators(registrations)
+                    .await
+                    .map_err(|e| warp::reject::custom(Custom(e)))?;
                 Ok::<_, Rejection>(warp::reply())
             },
-        ).boxed();
+        )
+        .boxed();
 
     let blinded_block =
         prefix

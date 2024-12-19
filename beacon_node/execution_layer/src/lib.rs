@@ -320,7 +320,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
 
 // This just groups together a bunch of parameters that commonly
 // get passed around together in calls to get_payload.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PayloadParameters<'a> {
     pub parent_hash: ExecutionBlockHash,
     pub parent_gas_limit: u64,
