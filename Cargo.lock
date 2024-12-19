@@ -2236,6 +2236,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "doppelganger_service"
+version = "0.1.0"
+dependencies = [
+ "beacon_node_fallback",
+ "environment",
+ "eth2",
+ "futures",
+ "logging",
+ "parking_lot 0.12.3",
+ "slog",
+ "slot_clock",
+ "task_executor",
+ "tokio",
+ "types",
+]
+
+[[package]]
 name = "dsl_auto_type"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2559,6 +2576,7 @@ dependencies = [
  "proto_array",
  "psutil",
  "reqwest",
+ "reqwest-eventsource",
  "sensitive_url",
  "serde",
  "serde_json",
@@ -2957,6 +2975,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f214dc438f977e6d4e3500aaa277f5ad94ca83fbbd9b1a15713ce2344ccc5a1"
 dependencies = [
  "event-listener 5.3.1",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "eventsource-stream"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74fef4569247a5f429d9156b9d0a2599914385dd189c539334c625d8099d90ab"
+dependencies = [
+ "futures-core",
+ "nom",
  "pin-project-lite",
 ]
 
@@ -7163,6 +7192,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "reqwest-eventsource"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f529a5ff327743addc322af460761dff5b50e0c826b9e6ac44c3195c50bb2026"
+dependencies = [
+ "eventsource-stream",
+ "futures-core",
+ "futures-timer",
+ "mime",
+ "nom",
+ "pin-project-lite",
+ "reqwest",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "resolv-conf"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9484,6 +9529,7 @@ dependencies = [
  "clap_utils",
  "directory",
  "dirs",
+ "doppelganger_service",
  "environment",
  "eth2",
  "fdlimit",
@@ -9536,6 +9582,7 @@ dependencies = [
  "deposit_contract",
  "directory",
  "dirs",
+ "doppelganger_service",
  "eth2",
  "eth2_keystore",
  "ethereum_serde_utils",
@@ -9627,6 +9674,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
  "bls",
+ "doppelganger_service",
  "environment",
  "eth2",
  "futures",
@@ -9648,6 +9696,7 @@ version = "0.1.0"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",
+ "doppelganger_service",
  "environment",
  "eth2",
  "futures",

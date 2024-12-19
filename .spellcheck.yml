@@ -1,0 +1,35 @@
+matrix:
+- name: Markdown
+  sources:
+  - './book/**/*.md'
+  - 'README.md'
+  - 'CONTRIBUTING.md'
+  - 'SECURITY.md'
+  - './scripts/local_testnet/README.md'
+  default_encoding: utf-8
+  aspell:
+    lang: en
+  dictionary:
+    wordlists:
+    - wordlist.txt
+    encoding: utf-8
+  pipeline:
+  - pyspelling.filters.url:
+  - pyspelling.filters.markdown:
+      markdown_extensions:
+      - pymdownx.superfences:
+      - pymdownx.highlight:
+      - pymdownx.striphtml:
+      - pymdownx.magiclink:
+  - pyspelling.filters.html:
+      comments: false
+      ignores:
+      - code
+      - pre
+  - pyspelling.filters.context:
+      context_visible_first: true
+      delimiters:
+      # Ignore hex strings
+      - open: '0x[a-fA-F0-9]'
+        close: '[^a-fA-F0-9]'
+

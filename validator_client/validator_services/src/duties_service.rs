@@ -10,6 +10,7 @@ use crate::block_service::BlockServiceNotification;
 use crate::sync::poll_sync_committee_duties;
 use crate::sync::SyncDutiesMap;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
+use doppelganger_service::DoppelgangerStatus;
 use environment::RuntimeContext;
 use eth2::types::{
     AttesterData, BeaconCommitteeSubscription, DutiesResponse, ProposerData, StateId, ValidatorId,
@@ -27,7 +28,6 @@ use std::time::Duration;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 use validator_metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
-use validator_store::doppelganger_service::DoppelgangerStatus;
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.

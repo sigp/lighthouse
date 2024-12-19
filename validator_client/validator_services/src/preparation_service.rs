@@ -1,5 +1,6 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use bls::PublicKeyBytes;
+use doppelganger_service::DoppelgangerStatus;
 use environment::RuntimeContext;
 use parking_lot::RwLock;
 use slog::{debug, error, info, warn};
@@ -14,7 +15,6 @@ use types::{
     Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
     ValidatorRegistrationData,
 };
-use validator_store::doppelganger_service::DoppelgangerStatus;
 use validator_store::{Error as ValidatorStoreError, ProposalData, ValidatorStore};
 
 /// Number of epochs before the Bellatrix hard fork to begin posting proposer preparations.

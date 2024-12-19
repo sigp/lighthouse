@@ -374,7 +374,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                 .into(),
                             should_override_builder: false,
                             // TODO(electra): add EL requests in mock el
-                            requests: Default::default(),
+                            execution_requests: Default::default(),
                         })
                         .unwrap()
                     }

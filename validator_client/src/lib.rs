@@ -17,6 +17,7 @@ use beacon_node_fallback::{
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use clap::ArgMatches;
+use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
@@ -46,7 +47,6 @@ use validator_services::{
     sync::SyncDutiesMap,
     sync_committee_service::SyncCommitteeService,
 };
-use validator_store::doppelganger_service::DoppelgangerService;
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.

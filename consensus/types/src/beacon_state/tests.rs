@@ -307,43 +307,6 @@ mod committees {
     }
 }
 
-mod get_outstanding_deposit_len {
-    use super::*;
-
-    async fn state() -> BeaconState<MinimalEthSpec> {
-        get_harness(16, Slot::new(0))
-            .await
-            .chain
-            .head_beacon_state_cloned()
-    }
-
-    #[tokio::test]
-    async fn returns_ok() {
-        let mut state = state().await;
-        assert_eq!(state.get_outstanding_deposit_len(), Ok(0));
-
-        state.eth1_data_mut().deposit_count = 17;
-        *state.eth1_deposit_index_mut() = 16;
-        assert_eq!(state.get_outstanding_deposit_len(), Ok(1));
-    }
-
-    #[tokio::test]
-    async fn returns_err_if_the_state_is_invalid() {
-        let mut state = state().await;
-        // The state is invalid, deposit count is lower than deposit index.
-        state.eth1_data_mut().deposit_count = 16;
-        *state.eth1_deposit_index_mut() = 17;
-
-        assert_eq!(
-            state.get_outstanding_deposit_len(),
-            Err(BeaconStateError::InvalidDepositState {
-                deposit_count: 16,
-                deposit_index: 17,
-            })
-        );
-    }
-}
-
 #[test]
 fn decode_base_and_altair() {
     type E = MainnetEthSpec;

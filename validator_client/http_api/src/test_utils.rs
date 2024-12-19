@@ -5,6 +5,7 @@ use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
 };
 use deposit_contract::decode_eth1_tx_data;
+use doppelganger_service::DoppelgangerService;
 use eth2::{
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
@@ -26,7 +27,6 @@ use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
 use validator_services::block_service::BlockService;
-use validator_store::doppelganger_service::DoppelgangerService;
 use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
 use zeroize::Zeroizing;
 

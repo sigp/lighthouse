@@ -1,5 +1,5 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-use doppelganger_service::{DoppelgangerService, DoppelgangerStatus};
+use doppelganger_service::{DoppelgangerService, DoppelgangerStatus, DoppelgangerValidatorStore};
 use initialized_validators::InitializedValidators;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -21,8 +21,6 @@ use types::{
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
     ValidatorRegistrationData, VoluntaryExit,
 };
-
-pub mod doppelganger_service;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -96,7 +94,7 @@ pub struct ValidatorStore<T> {
     slots_per_epoch: u64,
 }
 
-impl<T: SlotClock + 'static> ValidatorStore<T> {
+impl<T: SlotClock + 'static> DoppelgangerValidatorStore for ValidatorStore<T> {
     fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
         self.validator_index(pubkey)
     }

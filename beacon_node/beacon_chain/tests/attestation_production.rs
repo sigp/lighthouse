@@ -70,12 +70,12 @@ async fn produces_attestations_from_attestation_simulator_service() {
     }
 
     // Compare the prometheus metrics that evaluates the performance of the unaggregated attestations
-    let hit_prometheus_metrics = vec![
+    let hit_prometheus_metrics = [
         metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL,
         metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_HIT_TOTAL,
         metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_HIT_TOTAL,
     ];
-    let miss_prometheus_metrics = vec![
+    let miss_prometheus_metrics = [
         metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL,
         metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_TARGET_ATTESTER_MISS_TOTAL,
         metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL,
