@@ -132,20 +132,11 @@ fn file_round_trip() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("keystore.json");
 
-    let get_file = || {
-        File::options()
-            .write(true)
-            .read(true)
-            .create(true)
-            .open(path.clone())
-            .expect("should create file")
-    };
-
     wallet
-        .to_json_writer(&mut get_file())
+        .to_json_writer(File::create_new(&path).unwrap())
         .expect("should write to file");
 
-    let decoded = Wallet::from_json_reader(&mut get_file()).unwrap();
+    let decoded = Wallet::from_json_reader(File::open(&path).unwrap()).unwrap();
 
     assert_eq!(
         decoded.decrypt_seed(&[1, 2, 3]).err().unwrap(),
