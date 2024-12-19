@@ -5,16 +5,16 @@ edition = { workspace = true }
 
 [dependencies]
 account_utils = { workspace = true }
+env_logger = { workspace = true }
 eth2 = { workspace = true }
 eth2_config = { workspace = true }
 logging = { workspace = true }
-sensitive_url = { workspace = true }
-slashing_protection = { workspace = true }
-task_executor = { workspace = true }
-types = { workspace = true }
-slog = { workspace = true }
-tokio = { workspace = true }
 mockito = { workspace = true }
 regex = { workspace = true }
+sensitive_url = { workspace = true }
 serde_json = { workspace = true }
-env_logger = { workspace = true }
+slashing_protection = { workspace = true }
+slog = { workspace = true }
+task_executor = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }
