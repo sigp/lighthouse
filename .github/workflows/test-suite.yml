@@ -428,6 +428,21 @@ jobs:
         cache-target: release
     - name: Run Makefile to trigger the bash script
       run: make cli-local
+  cargo-sort:
+    name: cargo-sort
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+        cache-target: release
+        bins: cargo-sort
+    - name: Run cargo sort to check if Cargo.toml files are sorted
+      run: cargo sort --check --workspace
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
   test-suite-success:
@@ -455,6 +470,7 @@ jobs:
       'compile-with-beta-compiler',
       'cli-check',
       'lockbud',
+      'cargo-sort',
     ]
     steps:
       - uses: actions/checkout@v4
