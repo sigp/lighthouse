@@ -175,7 +175,13 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         if signature {
             let exit_message_json = serde_json::to_string(&exit_message.data);
             match exit_message_json {
-                Ok(json) => println!("Validator {}: {}", validator_to_exit, json),
+                Ok(json) => {
+                    // Save the exit message to a JSON file
+                    let file_path = format!("validator_{}.json", validator_to_exit);
+                    std::fs::write(&file_path, json)
+                        .map_err(|e| format!("Failed to write exit message to file: {}", e))?;
+                    println!("Exit message saved to {}", file_path);
+                }
                 Err(e) => eprintln!("Failed to serialize voluntary exit message: {}", e),
             }
         }
