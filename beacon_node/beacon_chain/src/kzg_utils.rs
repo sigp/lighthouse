@@ -192,7 +192,7 @@ fn build_data_column_sidecars<E: EthSpec>(
     blob_cells_and_proofs_vec: Vec<CellsAndKzgProofs>,
     spec: &ChainSpec,
 ) -> Result<DataColumnSidecarList<E>, String> {
-    let number_of_columns = spec.number_of_columns;
+    let number_of_columns = spec.number_of_columns as usize;
     let mut columns = vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
     let mut column_kzg_proofs =
         vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];

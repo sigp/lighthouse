@@ -36,11 +36,12 @@ use requests::{
 };
 use slog::{debug, error, warn};
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::data_column_custody_group::{compute_columns_for_custody_group, CustodyIndex};
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
     SignedBeaconBlock, Slot,
@@ -459,7 +460,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     fn make_columns_by_range_requests(
         &self,
         request: BlocksByRangeRequest,
-        custody_indexes: &Vec<ColumnIndex>,
+        custody_indexes: &HashSet<ColumnIndex>,
     ) -> Result<HashMap<PeerId, DataColumnsByRangeRequest>, RpcRequestSendError> {
         let mut peer_id_to_request_map = HashMap::new();
 

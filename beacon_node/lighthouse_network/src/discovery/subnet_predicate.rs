@@ -4,7 +4,8 @@ use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use itertools::Itertools;
 use slog::trace;
 use std::ops::Deref;
-use types::{ChainSpec, DataColumnSubnetId};
+use types::data_column_custody_group::compute_subnets_for_node;
+use types::ChainSpec;
 
 /// Returns the predicate for a given subnet.
 pub fn subnet_predicate<E>(
@@ -37,13 +38,9 @@ where
                 .as_ref()
                 .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
             Subnet::DataColumn(s) => {
-                if let Ok(custody_subnet_count) = enr.custody_subnet_count::<E>(&spec) {
-                    DataColumnSubnetId::compute_custody_subnets::<E>(
-                        enr.node_id().raw(),
-                        custody_subnet_count,
-                        &spec,
-                    )
-                    .map_or(false, |mut subnets| subnets.contains(s))
+                if let Ok(custody_group_count) = enr.custody_group_count::<E>(&spec) {
+                    compute_subnets_for_node(enr.node_id().raw(), custody_group_count, &spec)
+                        .contains(s)
                 } else {
                     false
                 }

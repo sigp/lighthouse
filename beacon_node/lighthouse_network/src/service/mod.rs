@@ -198,15 +198,12 @@ impl<E: EthSpec> Network<E> {
         )?;
 
         // Construct the metadata
-        let custody_subnet_count = ctx.chain_spec.is_peer_das_scheduled().then(|| {
-            if config.subscribe_all_data_column_subnets {
-                ctx.chain_spec.data_column_sidecar_subnet_count
-            } else {
-                ctx.chain_spec.custody_requirement
-            }
+        let custody_group_count = ctx.chain_spec.is_peer_das_scheduled().then(|| {
+            ctx.chain_spec
+                .custody_group_count(config.subscribe_all_data_column_subnets)
         });
         let meta_data =
-            utils::load_or_build_metadata(&config.network_dir, custody_subnet_count, &log);
+            utils::load_or_build_metadata(&config.network_dir, custody_group_count, &log);
         let seq_number = *meta_data.seq_number();
         let globals = NetworkGlobals::new(
             enr,

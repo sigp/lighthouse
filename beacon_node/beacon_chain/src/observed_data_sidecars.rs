@@ -59,7 +59,7 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
     }
 
     fn max_num_of_items(spec: &ChainSpec) -> usize {
-        spec.number_of_columns
+        spec.number_of_columns as usize
     }
 }
 
