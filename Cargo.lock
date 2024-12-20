@@ -9695,13 +9695,8 @@ name = "validator_store"
 version = "0.1.0"
 dependencies = [
  "account_utils",
- "beacon_node_fallback",
  "doppelganger_service",
- "environment",
- "eth2",
- "futures",
  "initialized_validators",
- "logging",
  "parking_lot 0.12.3",
  "serde",
  "signing_method",
@@ -9709,7 +9704,6 @@ dependencies = [
  "slog",
  "slot_clock",
  "task_executor",
- "tokio",
  "types",
  "validator_metrics",
 ]

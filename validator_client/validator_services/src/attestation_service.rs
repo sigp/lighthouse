@@ -691,7 +691,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     move || {
                         attestation_service
                             .validator_store
-                            .prune_slashing_protection_db(current_epoch, false)
+                            .prune_slashing_protection_db::<E>(current_epoch, false)
                     },
                     "slashing_protection_pruning",
                 )
