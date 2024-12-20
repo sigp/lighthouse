@@ -213,7 +213,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
     /// Map from validator index to sync committee duties.
-    pub sync_duties: SyncDutiesMap<E>,
+    pub sync_duties: SyncDutiesMap,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<ValidatorStore<T>>,
     /// Maps unknown validator pubkeys to the next slot time when a poll should be conducted again.
