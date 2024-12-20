@@ -272,6 +272,8 @@ pub struct MockBuilder<E: EthSpec> {
     /// a valid block.
     apply_operations: bool,
     payload_id_cache: Arc<RwLock<HashMap<ExecutionBlockHash, PayloadParametersCloned>>>,
+    /// If set to `true`, sets the bid returned by `get_header` to Uint256::MAX
+    max_bid: bool,
     /// A cache that stores the proposers index for a given epoch
     proposers_cache: Arc<RwLock<HashMap<Epoch, Vec<ProposerData>>>>,
     log: Logger,
@@ -304,6 +306,7 @@ impl<E: EthSpec> MockBuilder<E> {
             BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(Duration::from_secs(1))),
             true,
             true,
+            false,
             spec,
             executor.log().clone(),
         );
@@ -318,6 +321,7 @@ impl<E: EthSpec> MockBuilder<E> {
         beacon_client: BeaconNodeHttpClient,
         validate_pubkey: bool,
         apply_operations: bool,
+        max_bid: bool,
         spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Self {
@@ -335,6 +339,7 @@ impl<E: EthSpec> MockBuilder<E> {
             payload_id_cache: Arc::new(RwLock::new(HashMap::new())),
             proposers_cache: Arc::new(RwLock::new(HashMap::new())),
             apply_operations,
+            max_bid,
             genesis_time: None,
             log,
         }
@@ -496,11 +501,7 @@ impl<E: EthSpec> MockBuilder<E> {
                         blob_kzg_commitments: maybe_blobs_bundle
                             .map(|b| b.commitments)
                             .unwrap_or_default(),
-                        value: if !self.apply_operations {
-                            value
-                        } else {
-                            Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI)
-                        },
+                        value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
                         execution_requests: maybe_requests.unwrap_or_default(),
                     }),
@@ -512,11 +513,7 @@ impl<E: EthSpec> MockBuilder<E> {
                         blob_kzg_commitments: maybe_blobs_bundle
                             .map(|b| b.commitments)
                             .unwrap_or_default(),
-                        value: if !self.apply_operations {
-                            value
-                        } else {
-                            Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI)
-                        },
+                        value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
                     }),
                     ForkName::Capella => BuilderBid::Capella(BuilderBidCapella {
@@ -524,11 +521,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .as_capella()
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
-                        value: if !self.apply_operations {
-                            value
-                        } else {
-                            Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI)
-                        },
+                        value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
                     }),
                     ForkName::Bellatrix => BuilderBid::Bellatrix(BuilderBidBellatrix {
@@ -536,11 +529,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .as_bellatrix()
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
-                        value: if !self.apply_operations {
-                            value
-                        } else {
-                            Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI)
-                        },
+                        value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
                     }),
                     ForkName::Base | ForkName::Altair => return Err("invalid fork".to_string()),
@@ -564,6 +553,16 @@ impl<E: EthSpec> MockBuilder<E> {
 
     fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
         self.spec.fork_name_at_slot::<E>(slot)
+    }
+
+    fn get_bid_value(&self, value: Uint256) -> Uint256 {
+        if self.max_bid {
+            Uint256::MAX
+        } else if !self.apply_operations {
+            value
+        } else {
+            Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI)
+        }
     }
 
     /// Prepare the execution layer for payload creation every slot for the correct
