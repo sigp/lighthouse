@@ -7,9 +7,6 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec, ForkName};
 
-const EIP7594_FORK: ForkName = ForkName::Deneb;
-const EIP7594_TESTS: [&str; 4] = ["ssz_static", "merkle_proof", "networking", "kzg"];
-
 pub trait Handler {
     type Case: Case + LoadCase;
 
@@ -39,13 +36,12 @@ pub trait Handler {
         for fork_name in ForkName::list_all() {
             if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name);
+            }
+        }
 
-                if fork_name == EIP7594_FORK
-                    && EIP7594_TESTS.contains(&Self::runner_name())
-                    && self.is_enabled_for_feature(FeatureName::Eip7594)
-                {
-                    self.run_for_feature(EIP7594_FORK, FeatureName::Eip7594);
-                }
+        for feature_name in FeatureName::list_all() {
+            if self.is_enabled_for_feature(feature_name) {
+                self.run_for_feature(feature_name);
             }
         }
     }
@@ -96,8 +92,9 @@ pub trait Handler {
         crate::results::assert_tests_pass(&name, &handler_path, &results);
     }
 
-    fn run_for_feature(&self, fork_name: ForkName, feature_name: FeatureName) {
+    fn run_for_feature(&self, feature_name: FeatureName) {
         let feature_name_str = feature_name.to_string();
+        let fork_name = feature_name.fork_name();
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("consensus-spec-tests")
@@ -344,6 +341,10 @@ where
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip7594
+    }
 }
 
 impl<E> Handler for SszStaticTHCHandler<BeaconState<E>, E>
@@ -362,6 +363,10 @@ where
 
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip7594
     }
 }
 
@@ -383,6 +388,10 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip7594
     }
 }
 
@@ -963,8 +972,11 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Enabled in Deneb
         fork_name.deneb_enabled()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip7594
     }
 }
 
