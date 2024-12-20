@@ -19,6 +19,7 @@ use safe_arith::{ArithError, SafeArith};
 use slot_clock::SlotClock;
 use std::cmp::min;
 use std::collections::{hash_map, BTreeMap, HashMap, HashSet};
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -307,6 +308,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
             enable_high_validator_count_metrics: self.enable_high_validator_count_metrics,
             distributed: self.distributed,
             disable_attesting: self.disable_attesting,
+            _phantom: PhantomData,
         })
     }
 }
@@ -319,7 +321,7 @@ pub struct DutiesService<S, T, E: EthSpec> {
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
     /// Map from validator index to sync committee duties.
-    pub sync_duties: SyncDutiesMap<E>,
+    pub sync_duties: SyncDutiesMap,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<S>,
     /// Maps unknown validator pubkeys to the next slot time when a poll should be conducted again.
@@ -337,6 +339,7 @@ pub struct DutiesService<S, T, E: EthSpec> {
     /// If this validator is running in distributed mode.
     pub distributed: bool,
     pub disable_attesting: bool,
+    pub _phantom: PhantomData<E>,
 }
 
 impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> DutiesService<S, T, E> {
