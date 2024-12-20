@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
-use validator_http_api;
+use validator_http_api::{self, PK_FILENAME};
 use validator_http_metrics;
 use validator_store::Config as ValidatorStoreConfig;
 
@@ -312,6 +312,12 @@ impl Config {
 
         if cli_args.get_flag("http-store-passwords-in-secrets-dir") {
             config.http_api.store_passwords_in_secrets_dir = true;
+        }
+
+        if cli_args.get_one::<String>("http-token-path").is_some() {
+            config.http_api.http_token_path = parse_required(cli_args, "http-token-path")
+                // For backward compatibility, default to the path under the validator dir if not provided.
+                .unwrap_or_else(|_| config.validator_dir.join(PK_FILENAME));
         }
 
         /*

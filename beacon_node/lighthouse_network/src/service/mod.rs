@@ -20,7 +20,7 @@ use crate::types::{
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
-use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::{metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{AppRequestId, PeerRequestId, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
@@ -38,6 +38,7 @@ use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
@@ -170,7 +171,7 @@ impl<E: EthSpec> Network<E> {
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
         log: &slog::Logger,
-    ) -> error::Result<(Self, Arc<NetworkGlobals<E>>)> {
+    ) -> Result<(Self, Arc<NetworkGlobals<E>>), String> {
         let log = log.new(o!("service"=> "libp2p"));
 
         let config = ctx.config.clone();
@@ -466,6 +467,8 @@ impl<E: EthSpec> Network<E> {
             let config = libp2p::swarm::Config::with_executor(Executor(executor))
                 .with_notify_handler_buffer_size(NonZeroUsize::new(7).expect("Not zero"))
                 .with_per_connection_event_buffer_size(4)
+                .with_idle_connection_timeout(Duration::from_secs(10)) // Other clients can timeout
+                // during negotiation
                 .with_dial_concurrency_factor(NonZeroU8::new(1).unwrap());
 
             let builder = SwarmBuilder::with_existing_identity(local_keypair)
@@ -515,7 +518,7 @@ impl<E: EthSpec> Network<E> {
     /// - Starts listening in the given ports.
     /// - Dials boot-nodes and libp2p peers.
     /// - Subscribes to starting gossipsub topics.
-    async fn start(&mut self, config: &crate::NetworkConfig) -> error::Result<()> {
+    async fn start(&mut self, config: &crate::NetworkConfig) -> Result<(), String> {
         let enr = self.network_globals.local_enr();
         info!(self.log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
         debug!(self.log, "Attempting to open listening ports"; config.listen_addrs(), "discovery_enabled" => !config.disable_discovery, "quic_enabled" => !config.disable_quic_support);
@@ -920,7 +923,7 @@ impl<E: EthSpec> Network<E> {
         &mut self,
         active_validators: usize,
         current_slot: Slot,
-    ) -> error::Result<()> {
+    ) -> Result<(), String> {
         let (beacon_block_params, beacon_aggregate_proof_params, beacon_attestation_subnet_params) =
             self.score_settings
                 .get_dynamic_topic_params(active_validators, current_slot)?;

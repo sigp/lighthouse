@@ -7,25 +7,25 @@ edition = { workspace = true }
 build = "build.rs"
 
 [build-dependencies]
-zip = { workspace = true }
 eth2_config = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
+ethereum_ssz = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
-ethereum_ssz = { workspace = true }
 
 [dependencies]
-serde_yaml = { workspace = true }
-types = { workspace = true }
-eth2_config = { workspace = true }
-discv5 = { workspace = true }
-reqwest = { workspace = true }
-pretty_reqwest_error = { workspace = true }
-sha2 = { workspace = true }
-url = { workspace = true }
-sensitive_url = { workspace = true }
-slog = { workspace = true }
-logging = { workspace = true }
 bytes = { workspace = true }
+discv5 = { workspace = true }
+eth2_config = { workspace = true }
 kzg = { workspace = true }
+logging = { workspace = true }
+pretty_reqwest_error = { workspace = true }
+reqwest = { workspace = true }
+sensitive_url = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+slog = { workspace = true }
+types = { workspace = true }
+url = { workspace = true }

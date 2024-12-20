@@ -10,37 +10,36 @@ path = "src/lib.rs"
 [[bin]]
 name = "watch"
 path = "src/main.rs"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+axum = "0.7"
+beacon_node = { workspace = true }
+bls = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
-log = { workspace = true }
-env_logger = { workspace = true }
-types = { workspace = true }
-eth2 = { workspace = true }
-beacon_node = { workspace = true }
-tokio = { workspace = true }
-axum = "0.7"
-hyper = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-reqwest = { workspace = true }
-url = { workspace = true }
-rand = { workspace = true }
 diesel = { version = "2.0.2", features = ["postgres", "r2d2"] }
 diesel_migrations = { version = "2.0.0", features = ["postgres"] }
-bls = { workspace = true }
+env_logger = { workspace = true }
+eth2 = { workspace = true }
+hyper = { workspace = true }
+log = { workspace = true }
 r2d2 = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 serde_yaml = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
-tokio-postgres = "0.7.5"
-http_api = { workspace = true }
 beacon_chain = { workspace = true }
-network = { workspace = true }
-testcontainers = "0.15"
-unused_port = { workspace = true }
-task_executor = { workspace = true }
+http_api = { workspace = true }
 logging = { workspace = true }
+network = { workspace = true }
+task_executor = { workspace = true }
+testcontainers = "0.15"
+tokio-postgres = "0.7.5"
+unused_port = { workspace = true }

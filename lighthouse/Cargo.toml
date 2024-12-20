@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "5.3.0"
+version = "6.0.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
@@ -34,46 +34,46 @@ malloc_utils = { workspace = true, features = ["jemalloc"] }
 malloc_utils = { workspace = true }
 
 [dependencies]
-beacon_node = { workspace = true }
-slog = { workspace = true }
-types = { workspace = true }
-bls = { workspace = true }
-ethereum_hashing = { workspace = true }
-clap = { workspace = true }
-environment = { workspace = true }
-boot_node = { path = "../boot_node" }
-futures = { workspace = true }
-validator_client = { workspace = true }
 account_manager = { "path" = "../account_manager" }
-clap_utils = { workspace = true }
-eth2_network_config = { workspace = true }
-lighthouse_version = { workspace = true }
 account_utils = { workspace = true }
+beacon_node = { workspace = true }
+bls = { workspace = true }
+boot_node = { path = "../boot_node" }
+clap = { workspace = true }
+clap_utils = { workspace = true }
+database_manager = { path = "../database_manager" }
+directory = { workspace = true }
+environment = { workspace = true }
+eth2_network_config = { workspace = true }
+ethereum_hashing = { workspace = true }
+futures = { workspace = true }
+lighthouse_version = { workspace = true }
+logging = { workspace = true }
+malloc_utils = { workspace = true }
 metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
-task_executor = { workspace = true }
-malloc_utils = { workspace = true }
-directory = { workspace = true }
-unused_port = { workspace = true }
-database_manager = { path = "../database_manager" }
 slasher = { workspace = true }
+slog = { workspace = true }
+task_executor = { workspace = true }
+types = { workspace = true }
+unused_port = { workspace = true }
+validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
-logging = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
-validator_dir = { workspace = true }
-slashing_protection = { workspace = true }
-lighthouse_network = { workspace = true }
-sensitive_url = { workspace = true }
+beacon_node_fallback = { workspace = true }
+beacon_processor = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
-beacon_processor = { workspace = true }
-beacon_node_fallback = { workspace = true }
 initialized_validators = { workspace = true }
-
+lighthouse_network = { workspace = true }
+sensitive_url = { workspace = true }
+slashing_protection = { workspace = true }
+tempfile = { workspace = true }
+validator_dir = { workspace = true }
+zeroize = { workspace = true }
 
 [[test]]
 name = "lighthouse_tests"

@@ -8,18 +8,14 @@ use eth2_wallet::{
 };
 use filesystem::{create_with_600_perms, Error as FsError};
 use rand::{distributions::Alphanumeric, Rng};
-use serde::{Deserialize, Serialize};
+use std::fs::{self, File};
 use std::io;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::str::from_utf8;
 use std::thread::sleep;
 use std::time::Duration;
-use std::{
-    fs::{self, File},
-    str::FromStr,
-};
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 pub mod validator_definitions;
 
@@ -69,8 +65,8 @@ pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
     fs::read(path).map(strip_off_newlines).map(Into::into)
 }
 
-/// Reads a password file into a `ZeroizeString` struct, with new-lines removed.
-pub fn read_password_string<P: AsRef<Path>>(path: P) -> Result<ZeroizeString, String> {
+/// Reads a password file into a `Zeroizing<String>` struct, with new-lines removed.
+pub fn read_password_string<P: AsRef<Path>>(path: P) -> Result<Zeroizing<String>, String> {
     fs::read(path)
         .map_err(|e| format!("Error opening file: {:?}", e))
         .map(strip_off_newlines)
@@ -112,8 +108,8 @@ pub fn random_password() -> PlainText {
     random_password_raw_string().into_bytes().into()
 }
 
-/// Generates a random alphanumeric password of length `DEFAULT_PASSWORD_LEN` as `ZeroizeString`.
-pub fn random_password_string() -> ZeroizeString {
+/// Generates a random alphanumeric password of length `DEFAULT_PASSWORD_LEN` as `Zeroizing<String>`.
+pub fn random_password_string() -> Zeroizing<String> {
     random_password_raw_string().into()
 }
 
@@ -141,7 +137,7 @@ pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
 }
 
 /// Reads a password from TTY or stdin if `use_stdin == true`.
-pub fn read_password_from_user(use_stdin: bool) -> Result<ZeroizeString, String> {
+pub fn read_password_from_user(use_stdin: bool) -> Result<Zeroizing<String>, String> {
     let result = if use_stdin {
         rpassword::prompt_password_stderr("")
             .map_err(|e| format!("Error reading from stdin: {}", e))
@@ -150,7 +146,7 @@ pub fn read_password_from_user(use_stdin: bool) -> Result<ZeroizeString, String>
             .map_err(|e| format!("Error reading from tty: {}", e))
     };
 
-    result.map(ZeroizeString::from)
+    result.map(Zeroizing::from)
 }
 
 /// Reads a mnemonic phrase from TTY or stdin if `use_stdin == true`.
@@ -210,46 +206,6 @@ pub fn mnemonic_from_phrase(phrase: &str) -> Result<Mnemonic, String> {
     Mnemonic::from_phrase(phrase, Language::English).map_err(|e| e.to_string())
 }
 
-/// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
-///
-/// Useful for ensuring that password memory is zeroed-out on drop.
-#[derive(Clone, PartialEq, Serialize, Deserialize, Zeroize)]
-#[zeroize(drop)]
-#[serde(transparent)]
-pub struct ZeroizeString(String);
-
-impl FromStr for ZeroizeString {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(s.to_owned()))
-    }
-}
-
-impl From<String> for ZeroizeString {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl ZeroizeString {
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// Remove any number of newline or carriage returns from the end of a vector of bytes.
-    pub fn without_newlines(&self) -> ZeroizeString {
-        let stripped_string = self.0.trim_end_matches(['\r', '\n']).into();
-        Self(stripped_string)
-    }
-}
-
-impl AsRef<[u8]> for ZeroizeString {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_bytes()
-    }
-}
-
 pub fn read_mnemonic_from_cli(
     mnemonic_path: Option<PathBuf>,
     stdin_inputs: bool,
@@ -293,54 +249,6 @@ pub fn read_mnemonic_from_cli(
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn test_zeroize_strip_off() {
-        let expected = "hello world";
-
-        assert_eq!(
-            ZeroizeString::from("hello world\n".to_string())
-                .without_newlines()
-                .as_str(),
-            expected
-        );
-        assert_eq!(
-            ZeroizeString::from("hello world\n\n\n\n".to_string())
-                .without_newlines()
-                .as_str(),
-            expected
-        );
-        assert_eq!(
-            ZeroizeString::from("hello world\r".to_string())
-                .without_newlines()
-                .as_str(),
-            expected
-        );
-        assert_eq!(
-            ZeroizeString::from("hello world\r\r\r\r\r".to_string())
-                .without_newlines()
-                .as_str(),
-            expected
-        );
-        assert_eq!(
-            ZeroizeString::from("hello world\r\n".to_string())
-                .without_newlines()
-                .as_str(),
-            expected
-        );
-        assert_eq!(
-            ZeroizeString::from("hello world\r\n\r\n".to_string())
-                .without_newlines()
-                .as_str(),
-            expected
-        );
-        assert_eq!(
-            ZeroizeString::from("hello world".to_string())
-                .without_newlines()
-                .as_str(),
-            expected
-        );
-    }
 
     #[test]
     fn test_strip_off() {

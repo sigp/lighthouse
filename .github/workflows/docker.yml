@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-    DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-    DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+    DOCKER_PASSWORD: ${{ secrets.DH_KEY }}
+    DOCKER_USERNAME: ${{ secrets.DH_ORG }}
     # Enable self-hosted runners for the sigp repo only.
     SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
 

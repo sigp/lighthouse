@@ -1,5 +1,5 @@
 use crate::{
-    metrics,
+    metrics::{self, register_process_result_metrics},
     network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor},
     service::NetworkMessage,
     sync::SyncMessage,
@@ -710,8 +710,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
+                    GossipDataColumnError::PriorKnown { .. } => {
+                        // Data column is available via either the EL or reconstruction.
+                        // Do not penalise the peer.
+                        // Gossip filter should filter any duplicates received after this.
+                        debug!(
+                            self.log,
+                            "Received already available column sidecar. Ignoring the column sidecar";
+                            "slot" => %slot,
+                            "block_root" => %block_root,
+                            "index" => %index,
+                        )
+                    }
                     GossipDataColumnError::FutureSlot { .. }
-                    | GossipDataColumnError::PriorKnown { .. }
                     | GossipDataColumnError::PastFinalizedSlot { .. } => {
                         debug!(
                             self.log,
@@ -852,7 +863,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
-                    GossipBlobError::FutureSlot { .. } | GossipBlobError::RepeatBlob { .. } => {
+                    GossipBlobError::RepeatBlob { .. } => {
+                        // We may have received the blob from the EL. Do not penalise the peer.
+                        // Gossip filter should filter any duplicates received after this.
+                        debug!(
+                            self.log,
+                            "Received already available blob sidecar. Ignoring the blob sidecar";
+                            "slot" => %slot,
+                            "root" => %root,
+                            "index" => %index,
+                        )
+                    }
+                    GossipBlobError::FutureSlot { .. } => {
                         debug!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
@@ -914,18 +936,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        let result = self
-            .chain
-            .process_gossip_blob(verified_blob, || Ok(()))
-            .await;
+        let result = self.chain.process_gossip_blob(verified_blob).await;
+        register_process_result_metrics(&result, metrics::BlockSource::Gossip, "blob");
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                // Note: Reusing block imported metric here
-                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
                 info!(
                     self.log,
-                    "Gossipsub blob processed, imported fully available block";
+                    "Gossipsub blob processed - imported fully available block";
                     "block_root" => %block_root
                 );
                 self.chain.recompute_head_at_current_slot().await;
@@ -936,9 +954,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                trace!(
+                debug!(
                     self.log,
-                    "Processed blob, waiting for other components";
+                    "Processed gossip blob - waiting for other components";
                     "slot" => %slot,
                     "blob_index" => %blob_index,
                     "block_root" => %block_root,
@@ -992,43 +1010,39 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.id().index;
 
-        match self
+        let result = self
             .chain
             .process_gossip_data_columns(vec![verified_data_column], || Ok(()))
-            .await
-        {
-            Ok(availability) => {
-                match availability {
-                    AvailabilityProcessingStatus::Imported(block_root) => {
-                        // Note: Reusing block imported metric here
-                        metrics::inc_counter(
-                            &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL,
-                        );
-                        info!(
-                            self.log,
-                            "Gossipsub data column processed, imported fully available block";
-                            "block_root" => %block_root
-                        );
-                        self.chain.recompute_head_at_current_slot().await;
+            .await;
+        register_process_result_metrics(&result, metrics::BlockSource::Gossip, "data_column");
 
-                        metrics::set_gauge(
-                            &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
-                            processing_start_time.elapsed().as_millis() as i64,
-                        );
-                    }
-                    AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
-                        trace!(
-                            self.log,
-                            "Processed data column, waiting for other components";
-                            "slot" => %slot,
-                            "data_column_index" => %data_column_index,
-                            "block_root" => %block_root,
-                        );
+        match result {
+            Ok(availability) => match availability {
+                AvailabilityProcessingStatus::Imported(block_root) => {
+                    info!(
+                        self.log,
+                        "Gossipsub data column processed, imported fully available block";
+                        "block_root" => %block_root
+                    );
+                    self.chain.recompute_head_at_current_slot().await;
 
-                        self.attempt_data_column_reconstruction(block_root).await;
-                    }
+                    metrics::set_gauge(
+                        &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
+                        processing_start_time.elapsed().as_millis() as i64,
+                    );
                 }
-            }
+                AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
+                    trace!(
+                        self.log,
+                        "Processed data column, waiting for other components";
+                        "slot" => %slot,
+                        "data_column_index" => %data_column_index,
+                        "block_root" => %block_root,
+                    );
+
+                    self.attempt_data_column_reconstruction(block_root).await;
+                }
+            },
             Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
@@ -1079,7 +1093,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 message_id,
                 peer_id,
                 peer_client,
-                block,
+                block.clone(),
                 reprocess_tx.clone(),
                 seen_duration,
             )
@@ -1447,6 +1461,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         }
 
+        // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
+        // from kzg commitments, without having to wait for all blobs to be sent from the peers.
+        let publish_blobs = true;
+        let self_clone = self.clone();
+        let block_clone = block.clone();
+        self.executor.spawn(
+            async move {
+                self_clone
+                    .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
+                    .await
+            },
+            "fetch_blobs_gossip",
+        );
+
         let result = self
             .chain
             .process_block_with_early_caching(
@@ -1456,11 +1484,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 NotifyExecutionLayer::Yes,
             )
             .await;
+        register_process_result_metrics(&result, metrics::BlockSource::Gossip, "block");
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
-
                 if reprocess_tx
                     .try_send(ReprocessQueueMessage::BlockImported {
                         block_root: *block_root,

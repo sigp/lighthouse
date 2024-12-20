@@ -322,7 +322,7 @@ pub async fn consensus_gossip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn consensus_partial_pass_only_consensus() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
+    let validation_level = BroadcastValidation::Consensus;
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
@@ -378,7 +378,7 @@ pub async fn consensus_partial_pass_only_consensus() {
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
-        validation_level.unwrap(),
+        validation_level,
         StatusCode::ACCEPTED,
         network_globals,
     )
@@ -615,8 +615,7 @@ pub async fn equivocation_gossip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn equivocation_consensus_late_equivocation() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> =
-        Some(BroadcastValidation::ConsensusAndEquivocation);
+    let validation_level = BroadcastValidation::ConsensusAndEquivocation;
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
@@ -671,7 +670,7 @@ pub async fn equivocation_consensus_late_equivocation() {
         tester.harness.chain,
         &channel.0,
         test_logger,
-        validation_level.unwrap(),
+        validation_level,
         StatusCode::ACCEPTED,
         network_globals,
     )
@@ -1228,8 +1227,7 @@ pub async fn blinded_equivocation_gossip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_equivocation_consensus_late_equivocation() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> =
-        Some(BroadcastValidation::ConsensusAndEquivocation);
+    let validation_level = BroadcastValidation::ConsensusAndEquivocation;
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
@@ -1311,7 +1309,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         tester.harness.chain,
         &channel.0,
         test_logger,
-        validation_level.unwrap(),
+        validation_level,
         StatusCode::ACCEPTED,
         network_globals,
     )
@@ -1465,8 +1463,8 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
         "need at least 2 blobs for partial reveal"
     );
 
-    let partial_kzg_proofs = vec![blobs.0.get(0).unwrap().clone()];
-    let partial_blobs = vec![blobs.1.get(0).unwrap().clone()];
+    let partial_kzg_proofs = vec![*blobs.0.first().unwrap()];
+    let partial_blobs = vec![blobs.1.first().unwrap().clone()];
 
     // Simulate the block being seen on gossip.
     block
@@ -1486,7 +1484,7 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
         tester
             .harness
             .chain
-            .process_gossip_blob(gossip_blob, || panic!("should not publish block yet"))
+            .process_gossip_blob(gossip_blob)
             .await
             .unwrap();
     }
@@ -1559,7 +1557,7 @@ pub async fn blobs_seen_on_gossip_without_block() {
         tester
             .harness
             .chain
-            .process_gossip_blob(gossip_blob, || panic!("should not publish block yet"))
+            .process_gossip_blob(gossip_blob)
             .await
             .unwrap();
     }
@@ -1633,7 +1631,7 @@ pub async fn blobs_seen_on_gossip_without_block_and_no_http_blobs() {
         tester
             .harness
             .chain
-            .process_gossip_blob(gossip_blob, || panic!("should not publish block yet"))
+            .process_gossip_blob(gossip_blob)
             .await
             .unwrap();
     }
@@ -1705,7 +1703,7 @@ pub async fn slashable_blobs_seen_on_gossip_cause_failure() {
         tester
             .harness
             .chain
-            .process_gossip_blob(gossip_blob, || panic!("should not publish block yet"))
+            .process_gossip_blob(gossip_blob)
             .await
             .unwrap();
     }

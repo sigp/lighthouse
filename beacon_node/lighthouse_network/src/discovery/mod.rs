@@ -8,8 +8,8 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 use crate::service::TARGET_SUBNET_PEERS;
-use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use crate::{metrics, ClearDialError};
+use crate::{Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5};
 pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2Enr};
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
@@ -205,7 +205,7 @@ impl<E: EthSpec> Discovery<E> {
         network_globals: Arc<NetworkGlobals<E>>,
         log: &slog::Logger,
         spec: &ChainSpec,
-    ) -> error::Result<Self> {
+    ) -> Result<Self, String> {
         let log = log.clone();
 
         let enr_dir = match config.network_dir.to_str() {
@@ -1052,10 +1052,6 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                         discv5::Event::SocketUpdated(socket_addr) => {
                             info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
-                            // We have SOCKET_UPDATED messages. This occurs when discovery has a majority of
-                            // users reporting an external port and our ENR gets updated.
-                            // Which means we are able to do NAT traversal.
-                            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["discv5"], 1);
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
 

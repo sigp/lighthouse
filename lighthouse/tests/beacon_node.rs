@@ -9,7 +9,6 @@ use beacon_node::beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
-use lighthouse_version;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -128,7 +127,7 @@ fn allow_insecure_genesis_sync_default() {
     CommandLineTest::new()
         .run_with_zero_port_and_no_genesis_sync()
         .with_config(|config| {
-            assert_eq!(config.allow_insecure_genesis_sync, false);
+            assert!(!config.allow_insecure_genesis_sync);
         });
 }
 
@@ -146,7 +145,7 @@ fn allow_insecure_genesis_sync_enabled() {
         .flag("allow-insecure-genesis-sync", None)
         .run_with_zero_port_and_no_genesis_sync()
         .with_config(|config| {
-            assert_eq!(config.allow_insecure_genesis_sync, true);
+            assert!(config.allow_insecure_genesis_sync);
         });
 }
 
@@ -359,11 +358,11 @@ fn default_graffiti() {
 
 #[test]
 fn trusted_peers_flag() {
-    let peers = vec![PeerId::random(), PeerId::random()];
+    let peers = [PeerId::random(), PeerId::random()];
     CommandLineTest::new()
         .flag(
             "trusted-peers",
-            Some(format!("{},{}", peers[0].to_string(), peers[1].to_string()).as_str()),
+            Some(format!("{},{}", peers[0], peers[1]).as_str()),
         )
         .run_with_zero_port()
         .with_config(|config| {
@@ -383,7 +382,7 @@ fn genesis_backfill_flag() {
     CommandLineTest::new()
         .flag("genesis-backfill", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+        .with_config(|config| assert!(config.chain.genesis_backfill));
 }
 
 /// The genesis backfill flag should be enabled if historic states flag is set.
@@ -392,17 +391,18 @@ fn genesis_backfill_with_historic_flag() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+        .with_config(|config| assert!(config.chain.genesis_backfill));
 }
 
 // Tests for Eth1 flags.
+// DEPRECATED but should not crash
 #[test]
 fn dummy_eth1_flag() {
     CommandLineTest::new()
         .flag("dummy-eth1", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.dummy_eth1_backend));
+        .run_with_zero_port();
 }
+// DEPRECATED but should not crash
 #[test]
 fn eth1_flag() {
     CommandLineTest::new()
@@ -447,7 +447,7 @@ fn eth1_cache_follow_distance_manual() {
 // Tests for Bellatrix flags.
 fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
     use sensitive_url::SensitiveUrl;
-    let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
+    let urls = ["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
     // we don't support redundancy for execution-endpoints
     // only the first provided endpoint is parsed.
 
@@ -479,10 +479,10 @@ fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.execution_endpoint.is_some(), true);
+            assert!(config.execution_endpoint.is_some());
             assert_eq!(
                 config.execution_endpoint.as_ref().unwrap().clone(),
-                SensitiveUrl::parse(&urls[0]).unwrap()
+                SensitiveUrl::parse(urls[0]).unwrap()
             );
             // Only the first secret file should be used.
             assert_eq!(
@@ -594,7 +594,7 @@ fn run_payload_builder_flag_test(flag: &str, builders: &str) {
         let config = config.execution_layer.as_ref().unwrap();
         // Only first provided endpoint is parsed as we don't support
         // redundancy.
-        assert_eq!(config.builder_url, all_builders.get(0).cloned());
+        assert_eq!(config.builder_url, all_builders.first().cloned());
     })
 }
 fn run_payload_builder_flag_test_with_config<F: Fn(&Config)>(
@@ -660,7 +660,7 @@ fn builder_fallback_flags() {
         Some("builder-fallback-disable-checks"),
         None,
         |config| {
-            assert_eq!(config.chain.builder_fallback_disable_checks, true);
+            assert!(config.chain.builder_fallback_disable_checks);
         },
     );
 }
@@ -814,6 +814,27 @@ fn network_enable_sampling_flag() {
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.enable_sampling));
 }
+#[test]
+fn blob_publication_batches() {
+    CommandLineTest::new()
+        .flag("blob-publication-batches", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.blob_publication_batches, 3));
+}
+
+#[test]
+fn blob_publication_batch_interval() {
+    CommandLineTest::new()
+        .flag("blob-publication-batch-interval", Some("400"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.blob_publication_batch_interval,
+                Duration::from_millis(400)
+            )
+        });
+}
+
 #[test]
 fn network_enable_sampling_flag_default() {
     CommandLineTest::new()
@@ -1635,19 +1656,19 @@ fn http_enable_beacon_processor() {
     CommandLineTest::new()
         .flag("http", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+        .with_config(|config| assert!(config.http_api.enable_beacon_processor));
 
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-enable-beacon-processor", Some("true"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+        .with_config(|config| assert!(config.http_api.enable_beacon_processor));
 
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-enable-beacon-processor", Some("false"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, false));
+        .with_config(|config| assert!(!config.http_api.enable_beacon_processor));
 }
 #[test]
 fn http_tls_flags() {
@@ -1798,45 +1819,12 @@ fn validator_monitor_metrics_threshold_custom() {
 }
 
 // Tests for Store flags.
+// DEPRECATED but should still be accepted.
 #[test]
 fn slots_per_restore_point_flag() {
     CommandLineTest::new()
         .flag("slots-per-restore-point", Some("64"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.slots_per_restore_point, 64));
-}
-#[test]
-fn slots_per_restore_point_update_prev_default() {
-    use beacon_node::beacon_chain::store::config::{
-        DEFAULT_SLOTS_PER_RESTORE_POINT, PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
-    };
-
-    CommandLineTest::new()
-        .flag("slots-per-restore-point", Some("2048"))
-        .run_with_zero_port()
-        .with_config_and_dir(|config, dir| {
-            // Check that 2048 is the previous default.
-            assert_eq!(
-                config.store.slots_per_restore_point,
-                PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
-            );
-
-            // Restart the BN with the same datadir and the new default SPRP. It should
-            // allow this.
-            CommandLineTest::new()
-                .flag("datadir", Some(&dir.path().display().to_string()))
-                .flag("zero-ports", None)
-                .run_with_no_datadir()
-                .with_config(|config| {
-                    // The dumped config will have the new default 8192 value, but the fact that
-                    // the BN started and ran (with the same datadir) means that the override
-                    // was successful.
-                    assert_eq!(
-                        config.store.slots_per_restore_point,
-                        DEFAULT_SLOTS_PER_RESTORE_POINT
-                    );
-                });
-        })
+        .run_with_zero_port();
 }
 
 #[test]
@@ -1880,6 +1868,27 @@ fn historic_state_cache_size_default() {
             assert_eq!(
                 config.store.historic_state_cache_size,
                 DEFAULT_HISTORIC_STATE_CACHE_SIZE
+            );
+        });
+}
+#[test]
+fn hdiff_buffer_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("hdiff-buffer-cache-size", Some("1"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.hdiff_buffer_cache_size.get(), 1);
+        });
+}
+#[test]
+fn hdiff_buffer_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HDIFF_BUFFER_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.hdiff_buffer_cache_size,
+                DEFAULT_HDIFF_BUFFER_CACHE_SIZE
             );
         });
 }
@@ -2211,7 +2220,7 @@ fn slasher_broadcast_flag_false() {
         });
 }
 
-#[cfg(all(feature = "slasher-lmdb"))]
+#[cfg(feature = "slasher-lmdb")]
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend
@@ -2419,7 +2428,7 @@ fn logfile_no_restricted_perms_flag() {
         .flag("logfile-no-restricted-perms", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.logger_config.is_restricted == false);
+            assert!(!config.logger_config.is_restricted);
         });
 }
 #[test]
@@ -2444,7 +2453,7 @@ fn logfile_format_flag() {
 fn sync_eth1_chain_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
+        .with_config(|config| assert!(config.sync_eth1_chain));
 }
 
 #[test]
@@ -2457,7 +2466,7 @@ fn sync_eth1_chain_execution_endpoints_flag() {
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
+        .with_config(|config| assert!(config.sync_eth1_chain));
 }
 
 #[test]
@@ -2471,7 +2480,22 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+        .with_config(|config| assert!(!config.sync_eth1_chain));
+}
+
+#[test]
+#[should_panic]
+fn disable_deposit_contract_sync_conflicts_with_staking() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("disable-deposit-contract-sync", None)
+        .flag("staking", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port();
 }
 
 #[test]
@@ -2479,9 +2503,9 @@ fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.enable_light_client_server, false);
-            assert_eq!(config.chain.enable_light_client_server, false);
-            assert_eq!(config.http_api.enable_light_client_server, false);
+            assert!(!config.network.enable_light_client_server);
+            assert!(!config.chain.enable_light_client_server);
+            assert!(!config.http_api.enable_light_client_server);
         });
 }
 
@@ -2491,8 +2515,8 @@ fn light_client_server_enabled() {
         .flag("light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.enable_light_client_server, true);
-            assert_eq!(config.chain.enable_light_client_server, true);
+            assert!(config.network.enable_light_client_server);
+            assert!(config.chain.enable_light_client_server);
         });
 }
 
@@ -2503,7 +2527,7 @@ fn light_client_http_server_enabled() {
         .flag("light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.http_api.enable_light_client_server, true);
+            assert!(config.http_api.enable_light_client_server);
         });
 }
 

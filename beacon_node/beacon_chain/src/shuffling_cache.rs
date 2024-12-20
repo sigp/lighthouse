@@ -512,7 +512,7 @@ mod test {
         }
 
         assert!(
-            !cache.contains(&shuffling_id_and_committee_caches.get(0).unwrap().0),
+            !cache.contains(&shuffling_id_and_committee_caches.first().unwrap().0),
             "should not contain oldest epoch shuffling id"
         );
         assert_eq!(

@@ -84,6 +84,35 @@ mod test {
     }
 
     #[test]
+    fn test_verify_blob_inclusion_proof_from_existing_proof() {
+        let (block, mut blob_sidecars) =
+            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut thread_rng());
+        let BlobSidecar {
+            index,
+            blob,
+            kzg_proof,
+            ..
+        } = blob_sidecars.pop().unwrap();
+
+        // Compute the commitments inclusion proof and use it for building blob sidecar.
+        let (signed_block_header, kzg_commitments_inclusion_proof) = block
+            .signed_block_header_and_kzg_commitments_proof()
+            .unwrap();
+
+        let blob_sidecar = BlobSidecar::new_with_existing_proof(
+            index as usize,
+            blob,
+            &block,
+            signed_block_header,
+            &kzg_commitments_inclusion_proof,
+            kzg_proof,
+        )
+        .unwrap();
+
+        assert!(blob_sidecar.verify_blob_sidecar_inclusion_proof());
+    }
+
+    #[test]
     fn test_verify_blob_inclusion_proof_invalid() {
         let (_block, blobs) =
             generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 6, &mut thread_rng());
