@@ -7,6 +7,7 @@ use eth2::{BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
+use std::fs::write;
 use std::path::PathBuf;
 use std::time::Duration;
 use types::{ChainSpec, EthSpec, PublicKeyBytes};
@@ -209,7 +210,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                         exit_message_all.push(json.clone());
                     } else {
                         let file_path = format!("{}.json", validator_to_exit);
-                        std::fs::write(&file_path, json).map_err(|e| {
+                        write(&file_path, json).map_err(|e| {
                             format!("Failed to write voluntary exit message to file: {}", e)
                         })?;
                         println!("Voluntary exit message saved to {}", file_path);
@@ -361,7 +362,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
     if merge {
         let all_json = serde_json::to_string(&exit_message_all)
             .map_err(|e| format!("Failed to serialize voluntary exit message: {}", e))?;
-        std::fs::write("all_validators.json", all_json)
+        write("all_validators.json", all_json)
             .map_err(|e| format!("Failed to write all voluntary exit messages to file: {}", e))?;
         println!("All voluntary exit messages save to all_validators.json.")
     }

@@ -55,9 +55,9 @@ Validator 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572
 
 You can safely shut down the validator client at this point.
 
-The following exit command will only generate the exit message and will not publish the message to the network, i.e., there will be no voluntary exit.
+The following command will only generate the voluntary exit message and save it to a file named `{validator_pubkey}.json`. It will not publish the message to the network, i.e., there will be no voluntary exit.
 
-To only generate the exit message without publishing it to the network, use the flag `--signature`:
+To generate the exit message and save it to a file, use the flag `--signature`:
 
 ```bash
 lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators all --signature
