@@ -847,6 +847,7 @@ dependencies = [
  "sensitive_url",
  "serde_json",
  "slasher",
+ "slog",
  "store",
  "strum",
  "task_executor",
@@ -885,6 +886,7 @@ dependencies = [
  "num_cpus",
  "parking_lot 0.12.3",
  "serde",
+ "slog",
  "slot_clock",
  "strum",
  "task_executor",
@@ -1429,6 +1431,7 @@ dependencies = [
  "serde_yaml",
  "slasher",
  "slasher_service",
+ "slog",
  "slot_clock",
  "state_processing",
  "store",
@@ -1920,6 +1923,7 @@ dependencies = [
  "environment",
  "hex",
  "serde",
+ "slog",
  "store",
  "strum",
  "tracing",
@@ -2144,10 +2148,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "dirs-next"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b98cf8ebf19c3d1b223e151f99a4f9f0690dca41414773390fc824184ac833e1"
+dependencies = [
+ "cfg-if",
+ "dirs-sys-next",
+]
+
+[[package]]
 name = "dirs-sys"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b1d1d91c932ef41c0f2663aa8b0ca0342d444d842c06914aa0a7e352d0bada6"
+dependencies = [
+ "libc",
+ "redox_users",
+ "winapi",
+]
+
+[[package]]
+name = "dirs-sys-next"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ebda144c4fe02d1f7ea1a7d9641b6fc6b580adcfa024ae48797ecdeb6825b4d"
 dependencies = [
  "libc",
  "redox_users",
@@ -2460,6 +2485,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
 
 [[package]]
+name = "erased-serde"
+version = "0.3.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c138974f9d5e7fe373eb04df7cae98833802ae4b11c24ac7039a21d5af4b26c"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "errno"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2529,6 +2563,7 @@ dependencies = [
  "proto_array",
  "psutil",
  "reqwest",
+ "reqwest-eventsource",
  "sensitive_url",
  "serde",
  "serde_json",
@@ -2604,6 +2639,7 @@ dependencies = [
  "eth2_config",
  "ethereum_ssz",
  "kzg",
+ "logging",
  "pretty_reqwest_error",
  "reqwest",
  "sensitive_url",
@@ -2930,6 +2966,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "eventsource-stream"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74fef4569247a5f429d9156b9d0a2599914385dd189c539334c625d8099d90ab"
+dependencies = [
+ "futures-core",
+ "nom",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "execution_engine_integration"
 version = "0.1.0"
 dependencies = [
@@ -2987,6 +3034,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.9.9",
+ "slog",
  "slot_clock",
  "ssz_types",
  "state_processing",
@@ -5256,6 +5304,9 @@ dependencies = [
  "regex",
  "serde",
  "sha2 0.9.9",
+ "slog",
+ "slog-async",
+ "slog-term",
  "smallvec",
  "snap",
  "ssz_types",
@@ -5821,6 +5872,7 @@ dependencies = [
  "parking_lot 0.12.3",
  "rand",
  "serde_json",
+ "slog",
  "slot_clock",
  "smallvec",
  "ssz_types",
@@ -5830,7 +5882,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "tracing-subscriber",
  "types",
 ]
 
@@ -7106,6 +7157,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "reqwest-eventsource"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f529a5ff327743addc322af460761dff5b50e0c826b9e6ac44c3195c50bb2026"
+dependencies = [
+ "eventsource-stream",
+ "futures-core",
+ "futures-timer",
+ "mime",
+ "nom",
+ "pin-project-lite",
+ "reqwest",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "resolv-conf"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7989,6 +8056,7 @@ dependencies = [
  "libmdbx",
  "lmdb-rkv",
  "lmdb-rkv-sys",
+ "logging",
  "lru",
  "maplit",
  "metrics",
@@ -8040,6 +8108,40 @@ dependencies = [
  "tempfile",
  "tracing",
  "types",
+]
+
+[[package]]
+name = "slog"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8347046d4ebd943127157b94d63abb990fcf729dc4e9978927fdf4ac3c998d06"
+dependencies = [
+ "erased-serde",
+]
+
+[[package]]
+name = "slog-async"
+version = "2.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72c8038f898a2c79507940990f05386455b3a317d8f18d4caea7cbc3d5096b84"
+dependencies = [
+ "crossbeam-channel",
+ "slog",
+ "take_mut",
+ "thread_local",
+]
+
+[[package]]
+name = "slog-term"
+version = "2.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6e022d0b998abfe5c3782c1f03551a596269450ccd677ea51c56f8b214610e8"
+dependencies = [
+ "is-terminal",
+ "slog",
+ "term",
+ "thread_local",
+ "time",
 ]
 
 [[package]]
@@ -8415,6 +8517,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "take_mut"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f764005d11ee5f36500a149ace24e00e3da98b0158b3e2d53a7495660d3f4d60"
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8439,6 +8547,7 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "futures",
+ "logging",
  "metrics",
  "tokio",
  "tracing",
@@ -8455,6 +8564,17 @@ dependencies = [
  "once_cell",
  "rustix 0.38.41",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "term"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c59df8ac95d96ff9bede18eb7300b0fda5e5d8d90960e76f8e14ae765eedbf1f"
+dependencies = [
+ "dirs-next",
+ "rustversion",
+ "winapi",
 ]
 
 [[package]]
@@ -8627,6 +8747,7 @@ name = "timer"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "slog",
  "slot_clock",
  "task_executor",
  "tokio",
@@ -9699,6 +9820,7 @@ dependencies = [
  "eth2",
  "http_api",
  "hyper 1.5.1",
+ "log",
  "logging",
  "network",
  "r2d2",

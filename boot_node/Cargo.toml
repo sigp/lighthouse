@@ -6,16 +6,16 @@ edition = { workspace = true }
 
 [dependencies]
 beacon_node = { workspace = true }
+bytes = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
-lighthouse_network = { workspace = true }
-types = { workspace = true }
+eth2_network_config = { workspace = true }
 ethereum_ssz = { workspace = true }
-tokio = { workspace = true }
+hex = { workspace = true }
+lighthouse_network = { workspace = true }
 log = { workspace = true }
 logging = { workspace = true }
-hex = { workspace = true }
 serde = { workspace = true }
-eth2_network_config = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
-bytes = { workspace = true }
+types = { workspace = true }

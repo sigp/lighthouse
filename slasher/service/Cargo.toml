@@ -13,6 +13,6 @@ slasher = { workspace = true }
 slot_clock = { workspace = true }
 state_processing = { workspace = true }
 task_executor = { workspace = true }
-tracing = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }

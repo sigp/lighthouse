@@ -21,7 +21,6 @@ The UI is currently in active development. It resides in the
 See the following Siren specific topics for more context-specific
 information:
 
-- [Installation Guide](./ui-installation.md) - Information to install and run the Lighthouse UI.
 - [Configuration Guide](./ui-configuration.md) - Explanation of how to setup
  and configure Siren.
 - [Authentication Guide](./ui-authentication.md) - Explanation of how Siren authentication works and protects validator actions.

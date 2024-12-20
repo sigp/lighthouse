@@ -6,7 +6,8 @@ edition = { workspace = true }
 
 [dependencies]
 beacon_chain = { workspace = true }
+slog = { workspace = true }
 slot_clock = { workspace = true }
-tokio = { workspace = true }
 task_executor = { workspace = true }
-tracing = {workspace =  true}
+tokio = { workspace = true }
+tracing = { workspace = true }

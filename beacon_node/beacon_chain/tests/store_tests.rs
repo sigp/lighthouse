@@ -2790,6 +2790,7 @@ async fn finalizes_after_resuming_from_db() {
     );
 }
 
+#[allow(clippy::large_stack_frames)]
 #[tokio::test]
 async fn revert_minority_fork_on_resume() {
     let validator_count = 16;

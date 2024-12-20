@@ -3,30 +3,30 @@ name = "eth2"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
-ssz_types = { workspace = true }
-types = { workspace = true }
-reqwest = { workspace = true }
-lighthouse_network = { workspace = true }
-proto_array = { workspace = true }
-ethereum_serde_utils = { workspace = true }
+derivative = { workspace = true }
 eth2_keystore = { workspace = true }
-zeroize = { workspace = true }
-sensitive_url = { workspace = true }
+ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-futures-util = "0.3.8"
 futures = { workspace = true }
-store = { workspace = true }
-slashing_protection = { workspace = true }
+futures-util = "0.3.8"
+lighthouse_network = { workspace = true }
 mediatype = "0.19.13"
 pretty_reqwest_error = { workspace = true }
-derivative = { workspace = true }
+proto_array = { workspace = true }
+reqwest = { workspace = true }
+reqwest-eventsource = "0.5.0"
+sensitive_url = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+slashing_protection = { workspace = true }
+ssz_types = { workspace = true }
+store = { workspace = true }
+types = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
