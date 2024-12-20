@@ -94,7 +94,7 @@ pub fn cli_app() -> Command {
                 .long(MERGE_FLAG)
                 .help(
                     "Merge the generated voluntary exit signatures into a single file named \
-                    `all_validators.json`. This flag has to be used together with \
+                    `all_validators.json`. This flag is required to be used together with \
                 the `--signature` flag.",
                 )
                 .help_heading(FLAG_HEADER)
@@ -209,8 +209,9 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                         exit_message_all.push(json.clone());
                     } else {
                         let file_path = format!("{}.json", validator_to_exit);
-                        std::fs::write(&file_path, json)
-                            .map_err(|e| format!("Failed to write voluntary exit message to file: {}", e))?;
+                        std::fs::write(&file_path, json).map_err(|e| {
+                            format!("Failed to write voluntary exit message to file: {}", e)
+                        })?;
                         println!("Voluntary exit message saved to {}", file_path);
                     }
                 }
