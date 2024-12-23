@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Change the version across multiple files, prior to a release. Use `sed` to
-# find/replace the exiting version with the new one.
+# find/replace the existing version with the new one.
 #
 # Takes two arguments:
 #
