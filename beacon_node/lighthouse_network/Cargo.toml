@@ -32,7 +32,6 @@ rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
-slog = { workspace = true }
 smallvec = { workspace = true }
 snap = { workspace = true }
 ssz_types = { workspace = true }
@@ -62,8 +61,6 @@ async-channel = { workspace = true }
 logging = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
-slog-async = { workspace = true }
-slog-term = { workspace = true }
 tempfile = { workspace = true }
 
 [features]
