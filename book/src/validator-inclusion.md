@@ -56,7 +56,6 @@ The following fields are returned:
  able to vote) during the current epoch.
 - `current_epoch_target_attesting_gwei`: the total staked gwei that attested to
  the majority-elected Casper FFG target epoch during the current epoch.
-- `previous_epoch_active_gwei`: as per `current_epoch_active_gwei`, but during the previous epoch.
 - `previous_epoch_target_attesting_gwei`: see `current_epoch_target_attesting_gwei`.
 - `previous_epoch_head_attesting_gwei`: the total staked gwei that attested to a
  head beacon block that is in the canonical chain.

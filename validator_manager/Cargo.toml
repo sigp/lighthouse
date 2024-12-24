@@ -2,28 +2,27 @@
 name = "validator_manager"
 version = "0.1.0"
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { workspace = true }
-types = { workspace = true }
-environment = { workspace = true }
-eth2_network_config = { workspace = true }
-clap_utils = { workspace = true }
-eth2_wallet = { workspace = true }
 account_utils = { workspace = true }
+clap = { workspace = true }
+clap_utils = { workspace = true }
+derivative = { workspace = true }
+environment = { workspace = true }
+eth2 = { workspace = true }
+eth2_network_config = { workspace = true }
+eth2_wallet = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-ethereum_serde_utils = { workspace = true }
-tree_hash = { workspace = true }
-eth2 = { workspace = true }
-hex = { workspace = true }
 tokio = { workspace = true }
-derivative = { workspace = true }
+tree_hash = { workspace = true }
+types = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 regex = { workspace = true }
+tempfile = { workspace = true }
 validator_http_api = { workspace = true }

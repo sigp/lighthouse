@@ -18,9 +18,9 @@ portable = ["bls/supranational-portable"]
 test_backfill = []
 
 [dev-dependencies]
+criterion = { workspace = true }
 maplit = { workspace = true }
 serde_json = { workspace = true }
-criterion = { workspace = true }
 
 [dependencies]
 alloy-primitives = { workspace = true }
@@ -42,11 +42,11 @@ hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
-metrics = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
 lru = { workspace = true }
 merkle_proof = { workspace = true }
+metrics = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }

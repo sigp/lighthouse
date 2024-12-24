@@ -332,7 +332,7 @@ pub enum DBColumn {
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
     DhtEnrs,
-    /// For Optimistically Imported Merge Transition Blocks
+    /// DEPRECATED. For Optimistically Imported Merge Transition Blocks
     #[strum(serialize = "otb")]
     OptimisticTransitionBlock,
     /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
