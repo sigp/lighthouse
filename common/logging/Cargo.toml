@@ -19,7 +19,7 @@ sloggers = { workspace = true }
 take_mut = "0.2.2"
 tokio = { workspace = true, features = [ "time" ] }
 tracing = "0.1"
+tracing-appender = { workspace = true }
 tracing-core = { workspace = true }
 tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true }
-tracing-appender = { workspace = true }
