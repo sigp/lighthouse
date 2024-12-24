@@ -106,6 +106,7 @@ impl<T> Error<T> {
 }
 
 /// The list of errors encountered whilst attempting to perform a query.
+#[derive(Debug)]
 pub struct Errors<T>(pub Vec<(String, Error<T>)>);
 
 impl<T: Debug> fmt::Display for Errors<T> {
@@ -1011,14 +1012,15 @@ mod tests {
             test_logger(),
         );
 
-        let _mock1 = mock_beacon_node_1.mock_offline_node();
-        let _mock2 = mock_beacon_node_2.mock_offline_node();
+        let mock1 = mock_beacon_node_1.mock_offline_node();
+        let mock2 = mock_beacon_node_2.mock_offline_node();
         let mock3 = mock_beacon_node_3.mock_online_node();
 
         let result_success = beacon_node_fallback
             .first_success(|client| async move { client.get_node_version().await })
             .await;
 
+        // mock3 expects to be called once since it is online in the first pass
         mock3.expect(1).assert();
         assert!(result_success.is_ok());
 
@@ -1030,5 +1032,12 @@ mod tests {
             .await;
 
         assert!(result_failure.is_err());
+
+        // Both mock1 and mock2 should be called 3 times:
+        // - the first time is for the result_success case,
+        // - the second time is when it calls all 3 mock beacon nodes and all fails in the first pass,
+        // - which gives the third call because the function gives a second pass if no candidates succeeded in the first pass
+        mock1.expect(3).assert();
+        mock2.expect(3).assert();
     }
 }
