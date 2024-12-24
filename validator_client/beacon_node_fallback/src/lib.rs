@@ -737,34 +737,19 @@ impl ApiTopic {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::beacon_node_health::BeaconNodeHealthTier;
     use eth2::SensitiveUrl;
     use eth2::Timeouts;
     use logging::test_logger;
+    use slot_clock::TestingSlotClock;
     use std::str::FromStr;
     use strum::VariantNames;
-    use types::{EmptyBlock, Signature, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
-
-    use slot_clock::TestingSlotClock;
     use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
-
-    use super::*;
+    use types::{EmptyBlock, Signature, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
 
     type E = MainnetEthSpec;
-
-    async fn new_mock_beacon_node(
-        index: usize,
-        spec: &ChainSpec,
-    ) -> (MockBeaconNode<E>, CandidateBeaconNode<E>) {
-        let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
-        mock_beacon_node.mock_config_spec(spec);
-
-        let beacon_node =
-            CandidateBeaconNode::<E>::new(mock_beacon_node.beacon_api_client.clone(), index);
-
-        (mock_beacon_node, beacon_node)
-    }
 
     #[test]
     fn api_topic_all() {
@@ -887,6 +872,19 @@ mod tests {
         assert_eq!(candidates, expected_candidates);
     }
 
+    async fn new_mock_beacon_node(
+        index: usize,
+        spec: &ChainSpec,
+    ) -> (MockBeaconNode<E>, CandidateBeaconNode<E>) {
+        let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
+        mock_beacon_node.mock_config_spec(spec);
+
+        let beacon_node =
+            CandidateBeaconNode::<E>::new(mock_beacon_node.beacon_api_client.clone(), index);
+
+        (mock_beacon_node, beacon_node)
+    }
+
     fn create_beacon_node_fallback(
         candidates: Vec<CandidateBeaconNode<E>>,
         topics: Vec<ApiTopic>,
@@ -908,23 +906,21 @@ mod tests {
     #[tokio::test]
     async fn update_all_candidates_should_update_sync_status() {
         let spec = Arc::new(MainnetEthSpec::default_spec());
-
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
 
-        let beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> =
-            create_beacon_node_fallback(
-                // Put this out of order to be sorted later
-                vec![
-                    beacon_node_2.clone(),
-                    beacon_node_3.clone(),
-                    beacon_node_1.clone(),
-                ],
-                vec![],
-                spec.clone(),
-                test_logger(),
-            );
+        let beacon_node_fallback = create_beacon_node_fallback(
+            // Put this out of order to be sorted later
+            vec![
+                beacon_node_2.clone(),
+                beacon_node_3.clone(),
+                beacon_node_1.clone(),
+            ],
+            vec![],
+            spec.clone(),
+            test_logger(),
+        );
 
         // BeaconNodeHealthTier 1
         mock_beacon_node_1.mock_get_node_syncing(eth2::types::SyncingData {
@@ -1004,18 +1000,16 @@ mod tests {
     #[tokio::test]
     async fn first_success_should_try_nodes_in_order() {
         let spec = Arc::new(MainnetEthSpec::default_spec());
-
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
         let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2, &spec).await;
 
-        let beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> =
-            create_beacon_node_fallback(
-                vec![beacon_node_1, beacon_node_2, beacon_node_3],
-                vec![],
-                spec.clone(),
-                test_logger(),
-            );
+        let beacon_node_fallback = create_beacon_node_fallback(
+            vec![beacon_node_1, beacon_node_2, beacon_node_3],
+            vec![],
+            spec.clone(),
+            test_logger(),
+        );
 
         let _mock1 = mock_beacon_node_1.mock_offline_node();
         let _mock2 = mock_beacon_node_2.mock_offline_node();
