@@ -106,7 +106,6 @@ impl<T> Error<T> {
 }
 
 /// The list of errors encountered whilst attempting to perform a query.
-#[derive(Debug)]
 pub struct Errors<T>(pub Vec<(String, Error<T>)>);
 
 impl<T: Debug> fmt::Display for Errors<T> {
