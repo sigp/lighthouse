@@ -39,6 +39,10 @@ pub trait Handler {
             }
         }
 
+        // Run feature tests for future forks that are not yet added to `ForkName`.
+        // This runs tests in the directory named by the feature instead of the fork name.
+        // e.g. consensus-spec-tests/tests/general/[feature_name]/[runner_name]
+        // e.g. consensus-spec-tests/tests/general/peerdas/ssz_static
         for feature_name in FeatureName::list_all() {
             if self.is_enabled_for_feature(feature_name) {
                 self.run_for_feature(feature_name);
@@ -354,7 +358,7 @@ where
         // SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
         // SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
         // ```
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
             && self.supported_forks.contains(&feature_name.fork_name())
     }
 }
@@ -378,7 +382,7 @@ where
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -403,7 +407,7 @@ where
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -988,7 +992,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 }
 

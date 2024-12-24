@@ -41,7 +41,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::data_column_custody_group::{compute_columns_for_custody_group, CustodyIndex};
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
     SignedBeaconBlock, Slot,
@@ -448,7 +447,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
-            expects_columns,
+            // TODO[JC]: Fix types
+            expects_columns.map(|c| c.into_iter().collect()),
             num_of_column_req,
             requested_peers,
         );

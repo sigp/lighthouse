@@ -606,6 +606,13 @@ impl ChainSpec {
         }
     }
 
+    /// Returns the number of data columns per custody group.
+    pub fn data_columns_per_group(&self) -> u64 {
+        self.number_of_columns
+            .safe_div(self.number_of_custody_groups)
+            .expect("Custody group count must be greater than 0")
+    }
+
     /// Returns the number of column sidecars to sample per slot.
     pub fn sampling_size(&self, custody_group_count: u64) -> u64 {
         let columns_per_custody_group = self
@@ -613,7 +620,9 @@ impl ChainSpec {
             .safe_div(self.number_of_custody_groups)
             .expect("Custody group count must be greater than 0");
 
-        let custody_column_count = columns_per_custody_group * custody_group_count;
+        let custody_column_count = columns_per_custody_group
+            .safe_mul(custody_group_count)
+            .expect("Computing sampling size should not overflow");
 
         std::cmp::max(custody_column_count, self.samples_per_slot)
     }

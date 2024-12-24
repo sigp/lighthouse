@@ -10,11 +10,13 @@ pub type CustodyIndex = u64;
 /// assigned to.
 ///
 /// spec: https://github.com/ethereum/consensus-specs/blob/8e0d0d48e81d6c7c5a8253ab61340f5ea5bac66a/specs/fulu/das-core.md#get_custody_groups
+#[allow(clippy::arithmetic_side_effects)]
 pub fn get_custody_groups(
     raw_node_id: [u8; 32],
     custody_group_count: u64,
     spec: &ChainSpec,
 ) -> HashSet<CustodyIndex> {
+    // TODO: validate input
     // assert custody_group_count <= NUMBER_OF_CUSTODY_GROUPS
     let mut custody_groups: HashSet<u64> = hashset![];
     let mut current_id = U256::from_be_slice(&raw_node_id);
@@ -42,14 +44,15 @@ pub fn get_custody_groups(
 /// Returns the columns that are associated with a given custody group.
 ///
 /// spec: https://github.com/ethereum/consensus-specs/blob/8e0d0d48e81d6c7c5a8253ab61340f5ea5bac66a/specs/fulu/das-core.md#compute_columns_for_custody_group
+#[allow(clippy::arithmetic_side_effects)]
 pub fn compute_columns_for_custody_group(
     custody_group: CustodyIndex,
     spec: &ChainSpec,
 ) -> impl Iterator<Item = ColumnIndex> {
+    // TODO: this must be validated to avoid panics
     // assert custody_group < NUMBER_OF_CUSTODY_GROUPS
     let number_of_custody_groups = spec.number_of_custody_groups;
-    let columns_per_group = spec.number_of_columns / number_of_custody_groups;
-    (0..columns_per_group).map(move |i| number_of_custody_groups * i + custody_group)
+    (0..spec.data_columns_per_group()).map(move |i| number_of_custody_groups * i + custody_group)
 }
 
 pub fn compute_subnets_for_node(

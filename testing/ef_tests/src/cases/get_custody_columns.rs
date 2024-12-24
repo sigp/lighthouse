@@ -2,13 +2,16 @@ use super::*;
 use alloy_primitives::U256;
 use serde::Deserialize;
 use std::marker::PhantomData;
-use types::DataColumnSubnetId;
+use types::data_column_custody_group::{compute_columns_for_custody_group, get_custody_groups};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
 pub struct GetCustodyColumns<E: EthSpec> {
+    /// The NodeID input.
     pub node_id: String,
-    pub custody_subnet_count: u64,
+    /// The count of custody groups.
+    pub custody_group_count: u64,
+    /// The list of resulting custody columns.
     pub result: Vec<u64>,
     #[serde(skip)]
     _phantom: PhantomData<E>,
@@ -26,7 +29,7 @@ impl<E: EthSpec> Case for GetCustodyColumns<E> {
     }
 
     fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
@@ -34,20 +37,18 @@ impl<E: EthSpec> Case for GetCustodyColumns<E> {
         let node_id = U256::from_str_radix(&self.node_id, 10)
             .map_err(|e| Error::FailedToParseTest(format!("{e:?}")))?;
         let raw_node_id = node_id.to_be_bytes::<32>();
-        let computed = DataColumnSubnetId::compute_custody_columns::<E>(
-            raw_node_id,
-            self.custody_subnet_count,
-            &spec,
-        )
-        .expect("should compute custody columns")
-        .collect::<Vec<_>>();
+        let computed_groups = get_custody_groups(raw_node_id, self.custody_group_count, &spec);
+        let computed_columns = computed_groups
+            .into_iter()
+            .flat_map(|custody_group| compute_columns_for_custody_group(custody_group, &spec))
+            .collect::<Vec<_>>();
 
         let expected = &self.result;
-        if computed == *expected {
+        if computed_columns == *expected {
             Ok(())
         } else {
             Err(Error::NotEqual(format!(
-                "Got {computed:?}\nExpected {expected:?}"
+                "Got {computed_columns:?}\nExpected {expected:?}"
             )))
         }
     }

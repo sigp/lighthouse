@@ -341,7 +341,7 @@ mod test {
             .kzg_commitments_merkle_proof()
             .unwrap();
 
-        assert_eq!(column_sidecars.len(), spec.number_of_columns);
+        assert_eq!(column_sidecars.len(), spec.number_of_columns as usize);
         for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
             assert_eq!(col_sidecar.index, idx as u64);
 
@@ -374,7 +374,7 @@ mod test {
         )
         .unwrap();
 
-        for i in 0..spec.number_of_columns {
+        for i in 0..spec.number_of_columns as usize {
             assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");
         }
     }
