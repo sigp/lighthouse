@@ -21,6 +21,7 @@ eth2_keystore  = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
 graffiti_file = { workspace = true }
+health_metrics = { workspace = true }
 initialized_validators = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }

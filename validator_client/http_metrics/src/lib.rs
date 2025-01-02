@@ -206,7 +206,7 @@ pub fn gather_prometheus_metrics<E: EthSpec>(
         scrape_allocator_metrics();
     }
 
-    warp_utils::metrics::scrape_health_metrics();
+    health_metrics::metrics::scrape_health_metrics();
 
     encoder
         .encode(&metrics::gather(), &mut buffer)
