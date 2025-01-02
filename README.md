@@ -1,81 +1,47 @@
-# Lighthouse: Ethereum consensus client
+# Algen L1: EVM compatible consensus layer
 
-An open-source Ethereum consensus client, written in Rust and maintained by Sigma Prime.
+An open-source Ethereum consensus client, written in Rust.
 
-[![Book Status]][Book Link] [![Chat Badge]][Chat Link]
-
-[Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
-[Chat Link]: https://discord.gg/cyAszAh
-[Book Status]:https://img.shields.io/badge/user--docs-unstable-informational
-[Book Link]: https://lighthouse-book.sigmaprime.io
-[stable]: https://github.com/sigp/lighthouse/tree/stable
-[unstable]: https://github.com/sigp/lighthouse/tree/unstable
-[blog]: https://lighthouse-blog.sigmaprime.io
-
-[Documentation](https://lighthouse-book.sigmaprime.io)
-
-![Banner](https://i.postimg.cc/hjdTGKPd/photo-2020-10-23-09-52-16.jpg)
+![Banner](https://pub-4e071c7391f448248e0beb38499ef45f.r2.dev/algen/ALG.png)
 
 ## Overview
 
-Lighthouse is:
+ALG Layer1: Governance and Security
+ALG's L1 and L2 adopt a dual-layer node design, divided into the "governors" or "ultimate 
+validators" of the L1 and the "executing validators" of the L2. ALG L1 will start from the 
+compatibility of new standards such as AA and create an exemplary value layer for the hyper 
+application blockchain, achieving a harmonious equilibrium between economy, security, and 
+efficiency. Based on the strong interoperability of ALG L0 & L1, combined with the off-chain 
+data availability of L2, it provides users with safe and convenient services. L1 is mainly 
+responsible for DPoS/governance/security, and L2 is mainly responsible for verification/
+execution/service/performance/interaction.
+ALG's public blockchain L1 adopts the Delegated Proof of Stake (DPoS) consensus mechanism, 
+high-frequency trading algorithms, and technology. This deployment fits the high-frequency and 
+efficient decentralized financial attributes of Web3.0 applications. DPoS, proposed by Dan 
+Larimer and implemented in the BitShares project for the first time, is a consensus mechanism 
+that uses delegated stakeholders to validate blocks and solve consensus problems. ALG 
+improves the algorithm based on the Byzantine fault tolerance mechanism, using a new 
+permutation algorithm based on chaos factors and Verifiable Random Functions (VRF) to reduce 
+the risk of malicious node attacks that have plagued DeFi infrastructure for the long term.
+In ALG, the Proof of Stake mechanism is an important part of the consensus mechanism and 
+incentives. Users (nodes) become potential "governors" by staking their ALG tokens through 
+smart contracts. The probability of a user becoming an actual governor depends on the 
+proportion of their "stake" to the total stake held in the smart contract. At the same time, the 
+ALG tokens staked by the governors should also be adjusted with the fluctuation of the total 
+asset value staked on the blockchain, achieving over-collateralization and laying a good trust 
+foundation for the operation of the entire network.
+ALG governors implement a dynamic update mechanism, with 21 governors elected in each 
+round. During elections, these governors process information on the main network according to 
+the Istanbul Byzantine fault tolerance algorithm. The ranking of these 21 nodes is affected by 
+continuous permutations. Any node participating in malicious behavior will have its tokens 
+deducted. Governors will be rewarded in three ways:
 
-- Ready for use on Ethereum consensus mainnet.
-- Fully open-source, licensed under Apache 2.0.
-- Security-focused. Fuzzing techniques have been continuously applied and several external security reviews have been performed.
-- Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
-	excellent performance (comparable to C++).
-- Funded by various organisations, including Sigma Prime, the
-	Ethereum Foundation, ConsenSys, the Decentralization Foundation and private individuals.
-- Actively involved in the specification and security analysis of the
-	Ethereum proof-of-stake consensus specification.
+- Validators receive staking rewards allocated by the dynamic equilibrium mechanism from token 
+inflation.
+- Validators charge partial governance and service fees.
+- Validators benefit from the long-term value growth of ALG tokens.
 
-## Staking Deposit Contract
+## Architecture
 
-The Lighthouse team acknowledges
-[`0x00000000219ab540356cBB839Cbe05303d7705Fa`](https://etherscan.io/address/0x00000000219ab540356cbb839cbe05303d7705fa)
-as the canonical staking deposit contract address.
+<img width="915" alt="image" src="https://github.com/user-attachments/assets/2e7b516d-8301-45fc-b43d-1c9c0d706527" />
 
-## Documentation
-
-The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information for users and
-developers.
-
-The Lighthouse team maintains a blog at [https://blog.sigmaprime.io/tag/lighthouse][blog] which contains periodic
-progress updates, roadmap insights and interesting findings.
-
-## Branches
-
-Lighthouse maintains two permanent branches:
-
-- [`stable`][stable]: Always points to the latest stable release.
-  - This is ideal for most users.
-- [`unstable`][unstable]: Used for development, contains the latest PRs.
-  - Developers should base their PRs on this branch.
-
-## Contributing
-
-Lighthouse welcomes contributors.
-
-If you are looking to contribute, please head to the
-[Contributing](https://lighthouse-book.sigmaprime.io/contributing.html) section
-of the Lighthouse book.
-
-## Contact
-
-The best place for discussion is the [Lighthouse Discord
-server](https://discord.gg/cyAszAh).
-
-Sign up to the [Lighthouse Development Updates](https://eepurl.com/dh9Lvb) mailing list for email
-notifications about releases, network status and other important information.
-
-Encrypt sensitive messages using our [PGP
-key](https://keybase.io/sigp/pgp_keys.asc?fingerprint=15e66d941f697e28f49381f426416dc3f30674b0).
-
-## Donations
-
-Lighthouse is an open-source project and a public good. Funding public goods is
-hard and we're grateful for the donations we receive from the community via:
-
-- [Gitcoin Grants](https://gitcoin.co/grants/25/lighthouse-ethereum-20-client).
-- Ethereum address: `0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b` (donation.sigmaprime.eth).
