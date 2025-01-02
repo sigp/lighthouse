@@ -2159,7 +2159,7 @@ impl<E: EthSpec> BeaconState<E> {
         for withdrawal in self
             .pending_partial_withdrawals()?
             .iter()
-            .filter(|withdrawal| withdrawal.index as usize == validator_index)
+            .filter(|withdrawal| withdrawal.validator_index as usize == validator_index)
         {
             pending_balance.safe_add_assign(withdrawal.amount)?;
         }

@@ -522,8 +522,8 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     break;
                 }
 
-                let withdrawal_balance = state.get_balance(withdrawal.index as usize)?;
-                let validator = state.get_validator(withdrawal.index as usize)?;
+                let withdrawal_balance = state.get_balance(withdrawal.validator_index as usize)?;
+                let validator = state.get_validator(withdrawal.validator_index as usize)?;
 
                 let has_sufficient_effective_balance =
                     validator.effective_balance >= spec.min_activation_balance;
@@ -539,7 +539,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     );
                     withdrawals.push(Withdrawal {
                         index: withdrawal_index,
-                        validator_index: withdrawal.index,
+                        validator_index: withdrawal.validator_index,
                         address: validator
                             .get_execution_withdrawal_address(spec)
                             .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?,

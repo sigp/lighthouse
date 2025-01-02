@@ -514,11 +514,11 @@ pub fn process_withdrawal_requests<E: EthSpec>(
         }
 
         // Verify pubkey exists
-        let Some(index) = state.pubkey_cache().get(&request.validator_pubkey) else {
+        let Some(validator_index) = state.pubkey_cache().get(&request.validator_pubkey) else {
             continue;
         };
 
-        let validator = state.get_validator(index)?;
+        let validator = state.get_validator(validator_index)?;
         // Verify withdrawal credentials
         let has_correct_credential = validator.has_execution_withdrawal_credential(spec);
         let is_correct_source_address = validator
@@ -549,16 +549,16 @@ pub fn process_withdrawal_requests<E: EthSpec>(
             continue;
         }
 
-        let pending_balance_to_withdraw = state.get_pending_balance_to_withdraw(index)?;
+        let pending_balance_to_withdraw = state.get_pending_balance_to_withdraw(validator_index)?;
         if is_full_exit_request {
             // Only exit validator if it has no pending withdrawals in the queue
             if pending_balance_to_withdraw == 0 {
-                initiate_validator_exit(state, index, spec)?
+                initiate_validator_exit(state, validator_index, spec)?
             }
             continue;
         }
 
-        let balance = state.get_balance(index)?;
+        let balance = state.get_balance(validator_index)?;
         let has_sufficient_effective_balance =
             validator.effective_balance >= spec.min_activation_balance;
         let has_excess_balance = balance
@@ -583,7 +583,7 @@ pub fn process_withdrawal_requests<E: EthSpec>(
             state
                 .pending_partial_withdrawals_mut()?
                 .push(PendingPartialWithdrawal {
-                    index: index as u64,
+                    validator_index: validator_index as u64,
                     amount: to_withdraw,
                     withdrawable_epoch,
                 })?;
