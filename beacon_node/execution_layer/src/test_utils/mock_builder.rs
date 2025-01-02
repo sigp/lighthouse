@@ -454,6 +454,7 @@ impl<E: EthSpec> MockBuilder<E> {
         parent_hash: ExecutionBlockHash,
         pubkey: PublicKeyBytes,
     ) -> Result<SignedBuilderBid<E>, String> {
+        info!(self.log, "In get_header");
         // Check if the pubkey has registered with the builder if required
         if self.validate_pubkey && !self.val_registration_cache.read().contains_key(&pubkey) {
             return Err("validator not registered with builder".to_string());
@@ -468,6 +469,8 @@ impl<E: EthSpec> MockBuilder<E> {
             None => self.get_payload_params(slot, None, pubkey, None).await?,
         };
 
+        info!(self.log, "Got payload params");
+
         let fork = self.fork_name_at_slot(slot);
         let payload_response_type = self
             .el
@@ -481,6 +484,8 @@ impl<E: EthSpec> MockBuilder<E> {
             })
             .await
             .map_err(|e| format!("couldn't get payload {:?}", e))?;
+        info!(self.log, "Got payload message");
+        info!(self.log, "fork {}", fork);
 
         let mut message = match payload_response_type {
             crate::GetPayloadResponseType::Full(payload_response) => {
@@ -539,8 +544,10 @@ impl<E: EthSpec> MockBuilder<E> {
         };
 
         if self.apply_operations {
+            info!(self.log, "Applying operations");
             self.apply_operations(&mut message);
         }
+        info!(self.log, "Signing builder message");
 
         let mut signature = message.sign_builder_message(&self.builder_sk, &self.spec);
 
@@ -548,6 +555,7 @@ impl<E: EthSpec> MockBuilder<E> {
             signature = Signature::empty();
         };
         let signed_bid = SignedBuilderBid { message, signature };
+        info!(self.log, "Builder bid {:?}", &signed_bid.message);
         Ok(signed_bid)
     }
 
