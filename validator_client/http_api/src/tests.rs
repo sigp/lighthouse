@@ -707,7 +707,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .determine_validator_builder_boost_factor(&validator.voting_pubkey),
+                .determine_builder_boost_factor(&validator.voting_pubkey),
             builder_boost_factor
         );
 
@@ -717,7 +717,7 @@ impl ApiTester {
     pub fn assert_default_builder_boost_factor(self, builder_boost_factor: Option<u64>) -> Self {
         assert_eq!(
             self.validator_store
-                .determine_default_builder_boost_factor(),
+                .determine_builder_boost_factor(&PublicKeyBytes::empty()),
             builder_boost_factor
         );
 
