@@ -1164,7 +1164,7 @@ async fn validator_derived_builder_boost_factor_with_process_defaults() {
         })
         .await
         .assert_default_builder_boost_factor(Some(80))
-        .assert_validator_derived_builder_boost_factor(0, None)
+        .assert_validator_derived_builder_boost_factor(0, Some(80))
         .await
         .set_builder_proposals(0, false)
         .await
