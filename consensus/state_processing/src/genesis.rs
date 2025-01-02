@@ -72,7 +72,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         state.fork_mut().previous_version = spec.bellatrix_fork_version;
 
         // Override latest execution payload header.
-        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/bellatrix/beacon-chain.md#testing
+        // See https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#testing
         if let Some(ExecutionPayloadHeader::Bellatrix(ref header)) = execution_payload_header {
             *state.latest_execution_payload_header_bellatrix_mut()? = header.clone();
         }
