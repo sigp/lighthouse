@@ -166,7 +166,7 @@ pub trait ValidatorStore: Send + Sync {
     /// This function will only do actual pruning periodically, so it should usually be
     /// cheap to call. The `first_run` flag can be used to print a more verbose message when pruning
     /// runs.
-    fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool);
+    fn prune_slashing_protection_db<E: EthSpec>(&self, current_epoch: Epoch, first_run: bool);
 
     /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,

@@ -104,7 +104,6 @@ impl ApiTester {
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            E::slots_per_epoch(),
             log.clone(),
         ));
 
@@ -114,7 +113,7 @@ impl ApiTester {
 
         let initialized_validators = validator_store.initialized_validators();
 
-        let context = Arc::new(Context::<_, E> {
+        let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
             block_service: None,
@@ -139,7 +138,7 @@ impl ApiTester {
         });
         let ctx = context.clone();
         let (listening_socket, server) =
-            super::serve(ctx, test_runtime.task_executor.exit()).unwrap();
+            super::serve::<_, E>(ctx, test_runtime.task_executor.exit()).unwrap();
 
         tokio::spawn(server);
 

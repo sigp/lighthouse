@@ -65,11 +65,11 @@ pub struct ApiTester {
 }
 
 impl ApiTester {
-    pub async fn new<E: EthSpec>() -> Self {
-        Self::new_with_http_config::<E>(Self::default_http_config()).await
+    pub async fn new() -> Self {
+        Self::new_with_http_config(Self::default_http_config()).await
     }
 
-    pub async fn new_with_http_config<E: EthSpec>(http_config: HttpConfig) -> Self {
+    pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
         let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
@@ -114,7 +114,6 @@ impl ApiTester {
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            E::slots_per_epoch(),
             log.clone(),
         ));
 

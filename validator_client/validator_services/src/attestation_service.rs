@@ -15,8 +15,8 @@ use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
 #[derive(Default)]
-pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> {
-    duties_service: Option<Arc<DutiesService<S, T, E>>>,
+pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> {
+    duties_service: Option<Arc<DutiesService<S, T>>>,
     validator_store: Option<Arc<S>>,
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
@@ -24,9 +24,7 @@ pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static, 
     chain_spec: Option<Arc<ChainSpec>>,
 }
 
-impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
-    AttestationServiceBuilder<S, T, E>
-{
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuilder<S, T> {
     pub fn new() -> Self {
         Self {
             duties_service: None,
@@ -38,7 +36,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         }
     }
 
-    pub fn duties_service(mut self, service: Arc<DutiesService<S, T, E>>) -> Self {
+    pub fn duties_service(mut self, service: Arc<DutiesService<S, T>>) -> Self {
         self.duties_service = Some(service);
         self
     }
@@ -68,7 +66,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         self
     }
 
-    pub fn build(self) -> Result<AttestationService<S, T, E>, String> {
+    pub fn build(self) -> Result<AttestationService<S, T>, String> {
         Ok(AttestationService {
             inner: Arc::new(Inner {
                 duties_service: self
@@ -95,8 +93,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
 }
 
 /// Helper to minimise `Arc` usage.
-pub struct Inner<S, T, E: EthSpec> {
-    duties_service: Arc<DutiesService<S, T, E>>,
+pub struct Inner<S, T> {
+    duties_service: Arc<DutiesService<S, T>>,
     validator_store: Arc<S>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
@@ -109,11 +107,11 @@ pub struct Inner<S, T, E: EthSpec> {
 /// If any validators are on the same committee, a single attestation will be downloaded and
 /// returned to the beacon node. This attestation will have a signature from each of the
 /// validators.
-pub struct AttestationService<S, T, E: EthSpec> {
-    inner: Arc<Inner<S, T, E>>,
+pub struct AttestationService<S, T> {
+    inner: Arc<Inner<S, T>>,
 }
 
-impl<S, T, E: EthSpec> Clone for AttestationService<S, T, E> {
+impl<S, T> Clone for AttestationService<S, T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -121,17 +119,17 @@ impl<S, T, E: EthSpec> Clone for AttestationService<S, T, E> {
     }
 }
 
-impl<S, T, E: EthSpec> Deref for AttestationService<S, T, E> {
-    type Target = Inner<S, T, E>;
+impl<S, T> Deref for AttestationService<S, T> {
+    type Target = Inner<S, T>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> AttestationService<S, T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, T> {
     /// Starts the service which periodically produces attestations.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service<E: EthSpec>(self, spec: &ChainSpec) -> Result<(), String> {
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
@@ -150,7 +148,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     sleep(duration_to_next_slot + slot_duration / 3).await;
 
-                    if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
+                    if let Err(e) = self.spawn_attestation_tasks::<E>(slot_duration) {
                         crit!(error = e, "Failed to spawn attestation tasks")
                     } else {
                         trace!("Spawned attestation tasks");
@@ -170,7 +168,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
 
     /// For each each required attestation, spawn a new task that downloads, signs and uploads the
     /// attestation to the beacon node.
-    fn spawn_attestation_tasks(&self, slot_duration: Duration) -> Result<(), String> {
+    fn spawn_attestation_tasks<E: EthSpec>(&self, slot_duration: Duration) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -186,7 +184,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
 
         let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
             .duties_service
-            .attesters(slot)
+            .attesters::<E>(slot)
             .into_iter()
             .fold(HashMap::new(), |mut map, duty_and_proof| {
                 map.entry(duty_and_proof.duty.committee_index)
@@ -204,7 +202,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
                 self.inner.executor.spawn_ignoring_error(
-                    self.clone().publish_attestations_and_aggregates(
+                    self.clone().publish_attestations_and_aggregates::<E>(
                         slot,
                         committee_index,
                         validator_duties,
@@ -217,7 +215,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
         // Schedule pruning of the slashing protection database once all unaggregated
         // attestations have (hopefully) been signed, i.e. at the same time as aggregate
         // production.
-        self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
+        self.spawn_slashing_protection_pruning_task::<E>(slot, aggregate_production_instant);
 
         Ok(())
     }
@@ -231,7 +229,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
     ///
     /// The given `validator_duties` should already be filtered to only contain those that match
     /// `slot` and `committee_index`. Critical errors will be logged if this is not the case.
-    async fn publish_attestations_and_aggregates(
+    async fn publish_attestations_and_aggregates<E: EthSpec>(
         self,
         slot: Slot,
         committee_index: CommitteeIndex,
@@ -253,7 +251,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
         //
         // Download, sign and publish an `Attestation` for each validator.
         let attestation_opt = self
-            .produce_and_publish_attestations(slot, committee_index, &validator_duties)
+            .produce_and_publish_attestations::<E>(slot, committee_index, &validator_duties)
             .await
             .map_err(move |e| {
                 crit!(
@@ -285,7 +283,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
             // Then download, sign and publish a `SignedAggregateAndProof` for each
             // validator that is elected to aggregate for this `slot` and
             // `committee_index`.
-            self.produce_and_publish_aggregates(
+            self.produce_and_publish_aggregates::<E>(
                 &attestation_data,
                 committee_index,
                 &validator_duties,
@@ -316,7 +314,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
     ///
     /// Only one `Attestation` is downloaded from the BN. It is then cloned and signed by each
     /// validator and the list of individually-signed `Attestation` objects is returned to the BN.
-    async fn produce_and_publish_attestations(
+    async fn produce_and_publish_attestations<E: EthSpec>(
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
@@ -494,7 +492,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
     /// Only one aggregated `Attestation` is downloaded from the BN. It is then cloned and signed
     /// by each validator and the list of individually-signed `SignedAggregateAndProof` objects is
     /// returned to the BN.
-    async fn produce_and_publish_aggregates(
+    async fn produce_and_publish_aggregates<E: EthSpec>(
         &self,
         attestation_data: &AttestationData,
         committee_index: CommitteeIndex,
@@ -656,7 +654,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
     /// Spawn a blocking task to run the slashing protection pruning process.
     ///
     /// Start the task at `pruning_instant` to avoid interference with other tasks.
-    fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
+    fn spawn_slashing_protection_pruning_task<E: EthSpec>(
+        &self,
+        slot: Slot,
+        pruning_instant: Instant,
+    ) {
         let attestation_service = self.clone();
         let executor = self.inner.executor.clone();
         let current_epoch = slot.epoch(E::slots_per_epoch());
@@ -670,7 +672,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec> Attestatio
                     move || {
                         attestation_service
                             .validator_store
-                            .prune_slashing_protection_db(current_epoch, false)
+                            .prune_slashing_protection_db::<E>(current_epoch, false)
                     },
                     "slashing_protection_pruning",
                 )

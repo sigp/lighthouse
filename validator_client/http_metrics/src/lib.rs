@@ -38,18 +38,18 @@ impl From<String> for Error {
 type ValidatorStore = LighthouseValidatorStore<SystemTimeSlotClock>;
 
 /// Contains objects which have shared access from inside/outside of the metrics server.
-pub struct Shared<E: EthSpec> {
+pub struct Shared {
     pub validator_store: Option<Arc<ValidatorStore>>,
-    pub duties_service: Option<Arc<DutiesService<ValidatorStore, SystemTimeSlotClock, E>>>,
+    pub duties_service: Option<Arc<DutiesService<ValidatorStore, SystemTimeSlotClock>>>,
     pub genesis_time: Option<u64>,
 }
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<E: EthSpec> {
+pub struct Context {
     pub config: Config,
-    pub shared: RwLock<Shared<E>>,
+    pub shared: RwLock<Shared>,
     pub log: Logger,
 }
 
@@ -91,7 +91,7 @@ impl Default for Config {
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
 pub fn serve<E: EthSpec>(
-    ctx: Arc<Context<E>>,
+    ctx: Arc<Context>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -122,9 +122,9 @@ pub fn serve<E: EthSpec>(
     let routes = warp::get()
         .and(warp::path("metrics"))
         .map(move || inner_ctx.clone())
-        .and_then(|ctx: Arc<Context<E>>| async move {
+        .and_then(|ctx: Arc<Context>| async move {
             Ok::<_, warp::Rejection>(
-                gather_prometheus_metrics(&ctx)
+                gather_prometheus_metrics::<E>(&ctx)
                     .map(|body| {
                         Response::builder()
                             .status(200)
@@ -161,9 +161,7 @@ pub fn serve<E: EthSpec>(
     Ok((listening_socket, server))
 }
 
-pub fn gather_prometheus_metrics<E: EthSpec>(
-    ctx: &Context<E>,
-) -> std::result::Result<String, String> {
+pub fn gather_prometheus_metrics<E: EthSpec>(ctx: &Context) -> std::result::Result<String, String> {
     use validator_metrics::*;
     let mut buffer = vec![];
     let encoder = TextEncoder::new();

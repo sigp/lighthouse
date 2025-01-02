@@ -339,7 +339,7 @@ impl DoppelgangerService {
     ///
     /// Validators added during the genesis epoch will not have doppelganger protection applied to
     /// them.
-    pub fn register_new_validator<T: SlotClock, E: EthSpec>(
+    pub fn register_new_validator<E: EthSpec, T: SlotClock>(
         &self,
         validator: PublicKeyBytes,
         slot_clock: &T,
@@ -745,7 +745,7 @@ mod test {
                 .expect("index should exist");
 
             self.doppelganger
-                .register_new_validator::<_, E>(pubkey, &self.slot_clock)
+                .register_new_validator::<E, _>(pubkey, &self.slot_clock)
                 .unwrap();
             self.doppelganger
                 .doppelganger_states

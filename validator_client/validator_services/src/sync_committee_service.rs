@@ -20,13 +20,11 @@ use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 pub const SUBSCRIPTION_LOOKAHEAD_EPOCHS: u64 = 4;
 
-pub struct SyncCommitteeService<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> {
-    inner: Arc<Inner<S, T, E>>,
+pub struct SyncCommitteeService<S: ValidatorStore, T: SlotClock + 'static> {
+    inner: Arc<Inner<S, T>>,
 }
 
-impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> Clone
-    for SyncCommitteeService<S, T, E>
-{
+impl<S: ValidatorStore, T: SlotClock + 'static> Clone for SyncCommitteeService<S, T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -34,18 +32,16 @@ impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> Clone
     }
 }
 
-impl<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> Deref
-    for SyncCommitteeService<S, T, E>
-{
-    type Target = Inner<S, T, E>;
+impl<S: ValidatorStore, T: SlotClock + 'static> Deref for SyncCommitteeService<S, T> {
+    type Target = Inner<S, T>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-pub struct Inner<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> {
-    duties_service: Arc<DutiesService<S, T, E>>,
+pub struct Inner<S: ValidatorStore, T: SlotClock + 'static> {
+    duties_service: Arc<DutiesService<S, T>>,
     validator_store: Arc<S>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
@@ -56,11 +52,9 @@ pub struct Inner<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec> {
     first_subscription_done: AtomicBool,
 }
 
-impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
-    SyncCommitteeService<S, T, E>
-{
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S, T> {
     pub fn new(
-        duties_service: Arc<DutiesService<S, T, E>>,
+        duties_service: Arc<DutiesService<S, T>>,
         validator_store: Arc<S>,
         slot_clock: T,
         beacon_nodes: Arc<BeaconNodeFallback<T>>,
@@ -81,7 +75,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
     /// Check if the Altair fork has been activated and therefore sync duties should be performed.
     ///
     /// Slot clock errors are mapped to `false`.
-    fn altair_fork_activated(&self) -> bool {
+    fn altair_fork_activated<E: EthSpec>(&self) -> bool {
         self.duties_service
             .spec
             .altair_fork_epoch
@@ -92,7 +86,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             .unwrap_or(false)
     }
 
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service<E: EthSpec>(self, spec: &ChainSpec) -> Result<(), String> {
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
@@ -113,11 +107,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
                     sleep(duration_to_next_slot + slot_duration / 3).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
-                    if !self.altair_fork_activated() {
+                    if !self.altair_fork_activated::<E>() {
                         continue;
                     }
 
-                    if let Err(e) = self.spawn_contribution_tasks(slot_duration).await {
+                    if let Err(e) = self.spawn_contribution_tasks::<E>(slot_duration).await {
                         crit!(
                             error = ?e,
                             "Failed to spawn sync contribution tasks"
@@ -127,7 +121,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
                     }
 
                     // Do subscriptions for future slots/epochs.
-                    self.spawn_subscription_tasks();
+                    self.spawn_subscription_tasks::<E>();
                 } else {
                     error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
@@ -140,7 +134,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         Ok(())
     }
 
-    async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
+    async fn spawn_contribution_tasks<E: EthSpec>(
+        &self,
+        slot_duration: Duration,
+    ) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -157,7 +154,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         let Some(slot_duties) = self
             .duties_service
             .sync_duties
-            .get_duties_for_slot(slot, &self.duties_service.spec)
+            .get_duties_for_slot::<E>(slot, &self.duties_service.spec)
         else {
             debug!("No duties known for slot {}", slot);
             return Ok(());
@@ -206,7 +203,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         self.inner.executor.spawn(
             async move {
                 service
-                    .publish_sync_committee_signatures(slot, block_root, validator_duties)
+                    .publish_sync_committee_signatures::<E>(slot, block_root, validator_duties)
                     .map(|_| ())
                     .await
             },
@@ -218,7 +215,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         self.inner.executor.spawn(
             async move {
                 service
-                    .publish_sync_committee_aggregates(
+                    .publish_sync_committee_aggregates::<E>(
                         slot,
                         block_root,
                         aggregators,
@@ -234,7 +231,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
     }
 
     /// Publish sync committee signatures.
-    async fn publish_sync_committee_signatures(
+    async fn publish_sync_committee_signatures<E: EthSpec>(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -308,7 +305,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         Ok(())
     }
 
-    async fn publish_sync_committee_aggregates(
+    async fn publish_sync_committee_aggregates<E: EthSpec>(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -320,7 +317,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             self.inner.executor.spawn(
                 async move {
                     service
-                        .publish_sync_committee_aggregate_for_subnet(
+                        .publish_sync_committee_aggregate_for_subnet::<E>(
                             slot,
                             beacon_block_root,
                             subnet_id,
@@ -335,7 +332,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         }
     }
 
-    async fn publish_sync_committee_aggregate_for_subnet(
+    async fn publish_sync_committee_aggregate_for_subnet<E: EthSpec>(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -438,23 +435,26 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
         Ok(())
     }
 
-    fn spawn_subscription_tasks(&self) {
+    fn spawn_subscription_tasks<E: EthSpec>(&self) {
         let service = self.clone();
 
         self.inner.executor.spawn(
             async move {
-                service.publish_subscriptions().await.unwrap_or_else(|e| {
-                    error!(
-                        error = ?e,
-                        "Error publishing subscriptions"
-                    )
-                });
+                service
+                    .publish_subscriptions::<E>()
+                    .await
+                    .unwrap_or_else(|e| {
+                        error!(
+                            error = ?e,
+                            "Error publishing subscriptions"
+                        )
+                    });
             },
             "sync_committee_subscription_publish",
         );
     }
 
-    async fn publish_subscriptions(self) -> Result<(), String> {
+    async fn publish_subscriptions<E: EthSpec>(self) -> Result<(), String> {
         let spec = &self.duties_service.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
 
@@ -495,7 +495,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static, E: EthSpec>
             match self
                 .duties_service
                 .sync_duties
-                .get_duties_for_slot(duty_slot, spec)
+                .get_duties_for_slot::<E>(duty_slot, spec)
             {
                 Some(duties) => subscriptions.extend(subscriptions_from_sync_duties(
                     duties.duties,

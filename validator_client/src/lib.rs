@@ -77,10 +77,10 @@ type ValidatorStore = LighthouseValidatorStore<SystemTimeSlotClock>;
 #[derive(Clone)]
 pub struct ProductionValidatorClient<E: EthSpec> {
     context: RuntimeContext<E>,
-    duties_service: Arc<DutiesService<ValidatorStore, SystemTimeSlotClock, E>>,
+    duties_service: Arc<DutiesService<ValidatorStore, SystemTimeSlotClock>>,
     block_service: BlockService<ValidatorStore, SystemTimeSlotClock>,
-    attestation_service: AttestationService<ValidatorStore, SystemTimeSlotClock, E>,
-    sync_committee_service: SyncCommitteeService<ValidatorStore, SystemTimeSlotClock, E>,
+    attestation_service: AttestationService<ValidatorStore, SystemTimeSlotClock>,
+    sync_committee_service: SyncCommitteeService<ValidatorStore, SystemTimeSlotClock>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<ValidatorStore, SystemTimeSlotClock>,
     validator_store: Arc<ValidatorStore>,
@@ -144,7 +144,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 duties_service: None,
             };
 
-            let ctx: Arc<validator_http_metrics::Context<E>> =
+            let ctx: Arc<validator_http_metrics::Context> =
                 Arc::new(validator_http_metrics::Context {
                     config: config.http_metrics.clone(),
                     shared: RwLock::new(shared),
@@ -153,7 +153,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
             let exit = context.executor.exit();
 
-            let (_listen_addr, server) = validator_http_metrics::serve(ctx.clone(), exit)
+            let (_listen_addr, server) = validator_http_metrics::serve::<E>(ctx.clone(), exit)
                 .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
 
             context
@@ -445,7 +445,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             slot_clock.clone(),
             &config.validator_store,
             context.executor.clone(),
-            E::slots_per_epoch(),
             log.clone(),
         ));
 
@@ -462,7 +461,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // oversized from having not been pruned (by a prior version) we don't want to prune
         // concurrently, as it will hog the lock and cause the attestation service to spew CRITs.
         if let Some(slot) = slot_clock.now() {
-            validator_store.prune_slashing_protection_db(slot.epoch(E::slots_per_epoch()), true);
+            validator_store
+                .prune_slashing_protection_db::<E>(slot.epoch(E::slots_per_epoch()), true);
         }
 
         let duties_service = Arc::new(
@@ -587,7 +587,10 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // Wait until genesis has occurred.
         wait_for_genesis(&self.beacon_nodes, self.genesis_time, &self.context).await?;
 
-        duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
+        duties_service::start_update_service::<_, _, E>(
+            self.duties_service.clone(),
+            block_service_tx,
+        );
 
         self.block_service
             .clone()
@@ -596,12 +599,12 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         self.attestation_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service::<E>(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
         self.sync_committee_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service::<E>(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
 
         self.preparation_service

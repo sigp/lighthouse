@@ -373,7 +373,6 @@ mod tests {
                 slot_clock,
                 &config,
                 executor,
-                E::slots_per_epoch(),
                 log.clone(),
             );
 

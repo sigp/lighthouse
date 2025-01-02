@@ -6,10 +6,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [dependencies]
 account_utils = { workspace = true }
-beacon_node_fallback = { workspace = true }
 doppelganger_service = { workspace = true }
-environment = { workspace = true }
-eth2 = { workspace = true }
 initialized_validators = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
@@ -18,11 +15,6 @@ slashing_protection = { workspace = true }
 slog = { workspace = true }
 slot_clock = { workspace = true }
 task_executor = { workspace = true }
-tokio = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
 validator_store = { workspace = true }
-
-[dev-dependencies]
-futures = { workspace = true }
-logging = { workspace = true }
