@@ -12,8 +12,5 @@ mockito = { workspace = true }
 regex = { workspace = true }
 sensitive_url = { workspace = true }
 serde_json = { workspace = true }
-slashing_protection = { workspace = true }
 slog = { workspace = true }
-task_executor = { workspace = true }
-tokio = { workspace = true }
 types = { workspace = true }
