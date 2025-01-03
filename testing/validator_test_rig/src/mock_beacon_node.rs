@@ -22,7 +22,6 @@ pub struct MockBeaconNode<E: EthSpec> {
 impl<E: EthSpec> MockBeaconNode<E> {
     pub async fn new() -> Self {
         // mock server logging
-        let _ = env_logger::try_init();
         let server = Server::new_async().await;
         let beacon_api_client = BeaconNodeHttpClient::new(
             SensitiveUrl::from_str(&server.url()).unwrap(),

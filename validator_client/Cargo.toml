@@ -34,7 +34,6 @@ serde_json = { workspace = true }
 slashing_protection = { workspace = true }
 slog = { workspace = true }
 slot_clock = { workspace = true }
-task_executor = { workspace = true }
 tokio = { workspace = true }
 types  = { workspace = true }
 validator_http_api = { workspace = true }
