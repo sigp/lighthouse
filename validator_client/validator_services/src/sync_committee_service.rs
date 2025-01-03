@@ -75,18 +75,18 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     /// Check if the Altair fork has been activated and therefore sync duties should be performed.
     ///
     /// Slot clock errors are mapped to `false`.
-    fn altair_fork_activated<E: EthSpec>(&self) -> bool {
+    fn altair_fork_activated(&self) -> bool {
         self.duties_service
             .spec
             .altair_fork_epoch
             .and_then(|fork_epoch| {
-                let current_epoch = self.slot_clock.now()?.epoch(E::slots_per_epoch());
+                let current_epoch = self.slot_clock.now()?.epoch(S::E::slots_per_epoch());
                 Some(current_epoch >= fork_epoch)
             })
             .unwrap_or(false)
     }
 
-    pub fn start_update_service<E: EthSpec>(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
@@ -107,11 +107,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     sleep(duration_to_next_slot + slot_duration / 3).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
-                    if !self.altair_fork_activated::<E>() {
+                    if !self.altair_fork_activated() {
                         continue;
                     }
 
-                    if let Err(e) = self.spawn_contribution_tasks::<E>(slot_duration).await {
+                    if let Err(e) = self.spawn_contribution_tasks(slot_duration).await {
                         crit!(
                             error = ?e,
                             "Failed to spawn sync contribution tasks"
@@ -121,7 +121,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     }
 
                     // Do subscriptions for future slots/epochs.
-                    self.spawn_subscription_tasks::<E>();
+                    self.spawn_subscription_tasks();
                 } else {
                     error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
@@ -134,10 +134,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
-    async fn spawn_contribution_tasks<E: EthSpec>(
-        &self,
-        slot_duration: Duration,
-    ) -> Result<(), String> {
+    async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -154,7 +151,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         let Some(slot_duties) = self
             .duties_service
             .sync_duties
-            .get_duties_for_slot::<E>(slot, &self.duties_service.spec)
+            .get_duties_for_slot::<S::E>(slot, &self.duties_service.spec)
         else {
             debug!("No duties known for slot {}", slot);
             return Ok(());
@@ -203,7 +200,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         self.inner.executor.spawn(
             async move {
                 service
-                    .publish_sync_committee_signatures::<E>(slot, block_root, validator_duties)
+                    .publish_sync_committee_signatures(slot, block_root, validator_duties)
                     .map(|_| ())
                     .await
             },
@@ -215,7 +212,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         self.inner.executor.spawn(
             async move {
                 service
-                    .publish_sync_committee_aggregates::<E>(
+                    .publish_sync_committee_aggregates(
                         slot,
                         block_root,
                         aggregators,
@@ -231,7 +228,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 
     /// Publish sync committee signatures.
-    async fn publish_sync_committee_signatures<E: EthSpec>(
+    async fn publish_sync_committee_signatures(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -241,7 +238,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         let signature_futures = validator_duties.iter().map(|duty| async move {
             match self
                 .validator_store
-                .produce_sync_committee_signature::<E>(
+                .produce_sync_committee_signature(
                     slot,
                     beacon_block_root,
                     duty.validator_index,
@@ -305,7 +302,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
-    async fn publish_sync_committee_aggregates<E: EthSpec>(
+    async fn publish_sync_committee_aggregates(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -317,7 +314,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             self.inner.executor.spawn(
                 async move {
                     service
-                        .publish_sync_committee_aggregate_for_subnet::<E>(
+                        .publish_sync_committee_aggregate_for_subnet(
                             slot,
                             beacon_block_root,
                             subnet_id,
@@ -332,7 +329,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         }
     }
 
-    async fn publish_sync_committee_aggregate_for_subnet<E: EthSpec>(
+    async fn publish_sync_committee_aggregate_for_subnet(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -352,7 +349,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                 };
 
                 beacon_node
-                    .get_validator_sync_committee_contribution::<E>(&sync_contribution_data)
+                    .get_validator_sync_committee_contribution(&sync_contribution_data)
                     .await
             })
             .await
@@ -435,26 +432,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         Ok(())
     }
 
-    fn spawn_subscription_tasks<E: EthSpec>(&self) {
+    fn spawn_subscription_tasks(&self) {
         let service = self.clone();
 
         self.inner.executor.spawn(
             async move {
-                service
-                    .publish_subscriptions::<E>()
-                    .await
-                    .unwrap_or_else(|e| {
-                        error!(
-                            error = ?e,
-                            "Error publishing subscriptions"
-                        )
-                    });
+                service.publish_subscriptions().await.unwrap_or_else(|e| {
+                    error!(
+                        error = ?e,
+                        "Error publishing subscriptions"
+                    )
+                });
             },
             "sync_committee_subscription_publish",
         );
     }
 
-    async fn publish_subscriptions<E: EthSpec>(self) -> Result<(), String> {
+    async fn publish_subscriptions(self) -> Result<(), String> {
         let spec = &self.duties_service.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
 
@@ -464,10 +458,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         // At the start of every epoch during the current period, re-post the subscriptions
         // to the beacon node. This covers the case where the BN has forgotten the subscriptions
         // due to a restart, or where the VC has switched to a fallback BN.
-        let current_period = sync_period_of_slot::<E>(slot, spec)?;
+        let current_period = sync_period_of_slot::<S::E>(slot, spec)?;
 
         if !self.first_subscription_done.load(Ordering::Relaxed)
-            || slot.as_u64() % E::slots_per_epoch() == 0
+            || slot.as_u64() % S::E::slots_per_epoch() == 0
         {
             duty_slots.push((slot, current_period));
         }
@@ -475,9 +469,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         // Near the end of the current period, push subscriptions for the next period to the
         // beacon node. We aggressively push every slot in the lead-up, as this is the main way
         // that we want to ensure that the BN is subscribed (well in advance).
-        let lookahead_slot = slot + SUBSCRIPTION_LOOKAHEAD_EPOCHS * E::slots_per_epoch();
+        let lookahead_slot = slot + SUBSCRIPTION_LOOKAHEAD_EPOCHS * S::E::slots_per_epoch();
 
-        let lookahead_period = sync_period_of_slot::<E>(lookahead_slot, spec)?;
+        let lookahead_period = sync_period_of_slot::<S::E>(lookahead_slot, spec)?;
 
         if lookahead_period > current_period {
             duty_slots.push((lookahead_slot, lookahead_period));
@@ -495,7 +489,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             match self
                 .duties_service
                 .sync_duties
-                .get_duties_for_slot::<E>(duty_slot, spec)
+                .get_duties_for_slot::<S::E>(duty_slot, spec)
             {
                 Some(duties) => subscriptions.extend(subscriptions_from_sync_duties(
                     duties.duties,

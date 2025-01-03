@@ -19,8 +19,8 @@ use url::Url;
 use warp::Rejection;
 use warp_utils::reject::custom_server_error;
 
-pub fn list<T: SlotClock + 'static>(
-    validator_store: Arc<LighthouseValidatorStore<T>>,
+pub fn list<T: SlotClock + 'static, E: EthSpec>(
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
 ) -> ListRemotekeysResponse {
     let initialized_validators_rwlock = validator_store.initialized_validators();
     let initialized_validators = initialized_validators_rwlock.read();
@@ -50,7 +50,7 @@ pub fn list<T: SlotClock + 'static>(
 
 pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportRemotekeysRequest,
-    validator_store: Arc<LighthouseValidatorStore<T>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<ImportRemotekeysResponse, Rejection> {
@@ -96,7 +96,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
 fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
     pubkey: PublicKeyBytes,
     url: String,
-    validator_store: &LighthouseValidatorStore<T>,
+    validator_store: &LighthouseValidatorStore<T, E>,
     handle: Handle,
 ) -> Result<ImportRemotekeyStatus, String> {
     if let Err(url_err) = Url::parse(&url) {
@@ -142,15 +142,15 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
         }),
     };
     handle
-        .block_on(validator_store.add_validator::<E>(web3signer_validator))
+        .block_on(validator_store.add_validator(web3signer_validator))
         .map_err(|e| format!("failed to initialize validator: {:?}", e))?;
 
     Ok(ImportRemotekeyStatus::Imported)
 }
 
-pub fn delete<T: SlotClock + 'static>(
+pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteRemotekeysRequest,
-    validator_store: Arc<LighthouseValidatorStore<T>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<DeleteRemotekeysResponse, Rejection> {

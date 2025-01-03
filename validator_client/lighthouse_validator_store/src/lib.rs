@@ -1,5 +1,5 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-use doppelganger_service::{DoppelgangerService, DoppelgangerValidatorStore};
+use doppelganger_service::DoppelgangerService;
 use initialized_validators::InitializedValidators;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,7 @@ use slashing_protection::{
 };
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
+use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -23,7 +24,7 @@ use types::{
     VoluntaryExit,
 };
 use validator_store::{
-    DoppelgangerStatus, Error as ValidatorStoreError, ProposalData, ValidatorStore,
+    DoppelgangerStatus, Error as ValidatorStoreError, ProposalData, SignBlock, ValidatorStore,
 };
 
 pub type Error = ValidatorStoreError<SigningError>;
@@ -54,7 +55,7 @@ const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 /// https://github.com/ethereum/builder-specs/issues/17
 pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
 
-pub struct LighthouseValidatorStore<T> {
+pub struct LighthouseValidatorStore<T, E> {
     validators: Arc<RwLock<InitializedValidators>>,
     slashing_protection: SlashingDatabase,
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,
@@ -70,15 +71,10 @@ pub struct LighthouseValidatorStore<T> {
     prefer_builder_proposals: bool,
     builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
+    _phantom: PhantomData<E>,
 }
 
-impl<T: SlotClock + 'static> DoppelgangerValidatorStore for LighthouseValidatorStore<T> {
-    fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
-        self.validator_index(pubkey)
-    }
-}
-
-impl<T: SlotClock + 'static> LighthouseValidatorStore<T> {
+impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     // All arguments are different types. Making the fields `pub` is undesired. A builder seems
     // unnecessary.
     #[allow(clippy::too_many_arguments)]
@@ -109,6 +105,7 @@ impl<T: SlotClock + 'static> LighthouseValidatorStore<T> {
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
+            _phantom: PhantomData,
         }
     }
 
@@ -116,9 +113,7 @@ impl<T: SlotClock + 'static> LighthouseValidatorStore<T> {
     /// duplicate validators operating on the network at the same time.
     ///
     /// This function has no effect if doppelganger protection is disabled.
-    pub fn register_all_in_doppelganger_protection_if_enabled<E: EthSpec>(
-        &self,
-    ) -> Result<(), String> {
+    pub fn register_all_in_doppelganger_protection_if_enabled(&self) -> Result<(), String> {
         if let Some(doppelganger_service) = &self.doppelganger_service {
             for pubkey in self.validators.read().iter_voting_pubkeys() {
                 doppelganger_service.register_new_validator::<E, _>(*pubkey, &self.slot_clock)?
@@ -148,7 +143,7 @@ impl<T: SlotClock + 'static> LighthouseValidatorStore<T> {
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
     /// keystore on the filesystem.
     #[allow(clippy::too_many_arguments)]
-    pub async fn add_validator_keystore<P: AsRef<Path>, E: EthSpec>(
+    pub async fn add_validator_keystore<P: AsRef<Path>>(
         &self,
         voting_keystore_path: P,
         password_storage: PasswordStorage,
@@ -174,7 +169,7 @@ impl<T: SlotClock + 'static> LighthouseValidatorStore<T> {
 
         validator_def.enabled = enable;
 
-        self.add_validator::<E>(validator_def).await
+        self.add_validator(validator_def).await
     }
 
     /// Insert a new validator to `self`.
@@ -186,7 +181,7 @@ impl<T: SlotClock + 'static> LighthouseValidatorStore<T> {
     /// - If `enable == true`, starting to perform duties for the validator.
     // FIXME: ignore this clippy lint until the validator store is refactored to use async locks
     #[allow(clippy::await_holding_lock)]
-    pub async fn add_validator<E: EthSpec>(
+    pub async fn add_validator(
         &self,
         validator_def: ValidatorDefinition,
     ) -> Result<ValidatorDefinition, String> {
@@ -420,8 +415,10 @@ impl<T: SlotClock + 'static> LighthouseValidatorStore<T> {
     }
 }
 
-impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
+impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorStore<T, E> {
     type Error = SigningError;
+    type E = E;
+
     /// Attempts to resolve the pubkey to a validator index.
     ///
     /// It may return `None` if the `pubkey` is:
@@ -548,7 +545,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
         })
     }
 
-    async fn randao_reveal<E: EthSpec>(
+    async fn randao_reveal(
         &self,
         validator_pubkey: PublicKeyBytes,
         signing_epoch: Epoch,
@@ -574,103 +571,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
             .set_index(validator_pubkey, index);
     }
 
-    async fn sign_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        block: BeaconBlock<E, Payload>,
-        current_slot: Slot,
-    ) -> Result<SignedBeaconBlock<E, Payload>, Error> {
-        // Make sure the block slot is not higher than the current slot to avoid potential attacks.
-        if block.slot() > current_slot {
-            warn!(
-                self.log,
-                "Not signing block with slot greater than current slot";
-                "block_slot" => block.slot().as_u64(),
-                "current_slot" => current_slot.as_u64()
-            );
-            return Err(Error::GreaterThanCurrentSlot {
-                slot: block.slot(),
-                current_slot,
-            });
-        }
-
-        let signing_epoch = block.epoch();
-        let signing_context = self.signing_context(Domain::BeaconProposer, signing_epoch);
-        let domain_hash = signing_context.domain_hash(&self.spec);
-
-        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
-
-        // Check for slashing conditions.
-        let slashing_status = if signing_method
-            .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
-        {
-            self.slashing_protection.check_and_insert_block_proposal(
-                &validator_pubkey,
-                &block.block_header(),
-                domain_hash,
-            )
-        } else {
-            Ok(Safe::Valid)
-        };
-
-        match slashing_status {
-            // We can safely sign this block without slashing.
-            Ok(Safe::Valid) => {
-                validator_metrics::inc_counter_vec(
-                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
-                    &[validator_metrics::SUCCESS],
-                );
-
-                let signature = signing_method
-                    .get_signature(
-                        SignableMessage::BeaconBlock(&block),
-                        signing_context,
-                        &self.spec,
-                        &self.task_executor,
-                    )
-                    .await?;
-                Ok(SignedBeaconBlock::from_block(block, signature))
-            }
-            Ok(Safe::SameData) => {
-                warn!(
-                    self.log,
-                    "Skipping signing of previously signed block";
-                );
-                validator_metrics::inc_counter_vec(
-                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
-                    &[validator_metrics::SAME_DATA],
-                );
-                Err(Error::SameData)
-            }
-            Err(NotSafe::UnregisteredValidator(pk)) => {
-                warn!(
-                    self.log,
-                    "Not signing block for unregistered validator";
-                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
-                    "public_key" => format!("{:?}", pk)
-                );
-                validator_metrics::inc_counter_vec(
-                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
-                    &[validator_metrics::UNREGISTERED],
-                );
-                Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
-            }
-            Err(e) => {
-                crit!(
-                    self.log,
-                    "Not signing slashable block";
-                    "error" => format!("{:?}", e)
-                );
-                validator_metrics::inc_counter_vec(
-                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
-                    &[validator_metrics::SLASHABLE],
-                );
-                Err(Error::Slashable(e))
-            }
-        }
-    }
-
-    async fn sign_attestation<E: EthSpec>(
+    async fn sign_attestation(
         &self,
         validator_pubkey: PublicKeyBytes,
         validator_committee_position: usize,
@@ -766,7 +667,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
         }
     }
 
-    async fn sign_voluntary_exit<E: EthSpec>(
+    async fn sign_voluntary_exit(
         &self,
         validator_pubkey: PublicKeyBytes,
         voluntary_exit: VoluntaryExit,
@@ -795,7 +696,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
         })
     }
 
-    async fn sign_validator_registration_data<E: EthSpec>(
+    async fn sign_validator_registration_data(
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
@@ -828,7 +729,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
     ///
     /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
     /// modified by actors other than the signing validator.
-    async fn produce_signed_aggregate_and_proof<E: EthSpec>(
+    async fn produce_signed_aggregate_and_proof(
         &self,
         validator_pubkey: PublicKeyBytes,
         aggregator_index: u64,
@@ -863,7 +764,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
     /// `validator_pubkey`.
-    async fn produce_selection_proof<E: EthSpec>(
+    async fn produce_selection_proof(
         &self,
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
@@ -899,7 +800,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
     }
 
     /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
-    async fn produce_sync_selection_proof<E: EthSpec>(
+    async fn produce_sync_selection_proof(
         &self,
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
@@ -935,7 +836,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
         Ok(signature.into())
     }
 
-    async fn produce_sync_committee_signature<E: EthSpec>(
+    async fn produce_sync_committee_signature(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -974,7 +875,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
         })
     }
 
-    async fn produce_signed_contribution_and_proof<E: EthSpec>(
+    async fn produce_signed_contribution_and_proof(
         &self,
         aggregator_index: u64,
         aggregator_pubkey: PublicKeyBytes,
@@ -1016,7 +917,7 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
     /// This function will only do actual pruning periodically, so it should usually be
     /// cheap to call. The `first_run` flag can be used to print a more verbose message when pruning
     /// runs.
-    fn prune_slashing_protection_db<E: EthSpec>(&self, current_epoch: Epoch, first_run: bool) {
+    fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool) {
         // Attempt to prune every SLASHING_PROTECTION_HISTORY_EPOCHs, with a tolerance for
         // missing the epoch that aligns exactly.
         let mut last_prune = self.slashing_protection_last_prune.lock();
@@ -1089,5 +990,105 @@ impl<T: SlotClock + 'static> ValidatorStore for LighthouseValidatorStore<T> {
                 builder_proposals: self
                     .get_builder_proposals_defaulting(validator.get_builder_proposals()),
             })
+    }
+}
+
+impl<T: SlotClock + 'static, E: EthSpec, P: AbstractExecPayload<E>>
+    SignBlock<E, P, signing_method::Error> for LighthouseValidatorStore<T, E>
+{
+    async fn sign_block(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        block: BeaconBlock<E, P>,
+        current_slot: Slot,
+    ) -> Result<SignedBeaconBlock<E, P>, Error> {
+        // Make sure the block slot is not higher than the current slot to avoid potential attacks.
+        if block.slot() > current_slot {
+            warn!(
+                self.log,
+                "Not signing block with slot greater than current slot";
+                "block_slot" => block.slot().as_u64(),
+                "current_slot" => current_slot.as_u64()
+            );
+            return Err(Error::GreaterThanCurrentSlot {
+                slot: block.slot(),
+                current_slot,
+            });
+        }
+
+        let signing_epoch = block.epoch();
+        let signing_context = self.signing_context(Domain::BeaconProposer, signing_epoch);
+        let domain_hash = signing_context.domain_hash(&self.spec);
+
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
+        // Check for slashing conditions.
+        let slashing_status = if signing_method
+            .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+        {
+            self.slashing_protection.check_and_insert_block_proposal(
+                &validator_pubkey,
+                &block.block_header(),
+                domain_hash,
+            )
+        } else {
+            Ok(Safe::Valid)
+        };
+
+        match slashing_status {
+            // We can safely sign this block without slashing.
+            Ok(Safe::Valid) => {
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
+                    &[validator_metrics::SUCCESS],
+                );
+
+                let signature = signing_method
+                    .get_signature(
+                        SignableMessage::BeaconBlock(&block),
+                        signing_context,
+                        &self.spec,
+                        &self.task_executor,
+                    )
+                    .await?;
+                Ok(SignedBeaconBlock::from_block(block, signature))
+            }
+            Ok(Safe::SameData) => {
+                warn!(
+                    self.log,
+                    "Skipping signing of previously signed block";
+                );
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
+                    &[validator_metrics::SAME_DATA],
+                );
+                Err(Error::SameData)
+            }
+            Err(NotSafe::UnregisteredValidator(pk)) => {
+                warn!(
+                    self.log,
+                    "Not signing block for unregistered validator";
+                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
+                    "public_key" => format!("{:?}", pk)
+                );
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
+                    &[validator_metrics::UNREGISTERED],
+                );
+                Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
+            }
+            Err(e) => {
+                crit!(
+                    self.log,
+                    "Not signing slashable block";
+                    "error" => format!("{:?}", e)
+                );
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
+                    &[validator_metrics::SLASHABLE],
+                );
+                Err(Error::Slashable(e))
+            }
+        }
     }
 }

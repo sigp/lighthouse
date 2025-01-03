@@ -36,7 +36,7 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
 
 /// Performs a single notification routine.
 async fn notify<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<LighthouseValidatorStore<T>, T>,
+    duties_service: &DutiesService<LighthouseValidatorStore<T, E>, T>,
     log: &Logger,
 ) {
     let (candidate_info, num_available, num_synced) =

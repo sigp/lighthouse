@@ -41,7 +41,7 @@ use std::sync::Arc;
 use task_executor::ShutdownReason;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
-use validator_store::DoppelgangerStatus;
+use validator_store::{DoppelgangerStatus, ValidatorStore};
 
 struct LivenessResponses {
     current_epoch_responses: Vec<LivenessResponseData>,
@@ -51,13 +51,6 @@ struct LivenessResponses {
 /// The number of epochs that must be checked before we assume that there are no other duplicate
 /// validators on the network.
 pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 1;
-
-/// This crate cannot depend on ValidatorStore as validator_store depends on this crate and
-/// initialises the doppelganger protection. For this reason, we abstract the validator store
-/// functions this service needs through the following trait
-pub trait DoppelgangerValidatorStore {
-    fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64>;
-}
 
 /// Store the per-validator status of doppelganger checking.
 #[derive(Debug, PartialEq)]
@@ -235,10 +228,10 @@ impl DoppelgangerService {
     where
         E: EthSpec,
         T: 'static + SlotClock,
-        V: DoppelgangerValidatorStore + Send + Sync + 'static,
+        V: ValidatorStore<E = E> + Send + Sync + 'static,
     {
         // Define the `get_index` function as one that uses the validator store.
-        let get_index = move |pubkey| validator_store.get_validator_index(&pubkey);
+        let get_index = move |pubkey| validator_store.validator_index(&pubkey);
 
         // Define the `get_liveness` function as one that queries the beacon node API.
         let log = service.log.clone();

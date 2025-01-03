@@ -35,21 +35,21 @@ impl From<String> for Error {
     }
 }
 
-type ValidatorStore = LighthouseValidatorStore<SystemTimeSlotClock>;
+type ValidatorStore<E> = LighthouseValidatorStore<SystemTimeSlotClock, E>;
 
 /// Contains objects which have shared access from inside/outside of the metrics server.
-pub struct Shared {
-    pub validator_store: Option<Arc<ValidatorStore>>,
-    pub duties_service: Option<Arc<DutiesService<ValidatorStore, SystemTimeSlotClock>>>,
+pub struct Shared<E> {
+    pub validator_store: Option<Arc<ValidatorStore<E>>>,
+    pub duties_service: Option<Arc<DutiesService<ValidatorStore<E>, SystemTimeSlotClock>>>,
     pub genesis_time: Option<u64>,
 }
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context {
+pub struct Context<E> {
     pub config: Config,
-    pub shared: RwLock<Shared>,
+    pub shared: RwLock<Shared<E>>,
     pub log: Logger,
 }
 
@@ -91,7 +91,7 @@ impl Default for Config {
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
 pub fn serve<E: EthSpec>(
-    ctx: Arc<Context>,
+    ctx: Arc<Context<E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -122,7 +122,7 @@ pub fn serve<E: EthSpec>(
     let routes = warp::get()
         .and(warp::path("metrics"))
         .map(move || inner_ctx.clone())
-        .and_then(|ctx: Arc<Context>| async move {
+        .and_then(|ctx: Arc<Context<E>>| async move {
             Ok::<_, warp::Rejection>(
                 gather_prometheus_metrics::<E>(&ctx)
                     .map(|body| {
@@ -161,7 +161,9 @@ pub fn serve<E: EthSpec>(
     Ok((listening_socket, server))
 }
 
-pub fn gather_prometheus_metrics<E: EthSpec>(ctx: &Context) -> std::result::Result<String, String> {
+pub fn gather_prometheus_metrics<E: EthSpec>(
+    ctx: &Context<E>,
+) -> std::result::Result<String, String> {
     use validator_metrics::*;
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
