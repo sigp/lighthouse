@@ -3133,6 +3133,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fdlimit"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e182f7dbc2ef73d9ef67351c5fbbea084729c48362d3ce9dd44c28e32e277fe5"
+dependencies = [
+ "libc",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "ff"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9601,6 +9611,7 @@ dependencies = [
  "doppelganger_service",
  "environment",
  "eth2",
+ "fdlimit",
  "graffiti_file",
  "hyper 1.5.1",
  "initialized_validators",
