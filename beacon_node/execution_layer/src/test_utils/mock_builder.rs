@@ -35,6 +35,8 @@ use warp::{Filter, Rejection};
 
 pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
+pub const DEFAULT_BUILDER_PRIVATE_KEY: &str =
+    "607a11b45a7219cc61a3d9c5fd08c7eebd602a6a19a977f8d3771d5711a550f2";
 
 #[derive(Clone)]
 pub enum Operation {
@@ -308,6 +310,7 @@ impl<E: EthSpec> MockBuilder<E> {
             true,
             false,
             spec,
+            None,
             executor.log().clone(),
         );
         let host: Ipv4Addr = Ipv4Addr::LOCALHOST;
@@ -316,6 +319,7 @@ impl<E: EthSpec> MockBuilder<E> {
         (builder, server)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         el: ExecutionLayer<E>,
         beacon_client: BeaconNodeHttpClient,
@@ -323,16 +327,30 @@ impl<E: EthSpec> MockBuilder<E> {
         apply_operations: bool,
         max_bid: bool,
         spec: Arc<ChainSpec>,
+        sk: Option<&[u8]>,
         log: Logger,
     ) -> Self {
-        let sk = SecretKey::random();
+        let builder_sk = if let Some(sk_bytes) = sk {
+            match SecretKey::deserialize(sk_bytes) {
+                Ok(sk) => sk,
+                Err(_) => {
+                    error!(
+                        log,
+                        "Invalid sk_bytes provided, generating random secret key"
+                    );
+                    SecretKey::random()
+                }
+            }
+        } else {
+            SecretKey::deserialize(&hex::decode(DEFAULT_BUILDER_PRIVATE_KEY).unwrap()).unwrap()
+        };
         Self {
             el,
             beacon_client,
             // Should keep spec and context consistent somehow
             spec,
             val_registration_cache: Arc::new(RwLock::new(HashMap::new())),
-            builder_sk: sk,
+            builder_sk,
             validate_pubkey,
             operations: Arc::new(RwLock::new(vec![])),
             invalidate_signatures: Arc::new(RwLock::new(false)),
