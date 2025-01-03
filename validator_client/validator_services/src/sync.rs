@@ -280,12 +280,8 @@ fn last_slot_of_period<E: EthSpec>(sync_committee_period: u64, spec: &ChainSpec)
     first_slot_of_period::<E>(sync_committee_period + 1, spec) - 1
 }
 
-pub async fn poll_sync_committee_duties<
-    S: ValidatorStore + 'static,
-    T: SlotClock + 'static,
-    E: EthSpec,
->(
-    duties_service: &Arc<DutiesService<S, T, E>>,
+pub async fn poll_sync_committee_duties<S: ValidatorStore + 'static, T: SlotClock + 'static>(
+    duties_service: &Arc<DutiesService<S, T>>,
 ) -> Result<(), Error<S::Error>> {
     let sync_duties = &duties_service.sync_duties;
     let spec = &duties_service.spec;
@@ -293,7 +289,7 @@ pub async fn poll_sync_committee_duties<
         .slot_clock
         .now()
         .ok_or(Error::UnableToReadSlotClock)?;
-    let current_epoch = current_slot.epoch(E::slots_per_epoch());
+    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
 
     // If the Altair fork is yet to be activated, do not attempt to poll for duties.
     if spec
@@ -340,7 +336,11 @@ pub async fn poll_sync_committee_duties<
 
     // Pre-compute aggregator selection proofs for the current period.
     let (current_pre_compute_slot, new_pre_compute_duties) = sync_duties
-        .prepare_for_aggregator_pre_compute::<E>(current_sync_committee_period, current_slot, spec);
+        .prepare_for_aggregator_pre_compute::<S::E>(
+            current_sync_committee_period,
+            current_slot,
+            spec,
+        );
 
     if !new_pre_compute_duties.is_empty() {
         let sub_duties_service = duties_service.clone();
@@ -377,14 +377,14 @@ pub async fn poll_sync_committee_duties<
     }
 
     // Pre-compute aggregator selection proofs for the next period.
-    let aggregate_pre_compute_lookahead_slots = sync_duties.aggregation_pre_compute_slots::<E>();
+    let aggregate_pre_compute_lookahead_slots = sync_duties.aggregation_pre_compute_slots::<S::E>();
     if (current_slot + aggregate_pre_compute_lookahead_slots)
-        .epoch(E::slots_per_epoch())
+        .epoch(S::E::slots_per_epoch())
         .sync_committee_period(spec)?
         == next_sync_committee_period
     {
         let (pre_compute_slot, new_pre_compute_duties) = sync_duties
-            .prepare_for_aggregator_pre_compute::<E>(
+            .prepare_for_aggregator_pre_compute::<S::E>(
                 next_sync_committee_period,
                 current_slot,
                 spec,
@@ -411,12 +411,8 @@ pub async fn poll_sync_committee_duties<
     Ok(())
 }
 
-pub async fn poll_sync_committee_duties_for_period<
-    S: ValidatorStore,
-    T: SlotClock + 'static,
-    E: EthSpec,
->(
-    duties_service: &Arc<DutiesService<S, T, E>>,
+pub async fn poll_sync_committee_duties_for_period<S: ValidatorStore, T: SlotClock + 'static>(
+    duties_service: &Arc<DutiesService<S, T>>,
     local_indices: &[u64],
     sync_committee_period: u64,
 ) -> Result<(), Error<S::Error>> {
@@ -502,8 +498,8 @@ pub async fn poll_sync_committee_duties_for_period<
     Ok(())
 }
 
-pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'static, E: EthSpec>(
-    duties_service: Arc<DutiesService<S, T, E>>,
+pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'static>(
+    duties_service: Arc<DutiesService<S, T>>,
     pre_compute_duties: &[(Slot, SyncDuty)],
     sync_committee_period: u64,
     current_slot: Slot,
@@ -525,7 +521,7 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
                 continue;
             }
 
-            let subnet_ids = match duty.subnet_ids::<E>() {
+            let subnet_ids = match duty.subnet_ids::<S::E>() {
                 Ok(subnet_ids) => subnet_ids,
                 Err(e) => {
                     crit!(
@@ -544,7 +540,7 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
 
                 let proof = match duties_service_ref
                     .validator_store
-                    .produce_sync_selection_proof::<E>(&duty.pubkey, proof_slot, *subnet_id)
+                    .produce_sync_selection_proof(&duty.pubkey, proof_slot, *subnet_id)
                     .await
                 {
                     Ok(proof) => proof,
@@ -570,7 +566,7 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
                     }
                 };
 
-                match proof.is_aggregator::<E>() {
+                match proof.is_aggregator::<S::E>() {
                     Ok(true) => {
                         debug!(
                             validator_index = duty.validator_index,

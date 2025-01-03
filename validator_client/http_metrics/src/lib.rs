@@ -36,19 +36,19 @@ impl From<String> for Error {
     }
 }
 
-type ValidatorStore = LighthouseValidatorStore<SystemTimeSlotClock>;
+type ValidatorStore<E> = LighthouseValidatorStore<SystemTimeSlotClock, E>;
 
 /// Contains objects which have shared access from inside/outside of the metrics server.
-pub struct Shared<E: EthSpec> {
-    pub validator_store: Option<Arc<ValidatorStore>>,
-    pub duties_service: Option<Arc<DutiesService<ValidatorStore, SystemTimeSlotClock, E>>>,
+pub struct Shared<E> {
+    pub validator_store: Option<Arc<ValidatorStore<E>>>,
+    pub duties_service: Option<Arc<DutiesService<ValidatorStore<E>, SystemTimeSlotClock>>>,
     pub genesis_time: Option<u64>,
 }
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<E: EthSpec> {
+pub struct Context<E> {
     pub config: Config,
     pub shared: RwLock<Shared<E>>,
 }

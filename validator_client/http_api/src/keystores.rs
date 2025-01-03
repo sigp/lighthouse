@@ -24,8 +24,8 @@ use warp::Rejection;
 use warp_utils::reject::{custom_bad_request, custom_server_error};
 use zeroize::Zeroizing;
 
-pub fn list<T: SlotClock + 'static>(
-    validator_store: Arc<LighthouseValidatorStore<T>>,
+pub fn list<T: SlotClock + 'static, E: EthSpec>(
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
 ) -> ListKeystoresResponse {
     let initialized_validators_rwlock = validator_store.initialized_validators();
     let initialized_validators = initialized_validators_rwlock.read();
@@ -62,7 +62,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportKeystoresRequest,
     validator_dir: PathBuf,
     secrets_dir: Option<PathBuf>,
-    validator_store: Arc<LighthouseValidatorStore<T>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
 ) -> Result<ImportKeystoresResponse, Rejection> {
     // Check request validity. This is the only cases in which we should return a 4xx code.
@@ -164,7 +164,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     password: Zeroizing<String>,
     validator_dir_path: PathBuf,
     secrets_dir: Option<PathBuf>,
-    validator_store: &LighthouseValidatorStore<T>,
+    validator_store: &LighthouseValidatorStore<T, E>,
     handle: Handle,
 ) -> Result<ImportKeystoreStatus, String> {
     // Check if the validator key already exists, erroring if it is a remote signer validator.
@@ -216,7 +216,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     drop(validator_dir);
 
     handle
-        .block_on(validator_store.add_validator_keystore::<_, E>(
+        .block_on(validator_store.add_validator_keystore(
             voting_keystore_path,
             password_storage,
             true,
@@ -232,9 +232,9 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     Ok(ImportKeystoreStatus::Imported)
 }
 
-pub fn delete<T: SlotClock + 'static>(
+pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteKeystoresRequest,
-    validator_store: Arc<LighthouseValidatorStore<T>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
 ) -> Result<DeleteKeystoresResponse, Rejection> {
     let export_response = export(request, validator_store, task_executor)?;
@@ -263,9 +263,9 @@ pub fn delete<T: SlotClock + 'static>(
     })
 }
 
-pub fn export<T: SlotClock + 'static>(
+pub fn export<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteKeystoresRequest,
-    validator_store: Arc<LighthouseValidatorStore<T>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
 ) -> Result<ExportKeystoresResponse, Rejection> {
     // Remove from initialized validators.

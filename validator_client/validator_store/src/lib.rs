@@ -2,11 +2,12 @@ use slashing_protection::NotSafe;
 use std::fmt::Debug;
 use std::future::Future;
 use types::{
-    AbstractExecPayload, Address, Attestation, AttestationError, BeaconBlock, Epoch, EthSpec,
-    Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof,
-    SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    AbstractExecPayload, Address, Attestation, AttestationError, BeaconBlock, BlindedPayload,
+    Epoch, EthSpec, FullPayload, Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    VoluntaryExit,
 };
 
 #[derive(Debug, PartialEq)]
@@ -36,8 +37,15 @@ pub struct ProposalData {
     pub builder_proposals: bool,
 }
 
-pub trait ValidatorStore: Send + Sync {
+pub trait ValidatorStore:
+    SignBlock<Self::E, FullPayload<Self::E>, Self::Error>
+    + SignBlock<Self::E, BlindedPayload<Self::E>, Self::Error>
+    + Send
+    + Sync
+{
     type Error: Debug + Send + Sync;
+    type E: EthSpec;
+
     /// Attempts to resolve the pubkey to a validator index.
     ///
     /// It may return `None` if the `pubkey` is:
@@ -83,7 +91,7 @@ pub trait ValidatorStore: Send + Sync {
     /// - Else return `None` to indicate no preference between builder and local payloads.
     fn determine_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64>;
 
-    fn randao_reveal<E: EthSpec>(
+    fn randao_reveal(
         &self,
         validator_pubkey: PublicKeyBytes,
         signing_epoch: Epoch,
@@ -91,28 +99,21 @@ pub trait ValidatorStore: Send + Sync {
 
     fn set_validator_index(&self, validator_pubkey: &PublicKeyBytes, index: u64);
 
-    fn sign_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        block: BeaconBlock<E, Payload>,
-        current_slot: Slot,
-    ) -> impl Future<Output = Result<SignedBeaconBlock<E, Payload>, Error<Self::Error>>> + Send;
-
-    fn sign_attestation<E: EthSpec>(
+    fn sign_attestation(
         &self,
         validator_pubkey: PublicKeyBytes,
         validator_committee_position: usize,
-        attestation: &mut Attestation<E>,
+        attestation: &mut Attestation<Self::E>,
         current_epoch: Epoch,
     ) -> impl Future<Output = Result<(), Error<Self::Error>>> + Send;
 
-    fn sign_voluntary_exit<E: EthSpec>(
+    fn sign_voluntary_exit(
         &self,
         validator_pubkey: PublicKeyBytes,
         voluntary_exit: VoluntaryExit,
     ) -> impl Future<Output = Result<SignedVoluntaryExit, Error<Self::Error>>> + Send;
 
-    fn sign_validator_registration_data<E: EthSpec>(
+    fn sign_validator_registration_data(
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> impl Future<Output = Result<SignedValidatorRegistrationData, Error<Self::Error>>> + Send;
@@ -121,31 +122,31 @@ pub trait ValidatorStore: Send + Sync {
     ///
     /// The resulting `SignedAggregateAndProof` is sent on the aggregation channel and cannot be
     /// modified by actors other than the signing validator.
-    fn produce_signed_aggregate_and_proof<E: EthSpec>(
+    fn produce_signed_aggregate_and_proof(
         &self,
         validator_pubkey: PublicKeyBytes,
         aggregator_index: u64,
-        aggregate: Attestation<E>,
+        aggregate: Attestation<Self::E>,
         selection_proof: SelectionProof,
-    ) -> impl Future<Output = Result<SignedAggregateAndProof<E>, Error<Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<SignedAggregateAndProof<Self::E>, Error<Self::Error>>> + Send;
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to
     /// `validator_pubkey`.
-    fn produce_selection_proof<E: EthSpec>(
+    fn produce_selection_proof(
         &self,
         validator_pubkey: PublicKeyBytes,
         slot: Slot,
     ) -> impl Future<Output = Result<SelectionProof, Error<Self::Error>>> + Send;
 
     /// Produce a `SyncSelectionProof` for `slot` signed by the secret key of `validator_pubkey`.
-    fn produce_sync_selection_proof<E: EthSpec>(
+    fn produce_sync_selection_proof(
         &self,
         validator_pubkey: &PublicKeyBytes,
         slot: Slot,
         subnet_id: SyncSubnetId,
     ) -> impl Future<Output = Result<SyncSelectionProof, Error<Self::Error>>> + Send;
 
-    fn produce_sync_committee_signature<E: EthSpec>(
+    fn produce_sync_committee_signature(
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
@@ -153,13 +154,13 @@ pub trait ValidatorStore: Send + Sync {
         validator_pubkey: &PublicKeyBytes,
     ) -> impl Future<Output = Result<SyncCommitteeMessage, Error<Self::Error>>> + Send;
 
-    fn produce_signed_contribution_and_proof<E: EthSpec>(
+    fn produce_signed_contribution_and_proof(
         &self,
         aggregator_index: u64,
         aggregator_pubkey: PublicKeyBytes,
-        contribution: SyncCommitteeContribution<E>,
+        contribution: SyncCommitteeContribution<Self::E>,
         selection_proof: SyncSelectionProof,
-    ) -> impl Future<Output = Result<SignedContributionAndProof<E>, Error<Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<SignedContributionAndProof<Self::E>, Error<Self::Error>>> + Send;
 
     /// Prune the slashing protection database so that it remains performant.
     ///
@@ -172,6 +173,19 @@ pub trait ValidatorStore: Send + Sync {
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
     /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
     fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData>;
+}
+
+// This is a workaround: directly adding this fn into `ValidatorStore`, abstract over P, causes
+// weird compiler errors which I suspect are compiler bugs
+// Another advantage of this separate trait is to allow implementors separate implementations for
+// different payload
+pub trait SignBlock<E: EthSpec, P: AbstractExecPayload<E>, Err> {
+    fn sign_block(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        block: BeaconBlock<E, P>,
+        current_slot: Slot,
+    ) -> impl Future<Output = Result<SignedBeaconBlock<E, P>, Error<Err>>> + Send;
 }
 
 /// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator

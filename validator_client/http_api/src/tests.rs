@@ -42,7 +42,7 @@ type E = MainnetEthSpec;
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
-    validator_store: Arc<LighthouseValidatorStore<TestingSlotClock>>,
+    validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
     _validator_dir: TempDir,
@@ -91,7 +91,7 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(LighthouseValidatorStore::<_>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -100,11 +100,10 @@ impl ApiTester {
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            E::slots_per_epoch(),
         ));
 
         validator_store
-            .register_all_in_doppelganger_protection_if_enabled::<E>()
+            .register_all_in_doppelganger_protection_if_enabled()
             .expect("Should attach doppelganger service");
 
         let initialized_validators = validator_store.initialized_validators();

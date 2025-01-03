@@ -54,7 +54,7 @@ pub struct Web3SignerValidatorScenario {
 pub struct ApiTester {
     pub client: ValidatorClientHttpClient,
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
-    pub validator_store: Arc<LighthouseValidatorStore<TestingSlotClock>>,
+    pub validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
     pub url: SensitiveUrl,
     pub api_token: String,
     pub test_runtime: TestRuntime,
@@ -64,11 +64,11 @@ pub struct ApiTester {
 }
 
 impl ApiTester {
-    pub async fn new<E: EthSpec>() -> Self {
-        Self::new_with_http_config::<E>(Self::default_http_config()).await
+    pub async fn new() -> Self {
+        Self::new_with_http_config(Self::default_http_config()).await
     }
 
-    pub async fn new_with_http_config<E: EthSpec>(http_config: HttpConfig) -> Self {
+    pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join(PK_FILENAME);
@@ -101,7 +101,7 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(LighthouseValidatorStore::<_>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -110,11 +110,10 @@ impl ApiTester {
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            E::slots_per_epoch(),
         ));
 
         validator_store
-            .register_all_in_doppelganger_protection_if_enabled::<E>()
+            .register_all_in_doppelganger_protection_if_enabled()
             .expect("Should attach doppelganger service");
 
         let initialized_validators = validator_store.initialized_validators();
@@ -122,7 +121,7 @@ impl ApiTester {
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
-            block_service: None::<BlockService<LighthouseValidatorStore<_>, _>>,
+            block_service: None::<BlockService<LighthouseValidatorStore<_, _>, _>>,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),

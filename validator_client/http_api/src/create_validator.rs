@@ -29,7 +29,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
     validator_requests: &[api_types::ValidatorRequest],
     validator_dir: P,
     secrets_dir: Option<PathBuf>,
-    validator_store: &LighthouseValidatorStore<T>,
+    validator_store: &LighthouseValidatorStore<T, E>,
     spec: &ChainSpec,
 ) -> Result<(Vec<api_types::CreatedValidator>, Mnemonic), warp::Rejection> {
     let mnemonic = mnemonic_opt.unwrap_or_else(random_mnemonic);
@@ -140,7 +140,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
         drop(validator_dir);
 
         validator_store
-            .add_validator_keystore::<_, E>(
+            .add_validator_keystore(
                 voting_keystore_path,
                 voting_password_storage,
                 request.enable,
@@ -177,11 +177,11 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
 
 pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
     validators: Vec<ValidatorDefinition>,
-    validator_store: &LighthouseValidatorStore<T>,
+    validator_store: &LighthouseValidatorStore<T, E>,
 ) -> Result<(), warp::Rejection> {
     for validator in validators {
         validator_store
-            .add_validator::<E>(validator)
+            .add_validator(validator)
             .await
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(

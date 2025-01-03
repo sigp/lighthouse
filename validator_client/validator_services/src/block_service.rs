@@ -227,7 +227,7 @@ pub struct BlockServiceNotification {
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
-    pub fn start_update_service<E: EthSpec>(
+    pub fn start_update_service(
         self,
         mut notification_rx: mpsc::Receiver<BlockServiceNotification>,
     ) -> Result<(), String> {
@@ -238,7 +238,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         executor.spawn(
             async move {
                 while let Some(notif) = notification_rx.recv().await {
-                    self.do_update::<E>(notif).await.ok();
+                    self.do_update(notif).await.ok();
                 }
                 debug!("Block service shutting down");
             },
@@ -249,10 +249,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     }
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
-    async fn do_update<E: EthSpec>(
-        &self,
-        notification: BlockServiceNotification,
-    ) -> Result<(), ()> {
+    async fn do_update(&self, notification: BlockServiceNotification) -> Result<(), ()> {
         let _timer = validator_metrics::start_timer_vec(
             &validator_metrics::BLOCK_SERVICE_TIMES,
             &[validator_metrics::FULL_UPDATE],
@@ -304,7 +301,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             self.inner.executor.spawn(
                 async move {
                     let result = service
-                        .publish_block::<E>(slot, validator_pubkey, builder_boost_factor)
+                        .publish_block(slot, validator_pubkey, builder_boost_factor)
                         .await;
 
                     match result {
@@ -326,13 +323,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn sign_and_publish_block<E: EthSpec>(
+    async fn sign_and_publish_block(
         &self,
         proposer_fallback: ProposerFallback<T>,
         slot: Slot,
         graffiti: Option<Graffiti>,
         validator_pubkey: &PublicKeyBytes,
-        unsigned_block: UnsignedBlock<E>,
+        unsigned_block: UnsignedBlock<S::E>,
     ) -> Result<(), BlockError> {
         let signing_timer = validator_metrics::start_timer(&validator_metrics::BLOCK_SIGNING_TIMES);
 
@@ -405,7 +402,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok(())
     }
 
-    async fn publish_block<E: EthSpec>(
+    async fn publish_block(
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
@@ -418,7 +415,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         let randao_reveal = match self
             .validator_store
-            .randao_reveal::<E>(validator_pubkey, slot.epoch(E::slots_per_epoch()))
+            .randao_reveal(validator_pubkey, slot.epoch(S::E::slots_per_epoch()))
             .await
         {
             Ok(signature) => signature.into(),
@@ -468,7 +465,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     &validator_metrics::BLOCK_SERVICE_TIMES,
                     &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                 );
-                Self::get_validator_block::<E>(
+                Self::get_validator_block(
                     &beacon_node,
                     slot,
                     randao_reveal_ref,
@@ -499,9 +496,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok(())
     }
 
-    async fn publish_signed_block_contents<E: EthSpec>(
+    async fn publish_signed_block_contents(
         &self,
-        signed_block: &SignedBlock<E>,
+        signed_block: &SignedBlock<S::E>,
         beacon_node: BeaconNodeHttpClient,
     ) -> Result<(), BlockError> {
         let slot = signed_block.slot();
@@ -530,16 +527,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok::<_, BlockError>(())
     }
 
-    async fn get_validator_block<E: EthSpec>(
+    async fn get_validator_block(
         beacon_node: &BeaconNodeHttpClient,
         slot: Slot,
         randao_reveal_ref: &SignatureBytes,
         graffiti: Option<Graffiti>,
         proposer_index: Option<u64>,
         builder_boost_factor: Option<u64>,
-    ) -> Result<UnsignedBlock<E>, BlockError> {
+    ) -> Result<UnsignedBlock<S::E>, BlockError> {
         let (block_response, _) = beacon_node
-            .get_validator_blocks_v3::<E>(
+            .get_validator_blocks_v3::<S::E>(
                 slot,
                 randao_reveal_ref,
                 graffiti.as_ref(),

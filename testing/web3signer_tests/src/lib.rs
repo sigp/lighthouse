@@ -45,7 +45,7 @@ mod tests {
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
     use url::Url;
-    use validator_store::{Error as ValidatorStoreError, ValidatorStore};
+    use validator_store::{Error as ValidatorStoreError, SignBlock, ValidatorStore};
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
@@ -302,7 +302,7 @@ mod tests {
 
     /// A testing rig which holds a `ValidatorStore`.
     struct ValidatorStoreRig {
-        validator_store: Arc<LighthouseValidatorStore<TestingSlotClock>>,
+        validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
         _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: async_channel::Sender<()>,
@@ -358,7 +358,7 @@ mod tests {
                 ..Default::default()
             };
 
-            let validator_store = LighthouseValidatorStore::<_>::new(
+            let validator_store = LighthouseValidatorStore::<_, E>::new(
                 initialized_validators,
                 slashing_protection,
                 Hash256::repeat_byte(42),
@@ -367,7 +367,6 @@ mod tests {
                 slot_clock,
                 &config,
                 executor,
-                E::slots_per_epoch(),
             );
 
             Self {
@@ -483,7 +482,7 @@ mod tests {
             generate_sig: F,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
             R: Future<Output = S>,
             // We use the `SignedObject` trait to white-list objects for comparison. This avoids
             // accidentally comparing something meaningless like a `()`.
@@ -518,7 +517,7 @@ mod tests {
             web3signer_should_sign: bool,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
             R: Future<Output = Result<(), lighthouse_validator_store::Error>>,
         {
             for validator_rig in &self.validator_rigs {
@@ -585,7 +584,7 @@ mod tests {
         .await
         .assert_signatures_match("randao_reveal", |pubkey, validator_store| async move {
             validator_store
-                .randao_reveal::<E>(pubkey, Epoch::new(0))
+                .randao_reveal(pubkey, Epoch::new(0))
                 .await
                 .unwrap()
         })
@@ -626,7 +625,7 @@ mod tests {
         .await
         .assert_signatures_match("selection_proof", |pubkey, validator_store| async move {
             validator_store
-                .produce_selection_proof::<E>(pubkey, Slot::new(0))
+                .produce_selection_proof(pubkey, Slot::new(0))
                 .await
                 .unwrap()
         })
@@ -636,7 +635,7 @@ mod tests {
             |pubkey, validator_store| async move {
                 let val_reg_data = get_validator_registration(pubkey);
                 validator_store
-                    .sign_validator_registration_data::<E>(val_reg_data)
+                    .sign_validator_registration_data(val_reg_data)
                     .await
                     .unwrap()
             },
@@ -676,11 +675,7 @@ mod tests {
             "sync_selection_proof",
             |pubkey, validator_store| async move {
                 validator_store
-                    .produce_sync_selection_proof::<E>(
-                        &pubkey,
-                        altair_fork_slot,
-                        SyncSubnetId::from(0),
-                    )
+                    .produce_sync_selection_proof(&pubkey, altair_fork_slot, SyncSubnetId::from(0))
                     .await
                     .unwrap()
             },
@@ -690,12 +685,7 @@ mod tests {
             "sync_committee_signature",
             |pubkey, validator_store| async move {
                 validator_store
-                    .produce_sync_committee_signature::<E>(
-                        altair_fork_slot,
-                        Hash256::zero(),
-                        0,
-                        &pubkey,
-                    )
+                    .produce_sync_committee_signature(altair_fork_slot, Hash256::zero(), 0, &pubkey)
                     .await
                     .unwrap()
             },
@@ -728,7 +718,7 @@ mod tests {
             |pubkey, validator_store| async move {
                 let val_reg_data = get_validator_registration(pubkey);
                 validator_store
-                    .sign_validator_registration_data::<E>(val_reg_data)
+                    .sign_validator_registration_data(val_reg_data)
                     .await
                     .unwrap()
             },

@@ -167,17 +167,13 @@ impl<S, T> Deref for PreparationService<S, T> {
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, T> {
-    pub fn start_update_service<E: EthSpec>(self, spec: &ChainSpec) -> Result<(), String> {
-        self.clone()
-            .start_validator_registration_service::<E>(spec)?;
-        self.start_proposer_prepare_service::<E>(spec)
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+        self.clone().start_validator_registration_service(spec)?;
+        self.start_proposer_prepare_service(spec)
     }
 
     /// Starts the service which periodically produces proposer preparations.
-    pub fn start_proposer_prepare_service<E: EthSpec>(
-        self,
-        spec: &ChainSpec,
-    ) -> Result<(), String> {
+    pub fn start_proposer_prepare_service(self, spec: &ChainSpec) -> Result<(), String> {
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         info!("Proposer preparation service started");
 
@@ -186,7 +182,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
 
         let interval_fut = async move {
             loop {
-                if self.should_publish_at_current_slot::<E>(&spec) {
+                if self.should_publish_at_current_slot(&spec) {
                     // Poll the endpoint immediately to ensure fee recipients are received.
                     self.prepare_proposers_and_publish(&spec)
                         .await
@@ -214,10 +210,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
     }
 
     /// Starts the service which periodically sends connected beacon nodes validator registration information.
-    pub fn start_validator_registration_service<E: EthSpec>(
-        self,
-        spec: &ChainSpec,
-    ) -> Result<(), String> {
+    pub fn start_validator_registration_service(self, spec: &ChainSpec) -> Result<(), String> {
         info!("Validator registration service started");
 
         let spec = spec.clone();
@@ -228,7 +221,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
         let validator_registration_fut = async move {
             loop {
                 // Poll the endpoint immediately to ensure fee recipients are received.
-                if let Err(e) = self.register_validators::<E>().await {
+                if let Err(e) = self.register_validators().await {
                     error!(error = ?e, "Error during validator registration");
                 }
 
@@ -250,11 +243,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
     ///
     /// This avoids spamming the BN with preparations before the Bellatrix fork epoch, which may
     /// cause errors if it doesn't support the preparation API.
-    fn should_publish_at_current_slot<E: EthSpec>(&self, spec: &ChainSpec) -> bool {
-        let current_epoch = self
-            .slot_clock
-            .now()
-            .map_or(E::genesis_epoch(), |slot| slot.epoch(E::slots_per_epoch()));
+    fn should_publish_at_current_slot(&self, spec: &ChainSpec) -> bool {
+        let current_epoch = self.slot_clock.now().map_or(S::E::genesis_epoch(), |slot| {
+            slot.epoch(S::E::slots_per_epoch())
+        });
         spec.bellatrix_fork_epoch.is_some_and(|fork_epoch| {
             current_epoch + PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS >= fork_epoch
         })
@@ -356,7 +348,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
     }
 
     /// Register validators with builders, used in the blinded block proposal flow.
-    async fn register_validators<E: EthSpec>(&self) -> Result<(), String> {
+    async fn register_validators(&self) -> Result<(), String> {
         let registration_keys = self.collect_validator_registration_keys();
 
         let mut changed_keys = vec![];
@@ -375,11 +367,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
 
         // Check if any have changed or it's been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
         if let Some(slot) = self.slot_clock.now() {
-            if slot % (E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0 {
-                self.publish_validator_registration_data::<E>(registration_keys)
+            if slot % (S::E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0
+            {
+                self.publish_validator_registration_data(registration_keys)
                     .await?;
             } else if !changed_keys.is_empty() {
-                self.publish_validator_registration_data::<E>(changed_keys)
+                self.publish_validator_registration_data(changed_keys)
                     .await?;
             }
         }
@@ -387,7 +380,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
         Ok(())
     }
 
-    async fn publish_validator_registration_data<E: EthSpec>(
+    async fn publish_validator_registration_data(
         &self,
         registration_keys: Vec<ValidatorRegistrationKey>,
     ) -> Result<(), String> {
@@ -419,7 +412,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
 
                 match self
                     .validator_store
-                    .sign_validator_registration_data::<E>(ValidatorRegistrationData {
+                    .sign_validator_registration_data(ValidatorRegistrationData {
                         fee_recipient,
                         gas_limit,
                         timestamp,
