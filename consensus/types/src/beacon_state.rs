@@ -2283,12 +2283,25 @@ impl<E: EthSpec> BeaconState<E> {
             exit_balance_to_consume
                 .safe_add_assign(additional_epochs.safe_mul(per_epoch_churn)?)?;
         }
-        let state = self.as_electra_mut()?;
-        // Consume the balance and update state variables
-        state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
-        state.earliest_exit_epoch = earliest_exit_epoch;
+        match self {
+            BeaconState::Electra(_) => {
+                let state = self.as_electra_mut()?;
 
-        Ok(state.earliest_exit_epoch)
+                // Consume the balance and update state variables
+                state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
+                state.earliest_exit_epoch = earliest_exit_epoch;
+                return Ok(state.earliest_exit_epoch);
+            }
+            BeaconState::Fulu(_) => {
+                let state = self.as_fulu_mut()?;
+
+                // Consume the balance and update state variables
+                state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
+                state.earliest_exit_epoch = earliest_exit_epoch;
+                return Ok(state.earliest_exit_epoch);
+            }
+            _ => unreachable!(),
+        }
     }
 
     pub fn compute_consolidation_epoch_and_update_churn(
@@ -2322,13 +2335,27 @@ impl<E: EthSpec> BeaconState<E> {
             consolidation_balance_to_consume
                 .safe_add_assign(additional_epochs.safe_mul(per_epoch_consolidation_churn)?)?;
         }
-        // Consume the balance and update state variables
-        let state = self.as_electra_mut()?;
-        state.consolidation_balance_to_consume =
-            consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
-        state.earliest_consolidation_epoch = earliest_consolidation_epoch;
+        match self {
+            BeaconState::Electra(_) => {
+                let state = self.as_electra_mut()?;
 
-        Ok(state.earliest_consolidation_epoch)
+                // Consume the balance and update state variables.
+                state.consolidation_balance_to_consume =
+                    consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
+                state.earliest_consolidation_epoch = earliest_consolidation_epoch;
+                Ok(state.earliest_consolidation_epoch)
+            }
+            BeaconState::Fulu(_) => {
+                let state = self.as_fulu_mut()?;
+
+                // Consume the balance and update state variables.
+                state.consolidation_balance_to_consume =
+                    consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
+                state.earliest_consolidation_epoch = earliest_consolidation_epoch;
+                Ok(state.earliest_consolidation_epoch)
+            }
+            _ => unreachable!(),
+        }
     }
 
     #[allow(clippy::arithmetic_side_effects)]
