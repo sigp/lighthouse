@@ -447,7 +447,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
-            // TODO[JC]: Fix types
             expects_columns.map(|c| c.into_iter().collect()),
             num_of_column_req,
             requested_peers,

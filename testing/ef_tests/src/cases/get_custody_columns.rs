@@ -37,11 +37,18 @@ impl<E: EthSpec> Case for GetCustodyColumns<E> {
         let node_id = U256::from_str_radix(&self.node_id, 10)
             .map_err(|e| Error::FailedToParseTest(format!("{e:?}")))?;
         let raw_node_id = node_id.to_be_bytes::<32>();
-        let computed_groups = get_custody_groups(raw_node_id, self.custody_group_count, &spec);
-        let computed_columns = computed_groups
-            .into_iter()
-            .flat_map(|custody_group| compute_columns_for_custody_group(custody_group, &spec))
-            .collect::<Vec<_>>();
+        let computed_groups = get_custody_groups(raw_node_id, self.custody_group_count, &spec)
+            .expect("should compute custody groups");
+
+        let mut computed_columns = vec![];
+        for custody_group in computed_groups {
+            let columns = compute_columns_for_custody_group(custody_group, &spec)
+                .expect("should compute custody columns from group");
+            computed_columns.extend(columns);
+        }
+        // TODO: This test will be broken down into two separate tests in the next release and this
+        // sort will not be needed.
+        computed_columns.sort();
 
         let expected = &self.result;
         if computed_columns == *expected {

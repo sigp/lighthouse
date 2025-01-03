@@ -56,17 +56,22 @@ impl<E: EthSpec> NetworkGlobals<E> {
                 .expect("custody group count must be set if PeerDAS is scheduled");
 
             let sampling_size = spec.sampling_size(custody_group_count);
-            let custody_groups = get_custody_groups(node_id, sampling_size, &spec);
+            let custody_groups = get_custody_groups(node_id, sampling_size, &spec)
+                .expect("should compute custody groups for node");
 
-            let sampling_subnets = custody_groups
-                .iter()
-                .flat_map(|custody_index| compute_subnets_from_custody_group(*custody_index, &spec))
-                .collect::<HashSet<_>>();
+            let mut sampling_subnets = HashSet::new();
+            for custody_index in &custody_groups {
+                let subnets = compute_subnets_from_custody_group(*custody_index, &spec)
+                    .expect("should compute custody subnets for node");
+                sampling_subnets.extend(subnets);
+            }
 
-            let sampling_columns = custody_groups
-                .iter()
-                .flat_map(|custody_index| compute_columns_for_custody_group(*custody_index, &spec))
-                .collect::<HashSet<_>>();
+            let mut sampling_columns = HashSet::new();
+            for custody_index in &custody_groups {
+                let columns = compute_columns_for_custody_group(*custody_index, &spec)
+                    .expect("should compute custody columns for node");
+                sampling_columns.extend(columns);
+            }
 
             (sampling_subnets, sampling_columns)
         } else {

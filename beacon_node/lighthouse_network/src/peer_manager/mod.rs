@@ -164,14 +164,19 @@ impl<E: EthSpec> PeerManager<E> {
         let heartbeat = tokio::time::interval(tokio::time::Duration::from_secs(HEARTBEAT_INTERVAL));
 
         // Compute subnets for all custody groups
-        let subnets_by_custody_group = (0..network_globals.spec.number_of_custody_groups)
-            .map(|custody_index| {
-                let subnets =
-                    compute_subnets_from_custody_group(custody_index, &network_globals.spec)
-                        .collect();
-                (custody_index, subnets)
-            })
-            .collect::<HashMap<_, Vec<DataColumnSubnetId>>>();
+        let subnets_by_custody_group = if network_globals.spec.is_peer_das_scheduled() {
+            (0..network_globals.spec.number_of_custody_groups)
+                .map(|custody_index| {
+                    let subnets =
+                        compute_subnets_from_custody_group(custody_index, &network_globals.spec)
+                            .expect("Should compute subnets for all custody groups")
+                            .collect();
+                    (custody_index, subnets)
+                })
+                .collect::<HashMap<_, Vec<DataColumnSubnetId>>>()
+        } else {
+            HashMap::new()
+        };
 
         Ok(PeerManager {
             network_globals,
@@ -1431,8 +1436,12 @@ impl<E: EthSpec> PeerManager<E> {
             return Err("Invalid custody group count in metadata: out of range".to_string());
         }
 
-        let custody_groups = get_custody_groups(node_id.raw(), custody_group_count, spec);
-        Ok(custody_groups)
+        get_custody_groups(node_id.raw(), custody_group_count, spec).map_err(|e| {
+            format!(
+                "Error computing peer custody groups for node {} with cgc={}: {:?}",
+                node_id, custody_group_count, e
+            )
+        })
     }
 }
 

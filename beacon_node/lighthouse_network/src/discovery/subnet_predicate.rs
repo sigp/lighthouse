@@ -1,7 +1,6 @@
 //! The subnet predicate used for searching for a particular subnet.
 use super::*;
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
-use itertools::Itertools;
 use slog::trace;
 use std::ops::Deref;
 use types::data_column_custody_group::compute_subnets_for_node;
@@ -40,7 +39,7 @@ where
             Subnet::DataColumn(s) => {
                 if let Ok(custody_group_count) = enr.custody_group_count::<E>(&spec) {
                     compute_subnets_for_node(enr.node_id().raw(), custody_group_count, &spec)
-                        .contains(s)
+                        .map_or(false, |subnets| subnets.contains(s))
                 } else {
                     false
                 }
