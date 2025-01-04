@@ -46,21 +46,21 @@ impl<E: EthSpec> ExecutionRequests<E> {
         let mut requests_list = Vec::new();
         if !self.deposits.is_empty() {
             requests_list.push(Bytes::from_iter(
-                [RequestType::Deposit.to_prefix()]
+                [RequestType::Deposit.to_u8()]
                     .into_iter()
                     .chain(self.deposits.as_ssz_bytes()),
             ));
         }
         if !self.withdrawals.is_empty() {
             requests_list.push(Bytes::from_iter(
-                [RequestType::Withdrawal.to_prefix()]
+                [RequestType::Withdrawal.to_u8()]
                     .into_iter()
                     .chain(self.withdrawals.as_ssz_bytes()),
             ));
         }
         if !self.consolidations.is_empty() {
             requests_list.push(Bytes::from_iter(
-                [RequestType::Consolidation.to_prefix()]
+                [RequestType::Consolidation.to_u8()]
                     .into_iter()
                     .chain(self.consolidations.as_ssz_bytes()),
             ));
@@ -86,7 +86,7 @@ impl<E: EthSpec> ExecutionRequests<E> {
     }
 }
 
-/// This is used to index into the `execution_requests` array.
+/// The prefix types for `ExecutionRequest` objects.
 #[derive(Debug, Copy, Clone)]
 pub enum RequestType {
     Deposit,
@@ -95,7 +95,7 @@ pub enum RequestType {
 }
 
 impl RequestType {
-    pub fn from_prefix(prefix: u8) -> Option<Self> {
+    pub fn from_u8(prefix: u8) -> Option<Self> {
         match prefix {
             0 => Some(Self::Deposit),
             1 => Some(Self::Withdrawal),
@@ -103,7 +103,7 @@ impl RequestType {
             _ => None,
         }
     }
-    pub fn to_prefix(&self) -> u8 {
+    pub fn to_u8(&self) -> u8 {
         match self {
             Self::Deposit => 0,
             Self::Withdrawal => 1,

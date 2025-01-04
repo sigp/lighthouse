@@ -412,13 +412,8 @@ pub enum RequestsError {
 
 /// Format of `ExecutionRequests` received over the engine api.
 ///
-/// Array of ssz-encoded requests list encoded as hex bytes.
-/// The prefix of the request type is used to index into the array.
-///
-/// For e.g. [0xab, 0xcd, 0xef]
-/// Here, 0xab are the deposits bytes (prefix and index == 0)
-/// 0xcd are the withdrawals bytes (prefix and index == 1)
-/// 0xef are the consolidations bytes (prefix and index == 2)
+/// Array of ssz-encoded requests list encoded as hex bytes prefixed
+/// with a `RequestType`
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct JsonExecutionRequests(pub Vec<String>);
@@ -443,10 +438,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
                 return Err(RequestsError::EmptyRequest(i));
             }
             // Elements of the list **MUST** be ordered by `request_type` in ascending order
-            let current_prefix = RequestType::from_prefix(*prefix_byte)
+            let current_prefix = RequestType::from_u8(*prefix_byte)
                 .ok_or(RequestsError::InvalidPrefix(*prefix_byte))?;
             if let Some(prev) = prev_prefix {
-                if prev.to_prefix() >= current_prefix.to_prefix() {
+                if prev.to_u8() >= current_prefix.to_u8() {
                     return Err(RequestsError::InvalidOrdering);
                 }
             }
