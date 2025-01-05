@@ -246,13 +246,15 @@ fn build_data_column_sidecars<E: EthSpec>(
 
 /// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
 ///
-/// If `blob_indices_opt` is `None`, this function attempts to reconstruct all blobs.
+/// If `blob_indices_opt` is `None`, this function attempts to reconstruct all blobs associated
+/// with the block.
 pub fn reconstruct_blobs<E: EthSpec>(
     kzg: &Kzg,
     data_columns: &[Arc<DataColumnSidecar<E>>],
     blob_indices_opt: Option<Vec<u64>>,
     signed_block: &SignedBlindedBeaconBlock<E>,
 ) -> Result<BlobSidecarList<E>, String> {
+    // The data columns are from the database, so we assume their correctness.
     let first_data_column = data_columns
         .first()
         .ok_or("data_columns should have at least one element".to_string())?;
