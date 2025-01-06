@@ -276,7 +276,7 @@ pub fn reconstruct_blobs<E: EthSpec>(
                 let cell = data_column
                     .column
                     .get(row_index)
-                    .ok_or(format!("Missing data column at index {row_index}"))
+                    .ok_or(format!("Missing data column at row index {row_index}"))
                     .and_then(|cell| {
                         ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| format!("{e:?}"))
                     })?;
@@ -342,7 +342,7 @@ pub fn reconstruct_data_columns<E: EthSpec>(
                 for data_column in data_columns {
                     let cell = data_column.column.get(row_index).ok_or(
                         KzgError::InconsistentArrayLength(format!(
-                            "Missing data column at index {row_index}"
+                            "Missing data column at row index {row_index}"
                         )),
                     )?;
 
