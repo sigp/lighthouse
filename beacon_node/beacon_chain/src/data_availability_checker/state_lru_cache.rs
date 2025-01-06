@@ -136,6 +136,7 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                 consensus_context: diet_executed_block
                     .consensus_context
                     .into_consensus_context(),
+                data_column_recv: None,
             },
             payload_verification_outcome: diet_executed_block.payload_verification_outcome,
         })
