@@ -581,6 +581,61 @@ mod test {
 
             let result = run::<E>(self.exit_config.clone().unwrap()).await;
 
+            self.beacon_node.harness.advance_slot();
+
+            self.beacon_node
+                .harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+
+            let validator_data = self
+                .index_of_validators_to_exit
+                .iter()
+                .map(|&index| {
+                    self.beacon_node
+                        .harness
+                        .get_current_state()
+                        .get_validator(index)
+                        .unwrap()
+                        .clone()
+                })
+                .collect::<Vec<_>>();
+
+            let validator_exit_epoch = validator_data
+                .iter()
+                .map(|validator| validator.exit_epoch)
+                .collect::<Vec<_>>();
+
+            let validator_withdrawable_epoch = validator_data
+                .iter()
+                .map(|validator| validator.withdrawable_epoch)
+                .collect::<Vec<_>>();
+
+            let current_epoch = self.beacon_node.harness.get_current_state().current_epoch();
+            let max_seed_lookahead = self.beacon_node.harness.spec.max_seed_lookahead;
+            let min_withdrawability_delay = self
+                .beacon_node
+                .harness
+                .spec
+                .min_validator_withdrawability_delay;
+
+            // As per the spec:
+            // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/beacon-chain.md#compute_activation_exit_epoch
+            let beacon_exit_epoch = current_epoch + 1 + max_seed_lookahead;
+            let beacon_withdrawable_epoch = beacon_exit_epoch + min_withdrawability_delay;
+
+            assert!(validator_exit_epoch
+                .iter()
+                .all(|&epoch| epoch == beacon_exit_epoch));
+
+            assert!(validator_withdrawable_epoch
+                .iter()
+                .all(|&epoch| epoch == beacon_withdrawable_epoch));
+
             if result.is_ok() {
                 return TestResult { result: Ok(()) };
             }
