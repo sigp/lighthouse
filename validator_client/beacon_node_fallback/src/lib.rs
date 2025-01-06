@@ -763,7 +763,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_candidate_order() {
-        // These fields is irrelevant for sorting. They are set to arbitrary values.
+        // These fields are irrelevant for sorting. They are set to arbitrary values.
         let head = Slot::new(99);
         let optimistic_status = IsOptimistic::No;
         let execution_status = ExecutionEngineHealth::Healthy;
