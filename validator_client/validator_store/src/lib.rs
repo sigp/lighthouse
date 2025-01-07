@@ -10,7 +10,7 @@ use types::{
     VoluntaryExit,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error<T> {
     DoppelgangerProtected(PublicKeyBytes),
     UnknownToDoppelgangerService(PublicKeyBytes),
