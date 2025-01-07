@@ -65,12 +65,13 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarL
             beacon_block: Arc::new(full_block),
             beacon_state: snapshot.beacon_state,
         });
-        segment_blobs.push(Some(
+        segment_blobs.push(
             harness
                 .chain
                 .get_blobs(&snapshot.beacon_block_root)
-                .unwrap(),
-        ))
+                .unwrap()
+                .blobs(),
+        );
     }
     (segment, segment_blobs)
 }
@@ -110,8 +111,9 @@ async fn get_chain_segment_with_blob_sidecars(
         let blob_sidecars = harness
             .chain
             .get_blobs(&snapshot.beacon_block_root)
-            .unwrap();
-        segment_blobs.push(Some(blob_sidecars))
+            .unwrap()
+            .blobs();
+        segment_blobs.push(blob_sidecars)
     }
     (segment, segment_blobs)
 }

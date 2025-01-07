@@ -2316,7 +2316,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .get_full_block(&wss_block_root)
         .unwrap()
         .unwrap();
-    let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
+    let wss_blobs_opt = harness
+        .chain
+        .store
+        .get_blobs(&wss_block_root)
+        .unwrap()
+        .blobs();
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot))
         .unwrap()
@@ -2389,7 +2394,11 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .await
         .unwrap()
         .unwrap();
-    let store_wss_blobs_opt = beacon_chain.store.get_blobs(&wss_block_root).unwrap();
+    let store_wss_blobs_opt = beacon_chain
+        .store
+        .get_blobs(&wss_block_root)
+        .unwrap()
+        .blobs();
 
     assert_eq!(store_wss_block, wss_block);
     assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
@@ -2408,7 +2417,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .await
             .unwrap()
             .unwrap();
-        let blobs = harness.chain.get_blobs(&block_root).expect("blobs");
+        let blobs = harness.chain.get_blobs(&block_root).expect("blobs").blobs();
         let slot = full_block.slot();
         let state_root = full_block.state_root();
 
@@ -2416,7 +2425,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         beacon_chain
             .process_block(
                 full_block.canonical_root(),
-                RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
+                RpcBlock::new(Some(block_root), Arc::new(full_block), blobs).unwrap(),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -2470,13 +2479,13 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .await
             .expect("should get block")
             .expect("should get block");
-        let blobs = harness.chain.get_blobs(&block_root).expect("blobs");
+        let blobs = harness.chain.get_blobs(&block_root).expect("blobs").blobs();
 
         if let MaybeAvailableBlock::Available(block) = harness
             .chain
             .data_availability_checker
             .verify_kzg_for_rpc_block(
-                RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
+                RpcBlock::new(Some(block_root), Arc::new(full_block), blobs).unwrap(),
             )
             .expect("should verify kzg")
         {
@@ -3352,7 +3361,7 @@ fn check_blob_existence(
         .unwrap()
         .map(Result::unwrap)
     {
-        if let Some(blobs) = harness.chain.store.get_blobs(&block_root).unwrap() {
+        if let Some(blobs) = harness.chain.store.get_blobs(&block_root).unwrap().blobs() {
             assert!(should_exist, "blobs at slot {slot} exist but should not");
             blobs_seen += blobs.len();
         } else {

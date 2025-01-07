@@ -92,6 +92,13 @@ impl<E: EthSpec> BlobsSidecarListFromRoot<E> {
             Self::Blobs(blobs) => Some(blobs),
         }
     }
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        match self {
+            Self::NoBlobs | Self::NoRoot => 0,
+            Self::Blobs(blobs) => blobs.len(),
+        }
+    }
     pub fn iter(&self) -> impl Iterator<Item = &Arc<BlobSidecar<E>>> {
         match self {
             Self::NoBlobs | Self::NoRoot => [].iter(),
