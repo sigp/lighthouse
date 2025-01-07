@@ -191,6 +191,7 @@ pub struct ChainSpec {
     pub max_pending_partials_per_withdrawals_sweep: u64,
     pub min_per_epoch_churn_limit_electra: u64,
     pub max_per_epoch_activation_exit_churn_limit: u64,
+    pub max_blobs_per_block_electra: u64,
 
     /*
      * DAS params
@@ -612,9 +613,12 @@ impl ChainSpec {
     }
 
     /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for `fork`.
-    pub fn max_blobs_per_block_by_fork(&self, _fork_name: ForkName) -> u64 {
-        // TODO(electra): add Electra blobs per block change here
-        self.max_blobs_per_block
+    pub fn max_blobs_per_block_by_fork(&self, fork_name: ForkName) -> u64 {
+        if fork_name.electra_enabled() {
+            self.max_blobs_per_block_electra
+        } else {
+            self.max_blobs_per_block
+        }
     }
 
     pub fn data_columns_per_subnet(&self) -> usize {
@@ -815,6 +819,7 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
 
             /*
              * DAS params
@@ -1135,6 +1140,7 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
 
             /*
              * DAS params
@@ -1376,6 +1382,9 @@ pub struct Config {
     #[serde(default = "default_max_per_epoch_activation_exit_churn_limit")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_exit_churn_limit: u64,
+    #[serde(default = "default_max_blobs_per_block_electra")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_blobs_per_block_electra: u64,
 
     #[serde(default = "default_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1511,6 +1520,10 @@ const fn default_min_per_epoch_churn_limit_electra() -> u64 {
 
 const fn default_max_per_epoch_activation_exit_churn_limit() -> u64 {
     256_000_000_000
+}
+
+const fn default_max_blobs_per_block_electra() -> u64 {
+    9
 }
 
 const fn default_attestation_propagation_slot_range() -> u64 {
@@ -1727,6 +1740,7 @@ impl Config {
             min_per_epoch_churn_limit_electra: spec.min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit: spec
                 .max_per_epoch_activation_exit_churn_limit,
+            max_blobs_per_block_electra: spec.max_blobs_per_block_electra,
 
             custody_requirement: spec.custody_requirement,
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
@@ -1802,6 +1816,7 @@ impl Config {
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
+            max_blobs_per_block_electra,
             custody_requirement,
             data_column_sidecar_subnet_count,
             number_of_columns,
@@ -1869,6 +1884,7 @@ impl Config {
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
+            max_blobs_per_block_electra,
 
             // We need to re-derive any values that might have changed in the config.
             max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
