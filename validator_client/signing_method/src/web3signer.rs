@@ -77,18 +77,42 @@ pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Payload> {
     pub fn beacon_block(block: &'a BeaconBlock<E, Payload>) -> Result<Self, Error> {
-        block.fork_name_unchecked().bellatrix_enabled() {
-            Ok(Web3SignerObject::BeaconBlock {
-                version: block.fork_name_unchecked(),
-                block: None,
-                block_header: Some(block.block_header()),
-            })
-        } else {
-            Ok(Web3SignerObject::BeaconBlock {
-                version: block.fork_name_unchecked(),
+        match block {
+            BeaconBlock::Base(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Phase0,
                 block: Some(block),
                 block_header: None,
-            })
+            }),
+            BeaconBlock::Altair(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Altair,
+                block: Some(block),
+                block_header: None,
+            }),
+            BeaconBlock::Bellatrix(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Bellatrix,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+            BeaconBlock::Capella(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Capella,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+            BeaconBlock::Deneb(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Deneb,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+            BeaconBlock::Electra(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Electra,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+            BeaconBlock::Fulu(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Fulu,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
         }
     }
 
