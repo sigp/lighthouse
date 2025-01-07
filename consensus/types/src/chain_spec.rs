@@ -927,7 +927,7 @@ impl ChainSpec {
             // Electra
             electra_fork_version: [0x05, 0x00, 0x00, 0x01],
             electra_fork_epoch: None,
-            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
+            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 1)
                 .expect("pow does not overflow"),
             min_per_epoch_churn_limit_electra: option_wrapper(|| {
                 u64::checked_pow(2, 6)?.checked_mul(u64::checked_pow(10, 9)?)

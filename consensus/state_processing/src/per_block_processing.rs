@@ -501,7 +501,7 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
 
 /// Compute the next batch of withdrawals which should be included in a block.
 ///
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#new-get_expected_withdrawals
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/electra/beacon-chain.md#new-get_expected_withdrawals
 pub fn get_expected_withdrawals<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
