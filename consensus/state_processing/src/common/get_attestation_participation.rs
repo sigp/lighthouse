@@ -49,11 +49,10 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
             // [Modified in Deneb:EIP7045]
             participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
         }
-    } else {
-        if is_matching_target && inclusion_delay <= E::slots_per_epoch() {
-            participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
-        }
+    } else if is_matching_target && inclusion_delay <= E::slots_per_epoch() {
+        participation_flag_indices.push(TIMELY_TARGET_FLAG_INDEX);
     }
+
     if is_matching_head && inclusion_delay == spec.min_attestation_inclusion_delay {
         participation_flag_indices.push(TIMELY_HEAD_FLAG_INDEX);
     }
