@@ -1243,14 +1243,11 @@ mod release_tests {
         let stats = op_pool.attestation_stats();
         let fork_name = state.fork_name_unchecked();
 
-        match fork_name {
-            ForkName::Electra | ForkName::Fulu => {
-                assert_eq!(stats.num_attestation_data, 1);
-            }
-            _ => {
-                assert_eq!(stats.num_attestation_data, committees.len());
-            }
-        };
+        if fork_name.electra_enabled() {
+            assert_eq!(stats.num_attestation_data, 1);
+        } else {
+            assert_eq!(stats.num_attestation_data, committees.len());
+        }
 
         assert_eq!(
             stats.num_attestations,
@@ -1262,25 +1259,19 @@ mod release_tests {
         let best_attestations = op_pool
             .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have best attestations");
-        match fork_name {
-            ForkName::Electra | ForkName::Fulu => {
-                assert_eq!(best_attestations.len(), 8);
-            }
-            _ => {
-                assert_eq!(best_attestations.len(), max_attestations);
-            }
-        };
+        if fork_name.electra_enabled() {
+            assert_eq!(best_attestations.len(), 8);
+        } else {
+            assert_eq!(best_attestations.len(), max_attestations);
+        }
 
         // All the best attestations should be signed by at least `big_step_size` (4) validators.
         for att in &best_attestations {
-            match fork_name {
-                ForkName::Electra | ForkName::Fulu => {
-                    assert!(att.num_set_aggregation_bits() >= small_step_size);
-                }
-                _ => {
-                    assert!(att.num_set_aggregation_bits() >= big_step_size);
-                }
-            };
+            if fork_name.electra_enabled() {
+                assert!(att.num_set_aggregation_bits() >= small_step_size);
+            } else {
+                assert!(att.num_set_aggregation_bits() >= big_step_size);
+            }
         }
     }
 
@@ -1361,17 +1352,14 @@ mod release_tests {
         let num_big = target_committee_size / big_step_size;
         let fork_name = state.fork_name_unchecked();
 
-        match fork_name {
-            ForkName::Electra | ForkName::Fulu => {
-                assert_eq!(op_pool.attestation_stats().num_attestation_data, 1);
-            }
-            _ => {
-                assert_eq!(
-                    op_pool.attestation_stats().num_attestation_data,
-                    committees.len()
-                );
-            }
-        };
+        if fork_name.electra_enabled() {
+            assert_eq!(op_pool.attestation_stats().num_attestation_data, 1);
+        } else {
+            assert_eq!(
+                op_pool.attestation_stats().num_attestation_data,
+                committees.len()
+            );
+        }
 
         assert_eq!(
             op_pool.num_attestations(),
@@ -1384,14 +1372,11 @@ mod release_tests {
             .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have valid best attestations");
 
-        match fork_name {
-            ForkName::Electra | ForkName::Fulu => {
-                assert_eq!(best_attestations.len(), 8);
-            }
-            _ => {
-                assert_eq!(best_attestations.len(), max_attestations);
-            }
-        };
+        if fork_name.electra_enabled() {
+            assert_eq!(best_attestations.len(), 8);
+        } else {
+            assert_eq!(best_attestations.len(), max_attestations);
+        }
 
         let total_active_balance = state.get_total_active_balance().unwrap();
 

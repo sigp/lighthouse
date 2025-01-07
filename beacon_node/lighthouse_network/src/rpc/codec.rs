@@ -685,18 +685,18 @@ fn handle_rpc_response<E: EthSpec>(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::BlobsByRangeV1 => match fork_name {
-            Some(ForkName::Deneb) | Some(ForkName::Electra) | Some(ForkName::Fulu) => {
-                Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
-                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-                ))))
+            Some(fork_name) => {
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
+                        BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for blobs by range".to_string(),
+                    ))
+                }
             }
-            Some(ForkName::Base)
-            | Some(ForkName::Altair)
-            | Some(ForkName::Bellatrix)
-            | Some(ForkName::Capella) => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                "Invalid fork name for blobs by range".to_string(),
-            )),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 format!(
@@ -706,18 +706,18 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::BlobsByRootV1 => match fork_name {
-            Some(ForkName::Deneb) | Some(ForkName::Electra) | Some(ForkName::Fulu) => {
-                Ok(Some(RpcSuccessResponse::BlobsByRoot(Arc::new(
-                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-                ))))
+            Some(fork_name) => {
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RpcSuccessResponse::BlobsByRoot(Arc::new(
+                        BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for blobs by root".to_string(),
+                    ))
+                }
             }
-            Some(ForkName::Base)
-            | Some(ForkName::Altair)
-            | Some(ForkName::Bellatrix)
-            | Some(ForkName::Capella) => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                "Invalid fork name for blobs by root".to_string(),
-            )),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 format!(

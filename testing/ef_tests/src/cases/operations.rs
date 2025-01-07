@@ -98,30 +98,24 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
     ) -> Result<(), BlockProcessingError> {
         initialize_epoch_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
-        match state {
-            BeaconState::Base(_) => base::process_attestations(
+        if state.fork_name_unchecked().altair_enabled() {
+            initialize_progressive_balances_cache(state, spec)?;
+            altair_deneb::process_attestation(
+                state,
+                self.to_ref(),
+                0,
+                &mut ctxt,
+                VerifySignatures::True,
+                spec,
+            )
+        } else {
+            base::process_attestations(
                 state,
                 [self.clone().to_ref()].into_iter(),
                 VerifySignatures::True,
                 &mut ctxt,
                 spec,
-            ),
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_)
-            | BeaconState::Fulu(_) => {
-                initialize_progressive_balances_cache(state, spec)?;
-                altair_deneb::process_attestation(
-                    state,
-                    self.to_ref(),
-                    0,
-                    &mut ctxt,
-                    VerifySignatures::True,
-                    spec,
-                )
-            }
+            )
         }
     }
 }
@@ -132,14 +126,11 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        Ok(match fork_name {
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb => Self::Base(ssz_decode_file(path)?),
-            ForkName::Electra | ForkName::Fulu => Self::Electra(ssz_decode_file(path)?),
-        })
+        if fork_name.electra_enabled() {
+            Ok(Self::Electra(ssz_decode_file(path)?))
+        } else {
+            Ok(Self::Base(ssz_decode_file(path)?))
+        }
     }
 
     fn apply_to(

@@ -920,15 +920,12 @@ where
             &self.spec,
         ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_)
-            | SignedBeaconBlock::Electra(_)
-            | SignedBeaconBlock::Fulu(_) => (signed_block, block_response.blob_items),
-        };
+        let block_contents: SignedBlockContentsTuple<E> =
+            if signed_block.fork_name_unchecked().deneb_enabled() {
+                (signed_block, block_response.blob_items)
+            } else {
+                (signed_block, None)
+            };
 
         (block_contents, block_response.state)
     }
