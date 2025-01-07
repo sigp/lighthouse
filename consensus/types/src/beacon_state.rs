@@ -2291,7 +2291,7 @@ impl<E: EthSpec> BeaconState<E> {
                 // Consume the balance and update state variables
                 state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
                 state.earliest_exit_epoch = earliest_exit_epoch;
-                return Ok(state.earliest_exit_epoch);
+                Ok(state.earliest_exit_epoch)
             }
             BeaconState::Fulu(_) => {
                 let state = self.as_fulu_mut()?;
@@ -2299,7 +2299,7 @@ impl<E: EthSpec> BeaconState<E> {
                 // Consume the balance and update state variables
                 state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
                 state.earliest_exit_epoch = earliest_exit_epoch;
-                return Ok(state.earliest_exit_epoch);
+                Ok(state.earliest_exit_epoch)
             }
             _ => unreachable!(),
         }

@@ -186,8 +186,8 @@ mod test {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: ConfigAndPresetElectra =
+        let from: ConfigAndPresetFulu =
             serde_yaml::from_reader(reader).expect("error while deserializing");
-        assert_eq!(ConfigAndPreset::Electra(from), yamlconfig);
+        assert_eq!(ConfigAndPreset::Fulu(from), yamlconfig);
     }
 }
