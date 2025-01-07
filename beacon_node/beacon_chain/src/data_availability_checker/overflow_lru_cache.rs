@@ -515,8 +515,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
 
         if pending_components.is_available(self.sampling_column_count, log) {
+            // We keep the pending components in the availability cache during block import (#5845).
+            // `data_column_recv` is returned as part of the available block and is no longer needed here.
             write_lock.put(block_root, pending_components.clone_without_column_recv());
-            // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(&self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
@@ -548,8 +549,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
 
         if pending_components.is_available(self.sampling_column_count, log) {
+            // We keep the pending components in the availability cache during block import (#5845).
+            // `data_column_recv` is returned as part of the available block and is no longer needed here.
             write_lock.put(block_root, pending_components.clone_without_column_recv());
-            // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(&self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
@@ -637,8 +639,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // Check if we have all components and entire set is consistent.
         if pending_components.is_available(self.sampling_column_count, log) {
+            // We keep the pending components in the availability cache during block import (#5845).
+            // `data_column_recv` is returned as part of the available block and is no longer needed here.
             write_lock.put(block_root, pending_components.clone_without_column_recv());
-            // No need to hold the write lock anymore
             drop(write_lock);
             pending_components.make_available(&self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
