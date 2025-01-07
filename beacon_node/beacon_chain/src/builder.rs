@@ -563,7 +563,7 @@ where
             .map_err(|e| format!("Failed to store weak subjectivity block: {e:?}"))?;
         if let Some(blobs) = weak_subj_blobs {
             store
-                .put_blobs(&weak_subj_block_root, blobs)
+                .put_blobs(&weak_subj_block_root, blobs.into())
                 .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;
         }
 

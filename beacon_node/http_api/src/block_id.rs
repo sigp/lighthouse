@@ -284,29 +284,36 @@ impl BlockId {
             )
         })?;
 
+        let max_len = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         // Return the `BlobSidecarList` identified by `self`.
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
-            chain
+            match chain
                 .store
                 .get_blobs(&root)
                 .map_err(|e| warp_utils::reject::beacon_chain_error(e.into()))?
-                .ok_or_else(|| {
-                    warp_utils::reject::custom_not_found(format!(
-                        "no blobs stored for block {root}"
-                    ))
-                })?
+                .blobs()
+            {
+                Some(list) => list,
+                None => {
+                    return Err(warp_utils::reject::custom_not_found(format!(
+                        "no root found for block {root}"
+                    )))
+                }
+            }
         } else {
-            BlobSidecarList::empty_uninitialized()
+            BlobSidecarList::new(vec![], max_len)
+                .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
         };
 
         let blob_sidecar_list_filtered = match indices.indices {
             Some(vec) => {
                 let list: Vec<_> = blob_sidecar_list
-                    .into_iter()
+                    .iter()
                     .filter(|blob_sidecar| vec.contains(&blob_sidecar.index))
+                    .cloned()
                     .collect();
-                let max_len = chain.spec.max_blobs_per_block(block.epoch());
-                BlobSidecarList::new(list, max_len as usize)
+
+                BlobSidecarList::new(list, max_len)
                     .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
             }
             None => blob_sidecar_list,

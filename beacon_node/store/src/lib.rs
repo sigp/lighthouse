@@ -30,7 +30,7 @@ pub mod iter;
 
 pub use self::config::StoreConfig;
 pub use self::consensus_context::OnDiskConsensusContext;
-pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
+pub use self::hot_cold_store::{BlobsSidecarListFromRoot, HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;
@@ -230,7 +230,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
-    PutBlobs(Hash256, BlobSidecarList<E>),
+    PutBlobs(Hash256, BlobsSidecarListFromRoot<E>),
     PutDataColumns(Hash256, DataColumnSidecarList<E>),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),

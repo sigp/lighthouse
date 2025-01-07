@@ -43,6 +43,63 @@ use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidec
 use types::*;
 use zstd::{Decoder, Encoder};
 
+#[derive(Debug, Clone)]
+pub enum BlobsSidecarListFromRoot<E: EthSpec> {
+    /// Valid root that exists in the DB, but has no blobs associated with it.
+    NoBlobs,
+    /// Contains > 1 blob for the requested root.
+    Blobs(BlobSidecarList<E>),
+    /// No root exists in the db or cache for the requested root.
+    NoRoot,
+}
+
+impl<E: EthSpec> From<BlobSidecarList<E>> for BlobsSidecarListFromRoot<E> {
+    fn from(value: BlobSidecarList<E>) -> Self {
+        Self::Blobs(value)
+    }
+}
+
+impl<E: EthSpec> Encode for BlobsSidecarListFromRoot<E> {
+    fn as_ssz_bytes(&self) -> Vec<u8> {
+        match self {
+            Self::NoBlobs | Self::NoRoot => vec![],
+            Self::Blobs(list) => list.as_ssz_bytes(),
+        }
+    }
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        match self {
+            Self::NoBlobs | Self::NoRoot => {}
+            Self::Blobs(blobs) => blobs.ssz_append(buf),
+        }
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        match self {
+            Self::NoBlobs | Self::NoRoot => 0,
+            Self::Blobs(blobs) => blobs.ssz_bytes_len(),
+        }
+    }
+}
+
+impl<E: EthSpec> BlobsSidecarListFromRoot<E> {
+    pub fn blobs(self) -> Option<BlobSidecarList<E>> {
+        match self {
+            Self::NoBlobs | Self::NoRoot => None,
+            Self::Blobs(blobs) => Some(blobs),
+        }
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<BlobSidecar<E>>> {
+        match self {
+            Self::NoBlobs | Self::NoRoot => [].iter(),
+            Self::Blobs(list) => list.iter(),
+        }
+    }
+}
+
 /// On-disk database that stores finalized states efficiently.
 ///
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
@@ -92,7 +149,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
 #[derive(Debug)]
 struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
-    blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
+    blob_cache: LruCache<Hash256, BlobsSidecarListFromRoot<E>>,
     data_column_cache: LruCache<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>,
 }
 
@@ -107,7 +164,7 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
         self.block_cache.put(block_root, block);
     }
-    pub fn put_blobs(&mut self, block_root: Hash256, blobs: BlobSidecarList<E>) {
+    pub fn put_blobs(&mut self, block_root: Hash256, blobs: BlobsSidecarListFromRoot<E>) {
         self.blob_cache.put(block_root, blobs);
     }
     pub fn put_data_column(&mut self, block_root: Hash256, data_column: Arc<DataColumnSidecar<E>>) {
@@ -118,7 +175,10 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn get_block<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a SignedBeaconBlock<E>> {
         self.block_cache.get(block_root)
     }
-    pub fn get_blobs<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a BlobSidecarList<E>> {
+    pub fn get_blobs<'a>(
+        &'a mut self,
+        block_root: &Hash256,
+    ) -> Option<&'a BlobsSidecarListFromRoot<E>> {
         self.blob_cache.get(block_root)
     }
     pub fn get_data_column<'a>(
@@ -856,7 +916,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .key_delete(DBColumn::BeaconBlob.into(), block_root.as_slice())
     }
 
-    pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobSidecarList<E>) -> Result<(), Error> {
+    pub fn put_blobs(
+        &self,
+        block_root: &Hash256,
+        blobs: BlobsSidecarListFromRoot<E>,
+    ) -> Result<(), Error> {
         self.blobs_db.put_bytes(
             DBColumn::BeaconBlob.into(),
             block_root.as_slice(),
@@ -869,7 +933,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn blobs_as_kv_store_ops(
         &self,
         key: &Hash256,
-        blobs: BlobSidecarList<E>,
+        blobs: BlobsSidecarListFromRoot<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_slice());
@@ -1280,7 +1344,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::PutBlobs(_, _) | StoreOp::PutDataColumns(_, _) => true,
                 StoreOp::DeleteBlobs(block_root) => {
                     match self.get_blobs(block_root) {
-                        Ok(Some(blob_sidecar_list)) => {
+                        Ok(blob_sidecar_list) => {
                             blobs_to_delete.push((*block_root, blob_sidecar_list));
                         }
                         Err(e) => {
@@ -1290,7 +1354,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                                 "error" => ?e
                             );
                         }
-                        _ => (),
                     }
                     true
                 }
@@ -2045,11 +2108,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch blobs for a given block from the store.
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobSidecarList<E>>, Error> {
+    pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobsSidecarListFromRoot<E>, Error> {
         // Check the cache.
         if let Some(blobs) = self.block_cache.lock().get_blobs(block_root) {
             metrics::inc_counter(&metrics::BEACON_BLOBS_CACHE_HIT_COUNT);
-            return Ok(Some(blobs.clone()));
+            return Ok(blobs.clone());
         }
 
         match self
@@ -2066,17 +2129,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     .first()
                     .map(|blob| self.spec.max_blobs_per_block(blob.epoch()))
                 {
-                    BlobSidecarList::from_vec(blobs, max_blobs_per_block as usize)
+                    BlobsSidecarListFromRoot::Blobs(BlobSidecarList::from_vec(
+                        blobs,
+                        max_blobs_per_block as usize,
+                    ))
                 } else {
                     // This always implies that there were no blobs for this block_root
-                    BlobSidecarList::empty_uninitialized()
+                    BlobsSidecarListFromRoot::NoBlobs
                 };
                 self.block_cache
                     .lock()
                     .put_blobs(*block_root, blobs.clone());
-                Ok(Some(blobs))
+                Ok(blobs)
             }
-            None => Ok(None),
+            None => Ok(BlobsSidecarListFromRoot::NoRoot),
         }
     }
 

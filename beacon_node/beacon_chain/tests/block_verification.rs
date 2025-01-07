@@ -206,11 +206,7 @@ fn update_blob_signed_header<E: EthSpec>(
     signed_block: &SignedBeaconBlock<E>,
     blobs: &mut BlobSidecarList<E>,
 ) {
-    // Required to prevent as_mut_slice being called on an uninitialized list. Yuck.
-    if blobs.is_empty() {
-        return;
-    }
-    for old_blob_sidecar in blobs.as_mut_slice().unwrap() {
+    for old_blob_sidecar in blobs.as_mut_slice() {
         let new_blob = Arc::new(BlobSidecar::<E> {
             index: old_blob_sidecar.index,
             blob: old_blob_sidecar.blob.clone(),

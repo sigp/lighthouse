@@ -10,9 +10,6 @@ use std::slice::SliceIndex;
 /// An ordered, heap-allocated, variable-length, homogeneous collection of `T`, with no more than
 /// `max_len` values.
 ///
-/// In cases where the `max_length` of the container is unknown at time of initialization, we provide
-/// a `Self::empty_uninitialized` constructor that initializes a runtime list without setting the max_len.
-///
 /// To ensure there are no inconsistent states, we do not allow any mutating operation if `max_len` is not set.
 ///
 /// ## Example
@@ -41,11 +38,6 @@ use std::slice::SliceIndex;
 /// // Push a value to if it _does_ exceed the maximum.
 /// assert!(long.push(6).is_err());
 ///
-/// let mut uninit = RuntimeVariableList::empty_uninitialized();
-/// assert!(uninit.push(5).is_err());
-///
-/// // Set max_len to allow mutation.
-/// uninit.set_max_len(5usize);
 ///
 /// uninit.push(5).unwrap();
 /// assert_eq!(&uninit[..], &[5]);
@@ -56,10 +48,8 @@ use std::slice::SliceIndex;
 #[serde(transparent)]
 pub struct RuntimeVariableList<T> {
     vec: Vec<T>,
-    /// A `None` here indicates an uninitialized `Self`.
-    /// No mutating operation will be allowed until `max_len` is Some
     #[serde(skip)]
-    max_len: Option<usize>,
+    max_len: usize,
 }
 
 impl<T> RuntimeVariableList<T> {
@@ -67,10 +57,7 @@ impl<T> RuntimeVariableList<T> {
     /// `Err(OutOfBounds { .. })`.
     pub fn new(vec: Vec<T>, max_len: usize) -> Result<Self, Error> {
         if vec.len() <= max_len {
-            Ok(Self {
-                vec,
-                max_len: Some(max_len),
-            })
+            Ok(Self { vec, max_len })
         } else {
             Err(Error::OutOfBounds {
                 i: vec.len(),
@@ -82,17 +69,14 @@ impl<T> RuntimeVariableList<T> {
     pub fn from_vec(mut vec: Vec<T>, max_len: usize) -> Self {
         vec.truncate(max_len);
 
-        Self {
-            vec,
-            max_len: Some(max_len),
-        }
+        Self { vec, max_len }
     }
 
     /// Create an empty list with the given `max_len`.
     pub fn empty(max_len: usize) -> Self {
         Self {
             vec: vec![],
-            max_len: Some(max_len),
+            max_len,
         }
     }
 
@@ -100,26 +84,8 @@ impl<T> RuntimeVariableList<T> {
         self.vec.as_slice()
     }
 
-    pub fn as_mut_slice(&mut self) -> Option<&mut [T]> {
-        if self.max_len.is_none() {
-            return None;
-        };
-        Some(self.vec.as_mut_slice())
-    }
-
-    /// Returns an instance of `Self` with max_len = None.
-    ///
-    /// No mutating operation can be performed on an uninitialized instance
-    /// without first setting `max_len`.
-    pub fn empty_uninitialized() -> Self {
-        Self {
-            vec: vec![],
-            max_len: None,
-        }
-    }
-
-    pub fn set_max_len(&mut self, max_len: usize) {
-        self.max_len = Some(max_len);
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        self.vec.as_mut_slice()
     }
 
     /// Returns the number of values presently in `self`.
@@ -135,7 +101,7 @@ impl<T> RuntimeVariableList<T> {
     /// Returns the type-level maximum length.
     ///
     /// Returns `None` if self is uninitialized with a max_len.
-    pub fn max_len(&self) -> Option<usize> {
+    pub fn max_len(&self) -> usize {
         self.max_len
     }
 
@@ -143,17 +109,13 @@ impl<T> RuntimeVariableList<T> {
     ///
     /// Returns `Err(())` when appending `value` would exceed the maximum length.
     pub fn push(&mut self, value: T) -> Result<(), Error> {
-        let Some(max_len) = self.max_len else {
-            // TODO(pawan): set a better error?
-            return Err(Error::MissingLengthInformation);
-        };
-        if self.vec.len() < max_len {
+        if self.vec.len() < self.max_len {
             self.vec.push(value);
             Ok(())
         } else {
             Err(Error::OutOfBounds {
                 i: self.vec.len().saturating_add(1),
-                len: max_len,
+                len: self.max_len,
             })
         }
     }
@@ -186,10 +148,7 @@ impl<T: Decode> RuntimeVariableList<T> {
         } else {
             ssz::decode_list_of_variable_length_items(bytes, Some(max_len))?
         };
-        Ok(Self {
-            vec,
-            max_len: Some(max_len),
-        })
+        Ok(Self { vec, max_len })
     }
 }
 
@@ -331,7 +290,7 @@ mod test {
     }
 
     fn round_trip<T: Encode + Decode + PartialEq + Debug>(item: RuntimeVariableList<T>) {
-        let max_len = item.max_len().unwrap();
+        let max_len = item.max_len();
         let encoded = &item.as_ssz_bytes();
         assert_eq!(item.ssz_bytes_len(), encoded.len());
         assert_eq!(
