@@ -185,24 +185,26 @@ pub use crate::indexed_attestation::{
 };
 pub use crate::light_client_bootstrap::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientBootstrapCapella,
-    LightClientBootstrapDeneb, LightClientBootstrapElectra,
+    LightClientBootstrapDeneb, LightClientBootstrapElectra, LightClientBootstrapFulu,
 };
 pub use crate::light_client_finality_update::{
     LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientFinalityUpdateCapella,
     LightClientFinalityUpdateDeneb, LightClientFinalityUpdateElectra,
+    LightClientFinalityUpdateFulu,
 };
 pub use crate::light_client_header::{
     LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
-    LightClientHeaderElectra,
+    LightClientHeaderElectra, LightClientHeaderFulu,
 };
 pub use crate::light_client_optimistic_update::{
     LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair,
     LightClientOptimisticUpdateCapella, LightClientOptimisticUpdateDeneb,
-    LightClientOptimisticUpdateElectra,
+    LightClientOptimisticUpdateElectra, LightClientOptimisticUpdateFulu,
 };
 pub use crate::light_client_update::{
     Error as LightClientUpdateError, LightClientUpdate, LightClientUpdateAltair,
-    LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra, MerkleProof,
+    LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra,
+    LightClientUpdateFulu, MerkleProof,
 };
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::payload::{
