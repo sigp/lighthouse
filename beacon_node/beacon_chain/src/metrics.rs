@@ -1693,7 +1693,7 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
 pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
-            "beacon_blobs_column_sidecar_processing_successes_total",
+            "beacon_data_column_sidecar_processing_successes_total",
             "Number of data column sidecars verified for gossip",
         )
     });
