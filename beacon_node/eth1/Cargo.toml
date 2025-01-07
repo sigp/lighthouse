@@ -5,27 +5,27 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [dev-dependencies]
+environment = { workspace = true }
 eth1_test_rig = { workspace = true }
 serde_yaml = { workspace = true }
 sloggers = { workspace = true }
-environment = { workspace = true }
 
 [dependencies]
-execution_layer = { workspace = true }
-futures = { workspace = true }
-serde = { workspace = true }
-types = { workspace = true }
-merkle_proof = { workspace = true }
+eth2 = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-tree_hash = { workspace = true }
-parking_lot = { workspace = true }
-slog = { workspace = true }
+execution_layer = { workspace = true }
+futures = { workspace = true }
 logging = { workspace = true }
-superstruct = { workspace = true }
-tokio = { workspace = true }
-state_processing = { workspace = true }
+merkle_proof = { workspace = true }
 metrics = { workspace = true }
-task_executor = { workspace = true }
-eth2 = { workspace = true }
+parking_lot = { workspace = true }
 sensitive_url = { workspace = true }
+serde = { workspace = true }
+slog = { workspace = true }
+state_processing = { workspace = true }
+superstruct = { workspace = true }
+task_executor = { workspace = true }
+tokio = { workspace = true }
+tree_hash = { workspace = true }
+types = { workspace = true }

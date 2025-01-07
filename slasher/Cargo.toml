@@ -17,31 +17,31 @@ byteorder = { workspace = true }
 derivative = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
-metrics = { workspace = true }
 filesystem = { workspace = true }
+flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
+lmdb-rkv = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
+lmdb-rkv-sys = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
 lru = { workspace = true }
-parking_lot = { workspace = true }
-rand = { workspace = true }
-safe_arith = { workspace = true }
-serde = { workspace = true }
-slog = { workspace = true }
-tree_hash = { workspace = true }
-tree_hash_derive = { workspace = true }
-types = { workspace = true }
-strum = { workspace = true }
-ssz_types = { workspace = true }
 
 # MDBX is pinned at the last version with Windows and macOS support.
 mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", rev = "e6ff4b9377c1619bcf0bfdf52bee5a980a432a1a", optional = true }
-lmdb-rkv = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
-lmdb-rkv-sys = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
+metrics = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
 
 redb = { version = "2.1.4", optional = true }
+safe_arith = { workspace = true }
+serde = { workspace = true }
+slog = { workspace = true }
+ssz_types = { workspace = true }
+strum = { workspace = true }
+tree_hash = { workspace = true }
+tree_hash_derive = { workspace = true }
+types = { workspace = true }
 
 [dev-dependencies]
+logging = { workspace = true }
 maplit = { workspace = true }
 rayon = { workspace = true }
 tempfile = { workspace = true }
-logging = { workspace = true }
 

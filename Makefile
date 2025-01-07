@@ -204,7 +204,7 @@ test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" cargo clippy --workspace --benches --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
+	cargo clippy --workspace --benches --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D clippy::manual_let_else \
 		-D clippy::large_stack_frames \
@@ -219,6 +219,10 @@ lint:
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
 	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
+
+# Also run the lints on the optimized-only tests
+lint-full:
+	RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
 
 # Runs the makefile in the `ef_tests` repo.
 #
