@@ -141,7 +141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Some(blobs) = maybe_blobs {
                 new_oldest_blob_slot = Some(block.slot());
                 self.store
-                    .blobs_as_kv_store_ops(&block_root, blobs.into(), &mut blob_batch);
+                    .blobs_as_kv_store_ops(&block_root, blobs, &mut blob_batch);
             }
             // Store the data columns too
             if let Some(data_columns) = maybe_data_columns {
