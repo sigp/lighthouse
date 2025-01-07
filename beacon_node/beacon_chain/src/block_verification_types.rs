@@ -366,6 +366,10 @@ pub struct BlockImportData<E: EthSpec> {
     pub confirmed_state_roots: Vec<Hash256>,
     pub consensus_context: ConsensusContext<E>,
     #[derivative(PartialEq = "ignore")]
+    /// An optional receiver for `DataColumnSidecarList`.
+    ///
+    /// This field is `Some` when data columns are being computed asynchronously.
+    /// The resulting `DataColumnSidecarList` will be sent through this receiver.
     pub data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<E>>>,
 }
 

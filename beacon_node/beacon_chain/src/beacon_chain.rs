@@ -3891,45 +3891,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
         let (_, signed_block, blobs, data_columns) = signed_block.deconstruct();
-        // TODO(das) we currently store all subnet sampled columns. Tracking issue to exclude non
-        // custody columns: https://github.com/sigp/lighthouse/issues/6465
-        let custody_columns_count = self.data_availability_checker.get_sampling_column_count();
-        // if block is made available via blobs and `data_columns` is either `None` or incomplete, dropped the data columns.
-        let maybe_all_data_columns =
-            data_columns.filter(|columns| columns.len() == custody_columns_count);
 
-        let data_columns_to_persist = match (maybe_all_data_columns, data_column_recv) {
-            // If the block was made available via custody columns received from gossip / rpc, use them
-            // since we already have them.
-            (Some(columns), _) => Some(columns),
-            // Otherwise, it means blobs were likely available via fetching from EL, in this case we
-            // wait for the data columns to be computed (blocking).
-            (None, Some(data_column_recv)) => {
-                let _column_recv_timer =
-                    metrics::start_timer(&metrics::BLOCK_PROCESSING_DATA_COLUMNS_WAIT);
-                // Unable to receive data columns from sender, sender is either dropped or
-                // failed to compute data columns from blobs. We restore fork choice here and
-                // return to avoid inconsistency in database.
-                if let Ok(columns) = data_column_recv.blocking_recv() {
-                    Some(columns)
-                } else {
-                    let err_msg = "Did not receive data columns from sender";
-                    error!(
-                        self.log,
-                        "Failed to store data columns into the database";
-                        "msg" => "Restoring fork choice from disk",
-                        "error" => err_msg,
-                    );
-                    return Err(self
-                        .handle_import_block_db_write_error(fork_choice)
-                        .err()
-                        .unwrap_or(BlockError::InternalError(err_msg.to_string())));
-                }
+        match self.get_blobs_or_columns_store_op(
+            block_root,
+            signed_block.epoch(),
+            blobs,
+            data_columns,
+            data_column_recv,
+        ) {
+            Ok(Some(blobs_or_columns_store_op)) => {
+                ops.push(blobs_or_columns_store_op);
             }
-            // No data columns present and compute data columns task was not spawned.
-            // Could either be no blobs in the block or before PeerDAS activation.
-            (None, None) => None,
-        };
+            Ok(None) => {}
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Failed to store data columns into the database";
+                    "msg" => "Restoring fork choice from disk",
+                    "error" => &e,
+                    "block_root" => ?block_root
+                );
+                return Err(self
+                    .handle_import_block_db_write_error(fork_choice)
+                    .err()
+                    .unwrap_or(BlockError::InternalError(e)));
+            }
+        }
 
         let block = signed_block.message();
         let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
@@ -3940,30 +3927,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
-
-        if let Some(blobs) = blobs {
-            if !blobs.is_empty() {
-                debug!(
-                    self.log, "Writing blobs to store";
-                    "block_root" => %block_root,
-                    "count" => blobs.len(),
-                );
-                ops.push(StoreOp::PutBlobs(block_root, blobs));
-            }
-        }
-
-        if let Some(data_columns) = data_columns_to_persist {
-            // TODO(das): `available_block includes all sampled columns, but we only need to store
-            // custody columns. To be clarified in spec.
-            if !data_columns.is_empty() {
-                debug!(
-                    self.log, "Writing data_columns to store";
-                    "block_root" => %block_root,
-                    "count" => data_columns.len(),
-                );
-                ops.push(StoreOp::PutDataColumns(block_root, data_columns));
-            }
-        }
 
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
@@ -7143,6 +7106,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         BeaconChainMetrics {
             reqresp_pre_import_cache_len: self.reqresp_pre_import_cache.read().len(),
         }
+    }
+
+    fn get_blobs_or_columns_store_op(
+        &self,
+        block_root: Hash256,
+        block_epoch: Epoch,
+        blobs: Option<BlobSidecarList<T::EthSpec>>,
+        data_columns: Option<DataColumnSidecarList<T::EthSpec>>,
+        data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
+    ) -> Result<Option<StoreOp<T::EthSpec>>, String> {
+        if self.spec.is_peer_das_enabled_for_epoch(block_epoch) {
+            // TODO(das) we currently store all subnet sampled columns. Tracking issue to exclude non
+            // custody columns: https://github.com/sigp/lighthouse/issues/6465
+            let custody_columns_count = self.data_availability_checker.get_sampling_column_count();
+
+            let custody_columns_available = data_columns
+                .as_ref()
+                .map_or(false, |columns| columns.len() == custody_columns_count);
+
+            let data_columns_to_persist = if custody_columns_available {
+                // If the block was made available via custody columns received from gossip / rpc, use them
+                // since we already have them.
+                data_columns
+            } else if let Some(data_column_recv) = data_column_recv {
+                // Blobs were available from the EL, in this case we wait for the data columns to be computed (blocking).
+                let _column_recv_timer =
+                    metrics::start_timer(&metrics::BLOCK_PROCESSING_DATA_COLUMNS_WAIT);
+                // Unable to receive data columns from sender, sender is either dropped or
+                // failed to compute data columns from blobs. We restore fork choice here and
+                // return to avoid inconsistency in database.
+                let computed_data_columns = data_column_recv
+                    .blocking_recv()
+                    .map_err(|e| format!("Did not receive data columns from sender: {e:?}"))?;
+                Some(computed_data_columns)
+            } else {
+                // No blobs in the block.
+                None
+            };
+
+            if let Some(data_columns) = data_columns_to_persist {
+                if !data_columns.is_empty() {
+                    debug!(
+                        self.log, "Writing data_columns to store";
+                        "block_root" => %block_root,
+                        "count" => data_columns.len(),
+                    );
+                    return Ok(Some(StoreOp::PutDataColumns(block_root, data_columns)));
+                }
+            }
+        } else if let Some(blobs) = blobs {
+            if !blobs.is_empty() {
+                debug!(
+                    self.log, "Writing blobs to store";
+                    "block_root" => %block_root,
+                    "count" => blobs.len(),
+                );
+                return Ok(Some(StoreOp::PutBlobs(block_root, blobs)));
+            }
+        }
+
+        Ok(None)
     }
 }
 

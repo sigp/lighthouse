@@ -475,6 +475,12 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         f(self.critical.read().peek(block_root))
     }
 
+    /// Puts the KZG verified blobs into the availability cache as pending components.
+    ///
+    /// The `data_column_recv` parameter is an optional `Receiver` for data columns that are
+    /// computed asynchronously. This method remains **used** after PeerDAS activation, because
+    /// blocks can be made available if the EL already has the blobs and returns them via the
+    /// `getBlobsV1` engine method. More details in [fetch_blobs.rs](https://github.com/sigp/lighthouse/blob/44f8add41ea2252769bb967864af95b3c13af8ca/beacon_node/beacon_chain/src/fetch_blobs.rs).
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
         block_root: Hash256,
