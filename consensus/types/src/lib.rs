@@ -108,6 +108,7 @@ pub mod data_column_sidecar;
 pub mod data_column_subnet_id;
 pub mod light_client_header;
 pub mod non_zero_usize;
+pub mod runtime_fixed_vector;
 pub mod runtime_var_list;
 
 pub use crate::activation_queue::ActivationQueue;
@@ -219,6 +220,7 @@ pub use crate::preset::{
 pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
+pub use crate::runtime_fixed_vector::RuntimeFixedVector;
 pub use crate::runtime_var_list::RuntimeVariableList;
 pub use crate::selection_proof::SelectionProof;
 pub use crate::shuffling_id::AttestationShufflingId;

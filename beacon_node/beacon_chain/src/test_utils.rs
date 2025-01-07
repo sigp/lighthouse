@@ -511,7 +511,7 @@ where
 
     pub fn mock_execution_layer_with_config(mut self) -> Self {
         let mock = mock_execution_layer_from_parts::<E>(
-            self.spec.as_ref().expect("cannot build without spec"),
+            self.spec.clone().expect("cannot build without spec"),
             self.runtime.task_executor.clone(),
         );
         self.execution_layer = Some(mock.el.clone());
@@ -611,7 +611,7 @@ where
 }
 
 pub fn mock_execution_layer_from_parts<E: EthSpec>(
-    spec: &ChainSpec,
+    spec: Arc<ChainSpec>,
     task_executor: TaskExecutor,
 ) -> MockExecutionLayer<E> {
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
@@ -624,7 +624,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
 
-    let kzg = get_kzg(spec);
+    let kzg = get_kzg(&spec);
 
     MockExecutionLayer::new(
         task_executor,
@@ -633,7 +633,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         cancun_time,
         prague_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-        spec.clone(),
+        spec,
         Some(kzg),
     )
 }
@@ -2019,7 +2019,7 @@ where
         let (block, blob_items) = block_contents;
 
         let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
             .transpose()
             .unwrap();
         let block_hash: SignedBeaconBlockHash = self
@@ -2045,7 +2045,7 @@ where
         let (block, blob_items) = block_contents;
 
         let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
             .transpose()
             .unwrap();
         let block_root = block.canonical_root();
@@ -2816,11 +2816,12 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
     rng: &mut impl Rng,
+    spec: &ChainSpec,
 ) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
     let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
-
+    let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
@@ -2830,7 +2831,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                NumBlobs::Random => rng.gen_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -2850,7 +2851,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                NumBlobs::Random => rng.gen_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -2904,7 +2905,7 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     DataColumnSidecarList<E>,
 ) {
     let kzg = get_kzg(spec);
-    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
+    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng, spec);
     let blob_refs = blobs.iter().map(|b| &b.blob).collect::<Vec<_>>();
     let data_columns = blobs_to_data_column_sidecars(&blob_refs, &block, &kzg, spec).unwrap();
 

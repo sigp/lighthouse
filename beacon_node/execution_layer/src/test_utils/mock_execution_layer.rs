@@ -13,7 +13,7 @@ pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
     pub el: ExecutionLayer<E>,
     pub executor: TaskExecutor,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> MockExecutionLayer<E> {
@@ -29,7 +29,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-            spec,
+            Arc::new(spec),
             None,
         )
     }
@@ -42,7 +42,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
         jwt_key: Option<JwtKey>,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let handle = executor.handle().unwrap();
@@ -57,6 +57,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             shanghai_time,
             cancun_time,
             prague_time,
+            spec.clone(),
             kzg,
         );
 
@@ -320,7 +321,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
 
     pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
     where
-        U: Fn(ChainSpec, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
+        U: Fn(Arc<ChainSpec>, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
         V: Future<Output = ()>,
     {
         let terminal_block_number = self

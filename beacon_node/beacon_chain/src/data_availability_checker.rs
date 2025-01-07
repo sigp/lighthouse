@@ -215,9 +215,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // Note: currently not reporting which specific blob is invalid because we fetch all blobs
         // from the same peer for both lookup and range sync.
 
-        let verified_blobs =
-            KzgVerifiedBlobList::new(blobs.iter().flatten().cloned(), &self.kzg, seen_timestamp)
-                .map_err(AvailabilityCheckError::InvalidBlobs)?;
+        let verified_blobs = KzgVerifiedBlobList::new(
+            blobs.into_vec().into_iter().flatten(),
+            &self.kzg,
+            seen_timestamp,
+        )
+        .map_err(AvailabilityCheckError::InvalidBlobs)?;
 
         self.availability_cache
             .put_kzg_verified_blobs(block_root, verified_blobs, &self.log)
@@ -400,14 +403,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
         let mut results = Vec::with_capacity(blocks.len());
-        let all_blobs: BlobSidecarList<T::EthSpec> = blocks
+        let all_blobs = blocks
             .iter()
             .filter(|block| self.blobs_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
             .filter_map(|block| block.blobs().cloned())
             .flatten()
-            .collect::<Vec<_>>()
-            .into();
+            .collect::<Vec<_>>();
 
         // verify kzg for all blobs at once
         if !all_blobs.is_empty() {

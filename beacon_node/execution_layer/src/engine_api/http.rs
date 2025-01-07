@@ -1321,7 +1321,8 @@ mod test {
 
     impl Tester {
         pub fn new(with_auth: bool) -> Self {
-            let server = MockServer::unit_testing();
+            let spec = Arc::new(MainnetEthSpec::default_spec());
+            let server = MockServer::unit_testing(spec);
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();

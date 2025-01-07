@@ -93,7 +93,7 @@ pub static SIGNED_BEACON_BLOCK_DENEB_MAX: LazyLock<usize> = LazyLock::new(|| {
     *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
-    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
+    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * MAX_BLOBS_PER_BLOCK_CEILING as usize)
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
     //
@@ -101,7 +101,7 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
-    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
+    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * MAX_BLOBS_PER_BLOCK_CEILING as usize)
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
 
@@ -110,14 +110,6 @@ pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
 
 pub static BLOB_SIDECAR_SIZE_MINIMAL: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MinimalEthSpec>::max_size);
-
-pub static DATA_COLUMNS_SIDECAR_MIN: LazyLock<usize> = LazyLock::new(|| {
-    DataColumnSidecar::<MainnetEthSpec>::empty()
-        .as_ssz_bytes()
-        .len()
-});
-pub static DATA_COLUMNS_SIDECAR_MAX: LazyLock<usize> =
-    LazyLock::new(DataColumnSidecar::<MainnetEthSpec>::max_size);
 
 pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
     VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
@@ -611,8 +603,8 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
-            Protocol::DataColumnsByRoot => rpc_data_column_limits(),
-            Protocol::DataColumnsByRange => rpc_data_column_limits(),
+            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(),
+            Protocol::DataColumnsByRange => rpc_data_column_limits::<E>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -692,8 +684,11 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     }
 }
 
-pub fn rpc_data_column_limits() -> RpcLimits {
-    RpcLimits::new(*DATA_COLUMNS_SIDECAR_MIN, *DATA_COLUMNS_SIDECAR_MAX)
+pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
+    RpcLimits::new(
+        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
+        DataColumnSidecar::<E>::max_size(MAX_BLOBS_PER_BLOCK_CEILING as usize),
+    )
 }
 
 /* Inbound upgrade */
