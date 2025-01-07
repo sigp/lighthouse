@@ -73,7 +73,7 @@ impl Eth2Enr for Enr {
             .ok_or("ENR custody group count non-existent")?
             .map_err(|_| "Could not decode the ENR custody group count")?;
 
-        if cgc >= spec.custody_requirement && cgc <= spec.number_of_custody_groups {
+        if (spec.custody_requirement..=spec.number_of_custody_groups).contains(&cgc) {
             Ok(cgc)
         } else {
             Err("Invalid custody group count in ENR")
