@@ -910,11 +910,7 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Deneb
-            | ForkName::Electra
-            | ForkName::Fulu => Err(Error::UnsupportedForkVariant(format!(
+            _ => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v2 with {}",
                 fork_name
             ))),

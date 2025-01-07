@@ -1,14 +1,14 @@
 # Mainnet config
 
 # Extends the mainnet preset
-PRESET_BASE: "mainnet"
+PRESET_BASE: 'mainnet'
 
 # Free-form short name of the network that this configuration applies to - known
 # canonical network names include:
 # * 'mainnet' - there can be only one
 # * 'holesky' - testnet
 # Must match the regex: [a-z0-9\-]
-CONFIG_NAME: "mainnet"
+CONFIG_NAME: 'mainnet'
 
 # Transition
 # ---------------------------------------------------------------

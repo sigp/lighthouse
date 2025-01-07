@@ -1,5 +1,5 @@
 # Extends the mainnet preset
-PRESET_BASE: "mainnet"
+PRESET_BASE: 'mainnet'
 CONFIG_NAME: holesky
 
 # Genesis

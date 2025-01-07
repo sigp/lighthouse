@@ -1,8 +1,8 @@
 # Gnosis Beacon Chain config
 
 # Extends the gnosis preset
-CONFIG_NAME: "gnosis"
-PRESET_BASE: "gnosis"
+CONFIG_NAME: 'gnosis'
+PRESET_BASE: 'gnosis'
 
 # Transition
 # ---------------------------------------------------------------
