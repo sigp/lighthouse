@@ -10,7 +10,7 @@ pub struct SignedAttestation {
 }
 
 /// Reasons why an attestation may be slashable (or invalid).
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum InvalidAttestation {
     /// The attestation has the same target epoch as an attestation from the DB (enclosed).
     DoubleVote(SignedAttestation),
