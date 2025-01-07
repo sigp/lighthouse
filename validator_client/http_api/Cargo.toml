@@ -10,23 +10,25 @@ path = "src/lib.rs"
 
 [dependencies]
 account_utils = { workspace = true }
-bls = { workspace = true }
 beacon_node_fallback = { workspace = true }
+bls = { workspace = true }
 deposit_contract = { workspace = true }
+directory = { workspace = true }
+dirs = { workspace = true }
 doppelganger_service = { workspace = true }
-graffiti_file = { workspace = true }
 eth2  = { workspace = true }
 eth2_keystore  = { workspace = true }
 ethereum_serde_utils = { workspace = true }
+filesystem = { workspace = true }
+graffiti_file = { workspace = true }
 initialized_validators = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
 parking_lot = { workspace = true }
-filesystem = { workspace = true }
 rand = { workspace = true }
+sensitive_url = { workspace = true }
 serde = { workspace = true }
 signing_method = { workspace = true }
-sensitive_url = { workspace = true }
 slashing_protection = { workspace = true }
 slog =  { workspace = true }
 slot_clock =  { workspace = true }
@@ -37,14 +39,15 @@ tempfile =  { workspace = true }
 tokio =  { workspace = true }
 tokio-stream =  { workspace = true }
 types =  { workspace = true }
-validator_dir =  { workspace = true }
-validator_store =  { workspace = true }
-validator_services =  { workspace = true }
 url =  { workspace = true }
-warp_utils = { workspace = true }
+validator_dir =  { workspace = true }
+validator_services =  { workspace = true }
+validator_store =  { workspace = true }
 warp = { workspace = true }
+warp_utils = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
-itertools = { workspace = true }
 futures = { workspace = true }
+itertools = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }

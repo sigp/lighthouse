@@ -10,7 +10,6 @@ use beacon_node::{
 use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
-use lighthouse_version;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -129,7 +128,7 @@ fn allow_insecure_genesis_sync_default() {
     CommandLineTest::new()
         .run_with_zero_port_and_no_genesis_sync()
         .with_config(|config| {
-            assert_eq!(config.allow_insecure_genesis_sync, false);
+            assert!(!config.allow_insecure_genesis_sync);
         });
 }
 
@@ -147,7 +146,7 @@ fn allow_insecure_genesis_sync_enabled() {
         .flag("allow-insecure-genesis-sync", None)
         .run_with_zero_port_and_no_genesis_sync()
         .with_config(|config| {
-            assert_eq!(config.allow_insecure_genesis_sync, true);
+            assert!(config.allow_insecure_genesis_sync);
         });
 }
 
@@ -360,11 +359,11 @@ fn default_graffiti() {
 
 #[test]
 fn trusted_peers_flag() {
-    let peers = vec![PeerId::random(), PeerId::random()];
+    let peers = [PeerId::random(), PeerId::random()];
     CommandLineTest::new()
         .flag(
             "trusted-peers",
-            Some(format!("{},{}", peers[0].to_string(), peers[1].to_string()).as_str()),
+            Some(format!("{},{}", peers[0], peers[1]).as_str()),
         )
         .run_with_zero_port()
         .with_config(|config| {
@@ -384,7 +383,7 @@ fn genesis_backfill_flag() {
     CommandLineTest::new()
         .flag("genesis-backfill", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+        .with_config(|config| assert!(config.chain.genesis_backfill));
 }
 
 /// The genesis backfill flag should be enabled if historic states flag is set.
@@ -393,7 +392,7 @@ fn genesis_backfill_with_historic_flag() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+        .with_config(|config| assert!(config.chain.genesis_backfill));
 }
 
 // Tests for Eth1 flags.
@@ -449,7 +448,7 @@ fn eth1_cache_follow_distance_manual() {
 // Tests for Bellatrix flags.
 fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
     use sensitive_url::SensitiveUrl;
-    let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
+    let urls = ["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
     // we don't support redundancy for execution-endpoints
     // only the first provided endpoint is parsed.
 
@@ -481,10 +480,10 @@ fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.execution_endpoint.is_some(), true);
+            assert!(config.execution_endpoint.is_some());
             assert_eq!(
                 config.execution_endpoint.as_ref().unwrap().clone(),
-                SensitiveUrl::parse(&urls[0]).unwrap()
+                SensitiveUrl::parse(urls[0]).unwrap()
             );
             // Only the first secret file should be used.
             assert_eq!(
@@ -596,7 +595,7 @@ fn run_payload_builder_flag_test(flag: &str, builders: &str) {
         let config = config.execution_layer.as_ref().unwrap();
         // Only first provided endpoint is parsed as we don't support
         // redundancy.
-        assert_eq!(config.builder_url, all_builders.get(0).cloned());
+        assert_eq!(config.builder_url, all_builders.first().cloned());
     })
 }
 fn run_payload_builder_flag_test_with_config<F: Fn(&Config)>(
@@ -662,7 +661,7 @@ fn builder_fallback_flags() {
         Some("builder-fallback-disable-checks"),
         None,
         |config| {
-            assert_eq!(config.chain.builder_fallback_disable_checks, true);
+            assert!(config.chain.builder_fallback_disable_checks);
         },
     );
 }
@@ -1658,19 +1657,19 @@ fn http_enable_beacon_processor() {
     CommandLineTest::new()
         .flag("http", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+        .with_config(|config| assert!(config.http_api.enable_beacon_processor));
 
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-enable-beacon-processor", Some("true"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+        .with_config(|config| assert!(config.http_api.enable_beacon_processor));
 
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-enable-beacon-processor", Some("false"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, false));
+        .with_config(|config| assert!(!config.http_api.enable_beacon_processor));
 }
 #[test]
 fn http_tls_flags() {
@@ -2222,7 +2221,7 @@ fn slasher_broadcast_flag_false() {
         });
 }
 
-#[cfg(all(feature = "slasher-lmdb"))]
+#[cfg(feature = "slasher-lmdb")]
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend
@@ -2430,7 +2429,7 @@ fn logfile_no_restricted_perms_flag() {
         .flag("logfile-no-restricted-perms", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.logger_config.is_restricted == false);
+            assert!(!config.logger_config.is_restricted);
         });
 }
 #[test]
@@ -2455,7 +2454,7 @@ fn logfile_format_flag() {
 fn sync_eth1_chain_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
+        .with_config(|config| assert!(config.sync_eth1_chain));
 }
 
 #[test]
@@ -2468,7 +2467,7 @@ fn sync_eth1_chain_execution_endpoints_flag() {
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
+        .with_config(|config| assert!(config.sync_eth1_chain));
 }
 
 #[test]
@@ -2482,7 +2481,7 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+        .with_config(|config| assert!(!config.sync_eth1_chain));
 }
 
 #[test]
@@ -2505,9 +2504,9 @@ fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.enable_light_client_server, false);
-            assert_eq!(config.chain.enable_light_client_server, false);
-            assert_eq!(config.http_api.enable_light_client_server, false);
+            assert!(!config.network.enable_light_client_server);
+            assert!(!config.chain.enable_light_client_server);
+            assert!(!config.http_api.enable_light_client_server);
         });
 }
 
@@ -2517,8 +2516,8 @@ fn light_client_server_enabled() {
         .flag("light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.enable_light_client_server, true);
-            assert_eq!(config.chain.enable_light_client_server, true);
+            assert!(config.network.enable_light_client_server);
+            assert!(config.chain.enable_light_client_server);
         });
 }
 
@@ -2529,7 +2528,7 @@ fn light_client_http_server_enabled() {
         .flag("light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.http_api.enable_light_client_server, true);
+            assert!(config.http_api.enable_light_client_server);
         });
 }
 

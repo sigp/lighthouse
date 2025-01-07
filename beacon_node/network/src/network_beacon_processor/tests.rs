@@ -527,7 +527,7 @@ impl TestRig {
         self.assert_event_journal(
             &expected
                 .iter()
-                .map(|ev| Into::<&'static str>::into(ev))
+                .map(Into::<&'static str>::into)
                 .chain(std::iter::once(WORKER_FREED))
                 .chain(std::iter::once(NOTHING_TO_DO))
                 .collect::<Vec<_>>(),

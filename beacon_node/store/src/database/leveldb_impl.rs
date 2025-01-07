@@ -298,4 +298,27 @@ impl<E: EthSpec> LevelDB<E> {
         self.db.write(self.write_options().into(), &leveldb_batch)?;
         Ok(())
     }
+
+    pub fn delete_while(
+        &self,
+        column: DBColumn,
+        mut f: impl FnMut(&[u8]) -> Result<bool, Error>,
+    ) -> Result<(), Error> {
+        let mut leveldb_batch = Writebatch::new();
+        let iter = self.db.iter(self.read_options());
+
+        let _ = iter
+            .take_while(move |(key, _)| key.matches_column(column))
+            .map(|(key, value)| {
+                if f(&value).unwrap_or(false) {
+                    let _timer = metrics::start_timer(&metrics::DISK_DB_DELETE_TIMES);
+                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[column.into()]);
+                    leveldb_batch.delete(key);
+                }
+            })
+            .collect::<Vec<_>>();
+
+        self.db.write(self.write_options().into(), &leveldb_batch)?;
+        Ok(())
+    }
 }

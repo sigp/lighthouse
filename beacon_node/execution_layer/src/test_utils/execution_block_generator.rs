@@ -28,14 +28,18 @@ use super::DEFAULT_TERMINAL_BLOCK;
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
 
-const GAS_LIMIT: u64 = 16384;
-const GAS_USED: u64 = GAS_LIMIT - 1;
+pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
+const GAS_USED: u64 = DEFAULT_GAS_LIMIT - 1;
 
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)] // This struct is only for testing.
 pub enum Block<E: EthSpec> {
     PoW(PoWBlock),
     PoS(ExecutionPayload<E>),
+}
+
+pub fn mock_el_extra_data<E: EthSpec>() -> types::VariableList<u8, E::MaxExtraDataBytes> {
+    "block gen was here".as_bytes().to_vec().into()
 }
 
 impl<E: EthSpec> Block<E> {
@@ -64,6 +68,13 @@ impl<E: EthSpec> Block<E> {
         match self {
             Block::PoW(block) => Some(block.total_difficulty),
             Block::PoS(_) => None,
+        }
+    }
+
+    pub fn gas_limit(&self) -> u64 {
+        match self {
+            Block::PoW(_) => DEFAULT_GAS_LIMIT,
+            Block::PoS(payload) => payload.gas_limit(),
         }
     }
 
@@ -570,10 +581,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 logs_bloom: vec![0; 256].into(),
                 prev_randao: pa.prev_randao,
                 block_number: parent.block_number() + 1,
-                gas_limit: GAS_LIMIT,
+                gas_limit: DEFAULT_GAS_LIMIT,
                 gas_used: GAS_USED,
                 timestamp: pa.timestamp,
-                extra_data: "block gen was here".as_bytes().to_vec().into(),
+                extra_data: mock_el_extra_data::<E>(),
                 base_fee_per_gas: Uint256::from(1u64),
                 block_hash: ExecutionBlockHash::zero(),
                 transactions: vec![].into(),
@@ -587,10 +598,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     logs_bloom: vec![0; 256].into(),
                     prev_randao: pa.prev_randao,
                     block_number: parent.block_number() + 1,
-                    gas_limit: GAS_LIMIT,
+                    gas_limit: DEFAULT_GAS_LIMIT,
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
-                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    extra_data: mock_el_extra_data::<E>(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
@@ -603,10 +614,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     logs_bloom: vec![0; 256].into(),
                     prev_randao: pa.prev_randao,
                     block_number: parent.block_number() + 1,
-                    gas_limit: GAS_LIMIT,
+                    gas_limit: DEFAULT_GAS_LIMIT,
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
-                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    extra_data: mock_el_extra_data::<E>(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
@@ -623,10 +634,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     logs_bloom: vec![0; 256].into(),
                     prev_randao: pa.prev_randao,
                     block_number: parent.block_number() + 1,
-                    gas_limit: GAS_LIMIT,
+                    gas_limit: DEFAULT_GAS_LIMIT,
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
-                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    extra_data: mock_el_extra_data::<E>(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
@@ -642,10 +653,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     logs_bloom: vec![0; 256].into(),
                     prev_randao: pa.prev_randao,
                     block_number: parent.block_number() + 1,
-                    gas_limit: GAS_LIMIT,
+                    gas_limit: DEFAULT_GAS_LIMIT,
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
-                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    extra_data: mock_el_extra_data::<E>(),
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),

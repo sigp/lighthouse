@@ -316,9 +316,6 @@ impl<E: EthSpec> Redb<E> {
         let mut table = tx.open_table(table_definition)?;
         table.retain(|_, value| !f(value).unwrap_or(false))?;
 
-        // extract_iter.for_each(|_| {
-        //     metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col]);
-        // });
         drop(table);
         tx.commit()?;
         Ok(())

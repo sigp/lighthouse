@@ -330,7 +330,7 @@ async fn long_skip() {
             final_blocks as usize,
             BlockStrategy::ForkCanonicalChainAt {
                 previous_slot: Slot::new(initial_blocks),
-                first_slot: Slot::new(initial_blocks + skip_slots as u64 + 1),
+                first_slot: Slot::new(initial_blocks + skip_slots + 1),
             },
             AttestationStrategy::AllValidators,
         )
@@ -381,8 +381,7 @@ async fn randao_genesis_storage() {
         .beacon_state
         .randao_mixes()
         .iter()
-        .find(|x| **x == genesis_value)
-        .is_some());
+        .any(|x| *x == genesis_value));
 
     // Then upon adding one more block, it isn't
     harness.advance_slot();
@@ -393,14 +392,13 @@ async fn randao_genesis_storage() {
             AttestationStrategy::AllValidators,
         )
         .await;
-    assert!(harness
+    assert!(!harness
         .chain
         .head_snapshot()
         .beacon_state
         .randao_mixes()
         .iter()
-        .find(|x| **x == genesis_value)
-        .is_none());
+        .any(|x| *x == genesis_value));
 
     check_finalization(&harness, num_slots);
     check_split_slot(&harness, store);
@@ -1062,7 +1060,7 @@ fn check_shuffling_compatible(
         let current_epoch_shuffling_is_compatible = harness.chain.shuffling_is_compatible(
             &block_root,
             head_state.current_epoch(),
-            &head_state,
+            head_state,
         );
 
         // Check for consistency with the more expensive shuffling lookup.
@@ -1102,7 +1100,7 @@ fn check_shuffling_compatible(
         let previous_epoch_shuffling_is_compatible = harness.chain.shuffling_is_compatible(
             &block_root,
             head_state.previous_epoch(),
-            &head_state,
+            head_state,
         );
         harness
             .chain
@@ -1130,14 +1128,11 @@ fn check_shuffling_compatible(
 
         // Targeting two epochs before the current epoch should always return false
         if head_state.current_epoch() >= 2 {
-            assert_eq!(
-                harness.chain.shuffling_is_compatible(
-                    &block_root,
-                    head_state.current_epoch() - 2,
-                    &head_state
-                ),
-                false
-            );
+            assert!(!harness.chain.shuffling_is_compatible(
+                &block_root,
+                head_state.current_epoch() - 2,
+                head_state
+            ));
         }
     }
 }
@@ -1559,14 +1554,13 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
         .map(Into::into)
         .collect();
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
-    let (canonical_blocks, _, _, _) = rig
-        .add_attested_blocks_at_slots(
-            canonical_state,
-            canonical_state_root,
-            &canonical_slots,
-            &honest_validators,
-        )
-        .await;
+    let (canonical_blocks, _, _, _) = Box::pin(rig.add_attested_blocks_at_slots(
+        canonical_state,
+        canonical_state_root,
+        &canonical_slots,
+        &honest_validators,
+    ))
+    .await;
 
     // Postconditions
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
@@ -1939,7 +1933,7 @@ async fn prune_single_block_long_skip() {
         2 * slots_per_epoch,
         1,
         2 * slots_per_epoch,
-        2 * slots_per_epoch as u64,
+        2 * slots_per_epoch,
         1,
     )
     .await;
@@ -1961,31 +1955,45 @@ async fn prune_shared_skip_states_mid_epoch() {
 #[tokio::test]
 async fn prune_shared_skip_states_epoch_boundaries() {
     let slots_per_epoch = E::slots_per_epoch();
-    pruning_test(slots_per_epoch - 1, 1, slots_per_epoch, 2, slots_per_epoch).await;
-    pruning_test(slots_per_epoch - 1, 2, slots_per_epoch, 1, slots_per_epoch).await;
-    pruning_test(
-        2 * slots_per_epoch + slots_per_epoch / 2,
-        slots_per_epoch as u64 / 2,
+    Box::pin(pruning_test(
+        slots_per_epoch - 1,
+        1,
         slots_per_epoch,
-        slots_per_epoch as u64 / 2 + 1,
+        2,
         slots_per_epoch,
-    )
+    ))
     .await;
-    pruning_test(
-        2 * slots_per_epoch + slots_per_epoch / 2,
-        slots_per_epoch as u64 / 2,
+    Box::pin(pruning_test(
+        slots_per_epoch - 1,
+        2,
         slots_per_epoch,
-        slots_per_epoch as u64 / 2 + 1,
+        1,
         slots_per_epoch,
-    )
+    ))
     .await;
-    pruning_test(
+    Box::pin(pruning_test(
+        2 * slots_per_epoch + slots_per_epoch / 2,
+        slots_per_epoch / 2,
+        slots_per_epoch,
+        slots_per_epoch / 2 + 1,
+        slots_per_epoch,
+    ))
+    .await;
+    Box::pin(pruning_test(
+        2 * slots_per_epoch + slots_per_epoch / 2,
+        slots_per_epoch / 2,
+        slots_per_epoch,
+        slots_per_epoch / 2 + 1,
+        slots_per_epoch,
+    ))
+    .await;
+    Box::pin(pruning_test(
         2 * slots_per_epoch - 1,
-        slots_per_epoch as u64,
+        slots_per_epoch,
         1,
         0,
         2 * slots_per_epoch,
-    )
+    ))
     .await;
 }
 
@@ -2094,7 +2102,7 @@ async fn pruning_test(
     );
     check_chain_dump(
         &harness,
-        (num_initial_blocks + num_canonical_middle_blocks + num_finalization_blocks + 1) as u64,
+        num_initial_blocks + num_canonical_middle_blocks + num_finalization_blocks + 1,
     );
 
     let all_canonical_states = harness
@@ -2613,8 +2621,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         harness.advance_slot();
     }
     harness.extend_to_slot(finalizing_slot - 1).await;
-    harness
-        .add_block_at_slot(finalizing_slot, harness.get_current_state())
+    Box::pin(harness.add_block_at_slot(finalizing_slot, harness.get_current_state()))
         .await
         .unwrap();
 
@@ -2789,6 +2796,7 @@ async fn finalizes_after_resuming_from_db() {
     );
 }
 
+#[allow(clippy::large_stack_frames)]
 #[tokio::test]
 async fn revert_minority_fork_on_resume() {
     let validator_count = 16;
