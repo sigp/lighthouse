@@ -1,9 +1,9 @@
 use crate::test_utils::TestRandom;
-use crate::ForkName;
 use crate::{
     beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, BeaconStateError, Blob,
     Epoch, EthSpec, FixedVector, Hash256, SignedBeaconBlockHeader, Slot, VariableList,
 };
+use crate::{AbstractExecPayload, ForkName};
 use crate::{ForkVersionDeserialize, KzgProofs, SignedBeaconBlock};
 use bls::Signature;
 use derivative::Derivative;
@@ -150,10 +150,10 @@ impl<E: EthSpec> BlobSidecar<E> {
         })
     }
 
-    pub fn new_with_existing_proof(
+    pub fn new_with_existing_proof<Payload: AbstractExecPayload<E>>(
         index: usize,
         blob: Blob<E>,
-        signed_block: &SignedBeaconBlock<E>,
+        signed_block: &SignedBeaconBlock<E, Payload>,
         signed_block_header: SignedBeaconBlockHeader,
         kzg_commitments_inclusion_proof: &[Hash256],
         kzg_proof: KzgProof,
