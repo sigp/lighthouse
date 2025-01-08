@@ -162,6 +162,7 @@ keypair
 keypairs
 keystore
 keystores
+leveldb
 linter
 linux
 localhost
@@ -191,6 +192,7 @@ pre
 pubkey
 pubkeys
 rc
+redb
 reimport
 resync
 roadmap
