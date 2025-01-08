@@ -285,34 +285,35 @@ pub fn reconstruct_blobs<E: EthSpec>(
                 cell_ids.push(data_column.index);
             }
 
-            kzg.recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
-                .map_err(|e| format!("Failed to recover cells and compute KZG proofs: {e:?}"))
-                .and_then(|(cells, _kzg_proofs)| {
-                    let num_cells_original_blob = cells.len() / 2;
-                    let blob_bytes = cells
-                        .into_iter()
-                        .take(num_cells_original_blob)
-                        .flat_map(|cell| cell.into_iter())
-                        .collect();
-                    let blob = Blob::<E>::new(blob_bytes).map_err(|e| format!("{e:?}"))?;
-                    let kzg_commitment = first_data_column
-                        .kzg_commitments
-                        .get(row_index)
-                        .ok_or(format!("Missing KZG commitment for blob {row_index}"))?;
-                    let kzg_proof = compute_blob_kzg_proof::<E>(kzg, &blob, *kzg_commitment)
-                        .map_err(|e| format!("{e:?}"))?;
+            let (cells, _kzg_proofs) = kzg
+                .recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
+                .map_err(|e| format!("Failed to recover cells and compute KZG proofs: {e:?}"))?;
 
-                    BlobSidecar::<E>::new_with_existing_proof(
-                        row_index,
-                        blob,
-                        signed_block,
-                        first_data_column.signed_block_header.clone(),
-                        &first_data_column.kzg_commitments_inclusion_proof,
-                        kzg_proof,
-                    )
-                    .map(Arc::new)
-                    .map_err(|e| format!("{e:?}"))
-                })
+            let num_cells_original_blob = cells.len() / 2;
+            let blob_bytes = cells
+                .into_iter()
+                .take(num_cells_original_blob)
+                .flat_map(|cell| cell.into_iter())
+                .collect();
+
+            let blob = Blob::<E>::new(blob_bytes).map_err(|e| format!("{e:?}"))?;
+            let kzg_commitment = first_data_column
+                .kzg_commitments
+                .get(row_index)
+                .ok_or(format!("Missing KZG commitment for blob {row_index}"))?;
+            let kzg_proof = compute_blob_kzg_proof::<E>(kzg, &blob, *kzg_commitment)
+                .map_err(|e| format!("{e:?}"))?;
+
+            BlobSidecar::<E>::new_with_existing_proof(
+                row_index,
+                blob,
+                signed_block,
+                first_data_column.signed_block_header.clone(),
+                &first_data_column.kzg_commitments_inclusion_proof,
+                kzg_proof,
+            )
+            .map(Arc::new)
+            .map_err(|e| format!("{e:?}"))
         })
         .collect::<Result<Vec<_>, _>>()?
         .into();
