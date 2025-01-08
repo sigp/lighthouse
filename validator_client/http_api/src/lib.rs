@@ -106,6 +106,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        // This value is always overridden when building config from CLI.
         let http_token_path = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(DEFAULT_ROOT_DIR)
