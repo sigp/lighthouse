@@ -7,8 +7,9 @@ use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
 use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
 use types::{
-    Blob, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
-    KzgCommitment, KzgProof, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader,
+    Blob, BlobSidecar, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecar,
+    DataColumnSidecarList, EthSpec, Hash256, KzgCommitment, KzgProof, KzgProofs, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedBlindedBeaconBlock,
 };
 
 /// Converts a blob ssz List object to an array to be used with the kzg
@@ -243,6 +244,83 @@ fn build_data_column_sidecars<E: EthSpec>(
     Ok(sidecars)
 }
 
+/// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
+///
+/// If `blob_indices_opt` is `None`, this function attempts to reconstruct all blobs associated
+/// with the block.
+pub fn reconstruct_blobs<E: EthSpec>(
+    kzg: &Kzg,
+    data_columns: &[Arc<DataColumnSidecar<E>>],
+    blob_indices_opt: Option<Vec<u64>>,
+    signed_block: &SignedBlindedBeaconBlock<E>,
+) -> Result<BlobSidecarList<E>, String> {
+    // The data columns are from the database, so we assume their correctness.
+    let first_data_column = data_columns
+        .first()
+        .ok_or("data_columns should have at least one element".to_string())?;
+
+    let blob_indices: Vec<usize> = match blob_indices_opt {
+        Some(indices) => indices.into_iter().map(|i| i as usize).collect(),
+        None => {
+            let num_of_blobs = first_data_column.kzg_commitments.len();
+            (0..num_of_blobs).collect()
+        }
+    };
+
+    let blob_sidecars = blob_indices
+        .into_par_iter()
+        .map(|row_index| {
+            let mut cells: Vec<KzgCellRef> = vec![];
+            let mut cell_ids: Vec<u64> = vec![];
+            for data_column in data_columns {
+                let cell = data_column
+                    .column
+                    .get(row_index)
+                    .ok_or(format!("Missing data column at row index {row_index}"))
+                    .and_then(|cell| {
+                        ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| format!("{e:?}"))
+                    })?;
+
+                cells.push(cell);
+                cell_ids.push(data_column.index);
+            }
+
+            let (cells, _kzg_proofs) = kzg
+                .recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
+                .map_err(|e| format!("Failed to recover cells and compute KZG proofs: {e:?}"))?;
+
+            let num_cells_original_blob = cells.len() / 2;
+            let blob_bytes = cells
+                .into_iter()
+                .take(num_cells_original_blob)
+                .flat_map(|cell| cell.into_iter())
+                .collect();
+
+            let blob = Blob::<E>::new(blob_bytes).map_err(|e| format!("{e:?}"))?;
+            let kzg_commitment = first_data_column
+                .kzg_commitments
+                .get(row_index)
+                .ok_or(format!("Missing KZG commitment for blob {row_index}"))?;
+            let kzg_proof = compute_blob_kzg_proof::<E>(kzg, &blob, *kzg_commitment)
+                .map_err(|e| format!("{e:?}"))?;
+
+            BlobSidecar::<E>::new_with_existing_proof(
+                row_index,
+                blob,
+                signed_block,
+                first_data_column.signed_block_header.clone(),
+                &first_data_column.kzg_commitments_inclusion_proof,
+                kzg_proof,
+            )
+            .map(Arc::new)
+            .map_err(|e| format!("{e:?}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into();
+
+    Ok(blob_sidecars)
+}
+
 /// Reconstruct all data columns from a subset of data column sidecars (requires at least 50%).
 pub fn reconstruct_data_columns<E: EthSpec>(
     kzg: &Kzg,
@@ -265,7 +343,7 @@ pub fn reconstruct_data_columns<E: EthSpec>(
                 for data_column in data_columns {
                     let cell = data_column.column.get(row_index).ok_or(
                         KzgError::InconsistentArrayLength(format!(
-                            "Missing data column at index {row_index}"
+                            "Missing data column at row index {row_index}"
                         )),
                     )?;
 
@@ -289,12 +367,16 @@ pub fn reconstruct_data_columns<E: EthSpec>(
 
 #[cfg(test)]
 mod test {
-    use crate::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
+    use crate::kzg_utils::{
+        blobs_to_data_column_sidecars, reconstruct_blobs, reconstruct_data_columns,
+    };
     use bls::Signature;
+    use eth2::types::BlobsBundle;
+    use execution_layer::test_utils::generate_blobs;
     use kzg::{trusted_setup::get_trusted_setup, Kzg, KzgCommitment, TrustedSetup};
     use types::{
-        beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList,
-        ChainSpec, EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
+        beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, BlobsList, ChainSpec,
+        EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
     };
 
     type E = MainnetEthSpec;
@@ -308,6 +390,7 @@ mod test {
         test_build_data_columns_empty(&kzg, &spec);
         test_build_data_columns(&kzg, &spec);
         test_reconstruct_data_columns(&kzg, &spec);
+        test_reconstruct_blobs_from_data_columns(&kzg, &spec);
     }
 
     #[track_caller]
@@ -379,6 +462,36 @@ mod test {
         }
     }
 
+    #[track_caller]
+    fn test_reconstruct_blobs_from_data_columns(kzg: &Kzg, spec: &ChainSpec) {
+        let num_of_blobs = 6;
+        let (signed_block, blobs) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
+        let blob_refs = blobs.iter().collect::<Vec<_>>();
+        let column_sidecars =
+            blobs_to_data_column_sidecars(&blob_refs, &signed_block, kzg, spec).unwrap();
+
+        // Now reconstruct
+        let signed_blinded_block = signed_block.into();
+        let blob_indices = vec![3, 4, 5];
+        let reconstructed_blobs = reconstruct_blobs(
+            kzg,
+            &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
+            Some(blob_indices.clone()),
+            &signed_blinded_block,
+        )
+        .unwrap();
+
+        for i in blob_indices {
+            let reconstructed_blob = &reconstructed_blobs
+                .iter()
+                .find(|sidecar| sidecar.index == i)
+                .map(|sidecar| sidecar.blob.clone())
+                .expect("reconstructed blob should exist");
+            let original_blob = blobs.get(i as usize).unwrap();
+            assert_eq!(reconstructed_blob, original_blob, "{i}");
+        }
+    }
+
     fn get_kzg() -> Kzg {
         let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
             .map_err(|e| format!("Unable to read trusted setup file: {}", e))
@@ -397,12 +510,20 @@ mod test {
             KzgCommitments::<E>::new(vec![KzgCommitment::empty_for_testing(); num_of_blobs])
                 .unwrap();
 
-        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
+        let mut signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
 
-        let blobs = (0..num_of_blobs)
-            .map(|_| Blob::<E>::default())
-            .collect::<Vec<_>>()
-            .into();
+        let (blobs_bundle, _) = generate_blobs::<E>(num_of_blobs).unwrap();
+        let BlobsBundle {
+            blobs,
+            commitments,
+            proofs: _,
+        } = blobs_bundle;
+
+        *signed_block
+            .message_mut()
+            .body_mut()
+            .blob_kzg_commitments_mut()
+            .unwrap() = commitments;
 
         (signed_block, blobs)
     }
