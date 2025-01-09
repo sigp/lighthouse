@@ -1,7 +1,6 @@
 mod globals;
 mod pubsub;
 mod subnet;
-mod sync_state;
 mod topics;
 
 use types::{BitVector, EthSpec};
@@ -11,10 +10,10 @@ pub type EnrSyncCommitteeBitfield<E> = BitVector<<E as EthSpec>::SyncCommitteeSu
 
 pub type Enr = discv5::enr::Enr<discv5::enr::CombinedKey>;
 
+pub use eth2::lighthouse::sync_state::{BackFillState, SyncState};
 pub use globals::NetworkGlobals;
 pub use pubsub::{PubsubMessage, SnappyTransform};
 pub use subnet::{Subnet, SubnetDiscovery};
-pub use sync_state::{BackFillState, SyncState};
 pub use topics::{
     attestation_sync_committee_topics, core_topics_to_subscribe, fork_core_topics,
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, ALTAIR_CORE_TOPICS,

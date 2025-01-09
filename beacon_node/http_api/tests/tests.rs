@@ -35,6 +35,7 @@ use state_processing::per_slot_processing;
 use state_processing::state_advance::partial_state_advance;
 use std::convert::TryInto;
 use std::sync::Arc;
+use store::{AnchorInfo, Split};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
@@ -5646,10 +5647,16 @@ impl ApiTester {
     pub async fn test_get_lighthouse_database_info(self) -> Self {
         let info = self.client.get_lighthouse_database_info().await.unwrap();
 
-        assert_eq!(info.anchor, self.chain.store.get_anchor_info());
-        assert_eq!(info.split, self.chain.store.get_split_info());
         assert_eq!(
-            info.schema_version,
+            serde_json::from_value::<AnchorInfo>(info.get("anchor").unwrap().clone()).unwrap(),
+            self.chain.store.get_anchor_info()
+        );
+        assert_eq!(
+            serde_json::from_value::<Split>(info.get("split").unwrap().clone()).unwrap(),
+            self.chain.store.get_split_info()
+        );
+        assert_eq!(
+            serde_json::from_value::<u64>(info.get("schema_version").unwrap().clone()).unwrap(),
             store::metadata::CURRENT_SCHEMA_VERSION.as_u64()
         );
 

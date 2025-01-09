@@ -4,6 +4,7 @@ use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
+use eth2::types::{PeerDirection, PeerState};
 use libp2p::core::multiaddr::{Multiaddr, Protocol};
 use serde::{
     ser::{SerializeStruct, Serializer},
@@ -506,6 +507,15 @@ pub enum ConnectionDirection {
     Outgoing,
 }
 
+impl From<ConnectionDirection> for PeerDirection {
+    fn from(direction: ConnectionDirection) -> Self {
+        match direction {
+            ConnectionDirection::Incoming => PeerDirection::Inbound,
+            ConnectionDirection::Outgoing => PeerDirection::Outbound,
+        }
+    }
+}
+
 /// Connection Status of the peer.
 #[derive(Debug, Clone, Default)]
 pub enum PeerConnectionStatus {
@@ -596,6 +606,17 @@ impl Serialize for PeerConnectionStatus {
                 s.serialize_field("last_seen", &0)?;
                 s.end()
             }
+        }
+    }
+}
+
+impl From<PeerConnectionStatus> for PeerState {
+    fn from(status: PeerConnectionStatus) -> Self {
+        match status {
+            Connected { .. } => PeerState::Connected,
+            Dialing { .. } => PeerState::Connecting,
+            Disconnecting { .. } => PeerState::Disconnecting,
+            Disconnected { .. } | Banned { .. } | Unknown => PeerState::Disconnected,
         }
     }
 }
