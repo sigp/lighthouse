@@ -350,7 +350,7 @@ jobs:
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
     - name: Lint code for quality and style with Clippy
-      run: make lint
+      run: make lint-full
     - name: Certify Cargo.lock freshness
       run: git diff --exit-code Cargo.lock
     - name: Typecheck benchmark code without running it

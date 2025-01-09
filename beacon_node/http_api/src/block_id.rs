@@ -1,4 +1,5 @@
 use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
+use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlobIndicesQuery;
 use eth2::types::BlockId as CoreBlockId;
@@ -9,6 +10,7 @@ use types::{
     BlobSidecarList, EthSpec, FixedBytesExtended, Hash256, SignedBeaconBlock,
     SignedBlindedBeaconBlock, Slot,
 };
+use warp::Rejection;
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -261,7 +263,7 @@ impl BlockId {
     #[allow(clippy::type_complexity)]
     pub fn get_blinded_block_and_blob_list_filtered<T: BeaconChainTypes>(
         &self,
-        indices: BlobIndicesQuery,
+        query: BlobIndicesQuery,
         chain: &BeaconChain<T>,
     ) -> Result<
         (
@@ -286,20 +288,32 @@ impl BlockId {
 
         // Return the `BlobSidecarList` identified by `self`.
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
-            chain
-                .store
-                .get_blobs(&root)
-                .map_err(|e| warp_utils::reject::beacon_chain_error(e.into()))?
-                .ok_or_else(|| {
-                    warp_utils::reject::custom_not_found(format!(
-                        "no blobs stored for block {root}"
-                    ))
-                })?
+            if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+                Self::get_blobs_from_data_columns(chain, root, query.indices, &block)?
+            } else {
+                Self::get_blobs(chain, root, query.indices)?
+            }
         } else {
             BlobSidecarList::default()
         };
 
-        let blob_sidecar_list_filtered = match indices.indices {
+        Ok((block, blob_sidecar_list, execution_optimistic, finalized))
+    }
+
+    fn get_blobs<T: BeaconChainTypes>(
+        chain: &BeaconChain<T>,
+        root: Hash256,
+        indices: Option<Vec<u64>>,
+    ) -> Result<BlobSidecarList<T::EthSpec>, Rejection> {
+        let blob_sidecar_list = chain
+            .store
+            .get_blobs(&root)
+            .map_err(|e| warp_utils::reject::beacon_chain_error(e.into()))?
+            .ok_or_else(|| {
+                warp_utils::reject::custom_not_found(format!("no blobs stored for block {root}"))
+            })?;
+
+        let blob_sidecar_list_filtered = match indices {
             Some(vec) => {
                 let list = blob_sidecar_list
                     .into_iter()
@@ -310,12 +324,48 @@ impl BlockId {
             }
             None => blob_sidecar_list,
         };
-        Ok((
-            block,
-            blob_sidecar_list_filtered,
-            execution_optimistic,
-            finalized,
-        ))
+
+        Ok(blob_sidecar_list_filtered)
+    }
+
+    fn get_blobs_from_data_columns<T: BeaconChainTypes>(
+        chain: &BeaconChain<T>,
+        root: Hash256,
+        blob_indices: Option<Vec<u64>>,
+        block: &SignedBlindedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
+    ) -> Result<BlobSidecarList<T::EthSpec>, Rejection> {
+        let column_indices = chain.store.get_data_column_keys(root).map_err(|e| {
+            warp_utils::reject::custom_server_error(format!(
+                "Error fetching data columns keys: {e:?}"
+            ))
+        })?;
+
+        let num_found_column_keys = column_indices.len();
+        let num_required_columns = chain.spec.number_of_columns / 2;
+        let is_blob_available = num_found_column_keys >= num_required_columns;
+
+        if is_blob_available {
+            let data_columns = column_indices
+                .into_iter()
+                .filter_map(
+                    |column_index| match chain.get_data_column(&root, &column_index) {
+                        Ok(Some(data_column)) => Some(Ok(data_column)),
+                        Ok(None) => None,
+                        Err(e) => Some(Err(warp_utils::reject::beacon_chain_error(e))),
+                    },
+                )
+                .collect::<Result<Vec<_>, _>>()?;
+
+            reconstruct_blobs(&chain.kzg, &data_columns, blob_indices, block).map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "Error reconstructing data columns: {e:?}"
+                ))
+            })
+        } else {
+            Err(warp_utils::reject::custom_server_error(
+                format!("Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found.")
+            ))
+        }
     }
 }
 
