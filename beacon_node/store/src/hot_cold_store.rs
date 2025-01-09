@@ -2670,7 +2670,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 ops.push(StoreOp::DeleteExecutionPayload(block_root));
             }
 
-            if slot < anchor_info.oldest_block_slot {
+            if slot <= anchor_info.oldest_block_slot {
                 info!(
                     self.log,
                     "Payload pruning reached anchor oldest block slot";
