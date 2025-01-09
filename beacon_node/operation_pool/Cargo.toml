@@ -5,24 +5,24 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dependencies]
+bitvec = { workspace = true }
 derivative = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
 itertools = { workspace = true }
 metrics = { workspace = true }
 parking_lot = { workspace = true }
-types = { workspace = true }
-state_processing = { workspace = true }
-ethereum_ssz = { workspace = true }
-ethereum_ssz_derive = { workspace = true }
+rand = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
+state_processing = { workspace = true }
 store = { workspace = true }
-bitvec = { workspace = true }
-rand = { workspace = true }
+types = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }
-tokio = { workspace = true }
 maplit = { workspace = true }
+tokio = { workspace = true }
 
 [features]
 portable = ["beacon_chain/portable"]
