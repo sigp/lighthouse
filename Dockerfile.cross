@@ -2,8 +2,9 @@
 # It assumes the lighthouse binary has already been
 # compiled for `$TARGETPLATFORM` and moved to `./bin`.
 FROM --platform=$TARGETPLATFORM ubuntu:22.04
+RUN wget http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.0g-2ubuntu4_amd64.deb
+RUN sudo dpkg -i libssl1.1_1.1.0g-2ubuntu4_amd64.deb
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  libssl-dev \
   ca-certificates \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
