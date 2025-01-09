@@ -320,9 +320,8 @@ impl BlockId {
         let blob_sidecar_list_filtered = match indices {
             Some(vec) => {
                 let list: Vec<_> = blob_sidecar_list
-                    .iter()
+                    .into_iter()
                     .filter(|blob_sidecar| vec.contains(&blob_sidecar.index))
-                    .cloned()
                     .collect();
 
                 BlobSidecarList::new(list, max_blobs_per_block)
