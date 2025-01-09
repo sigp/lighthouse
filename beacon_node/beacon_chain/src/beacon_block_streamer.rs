@@ -743,9 +743,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_electra() {
+    async fn check_all_blocks_from_altair_to_fulu() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 10;
+        let num_epochs = 12;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;

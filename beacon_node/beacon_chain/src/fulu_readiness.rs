@@ -18,7 +18,7 @@ pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 pub enum FuluReadiness {
     /// The execution engine is fulu-enabled (as far as we can tell)
     Ready,
-    /// We are connected to an execution engine which doesn't support the V4 engine api methods
+    /// We are connected to an execution engine which doesn't support the V5 engine api methods
     V5MethodsNotSupported { error: String },
     /// The transition configuration with the EL failed, there might be a problem with
     /// connectivity, authentication or a difference in configuration.

@@ -1274,7 +1274,8 @@ mod tests {
                     .expect("good fulu block can be decoded"),
                 good_block
             );
-            // TODO(fulu)
+            // TODO(fulu): Uncomment once Fulu has features since without features
+            // and with an Electra slot it decodes successfully to Electra.
             //BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
             //    .expect_err("bad fulu block cannot be decoded");
         }

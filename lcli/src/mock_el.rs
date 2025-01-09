@@ -19,7 +19,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
     let shanghai_time = parse_required(matches, "shanghai-time")?;
     let cancun_time = parse_optional(matches, "cancun-time")?;
     let prague_time = parse_optional(matches, "prague-time")?;
-    let osaka_time = parse_optional(matches, "fulu-time")?;
+    let osaka_time = parse_optional(matches, "osaka-time")?;
 
     let handle = env.core_context().executor.handle().unwrap();
     let spec = &E::default_spec();

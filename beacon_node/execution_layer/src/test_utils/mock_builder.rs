@@ -16,7 +16,7 @@ use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::builder_bid::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
-    SignedBuilderBid,
+    BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
@@ -620,19 +620,28 @@ pub fn serve<E: EthSpec>(
                         ) = payload_response.into();
 
                         match fork {
-                            ForkName::Electra | ForkName::Fulu => {
-                                BuilderBid::Electra(BuilderBidElectra {
-                                    header: payload
-                                        .as_electra()
-                                        .map_err(|_| reject("incorrect payload variant"))?
-                                        .into(),
-                                    blob_kzg_commitments: maybe_blobs_bundle
-                                        .map(|b| b.commitments)
-                                        .unwrap_or_default(),
-                                    value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                                    pubkey: builder.builder_sk.public_key().compress(),
-                                })
-                            }
+                            ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
+                                header: payload
+                                    .as_fulu()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
+                                header: payload
+                                    .as_electra()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
                             ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
                                 header: payload
                                     .as_deneb()
@@ -674,19 +683,28 @@ pub fn serve<E: EthSpec>(
                             Option<ExecutionRequests<E>>,
                         ) = payload_response.into();
                         match fork {
-                            ForkName::Electra | ForkName::Fulu => {
-                                BuilderBid::Electra(BuilderBidElectra {
-                                    header: payload
-                                        .as_electra()
-                                        .map_err(|_| reject("incorrect payload variant"))?
-                                        .into(),
-                                    blob_kzg_commitments: maybe_blobs_bundle
-                                        .map(|b| b.commitments)
-                                        .unwrap_or_default(),
-                                    value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
-                                    pubkey: builder.builder_sk.public_key().compress(),
-                                })
-                            }
+                            ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
+                                header: payload
+                                    .as_fulu()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
+                            ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
+                                header: payload
+                                    .as_electra()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
                             ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb {
                                 header: payload
                                     .as_deneb()

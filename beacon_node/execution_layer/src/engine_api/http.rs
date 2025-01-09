@@ -1268,7 +1268,7 @@ impl HttpJsonRpc {
                 if engine_capabilities.new_payload_v5 {
                     self.new_payload_v5_fulu(new_payload_request_fulu).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
                 }
             }
         }

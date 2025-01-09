@@ -2285,6 +2285,11 @@ impl<E: EthSpec> BeaconState<E> {
                 .safe_add_assign(additional_epochs.safe_mul(per_epoch_churn)?)?;
         }
         match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Electra(_) => {
                 let state = self.as_electra_mut()?;
 
@@ -2301,7 +2306,6 @@ impl<E: EthSpec> BeaconState<E> {
                 state.earliest_exit_epoch = earliest_exit_epoch;
                 Ok(state.earliest_exit_epoch)
             }
-            _ => unreachable!(),
         }
     }
 
@@ -2337,6 +2341,11 @@ impl<E: EthSpec> BeaconState<E> {
                 .safe_add_assign(additional_epochs.safe_mul(per_epoch_consolidation_churn)?)?;
         }
         match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Electra(_) => {
                 let state = self.as_electra_mut()?;
 
@@ -2355,7 +2364,6 @@ impl<E: EthSpec> BeaconState<E> {
                 state.earliest_consolidation_epoch = earliest_consolidation_epoch;
                 Ok(state.earliest_consolidation_epoch)
             }
-            _ => unreachable!(),
         }
     }
 

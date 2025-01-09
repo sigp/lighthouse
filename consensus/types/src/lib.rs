@@ -142,8 +142,7 @@ pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::{
-    ConfigAndPreset, ConfigAndPresetCapella, ConfigAndPresetDeneb, ConfigAndPresetElectra,
-    ConfigAndPresetFulu,
+    ConfigAndPreset, ConfigAndPresetDeneb, ConfigAndPresetElectra, ConfigAndPresetFulu,
 };
 pub use crate::consolidation_request::ConsolidationRequest;
 pub use crate::contribution_and_proof::ContributionAndProof;

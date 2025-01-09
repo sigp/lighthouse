@@ -300,7 +300,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
-                ForkName::Fulu => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Fulu => BeaconBlockBody::Fulu(<_>::from_ssz_bytes(bytes)?),
                 _ => panic!(),
             })
         })
