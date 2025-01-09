@@ -121,7 +121,6 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.get_flag("staking") {
         client_config.http_api.enabled = true;
-        client_config.sync_eth1_chain = true;
     }
 
     /*
@@ -192,6 +191,15 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_sampling = true;
     }
 
+    if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
+        client_config.chain.blob_publication_batches = batches;
+    }
+
+    if let Some(interval) = clap_utils::parse_optional(cli_args, "blob-publication-batch-interval")?
+    {
+        client_config.chain.blob_publication_batch_interval = Duration::from_millis(interval);
+    }
+
     /*
      * Prometheus metrics HTTP server
      */
@@ -254,18 +262,12 @@ pub fn get_config<E: EthSpec>(
      * Eth1
      */
 
-    // When present, use an eth1 backend that generates deterministic junk.
-    //
-    // Useful for running testnets without the overhead of a deposit contract.
     if cli_args.get_flag("dummy-eth1") {
-        client_config.dummy_eth1_backend = true;
+        warn!(log, "The --dummy-eth1 flag is deprecated");
     }
 
-    // When present, attempt to sync to an eth1 node.
-    //
-    // Required for block production.
     if cli_args.get_flag("eth1") {
-        client_config.sync_eth1_chain = true;
+        warn!(log, "The --eth1 flag is deprecated");
     }
 
     if let Some(val) = cli_args.get_one::<String>("eth1-blocks-per-log-query") {
@@ -287,17 +289,6 @@ pub fn get_config<E: EthSpec>(
     // `--execution-endpoint` is required now.
     let endpoints: String = clap_utils::parse_required(cli_args, "execution-endpoint")?;
     let mut el_config = execution_layer::Config::default();
-
-    // Always follow the deposit contract when there is an execution endpoint.
-    //
-    // This is wasteful for non-staking nodes as they have no need to process deposit contract
-    // logs and build an "eth1" cache. The alternative is to explicitly require the `--eth1` or
-    // `--staking` flags, however that poses a risk to stakers since they cannot produce blocks
-    // without "eth1".
-    //
-    // The waste for non-staking nodes is relatively small so we err on the side of safety for
-    // stakers. The merge is already complicated enough.
-    client_config.sync_eth1_chain = true;
 
     // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
     let execution_endpoint = parse_only_one_value(
@@ -402,13 +393,6 @@ pub fn get_config<E: EthSpec>(
         client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(clap_utils::parse_optional(
-        cli_args,
-        "slots-per-restore-point",
-    )?)?;
-    client_config.store.slots_per_restore_point = sprp;
-    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
-
     if let Some(block_cache_size) = cli_args.get_one::<String>("block-cache-size") {
         client_config.store.block_cache_size = block_cache_size
             .parse()
@@ -421,11 +405,16 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "state-cache-size is not a valid integer".to_string())?;
     }
 
-    if let Some(historic_state_cache_size) = cli_args.get_one::<String>("historic-state-cache-size")
+    if let Some(historic_state_cache_size) =
+        clap_utils::parse_optional(cli_args, "historic-state-cache-size")?
     {
-        client_config.store.historic_state_cache_size = historic_state_cache_size
-            .parse()
-            .map_err(|_| "historic-state-cache-size is not a valid integer".to_string())?;
+        client_config.store.historic_state_cache_size = historic_state_cache_size;
+    }
+
+    if let Some(hdiff_buffer_cache_size) =
+        clap_utils::parse_optional(cli_args, "hdiff-buffer-cache-size")?
+    {
+        client_config.store.hdiff_buffer_cache_size = hdiff_buffer_cache_size;
     }
 
     client_config.store.compact_on_init = cli_args.get_flag("compact-db");
@@ -437,6 +426,14 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
         client_config.store.prune_payloads = prune_payloads;
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "slots-per-restore-point")?.is_some() {
+        warn!(log, "The slots-per-restore-point flag is deprecated");
+    }
+
+    if let Some(hierarchy_config) = clap_utils::parse_optional(cli_args, "hierarchy-exponents")? {
+        client_config.store.hierarchy_config = hierarchy_config;
     }
 
     if let Some(epochs_per_migration) =
@@ -1484,23 +1481,6 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// Get the `slots_per_restore_point` value to use for the database.
-///
-/// Return `(sprp, set_explicitly)` where `set_explicitly` is `true` if the user provided the value.
-pub fn get_slots_per_restore_point<E: EthSpec>(
-    slots_per_restore_point: Option<u64>,
-) -> Result<(u64, bool), String> {
-    if let Some(slots_per_restore_point) = slots_per_restore_point {
-        Ok((slots_per_restore_point, true))
-    } else {
-        let default = std::cmp::min(
-            E::slots_per_historical_root() as u64,
-            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
-        );
-        Ok((default, false))
-    }
 }
 
 /// Parses the `cli_value` as a comma-separated string of values to be parsed with `parser`.

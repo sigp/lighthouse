@@ -1,9 +1,9 @@
 use crate::test_utils::TestRandom;
-use crate::ForkName;
 use crate::{
     beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, BeaconStateError, Blob,
     Epoch, EthSpec, FixedVector, Hash256, SignedBeaconBlockHeader, Slot, VariableList,
 };
+use crate::{AbstractExecPayload, ForkName};
 use crate::{ForkVersionDeserialize, KzgProofs, SignedBeaconBlock};
 use bls::Signature;
 use derivative::Derivative;
@@ -146,6 +146,37 @@ impl<E: EthSpec> BlobSidecar<E> {
             kzg_commitment,
             kzg_proof,
             signed_block_header: signed_block.signed_block_header(),
+            kzg_commitment_inclusion_proof,
+        })
+    }
+
+    pub fn new_with_existing_proof<Payload: AbstractExecPayload<E>>(
+        index: usize,
+        blob: Blob<E>,
+        signed_block: &SignedBeaconBlock<E, Payload>,
+        signed_block_header: SignedBeaconBlockHeader,
+        kzg_commitments_inclusion_proof: &[Hash256],
+        kzg_proof: KzgProof,
+    ) -> Result<Self, BlobSidecarError> {
+        let expected_kzg_commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_e| BlobSidecarError::PreDeneb)?;
+        let kzg_commitment = *expected_kzg_commitments
+            .get(index)
+            .ok_or(BlobSidecarError::MissingKzgCommitment)?;
+        let kzg_commitment_inclusion_proof = signed_block
+            .message()
+            .body()
+            .complete_kzg_commitment_merkle_proof(index, kzg_commitments_inclusion_proof)?;
+
+        Ok(Self {
+            index: index as u64,
+            blob,
+            kzg_commitment,
+            kzg_proof,
+            signed_block_header,
             kzg_commitment_inclusion_proof,
         })
     }

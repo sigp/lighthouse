@@ -5,50 +5,49 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dependencies]
-alloy-primitives = { workspace = true}
+alloy-primitives = { workspace = true }
+alloy-rlp = { workspace = true }
+bytes = { workspace = true }
+delay_map = { workspace = true }
+directory = { workspace = true }
+dirs = { workspace = true }
 discv5 = { workspace = true }
-gossipsub = { workspace = true }
-unsigned-varint = { version = "0.8", features = ["codec"] }
-ssz_types = { workspace = true }
-types = { workspace = true }
-serde = { workspace = true }
+either = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-slog = { workspace = true }
-lighthouse_version = { workspace = true }
-tokio = { workspace = true }
-futures = { workspace = true }
-error-chain = { workspace = true }
-dirs = { workspace = true }
 fnv = { workspace = true }
-metrics = { workspace = true }
-smallvec = { workspace = true }
-tokio-io-timeout = "1"
+futures = { workspace = true }
+gossipsub = { workspace = true }
+hex = { workspace = true }
+itertools = { workspace = true }
+libp2p-mplex = "0.42"
+lighthouse_version = { workspace = true }
 lru = { workspace = true }
 lru_cache = { workspace = true }
+metrics = { workspace = true }
 parking_lot = { workspace = true }
-sha2 = { workspace = true }
-snap = { workspace = true }
-hex = { workspace = true }
-tokio-util = { workspace = true }
-tiny-keccak = "2"
-task_executor = { workspace = true }
+prometheus-client = "0.22.0"
 rand = { workspace = true }
-directory = { workspace = true }
 regex = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+slog = { workspace = true }
+smallvec = { workspace = true }
+snap = { workspace = true }
+ssz_types = { workspace = true }
 strum = { workspace = true }
 superstruct = { workspace = true }
-prometheus-client = "0.22.0"
+task_executor = { workspace = true }
+tiny-keccak = "2"
+tokio = { workspace = true }
+tokio-io-timeout = "1"
+tokio-util = { workspace = true }
+types = { workspace = true }
+unsigned-varint = { version = "0.8", features = ["codec"] }
 unused_port = { workspace = true }
-delay_map = { workspace = true }
-bytes = { workspace = true }
-either = { workspace = true }
-itertools = { workspace = true }
-alloy-rlp = { workspace = true }
 
 # Local dependencies
 void = "1.0.2"
-libp2p-mplex = "0.42"
 
 [dependencies.libp2p]
 version = "0.54"
@@ -56,13 +55,13 @@ default-features = false
 features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic", "upnp"]
 
 [dev-dependencies]
-slog-term = { workspace = true }
-slog-async = { workspace = true }
-tempfile = { workspace = true }
-quickcheck = { workspace = true }
-quickcheck_macros = { workspace = true }
 async-channel = { workspace = true }
 logging = { workspace = true }
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
+slog-async = { workspace = true }
+slog-term = { workspace = true }
+tempfile = { workspace = true }
 
 [features]
 libp2p-websocket = []

@@ -54,7 +54,7 @@ async fn base_altair_bellatrix_capella() {
     /*
      * Do the Altair fork.
      */
-    harness.extend_to_slot(altair_fork_slot).await;
+    Box::pin(harness.extend_to_slot(altair_fork_slot)).await;
 
     let altair_head = &harness.chain.head_snapshot().beacon_block;
     assert!(altair_head.as_altair().is_ok());
@@ -63,7 +63,7 @@ async fn base_altair_bellatrix_capella() {
     /*
      * Do the Bellatrix fork, without a terminal PoW block.
      */
-    harness.extend_to_slot(bellatrix_fork_slot).await;
+    Box::pin(harness.extend_to_slot(bellatrix_fork_slot)).await;
 
     let bellatrix_head = &harness.chain.head_snapshot().beacon_block;
     assert!(bellatrix_head.as_bellatrix().is_ok());
@@ -81,7 +81,7 @@ async fn base_altair_bellatrix_capella() {
     /*
      * Next Bellatrix block shouldn't include an exec payload.
      */
-    harness.extend_slots(1).await;
+    Box::pin(harness.extend_slots(1)).await;
 
     let one_after_bellatrix_head = &harness.chain.head_snapshot().beacon_block;
     assert!(
@@ -112,7 +112,7 @@ async fn base_altair_bellatrix_capella() {
                 terminal_block.timestamp = timestamp;
             }
         });
-    harness.extend_slots(1).await;
+    Box::pin(harness.extend_slots(1)).await;
 
     let two_after_bellatrix_head = &harness.chain.head_snapshot().beacon_block;
     assert!(

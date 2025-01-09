@@ -13,7 +13,7 @@ use serde_json::Value;
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::fmt::{self, Display};
-use std::str::{from_utf8, FromStr};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use types::beacon_block_body::KzgCommitments;
@@ -1153,24 +1153,7 @@ impl<E: EthSpec> EventKind<E> {
         }
     }
 
-    pub fn from_sse_bytes(message: &[u8]) -> Result<Self, ServerError> {
-        let s = from_utf8(message)
-            .map_err(|e| ServerError::InvalidServerSentEvent(format!("{:?}", e)))?;
-
-        let mut split = s.split('\n');
-        let event = split
-            .next()
-            .ok_or_else(|| {
-                ServerError::InvalidServerSentEvent("Could not parse event tag".to_string())
-            })?
-            .trim_start_matches("event:");
-        let data = split
-            .next()
-            .ok_or_else(|| {
-                ServerError::InvalidServerSentEvent("Could not parse data tag".to_string())
-            })?
-            .trim_start_matches("data:");
-
+    pub fn from_sse_bytes(event: &str, data: &str) -> Result<Self, ServerError> {
         match event {
             "attestation" => Ok(EventKind::Attestation(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Attestation: {:?}", e)),

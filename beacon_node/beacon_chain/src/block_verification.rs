@@ -92,6 +92,7 @@ use std::fs;
 use std::io::Write;
 use std::sync::Arc;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
+use strum::AsRefStr;
 use task_executor::JoinHandle;
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
@@ -137,7 +138,7 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 ///
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
 /// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
-#[derive(Debug)]
+#[derive(Debug, AsRefStr)]
 pub enum BlockError {
     /// The parent block was unknown.
     ///
@@ -683,7 +684,7 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     consensus_context: ConsensusContext<T::EthSpec>,
 }
 
-/// Used to await the result of executing payload with a remote EE.
+/// Used to await the result of executing payload with an EE.
 type PayloadVerificationHandle = JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
@@ -750,7 +751,8 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
         &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
         &[&blobs.len().to_string()],
     );
-    let sidecars = blobs_to_data_column_sidecars(&blobs, block, &chain.kzg, &chain.spec)
+    let blob_refs = blobs.iter().collect::<Vec<_>>();
+    let sidecars = blobs_to_data_column_sidecars(&blob_refs, block, &chain.kzg, &chain.spec)
         .discard_timer_on_break(&mut timer)?;
     drop(timer);
     Ok(sidecars)
@@ -837,9 +839,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         }
 
         let block_root = get_block_header_root(block_header);
-
-        // Disallow blocks that conflict with the anchor (weak subjectivity checkpoint), if any.
-        check_block_against_anchor_slot(block.message(), chain)?;
 
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(block.message(), block_root, chain)?;
@@ -1072,9 +1071,6 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             .as_block()
             .fork_name(&chain.spec)
             .map_err(BlockError::InconsistentFork)?;
-
-        // Check the anchor slot before loading the parent, to avoid spurious lookups.
-        check_block_against_anchor_slot(block.message(), chain)?;
 
         let (mut parent, block) = load_parent(block, chain)?;
 
@@ -1343,7 +1339,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         /*
          *  Perform cursory checks to see if the block is even worth processing.
          */
-
         check_block_relevancy(block.as_block(), block_root, chain)?;
 
         // Define a future that will verify the execution payload with an execution engine.
@@ -1686,19 +1681,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             payload_verification_handle,
         })
     }
-}
-
-/// Returns `Ok(())` if the block's slot is greater than the anchor block's slot (if any).
-fn check_block_against_anchor_slot<T: BeaconChainTypes>(
-    block: BeaconBlockRef<'_, T::EthSpec>,
-    chain: &BeaconChain<T>,
-) -> Result<(), BlockError> {
-    if let Some(anchor_slot) = chain.store.get_anchor_slot() {
-        if block.slot() <= anchor_slot {
-            return Err(BlockError::WeakSubjectivityConflict);
-        }
-    }
-    Ok(())
 }
 
 /// Returns `Ok(())` if the block is later than the finalized slot on `chain`.
@@ -2091,6 +2073,7 @@ pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
 ///
 /// The signature verifier is empty because it does not yet have any of this block's signatures
 /// added to it. Use `Self::apply_to_signature_verifier` to apply the signatures.
+#[allow(clippy::type_complexity)]
 fn get_signature_verifier<'a, T: BeaconChainTypes>(
     state: &'a BeaconState<T::EthSpec>,
     validator_pubkey_cache: &'a ValidatorPubkeyCache<T>,

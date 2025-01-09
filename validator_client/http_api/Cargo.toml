@@ -14,6 +14,8 @@ bls = { workspace = true }
 beacon_node_fallback = { workspace = true }
 deposit_contract = { workspace = true }
 doppelganger_service = { workspace = true }
+directory = { workspace = true }
+dirs = { workspace = true }
 graffiti_file = { workspace = true }
 eth2  = { workspace = true }
 eth2_keystore  = { workspace = true }
@@ -43,7 +45,7 @@ validator_services =  { workspace = true }
 url =  { workspace = true }
 warp_utils = { workspace = true }
 warp = { workspace = true }
-
+zeroize = { workspace = true }
 [dev-dependencies]
 itertools = { workspace = true }
 futures = { workspace = true }

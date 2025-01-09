@@ -3,9 +3,10 @@ use crate::execution_engine::{
 };
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
+use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
-    PayloadStatus,
+    PayloadParameters, PayloadStatus,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
@@ -251,6 +252,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
          */
 
         let parent_hash = terminal_pow_block_hash;
+        let parent_gas_limit = DEFAULT_GAS_LIMIT;
         let timestamp = timestamp_now();
         let prev_randao = Hash256::zero();
         let head_root = Hash256::zero();
@@ -324,15 +326,22 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
         );
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: TEST_FORK,
+        };
+
         let block_proposal_content_type = self
             .ee_a
             .execution_layer
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                TEST_FORK,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,
@@ -476,15 +485,22 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
         );
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: TEST_FORK,
+        };
+
         let block_proposal_content_type = self
             .ee_a
             .execution_layer
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                TEST_FORK,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,

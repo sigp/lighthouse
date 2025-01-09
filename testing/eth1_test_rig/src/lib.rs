@@ -1,6 +1,6 @@
 //! Provides utilities for deploying and manipulating the eth2 deposit contract on the eth1 chain.
 //!
-//! Presently used with [`anvil`](https://github.com/foundry-rs/foundry/tree/master/anvil) to simulate
+//! Presently used with [`anvil`](https://github.com/foundry-rs/foundry/tree/master/crates/anvil) to simulate
 //! the deposit contract for testing beacon node eth1 integration.
 //!
 //! Not tested to work with actual clients (e.g., geth). It should work fine, however there may be
