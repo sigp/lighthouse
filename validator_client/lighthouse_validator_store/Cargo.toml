@@ -1,21 +1,20 @@
 [package]
-name = "doppelganger_service"
+name = "lighthouse_validator_store"
 version = "0.1.0"
 edition = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [dependencies]
-beacon_node_fallback = { workspace = true }
-environment = { workspace = true }
-eth2 = { workspace = true }
+account_utils = { workspace = true }
+doppelganger_service = { workspace = true }
+initialized_validators = { workspace = true }
 parking_lot = { workspace = true }
+serde = { workspace = true }
+signing_method = { workspace = true }
+slashing_protection = { workspace = true }
 slog = { workspace = true }
 slot_clock = { workspace = true }
 task_executor = { workspace = true }
-tokio = { workspace = true }
 types = { workspace = true }
+validator_metrics = { workspace = true }
 validator_store = { workspace = true }
-
-[dev-dependencies]
-futures = { workspace = true }
-logging = { workspace = true }

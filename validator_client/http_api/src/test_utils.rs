@@ -14,20 +14,20 @@ use eth2::{
 use eth2_keystore::KeystoreBuilder;
 use initialized_validators::key_cache::{KeyCache, CACHE_FILENAME};
 use initialized_validators::{InitializedValidators, OnDecryptFailure};
+use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use logging::test_logger;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
-use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
-use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
+use validator_services::block_service::BlockService;
 use zeroize::Zeroizing;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -55,7 +55,7 @@ pub struct Web3SignerValidatorScenario {
 pub struct ApiTester {
     pub client: ValidatorClientHttpClient,
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
-    pub validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+    pub validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
     pub url: SensitiveUrl,
     pub api_token: String,
     pub test_runtime: TestRuntime,
@@ -105,7 +105,7 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(ValidatorStore::<_, E>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -126,7 +126,7 @@ impl ApiTester {
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
-            block_service: None,
+            block_service: None::<BlockService<LighthouseValidatorStore<_, _>, _>>,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
@@ -137,7 +137,6 @@ impl ApiTester {
             log,
             sse_logging_components: None,
             slot_clock,
-            _phantom: PhantomData,
         });
         let ctx = context;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -145,7 +144,7 @@ impl ApiTester {
             // It's not really interesting why this triggered, just that it happened.
             let _ = shutdown_rx.await;
         };
-        let (listening_socket, server) = super::serve(ctx, server_shutdown).unwrap();
+        let (listening_socket, server) = super::serve::<_, E>(ctx, server_shutdown).unwrap();
 
         tokio::spawn(server);
 

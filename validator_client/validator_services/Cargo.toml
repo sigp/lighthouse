@@ -6,17 +6,17 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [dependencies]
 beacon_node_fallback = { workspace = true }
-bls =  { workspace = true }
-doppelganger_service = { workspace = true }
-environment = { workspace = true }
+bls = { workspace = true }
 eth2 = { workspace = true }
 futures = { workspace = true }
 graffiti_file = { workspace = true }
+logging = { workspace = true }
 parking_lot = { workspace = true }
 safe_arith = { workspace = true }
-slog =  { workspace = true }
 slot_clock =  { workspace = true }
+task_executor = { workspace = true }
 tokio =  { workspace = true }
+tracing = { workspace = true }
 tree_hash =  { workspace = true }
 types =  { workspace = true }
 validator_metrics = { workspace = true }

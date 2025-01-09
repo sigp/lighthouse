@@ -16,7 +16,7 @@ use super::{
     Signature, SignedRoot,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),

@@ -6,6 +6,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [dependencies]
 health_metrics = { workspace = true }
+lighthouse_validator_store = { workspace = true }
 lighthouse_version = { workspace = true }
 malloc_utils = { workspace = true }
 metrics = { workspace = true }

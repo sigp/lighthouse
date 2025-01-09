@@ -84,6 +84,7 @@ pub trait AbstractExecPayload<E: EthSpec>:
     + TryInto<Self::Capella>
     + TryInto<Self::Deneb>
     + TryInto<Self::Electra>
+    + Sync
 {
     type Ref<'a>: ExecPayload<E>
         + Copy
@@ -95,19 +96,23 @@ pub trait AbstractExecPayload<E: EthSpec>:
     type Bellatrix: OwnedExecPayload<E>
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadBellatrix<E>>>
-        + TryFrom<ExecutionPayloadHeaderBellatrix<E>>;
+        + TryFrom<ExecutionPayloadHeaderBellatrix<E>>
+        + Sync;
     type Capella: OwnedExecPayload<E>
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadCapella<E>>>
-        + TryFrom<ExecutionPayloadHeaderCapella<E>>;
+        + TryFrom<ExecutionPayloadHeaderCapella<E>>
+        + Sync;
     type Deneb: OwnedExecPayload<E>
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadDeneb<E>>>
-        + TryFrom<ExecutionPayloadHeaderDeneb<E>>;
+        + TryFrom<ExecutionPayloadHeaderDeneb<E>>
+        + Sync;
     type Electra: OwnedExecPayload<E>
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadElectra<E>>>
-        + TryFrom<ExecutionPayloadHeaderElectra<E>>;
+        + TryFrom<ExecutionPayloadHeaderElectra<E>>
+        + Sync;
 }
 
 #[superstruct(

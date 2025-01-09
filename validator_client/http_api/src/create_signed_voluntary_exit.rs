@@ -1,5 +1,6 @@
 use bls::{PublicKey, PublicKeyBytes};
 use eth2::types::GenericResponse;
+use lighthouse_validator_store::LighthouseValidatorStore;
 use slog::{info, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
@@ -9,7 +10,7 @@ use validator_store::ValidatorStore;
 pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
     pubkey: PublicKey,
     maybe_epoch: Option<Epoch>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     slot_clock: T,
     log: Logger,
 ) -> Result<GenericResponse<SignedVoluntaryExit>, warp::Rejection> {

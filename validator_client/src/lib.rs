@@ -21,6 +21,7 @@ use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
+use lighthouse_validator_store::LighthouseValidatorStore;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use reqwest::Certificate;
@@ -29,7 +30,6 @@ use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::fs::File;
 use std::io::Read;
-use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -43,12 +43,11 @@ use validator_http_api::ApiSecret;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
     block_service::{BlockService, BlockServiceBuilder},
-    duties_service::{self, DutiesService},
+    duties_service::{self, DutiesService, DutiesServiceBuilder},
     preparation_service::{PreparationService, PreparationServiceBuilder},
-    sync::SyncDutiesMap,
     sync_committee_service::SyncCommitteeService,
 };
-use validator_store::ValidatorStore;
+use validator_store::ValidatorStore as ValidatorStoreTrait;
 
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -73,20 +72,22 @@ const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
+type ValidatorStore<E> = LighthouseValidatorStore<SystemTimeSlotClock, E>;
+
 #[derive(Clone)]
 pub struct ProductionValidatorClient<E: EthSpec> {
     context: RuntimeContext<E>,
-    duties_service: Arc<DutiesService<SystemTimeSlotClock, E>>,
-    block_service: BlockService<SystemTimeSlotClock, E>,
-    attestation_service: AttestationService<SystemTimeSlotClock, E>,
-    sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, E>,
+    duties_service: Arc<DutiesService<ValidatorStore<E>, SystemTimeSlotClock>>,
+    block_service: BlockService<ValidatorStore<E>, SystemTimeSlotClock>,
+    attestation_service: AttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
+    sync_committee_service: SyncCommitteeService<ValidatorStore<E>, SystemTimeSlotClock>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
-    preparation_service: PreparationService<SystemTimeSlotClock, E>,
-    validator_store: Arc<ValidatorStore<SystemTimeSlotClock, E>>,
+    preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
+    validator_store: Arc<ValidatorStore<E>>,
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
-    beacon_nodes: Arc<BeaconNodeFallback<SystemTimeSlotClock, E>>,
+    beacon_nodes: Arc<BeaconNodeFallback<SystemTimeSlotClock>>,
     genesis_time: u64,
 }
 
@@ -152,7 +153,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
             let exit = context.executor.exit();
 
-            let (_listen_addr, server) = validator_http_metrics::serve(ctx.clone(), exit)
+            let (_listen_addr, server) = validator_http_metrics::serve::<E>(ctx.clone(), exit)
                 .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
 
             context
@@ -384,20 +385,18 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // Initialize the number of connected, avaliable beacon nodes to 0.
         set_gauge(&validator_metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
-        let mut beacon_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
+        let mut beacon_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             candidates,
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
-            log.clone(),
         );
 
-        let mut proposer_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
+        let mut proposer_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             proposer_candidates,
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
-            log.clone(),
         );
 
         // Perform some potentially long-running initialization tasks.
@@ -421,10 +420,10 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         proposer_nodes.set_slot_clock(slot_clock.clone());
 
         let beacon_nodes = Arc::new(beacon_nodes);
-        start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
+        start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
 
         let proposer_nodes = Arc::new(proposer_nodes);
-        start_fallback_updater_service(context.clone(), proposer_nodes.clone())?;
+        start_fallback_updater_service::<_, E>(context.executor.clone(), proposer_nodes.clone())?;
 
         let doppelganger_service = if config.enable_doppelganger_protection {
             Some(Arc::new(DoppelgangerService::new(
@@ -437,7 +436,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             None
         };
 
-        let validator_store = Arc::new(ValidatorStore::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::new(
             validators,
             slashing_protection,
             genesis_validators_root,
@@ -465,20 +464,17 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             validator_store.prune_slashing_protection_db(slot.epoch(E::slots_per_epoch()), true);
         }
 
-        let duties_context = context.service_context("duties".into());
-        let duties_service = Arc::new(DutiesService {
-            attesters: <_>::default(),
-            proposers: <_>::default(),
-            sync_duties: SyncDutiesMap::new(config.distributed),
-            slot_clock: slot_clock.clone(),
-            beacon_nodes: beacon_nodes.clone(),
-            validator_store: validator_store.clone(),
-            unknown_validator_next_poll_slots: <_>::default(),
-            spec: context.eth2_config.spec.clone(),
-            context: duties_context,
-            enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
-            distributed: config.distributed,
-        });
+        let duties_service = Arc::new(
+            DutiesServiceBuilder::new()
+                .slot_clock(slot_clock.clone())
+                .beacon_nodes(beacon_nodes.clone())
+                .validator_store(validator_store.clone())
+                .spec(context.eth2_config.spec.clone())
+                .executor(context.executor.clone())
+                .enable_high_validator_count_metrics(config.enable_high_validator_count_metrics)
+                .distributed(config.distributed)
+                .build()?,
+        );
 
         // Update the metrics server.
         if let Some(ctx) = &validator_metrics_ctx {
@@ -490,7 +486,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
-            .runtime_context(context.service_context("block".into()))
+            .executor(context.executor.clone())
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone());
 
@@ -506,14 +502,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
-            .runtime_context(context.service_context("attestation".into()))
+            .executor(context.executor.clone())
+            .chain_spec(context.eth2_config.spec.clone())
             .build()?;
 
         let preparation_service = PreparationServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
-            .runtime_context(context.service_context("preparation".into()))
+            .executor(context.executor.clone())
             .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
             .validator_registration_batch_size(config.validator_registration_batch_size)
             .build()?;
@@ -523,7 +520,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             validator_store.clone(),
             slot_clock.clone(),
             beacon_nodes.clone(),
-            context.service_context("sync_committee".into()),
+            context.executor.clone(),
         );
 
         Ok(Self {
@@ -568,12 +565,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 sse_logging_components: self.context.sse_logging_components.clone(),
                 slot_clock: self.slot_clock.clone(),
                 log: log.clone(),
-                _phantom: PhantomData,
             });
 
             let exit = self.context.executor.exit();
 
-            let (listen_addr, server) = validator_http_api::serve(ctx, exit)
+            let (listen_addr, server) = validator_http_api::serve::<_, E>(ctx, exit)
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             self.context
@@ -641,13 +637,13 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 }
 
 async fn init_from_beacon_node<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
-    proposer_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
+    proposer_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
     context: &RuntimeContext<E>,
 ) -> Result<(u64, Hash256), String> {
     loop {
-        beacon_nodes.update_all_candidates().await;
-        proposer_nodes.update_all_candidates().await;
+        beacon_nodes.update_all_candidates::<E>().await;
+        proposer_nodes.update_all_candidates::<E>().await;
 
         let num_available = beacon_nodes.num_available().await;
         let num_total = beacon_nodes.num_total().await;
@@ -733,7 +729,7 @@ async fn init_from_beacon_node<E: EthSpec>(
 }
 
 async fn wait_for_genesis<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
     genesis_time: u64,
     context: &RuntimeContext<E>,
 ) -> Result<(), String> {
@@ -779,8 +775,8 @@ async fn wait_for_genesis<E: EthSpec>(
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
-async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
+async fn poll_whilst_waiting_for_genesis(
+    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
     genesis_time: Duration,
     log: &Logger,
 ) -> Result<(), String> {

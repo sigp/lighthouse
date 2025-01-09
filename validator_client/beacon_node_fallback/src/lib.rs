@@ -7,21 +7,20 @@ use beacon_node_health::{
     check_node_health, BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth,
     IsOptimistic, SyncDistanceTier,
 };
-use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
 use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
-use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Debug;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use strum::{EnumString, EnumVariantNames};
+use task_executor::TaskExecutor;
 use tokio::{sync::RwLock, time::sleep};
+use tracing::{debug, error, warn};
 use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
 use validator_metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
 
@@ -59,17 +58,16 @@ pub struct LatencyMeasurement {
 ///
 /// See `SLOT_LOOKAHEAD` for information about when this should run.
 pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
-    context: RuntimeContext<E>,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    executor: TaskExecutor,
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
 ) -> Result<(), &'static str> {
-    let executor = context.executor;
     if beacon_nodes.slot_clock.is_none() {
         return Err("Cannot start fallback updater without slot clock");
     }
 
     let future = async move {
         loop {
-            beacon_nodes.update_all_candidates().await;
+            beacon_nodes.update_all_candidates::<E>().await;
 
             let sleep_time = beacon_nodes
                 .slot_clock
@@ -184,29 +182,27 @@ impl Serialize for CandidateInfo {
 /// Represents a `BeaconNodeHttpClient` inside a `BeaconNodeFallback` that may or may not be used
 /// for a query.
 #[derive(Clone, Debug)]
-pub struct CandidateBeaconNode<E> {
+pub struct CandidateBeaconNode {
     pub index: usize,
     pub beacon_node: BeaconNodeHttpClient,
     pub health: Arc<RwLock<Result<BeaconNodeHealth, CandidateError>>>,
-    _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> PartialEq for CandidateBeaconNode<E> {
+impl PartialEq for CandidateBeaconNode {
     fn eq(&self, other: &Self) -> bool {
         self.index == other.index && self.beacon_node == other.beacon_node
     }
 }
 
-impl<E: EthSpec> Eq for CandidateBeaconNode<E> {}
+impl Eq for CandidateBeaconNode {}
 
-impl<E: EthSpec> CandidateBeaconNode<E> {
+impl CandidateBeaconNode {
     /// Instantiate a new node.
     pub fn new(beacon_node: BeaconNodeHttpClient, index: usize) -> Self {
         Self {
             index,
             beacon_node,
             health: Arc::new(RwLock::new(Err(CandidateError::Uninitialized))),
-            _phantom: PhantomData,
         }
     }
 
@@ -215,20 +211,19 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         *self.health.read().await
     }
 
-    pub async fn refresh_health<T: SlotClock>(
+    pub async fn refresh_health<E: EthSpec, T: SlotClock>(
         &self,
         distance_tiers: &BeaconNodeSyncDistanceTiers,
         slot_clock: Option<&T>,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<(), CandidateError> {
-        if let Err(e) = self.is_compatible(spec, log).await {
+        if let Err(e) = self.is_compatible::<E>(spec).await {
             *self.health.write().await = Err(e);
             return Err(e);
         }
 
         if let Some(slot_clock) = slot_clock {
-            match check_node_health(&self.beacon_node, log).await {
+            match check_node_health(&self.beacon_node).await {
                 Ok((head, is_optimistic, el_offline)) => {
                     let Some(slot_clock_head) = slot_clock.now() else {
                         let e = match slot_clock.is_prior_to_genesis() {
@@ -286,17 +281,16 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     }
 
     /// Checks if the node has the correct specification.
-    async fn is_compatible(&self, spec: &ChainSpec, log: &Logger) -> Result<(), CandidateError> {
+    async fn is_compatible<E: EthSpec>(&self, spec: &ChainSpec) -> Result<(), CandidateError> {
         let config = self
             .beacon_node
             .get_config_spec::<ConfigSpec>()
             .await
             .map_err(|e| {
                 error!(
-                    log,
-                    "Unable to read spec from beacon node";
-                    "error" => %e,
-                    "endpoint" => %self.beacon_node,
+                    error = %e,
+                    endpoint = %self.beacon_node,
+                    "Unable to read spec from beacon node"
                 );
                 CandidateError::Offline
             })?
@@ -304,62 +298,56 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 
         let beacon_node_spec = ChainSpec::from_config::<E>(&config).ok_or_else(|| {
             error!(
-                log,
+                endpoint = %self.beacon_node,
                 "The minimal/mainnet spec type of the beacon node does not match the validator \
-                client. See the --network command.";
-                "endpoint" => %self.beacon_node,
+                client. See the --network command."
+
             );
             CandidateError::Incompatible
         })?;
 
         if beacon_node_spec.genesis_fork_version != spec.genesis_fork_version {
             error!(
-                log,
-                "Beacon node is configured for a different network";
-                "endpoint" => %self.beacon_node,
-                "bn_genesis_fork" => ?beacon_node_spec.genesis_fork_version,
-                "our_genesis_fork" => ?spec.genesis_fork_version,
+                endpoint = %self.beacon_node,
+                bn_genesis_fork = ?beacon_node_spec.genesis_fork_version,
+                our_genesis_fork = ?spec.genesis_fork_version,
+                "Beacon node is configured for a different network"
             );
             return Err(CandidateError::Incompatible);
         } else if beacon_node_spec.altair_fork_epoch != spec.altair_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Altair fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_altair_fork_epoch" => ?beacon_node_spec.altair_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_altair_fork_epoch = ?beacon_node_spec.altair_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Altair fork epoch"
             );
         } else if beacon_node_spec.bellatrix_fork_epoch != spec.bellatrix_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Bellatrix fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_bellatrix_fork_epoch" => ?beacon_node_spec.bellatrix_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_bellatrix_fork_epoch = ?beacon_node_spec.bellatrix_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Bellatrix fork epoch"
             );
         } else if beacon_node_spec.capella_fork_epoch != spec.capella_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Capella fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_capella_fork_epoch" => ?beacon_node_spec.capella_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_capella_fork_epoch = ?beacon_node_spec.capella_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Capella fork epoch"
             );
         } else if beacon_node_spec.deneb_fork_epoch != spec.deneb_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Deneb fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_deneb_fork_epoch" => ?beacon_node_spec.deneb_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_deneb_fork_epoch = ?beacon_node_spec.deneb_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Deneb fork epoch"
             );
         } else if beacon_node_spec.electra_fork_epoch != spec.electra_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Electra fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_electra_fork_epoch" => ?beacon_node_spec.electra_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_electra_fork_epoch = ?beacon_node_spec.electra_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Electra fork epoch"
             );
         }
 
@@ -371,22 +359,20 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 /// behaviour, where the failure of one candidate results in the next candidate receiving an
 /// identical query.
 #[derive(Clone, Debug)]
-pub struct BeaconNodeFallback<T, E> {
-    pub candidates: Arc<RwLock<Vec<CandidateBeaconNode<E>>>>,
+pub struct BeaconNodeFallback<T> {
+    pub candidates: Arc<RwLock<Vec<CandidateBeaconNode>>>,
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
-    log: Logger,
 }
 
-impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
+impl<T: SlotClock> BeaconNodeFallback<T> {
     pub fn new(
-        candidates: Vec<CandidateBeaconNode<E>>,
+        candidates: Vec<CandidateBeaconNode>,
         config: Config,
         broadcast_topics: Vec<ApiTopic>,
         spec: Arc<ChainSpec>,
-        log: Logger,
     ) -> Self {
         let distance_tiers = config.sync_tolerances;
         Self {
@@ -395,7 +381,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             slot_clock: None,
             broadcast_topics,
             spec,
-            log,
         }
     }
 
@@ -466,7 +451,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// It is possible for a node to return an unsynced status while continuing to serve
     /// low quality responses. To route around this it's best to poll all connected beacon nodes.
     /// A previous implementation of this function polled only the unavailable BNs.
-    pub async fn update_all_candidates(&self) {
+    pub async fn update_all_candidates<E: EthSpec>(&self) {
         // Clone the vec, so we release the read lock immediately.
         // `candidate.health` is behind an Arc<RwLock>, so this would still allow us to mutate the values.
         let candidates = self.candidates.read().await.clone();
@@ -474,11 +459,10 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         let mut nodes = Vec::with_capacity(candidates.len());
 
         for candidate in candidates.iter() {
-            futures.push(candidate.refresh_health(
+            futures.push(candidate.refresh_health::<E, T>(
                 &self.distance_tiers,
                 self.slot_clock.as_ref(),
                 &self.spec,
-                &self.log,
             ));
             nodes.push(candidate.beacon_node.to_string());
         }
@@ -491,10 +475,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             if let Err(e) = result {
                 if *e != CandidateError::PreGenesis {
                     warn!(
-                        self.log,
-                        "A connected beacon node errored during routine health check";
-                        "error" => ?e,
-                        "endpoint" => node,
+                        error = ?e,
+                        endpoint = %node,
+                        "A connected beacon node errored during routine health check"
                     );
                 }
             }
@@ -566,11 +549,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            futures.push(Self::run_on_candidate(
-                candidate.beacon_node.clone(),
-                &func,
-                &self.log,
-            ));
+            futures.push(Self::run_on_candidate(candidate.beacon_node.clone(), &func));
         }
         drop(candidates);
 
@@ -588,11 +567,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            futures.push(Self::run_on_candidate(
-                candidate.beacon_node.clone(),
-                &func,
-                &self.log,
-            ));
+            futures.push(Self::run_on_candidate(candidate.beacon_node.clone(), &func));
         }
         drop(candidates);
 
@@ -611,7 +586,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     async fn run_on_candidate<F, R, Err, O>(
         candidate: BeaconNodeHttpClient,
         func: F,
-        log: &Logger,
     ) -> Result<O, (String, Error<Err>)>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
@@ -626,10 +600,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             Ok(val) => Ok(val),
             Err(e) => {
                 debug!(
-                    log,
-                    "Request to beacon node failed";
-                    "node" => %candidate,
-                    "error" => ?e,
+                    node = %candidate,
+                    error = ?e,
+                    "Request to beacon node failed"
                 );
                 inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.as_ref()]);
                 Err((candidate.to_string(), Error::RequestFailed(e)))
@@ -656,11 +629,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            futures.push(Self::run_on_candidate(
-                candidate.beacon_node.clone(),
-                &func,
-                &self.log,
-            ));
+            futures.push(Self::run_on_candidate(candidate.beacon_node.clone(), &func));
         }
         drop(candidates);
 
@@ -693,7 +662,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 }
 
 /// Helper functions to allow sorting candidate nodes by health.
-async fn sort_nodes_by_health<E: EthSpec>(nodes: &mut Vec<CandidateBeaconNode<E>>) {
+async fn sort_nodes_by_health(nodes: &mut Vec<CandidateBeaconNode>) {
     // Fetch all health values.
     let health_results: Vec<Result<BeaconNodeHealth, CandidateError>> =
         future::join_all(nodes.iter().map(|node| node.health())).await;
@@ -711,7 +680,7 @@ async fn sort_nodes_by_health<E: EthSpec>(nodes: &mut Vec<CandidateBeaconNode<E>
     });
 
     // Reorder candidates based on the sorted indices.
-    let sorted_nodes: Vec<CandidateBeaconNode<E>> = indices_with_health
+    let sorted_nodes: Vec<CandidateBeaconNode> = indices_with_health
         .into_iter()
         .map(|(index, _)| nodes[index].clone())
         .collect();
@@ -743,9 +712,7 @@ mod tests {
     use eth2::Timeouts;
     use std::str::FromStr;
     use strum::VariantNames;
-    use types::{MainnetEthSpec, Slot};
-
-    type E = MainnetEthSpec;
+    use types::Slot;
 
     #[test]
     fn api_topic_all() {
@@ -764,7 +731,7 @@ mod tests {
         let optimistic_status = IsOptimistic::No;
         let execution_status = ExecutionEngineHealth::Healthy;
 
-        fn new_candidate(index: usize) -> CandidateBeaconNode<E> {
+        fn new_candidate(index: usize) -> CandidateBeaconNode {
             let beacon_node = BeaconNodeHttpClient::new(
                 SensitiveUrl::parse(&format!("http://example_{index}.com")).unwrap(),
                 Timeouts::set_all(Duration::from_secs(index as u64)),

@@ -10,6 +10,7 @@ use eth2::lighthouse_vc::{
 };
 use eth2_keystore::Keystore;
 use initialized_validators::{Error, InitializedValidators};
+use lighthouse_validator_store::LighthouseValidatorStore;
 use signing_method::SigningMethod;
 use slog::{info, warn, Logger};
 use slot_clock::SlotClock;
@@ -19,13 +20,12 @@ use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
 use types::{EthSpec, PublicKeyBytes};
 use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
-use validator_store::ValidatorStore;
 use warp::Rejection;
 use warp_utils::reject::{custom_bad_request, custom_server_error};
 use zeroize::Zeroizing;
 
 pub fn list<T: SlotClock + 'static, E: EthSpec>(
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
 ) -> ListKeystoresResponse {
     let initialized_validators_rwlock = validator_store.initialized_validators();
     let initialized_validators = initialized_validators_rwlock.read();
@@ -62,7 +62,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportKeystoresRequest,
     validator_dir: PathBuf,
     secrets_dir: Option<PathBuf>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<ImportKeystoresResponse, Rejection> {
@@ -122,7 +122,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
             )
         } else if let Some(handle) = task_executor.handle() {
             // Import the keystore.
-            match import_single_keystore(
+            match import_single_keystore::<_, E>(
                 keystore,
                 password,
                 validator_dir.clone(),
@@ -171,7 +171,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     password: Zeroizing<String>,
     validator_dir_path: PathBuf,
     secrets_dir: Option<PathBuf>,
-    validator_store: &ValidatorStore<T, E>,
+    validator_store: &LighthouseValidatorStore<T, E>,
     handle: Handle,
 ) -> Result<ImportKeystoreStatus, String> {
     // Check if the validator key already exists, erroring if it is a remote signer validator.
@@ -241,7 +241,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
 
 pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteKeystoresRequest,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<DeleteKeystoresResponse, Rejection> {
@@ -274,7 +274,7 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
 
 pub fn export<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteKeystoresRequest,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<ExportKeystoresResponse, Rejection> {

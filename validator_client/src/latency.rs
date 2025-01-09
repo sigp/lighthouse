@@ -15,7 +15,7 @@ pub const SLOT_DELAY_DENOMINATOR: u32 = 12;
 pub fn start_latency_service<T: SlotClock + 'static, E: EthSpec>(
     context: RuntimeContext<E>,
     slot_clock: T,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
 ) {
     let log = context.log().clone();
 

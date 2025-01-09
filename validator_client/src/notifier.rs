@@ -1,4 +1,5 @@
 use crate::{DutiesService, ProductionValidatorClient};
+use lighthouse_validator_store::LighthouseValidatorStore;
 use metrics::set_gauge;
 use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
@@ -19,7 +20,7 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
         loop {
             if let Some(duration_to_next_slot) = duties_service.slot_clock.duration_to_next_slot() {
                 sleep(duration_to_next_slot + slot_duration / 2).await;
-                notify(&duties_service, log).await;
+                notify::<_, E>(&duties_service, log).await;
             } else {
                 error!(log, "Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
@@ -35,7 +36,7 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
 
 /// Performs a single notification routine.
 async fn notify<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<T, E>,
+    duties_service: &DutiesService<LighthouseValidatorStore<T, E>, T>,
     log: &Logger,
 ) {
     let (candidate_info, num_available, num_synced) =
