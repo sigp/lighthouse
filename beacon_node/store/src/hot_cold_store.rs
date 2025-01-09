@@ -2629,7 +2629,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "Pruning finalized payloads";
             "info" => "you may notice degraded I/O performance while this runs"
         );
-        let anchor_slot = self.get_anchor_info().anchor_slot;
+        let anchor_info = self.get_anchor_info();
 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
@@ -2670,10 +2670,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 ops.push(StoreOp::DeleteExecutionPayload(block_root));
             }
 
-            if slot == anchor_slot {
+            if slot <= anchor_info.oldest_block_slot {
                 info!(
                     self.log,
-                    "Payload pruning reached anchor state";
+                    "Payload pruning reached anchor oldest block slot";
                     "slot" => slot
                 );
                 break;
