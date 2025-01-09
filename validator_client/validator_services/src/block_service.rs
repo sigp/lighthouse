@@ -333,21 +333,26 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     ) -> Result<(), BlockError> {
         let signing_timer = validator_metrics::start_timer(&validator_metrics::BLOCK_SIGNING_TIMES);
 
-        let res = match unsigned_block {
+        let (block, maybe_blobs) = match unsigned_block {
             UnsignedBlock::Full(block_contents) => {
                 let (block, maybe_blobs) = block_contents.deconstruct();
-                self.validator_store
-                    .sign_block(*validator_pubkey, block, slot)
-                    .await
-                    .map(|b| SignedBlock::Full(PublishBlockRequest::new(Arc::new(b), maybe_blobs)))
+                (block.into(), maybe_blobs)
             }
-            UnsignedBlock::Blinded(block) => self
-                .validator_store
-                .sign_block(*validator_pubkey, block, slot)
-                .await
-                .map(Arc::new)
-                .map(SignedBlock::Blinded),
+            UnsignedBlock::Blinded(block) => (block.into(), None),
         };
+
+        let res = self
+            .validator_store
+            .sign_block(*validator_pubkey, block, slot)
+            .await
+            .map(|block| match block {
+                validator_store::SignedBlock::Full(block) => {
+                    SignedBlock::Full(PublishBlockRequest::new(Arc::new(block), maybe_blobs))
+                }
+                validator_store::SignedBlock::Blinded(block) => {
+                    SignedBlock::Blinded(Arc::new(block))
+                }
+            });
 
         let signed_block = match res {
             Ok(block) => block,

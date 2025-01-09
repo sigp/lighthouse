@@ -2,9 +2,9 @@ use slashing_protection::NotSafe;
 use std::fmt::Debug;
 use std::future::Future;
 use types::{
-    AbstractExecPayload, Address, Attestation, AttestationError, BeaconBlock, BlindedPayload,
-    Epoch, EthSpec, FullPayload, Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    Address, Attestation, AttestationError, BeaconBlock, BlindedBeaconBlock, Epoch, EthSpec,
+    Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeContribution,
     SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
     VoluntaryExit,
@@ -37,12 +37,7 @@ pub struct ProposalData {
     pub builder_proposals: bool,
 }
 
-pub trait ValidatorStore:
-    SignBlock<Self::E, FullPayload<Self::E>, Self::Error>
-    + SignBlock<Self::E, BlindedPayload<Self::E>, Self::Error>
-    + Send
-    + Sync
-{
+pub trait ValidatorStore: Send + Sync {
     type Error: Debug + Send + Sync;
     type E: EthSpec;
 
@@ -98,6 +93,13 @@ pub trait ValidatorStore:
     ) -> impl Future<Output = Result<Signature, Error<Self::Error>>> + Send;
 
     fn set_validator_index(&self, validator_pubkey: &PublicKeyBytes, index: u64);
+
+    fn sign_block(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        block: UnsignedBlock<Self::E>,
+        current_slot: Slot,
+    ) -> impl Future<Output = Result<SignedBlock<Self::E>, Error<Self::Error>>> + Send;
 
     fn sign_attestation(
         &self,
@@ -175,17 +177,38 @@ pub trait ValidatorStore:
     fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData>;
 }
 
-// This is a workaround: directly adding this fn into `ValidatorStore`, abstract over P, causes
-// weird compiler errors which I suspect are compiler bugs
-// Another advantage of this separate trait is to allow implementors separate implementations for
-// different payload
-pub trait SignBlock<E: EthSpec, P: AbstractExecPayload<E>, Err> {
-    fn sign_block(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        block: BeaconBlock<E, P>,
-        current_slot: Slot,
-    ) -> impl Future<Output = Result<SignedBeaconBlock<E, P>, Error<Err>>> + Send;
+pub enum UnsignedBlock<E: EthSpec> {
+    Full(BeaconBlock<E>),
+    Blinded(BlindedBeaconBlock<E>),
+}
+
+impl<E: EthSpec> From<BeaconBlock<E>> for UnsignedBlock<E> {
+    fn from(block: BeaconBlock<E>) -> Self {
+        UnsignedBlock::Full(block)
+    }
+}
+
+impl<E: EthSpec> From<BlindedBeaconBlock<E>> for UnsignedBlock<E> {
+    fn from(block: BlindedBeaconBlock<E>) -> Self {
+        UnsignedBlock::Blinded(block)
+    }
+}
+
+pub enum SignedBlock<E: EthSpec> {
+    Full(SignedBeaconBlock<E>),
+    Blinded(SignedBlindedBeaconBlock<E>),
+}
+
+impl<E: EthSpec> From<SignedBeaconBlock<E>> for SignedBlock<E> {
+    fn from(block: SignedBeaconBlock<E>) -> Self {
+        SignedBlock::Full(block)
+    }
+}
+
+impl<E: EthSpec> From<SignedBlindedBeaconBlock<E>> for SignedBlock<E> {
+    fn from(block: SignedBlindedBeaconBlock<E>) -> Self {
+        SignedBlock::Blinded(block)
+    }
 }
 
 /// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator
