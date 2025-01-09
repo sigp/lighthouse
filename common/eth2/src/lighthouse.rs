@@ -6,18 +6,16 @@ mod block_packing_efficiency;
 mod block_rewards;
 mod standard_block_rewards;
 mod sync_committee_rewards;
+pub mod sync_state;
 
 use crate::{
-    types::{
-        DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock, GenericResponse, ValidatorId,
-    },
+    types::{DepositTreeSnapshot, Epoch, FinalizedExecutionBlock, GenericResponse, ValidatorId},
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot,
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
-use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
 
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
@@ -27,7 +25,6 @@ pub use block_packing_efficiency::{
     BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
 };
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
-pub use lighthouse_network::{types::SyncState, PeerInfo};
 pub use standard_block_rewards::StandardBlockReward;
 pub use sync_committee_rewards::SyncCommitteeReward;
 
@@ -37,14 +34,12 @@ four_byte_option_impl!(four_byte_option_u64, u64);
 four_byte_option_impl!(four_byte_option_hash256, Hash256);
 
 /// Information returned by `peers` and `connected_peers`.
-// TODO: this should be deserializable..
-#[derive(Debug, Clone, Serialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct Peer<E: EthSpec> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Peer {
     /// The Peer's ID
     pub peer_id: String,
     /// The PeerInfo associated with the peer.
-    pub peer_info: PeerInfo<E>,
+    pub peer_info: serde_json::Value,
 }
 
 /// The results of validators voting during an epoch.
@@ -88,6 +83,7 @@ pub struct ValidatorInclusionData {
     pub is_previous_epoch_head_attester: bool,
 }
 
+use crate::lighthouse::sync_state::SyncState;
 #[cfg(target_os = "linux")]
 use {
     psutil::cpu::os::linux::CpuTimesExt, psutil::memory::os::linux::VirtualMemoryExt,
@@ -356,15 +352,6 @@ impl From<Eth1Block> for FinalizedExecutionBlock {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DatabaseInfo {
-    pub schema_version: u64,
-    pub config: StoreConfig,
-    pub split: Split,
-    pub anchor: AnchorInfo,
-    pub blob_info: BlobInfo,
-}
-
 impl BeaconNodeHttpClient {
     /// `GET lighthouse/health`
     pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
@@ -503,7 +490,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET lighthouse/database/info`
-    pub async fn get_lighthouse_database_info(&self) -> Result<DatabaseInfo, Error> {
+    pub async fn get_lighthouse_database_info(&self) -> Result<serde_json::Value, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

@@ -30,6 +30,7 @@ rand = { workspace = true }
 safe_arith = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 slog = { workspace = true }
 slot_clock = { workspace = true }
 state_processing = { workspace = true }
@@ -48,7 +49,6 @@ warp_utils = { workspace = true }
 genesis = { workspace = true }
 logging = { workspace = true }
 proto_array = { workspace = true }
-serde_json = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"
