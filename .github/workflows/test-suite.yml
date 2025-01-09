@@ -383,7 +383,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of nightly Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -392,8 +392,8 @@ jobs:
           cache: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install dependencies
-      run: sudo apt update && sudo apt install -y libssl-dev
+    - name: Install libssl1.1
+      run: sudo apt-get update && sudo apt-get install -y libssl1.1
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config
