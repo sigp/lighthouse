@@ -16,7 +16,7 @@ env:
     DOCKER_PASSWORD: ${{ secrets.DH_KEY }}
     DOCKER_USERNAME: ${{ secrets.DH_ORG }}
     # Enable self-hosted runners for the sigp repo only.
-    SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
+    SELF_HOSTED_RUNNERS: true
 
 jobs:
     # Extract the VERSION which is either `latest` or `vX.Y.Z`, and the VERSION_SUFFIX
