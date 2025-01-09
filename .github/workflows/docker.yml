@@ -109,7 +109,11 @@ jobs:
             - name: Install QEMU
               if: env.SELF_HOSTED_RUNNERS == 'false'
               run: sudo apt-get update && sudo apt-get install -y qemu-user-static
-
+            
+            - name: Install libssl
+              if: env.SELF_HOSTED_RUNNERS == 'false'
+              run: wget http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.0g-2ubuntu4_amd64.deb
+                sudo dpkg -i libssl1.1_1.1.0g-2ubuntu4_amd64.deb
             - name: Set up Docker Buildx
               if: env.SELF_HOSTED_RUNNERS == 'false'
               uses: docker/setup-buildx-action@v3
