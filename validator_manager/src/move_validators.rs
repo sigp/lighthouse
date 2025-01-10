@@ -277,7 +277,7 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     }
 }
 
-async fn run<'a>(config: MoveConfig) -> Result<(), String> {
+async fn run(config: MoveConfig) -> Result<(), String> {
     let MoveConfig {
         src_vc_url,
         src_vc_token_path,

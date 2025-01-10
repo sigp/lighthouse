@@ -158,9 +158,7 @@ pub mod deposit_log {
             };
 
             let signature_is_valid = deposit_pubkey_signature_message(&deposit_data, spec)
-                .map_or(false, |(public_key, signature, msg)| {
-                    signature.verify(&public_key, msg)
-                });
+                .is_some_and(|(public_key, signature, msg)| signature.verify(&public_key, msg));
 
             Ok(DepositLog {
                 deposit_data,
@@ -592,7 +590,7 @@ impl<T: Clone> CachedResponse<T> {
 
     /// returns `true` if the entry's age is >= age_limit
     pub fn older_than(&self, age_limit: Option<Duration>) -> bool {
-        age_limit.map_or(false, |limit| self.age() >= limit)
+        age_limit.is_some_and(|limit| self.age() >= limit)
     }
 }
 
@@ -720,9 +718,9 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn get_block_by_number<'a>(
+    pub async fn get_block_by_number(
         &self,
-        query: BlockByNumberQuery<'a>,
+        query: BlockByNumberQuery<'_>,
     ) -> Result<Option<ExecutionBlock>, Error> {
         let params = json!([query, RETURN_FULL_TRANSACTION_OBJECTS]);
 
