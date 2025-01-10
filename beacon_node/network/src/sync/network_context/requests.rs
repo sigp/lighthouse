@@ -28,6 +28,7 @@ pub enum LookupVerifyError {
     UnrequestedIndex(u64),
     InvalidInclusionProof,
     DuplicateData,
+    InternalError(String),
 }
 
 /// Collection of active requests of a single ReqResp method, i.e. `blocks_by_root`

@@ -183,12 +183,13 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     ) -> Self {
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
             debug!(?config, "Using inbound rate limiting params");
-            RateLimiter::new_with_config(config.0)
+            RateLimiter::new_with_config(config.0, fork_context.clone())
                 .expect("Inbound limiter configuration parameters are valid")
         });
 
         let self_limiter = outbound_rate_limiter_config.map(|config| {
-            SelfRateLimiter::new(config).expect("Configuration parameters are valid")
+            SelfRateLimiter::new(config, fork_context.clone())
+                .expect("Configuration parameters are valid")
         });
 
         RPC {

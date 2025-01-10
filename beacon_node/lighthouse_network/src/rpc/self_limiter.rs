@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -10,7 +11,7 @@ use logging::crit;
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
 use tracing::debug;
-use types::EthSpec;
+use types::{EthSpec, ForkContext};
 
 use super::{
     config::OutboundRateLimiterConfig,
@@ -49,7 +50,11 @@ pub enum Error {
 
 impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// Creates a new [`SelfRateLimiter`] based on configration values.
-    pub fn new(config: OutboundRateLimiterConfig) -> Result<Self, &'static str> {
+    pub fn new(
+        config: OutboundRateLimiterConfig,
+        fork_context: Arc<ForkContext>,
+        log: Logger,
+    ) -> Result<Self, &'static str> {
         debug!(?config, "Using self rate limiting params");
         let limiter = RateLimiter::new_with_config(config.0)?;
 
@@ -211,7 +216,7 @@ mod tests {
     use libp2p::PeerId;
     use logging::create_test_tracing_subscriber;
     use std::time::Duration;
-    use types::MainnetEthSpec;
+    use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
 
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
@@ -221,8 +226,13 @@ mod tests {
             ping_quota: Quota::n_every(1, 2),
             ..Default::default()
         });
+        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Hash256::ZERO,
+            &MainnetEthSpec::default_spec(),
+        ));
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(config).unwrap();
+            SelfRateLimiter::new(config, fork_context).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {

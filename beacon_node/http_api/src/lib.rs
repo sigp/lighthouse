@@ -1125,7 +1125,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     .map_err(warp_utils::reject::beacon_chain_error)?
                                     // Ignore any skip-slots immediately following the parent.
                                     .find(|res| {
-                                        res.as_ref().map_or(false, |(root, _)| *root != parent_root)
+                                        res.as_ref().is_ok_and(|(root, _)| *root != parent_root)
                                     })
                                     .transpose()
                                     .map_err(warp_utils::reject::beacon_chain_error)?
@@ -1210,7 +1210,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let canonical = chain
                         .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                         .map_err(warp_utils::reject::beacon_chain_error)?
-                        .map_or(false, |canonical| root == canonical);
+                        .is_some_and(|canonical| root == canonical);
 
                     let data = api_types::BlockHeaderData {
                         root,

@@ -145,7 +145,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         self.item
             .read()
             .as_ref()
-            .map_or(false, |item| item.beacon_block_root == block_root)
+            .is_some_and(|item| item.beacon_block_root == block_root)
     }
 
     /// Returns the block, if `block_root` matches the cached item.

@@ -400,7 +400,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     // since we only subscribe to `MaxBlobsPerBlock` subnets over gossip network.
     // We include this check only for completeness.
     // Getting this error would imply something very wrong with our networking decoding logic.
-    if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
+    if blob_index >= chain.spec.max_blobs_per_block(blob_epoch) {
         return Err(GossipBlobError::InvalidSubnet {
             expected: subnet,
             received: blob_index,
