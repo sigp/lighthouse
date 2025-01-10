@@ -1078,6 +1078,9 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
             ForkName::Electra => serde_json::from_value(value)
                 .map(Self::V3)
                 .map_err(serde::de::Error::custom),
+            ForkName::Fulu => serde_json::from_value(value)
+                .map(Self::V3)
+                .map_err(serde::de::Error::custom),
             ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
                 "SsePayloadAttributes deserialization for {fork_name} not implemented"
             ))),
@@ -1861,14 +1864,10 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 impl<E: EthSpec> TryFrom<Arc<SignedBeaconBlock<E>>> for PublishBlockRequest<E> {
     type Error = &'static str;
     fn try_from(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, Self::Error> {
-        match *block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => Ok(PublishBlockRequest::Block(block)),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => Err(
-                "post-Deneb block contents cannot be fully constructed from just the signed block",
-            ),
+        if block.message().fork_name_unchecked().deneb_enabled() {
+            Err("post-Deneb block contents cannot be fully constructed from just the signed block")
+        } else {
+            Ok(PublishBlockRequest::Block(block))
         }
     }
 }
@@ -1972,16 +1971,18 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Bellatrix | ForkName::Capella => serde_json::from_value(value)
-                .map(Self::Payload)
-                .map_err(serde::de::Error::custom),
-            ForkName::Deneb | ForkName::Electra => serde_json::from_value(value)
+        if fork_name.deneb_enabled() {
+            serde_json::from_value(value)
                 .map(Self::PayloadAndBlobs)
-                .map_err(serde::de::Error::custom),
-            ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
+                .map_err(serde::de::Error::custom)
+        } else if fork_name.bellatrix_enabled() {
+            serde_json::from_value(value)
+                .map(Self::Payload)
+                .map_err(serde::de::Error::custom)
+        } else {
+            Err(serde::de::Error::custom(format!(
                 "FullPayloadContents deserialization for {fork_name} not implemented"
-            ))),
+            )))
         }
     }
 }

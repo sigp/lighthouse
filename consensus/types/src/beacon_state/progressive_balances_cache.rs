@@ -285,12 +285,5 @@ impl ProgressiveBalancesCache {
 
 /// `ProgressiveBalancesCache` is only enabled from `Altair` as it uses Altair-specific logic.
 pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bool {
-    match state {
-        BeaconState::Base(_) => false,
-        BeaconState::Altair(_)
-        | BeaconState::Bellatrix(_)
-        | BeaconState::Capella(_)
-        | BeaconState::Deneb(_)
-        | BeaconState::Electra(_) => true,
-    }
+    state.fork_name_unchecked().altair_enabled()
 }
