@@ -111,7 +111,7 @@ where
                 self.store_cold_state(&state_root, &state, &mut io_batch)?;
 
                 let batch_complete =
-                    num_blocks.map_or(false, |n_blocks| slot == lower_limit_slot + n_blocks as u64);
+                    num_blocks.is_some_and(|n_blocks| slot == lower_limit_slot + n_blocks as u64);
                 let reconstruction_complete = slot + 1 == upper_limit_slot;
 
                 // Commit the I/O batch if:

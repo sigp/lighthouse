@@ -197,7 +197,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
 
                 let speed = speedo.slots_per_second();
-                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
 
                 if display_speed {
                     info!(
@@ -233,7 +233,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
 
                 let speed = speedo.slots_per_second();
-                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
 
                 if display_speed {
                     info!(
@@ -339,9 +339,7 @@ async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
         .message()
         .body()
         .execution_payload()
-        .map_or(false, |payload| {
-            payload.parent_hash() != ExecutionBlockHash::zero()
-        });
+        .is_ok_and(|payload| payload.parent_hash() != ExecutionBlockHash::zero());
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 

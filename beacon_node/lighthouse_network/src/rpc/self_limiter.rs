@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -9,7 +10,7 @@ use libp2p::{swarm::NotifyHandler, PeerId};
 use slog::{crit, debug, Logger};
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
-use types::EthSpec;
+use types::{EthSpec, ForkContext};
 
 use super::{
     config::OutboundRateLimiterConfig,
@@ -50,9 +51,13 @@ pub enum Error {
 
 impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// Creates a new [`SelfRateLimiter`] based on configration values.
-    pub fn new(config: OutboundRateLimiterConfig, log: Logger) -> Result<Self, &'static str> {
+    pub fn new(
+        config: OutboundRateLimiterConfig,
+        fork_context: Arc<ForkContext>,
+        log: Logger,
+    ) -> Result<Self, &'static str> {
         debug!(log, "Using self rate limiting params"; "config" => ?config);
-        let limiter = RateLimiter::new_with_config(config.0)?;
+        let limiter = RateLimiter::new_with_config(config.0, fork_context)?;
 
         Ok(SelfRateLimiter {
             delayed_requests: Default::default(),
@@ -215,7 +220,7 @@ mod tests {
     use crate::service::api_types::{AppRequestId, RequestId, SyncRequestId};
     use libp2p::PeerId;
     use std::time::Duration;
-    use types::MainnetEthSpec;
+    use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
 
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
@@ -225,8 +230,13 @@ mod tests {
             ping_quota: Quota::n_every(1, 2),
             ..Default::default()
         });
+        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Hash256::ZERO,
+            &MainnetEthSpec::default_spec(),
+        ));
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(config, log).unwrap();
+            SelfRateLimiter::new(config, fork_context, log).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {

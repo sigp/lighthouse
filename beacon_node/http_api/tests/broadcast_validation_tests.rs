@@ -1460,7 +1460,8 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
     let blobs = blobs.expect("should have some blobs");
     assert!(
         blobs.0.len() >= 2,
-        "need at least 2 blobs for partial reveal"
+        "need at least 2 blobs for partial reveal, got: {}",
+        blobs.0.len()
     );
 
     let partial_kzg_proofs = vec![*blobs.0.first().unwrap()];

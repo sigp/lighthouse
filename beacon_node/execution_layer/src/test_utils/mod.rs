@@ -21,7 +21,7 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
-use types::{EthSpec, ExecutionBlockHash, Uint256};
+use types::{ChainSpec, EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
 use crate::EngineCapabilities;
@@ -107,7 +107,7 @@ pub struct MockServer<E: EthSpec> {
 }
 
 impl<E: EthSpec> MockServer<E> {
-    pub fn unit_testing() -> Self {
+    pub fn unit_testing(chain_spec: Arc<ChainSpec>) -> Self {
         Self::new(
             &runtime::Handle::current(),
             JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
@@ -117,6 +117,7 @@ impl<E: EthSpec> MockServer<E> {
             None, // FIXME(capella): should this be the default?
             None, // FIXME(deneb): should this be the default?
             None, // FIXME(electra): should this be the default?
+            chain_spec,
             None,
         )
     }
@@ -124,6 +125,7 @@ impl<E: EthSpec> MockServer<E> {
     pub fn new_with_config(
         handle: &runtime::Handle,
         config: MockExecutionConfig,
+        spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let MockExecutionConfig {
@@ -145,6 +147,7 @@ impl<E: EthSpec> MockServer<E> {
             shanghai_time,
             cancun_time,
             prague_time,
+            spec,
             kzg,
         );
 
@@ -208,6 +211,7 @@ impl<E: EthSpec> MockServer<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
+        spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         Self::new_with_config(
@@ -222,6 +226,7 @@ impl<E: EthSpec> MockServer<E> {
                 cancun_time,
                 prague_time,
             },
+            spec,
             kzg,
         )
     }

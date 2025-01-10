@@ -1,7 +1,7 @@
 use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::test_utils::TestRandom;
 use crate::BeaconStateError;
-use crate::{BeaconBlockHeader, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot};
+use crate::{BeaconBlockHeader, Epoch, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::Error as KzgError;
@@ -11,7 +11,6 @@ use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::typenum::Unsigned;
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
 use std::hash::Hash;
@@ -68,6 +67,10 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         self.signed_block_header.message.slot
     }
 
+    pub fn epoch(&self) -> Epoch {
+        self.slot().epoch(E::slots_per_epoch())
+    }
+
     pub fn block_root(&self) -> Hash256 {
         self.signed_block_header.message.tree_hash_root()
     }
@@ -110,18 +113,16 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         .len()
     }
 
-    pub fn max_size() -> usize {
+    pub fn max_size(max_blobs_per_block: usize) -> usize {
         Self {
             index: 0,
-            column: VariableList::new(vec![Cell::<E>::default(); E::MaxBlobsPerBlock::to_usize()])
-                .unwrap(),
+            column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
             kzg_commitments: VariableList::new(vec![
                 KzgCommitment::empty_for_testing();
-                E::MaxBlobsPerBlock::to_usize()
+                max_blobs_per_block
             ])
             .unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty(); E::MaxBlobsPerBlock::to_usize()])
-                .unwrap(),
+            kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
             signed_block_header: SignedBeaconBlockHeader {
                 message: BeaconBlockHeader::empty(),
                 signature: Signature::empty(),
