@@ -238,7 +238,7 @@ macro_rules! ssz_static_test_no_run {
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
     use ef_tests::{
-        FeatureName, Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler,
+        Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler,
     };
     use types::historical_summary::HistoricalSummary;
     use types::{
