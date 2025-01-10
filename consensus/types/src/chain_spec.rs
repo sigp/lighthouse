@@ -641,7 +641,7 @@ impl ChainSpec {
         let columns_per_custody_group = self
             .number_of_columns
             .safe_div(self.number_of_custody_groups)
-            .expect("Custody group count must be greater than 0");
+            .expect("number_of_custody_groups must be greater than 0");
 
         let custody_column_count = columns_per_custody_group
             .safe_mul(custody_group_count)
