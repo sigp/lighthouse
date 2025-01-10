@@ -18,9 +18,9 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
-    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, EthSpecId, ForkContext,
-    ForkName, LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
-    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    BeaconBlockFulu, BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, EthSpecId,
+    ForkContext, ForkName, LightClientBootstrap, LightClientBootstrapAltair,
+    LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
     Signature, SignedBeaconBlock,
 };
@@ -73,10 +73,23 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: LazyLock<usize> = La
     .len()
 });
 
+pub static SIGNED_BEACON_BLOCK_FULU_MAX_WITHOUT_PAYLOAD: LazyLock<usize> = LazyLock::new(|| {
+    SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Fulu(BeaconBlockFulu::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len()
+});
+
 /// The `BeaconBlockBellatrix` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
 /// We calculate the value from its fields instead of constructing the block and checking the length.
 /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
 /// with `max_chunk_size`.
+///
+/// FIXME: Given that these limits are useless we should probably delete them. See:
+///
+/// https://github.com/sigp/lighthouse/issues/6790
 pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
     LazyLock::new(||     // Size of a full altair block
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
@@ -93,7 +106,6 @@ pub static SIGNED_BEACON_BLOCK_DENEB_MAX: LazyLock<usize> = LazyLock::new(|| {
     *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
-    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
     //
@@ -101,23 +113,21 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
-    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
+
+pub static SIGNED_BEACON_BLOCK_FULU_MAX: LazyLock<usize> = LazyLock::new(|| {
+    *SIGNED_BEACON_BLOCK_FULU_MAX_WITHOUT_PAYLOAD
+        + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_fulu_size()
+        + ssz::BYTES_PER_LENGTH_OFFSET
+        + ssz::BYTES_PER_LENGTH_OFFSET
+});
 
 pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
 
 pub static BLOB_SIDECAR_SIZE_MINIMAL: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MinimalEthSpec>::max_size);
-
-pub static DATA_COLUMNS_SIDECAR_MIN: LazyLock<usize> = LazyLock::new(|| {
-    DataColumnSidecar::<MainnetEthSpec>::empty()
-        .as_ssz_bytes()
-        .len()
-});
-pub static DATA_COLUMNS_SIDECAR_MAX: LazyLock<usize> =
-    LazyLock::new(DataColumnSidecar::<MainnetEthSpec>::max_size);
 
 pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
     VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
@@ -209,6 +219,10 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
             *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
+        ForkName::Fulu => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than all other blocks
+            *SIGNED_BEACON_BLOCK_FULU_MAX, // Fulu block is largest
+        ),
     }
 }
 
@@ -226,7 +240,7 @@ fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> R
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX)
         }
-        ForkName::Electra => {
+        ForkName::Electra | ForkName::Fulu => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX)
         }
     }
@@ -246,7 +260,7 @@ fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> Rp
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra => {
+        ForkName::Electra | ForkName::Fulu => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
         }
     }
@@ -267,7 +281,7 @@ fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> 
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra => RpcLimits::new(
+        ForkName::Electra | ForkName::Fulu => RpcLimits::new(
             altair_fixed_len,
             *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
         ),
@@ -284,7 +298,9 @@ fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimit
         }
         ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
         ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
-        ForkName::Electra => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX),
+        ForkName::Electra | ForkName::Fulu => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX)
+        }
     }
 }
 
@@ -611,8 +627,10 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
-            Protocol::DataColumnsByRoot => rpc_data_column_limits(),
-            Protocol::DataColumnsByRange => rpc_data_column_limits(),
+            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(fork_context.current_fork()),
+            Protocol::DataColumnsByRange => {
+                rpc_data_column_limits::<E>(fork_context.current_fork())
+            }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -692,8 +710,14 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     }
 }
 
-pub fn rpc_data_column_limits() -> RpcLimits {
-    RpcLimits::new(*DATA_COLUMNS_SIDECAR_MIN, *DATA_COLUMNS_SIDECAR_MAX)
+// TODO(peerdas): fix hardcoded max here
+pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName) -> RpcLimits {
+    RpcLimits::new(
+        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
+        DataColumnSidecar::<E>::max_size(
+            E::default_spec().max_blobs_per_block_by_fork(fork_name) as usize
+        ),
+    )
 }
 
 /* Inbound upgrade */
@@ -791,13 +815,13 @@ impl<E: EthSpec> RequestType<E> {
     /* These functions are used in the handler for stream management */
 
     /// Maximum number of responses expected for this request.
-    pub fn max_responses(&self) -> u64 {
+    pub fn max_responses(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
         match self {
             RequestType::Status(_) => 1,
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
-            RequestType::BlobsByRange(req) => req.max_blobs_requested::<E>(),
+            RequestType::BlobsByRange(req) => req.max_blobs_requested(current_fork, spec),
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
             RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),

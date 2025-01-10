@@ -110,8 +110,8 @@ impl RateLimiterConfig {
     pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota = Quota::n_every(128, 10);
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
     // `DEFAULT_BLOCKS_BY_RANGE_QUOTA` * (target + 1) to account for high usage
-    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(512, 10);
-    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(512, 10);
+    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(896, 10);
+    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(896, 10);
     // 320 blocks worth of columns for regular node, or 40 blocks for supernode.
     // Range sync load balances when requesting blocks, and each batch is 32 blocks.
     pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota = Quota::n_every(5120, 10);

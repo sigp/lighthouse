@@ -468,7 +468,7 @@ impl ProtoArray {
         // 1. The `head_block_root` is a descendant of `latest_valid_ancestor_hash`
         // 2. The `latest_valid_ancestor_hash` is equal to or a descendant of the finalized block.
         let latest_valid_ancestor_is_descendant =
-            latest_valid_ancestor_root.map_or(false, |ancestor_root| {
+            latest_valid_ancestor_root.is_some_and(|ancestor_root| {
                 self.is_descendant(ancestor_root, head_block_root)
                     && self.is_finalized_checkpoint_or_descendant::<E>(ancestor_root)
             });
@@ -505,13 +505,13 @@ impl ProtoArray {
                         // head.
                         if node
                             .best_child
-                            .map_or(false, |i| invalidated_indices.contains(&i))
+                            .is_some_and(|i| invalidated_indices.contains(&i))
                         {
                             node.best_child = None
                         }
                         if node
                             .best_descendant
-                            .map_or(false, |i| invalidated_indices.contains(&i))
+                            .is_some_and(|i| invalidated_indices.contains(&i))
                         {
                             node.best_descendant = None
                         }
@@ -999,7 +999,7 @@ impl ProtoArray {
             node.unrealized_finalized_checkpoint,
             node.unrealized_justified_checkpoint,
         ] {
-            if checkpoint.map_or(false, |cp| cp == self.finalized_checkpoint) {
+            if checkpoint.is_some_and(|cp| cp == self.finalized_checkpoint) {
                 return true;
             }
         }
@@ -1037,7 +1037,7 @@ impl ProtoArray {
             .find(|node| {
                 node.execution_status
                     .block_hash()
-                    .map_or(false, |node_block_hash| node_block_hash == *block_hash)
+                    .is_some_and(|node_block_hash| node_block_hash == *block_hash)
             })
             .map(|node| node.root)
     }

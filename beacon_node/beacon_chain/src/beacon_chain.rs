@@ -117,7 +117,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
-    DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+    BlobSidecarListFromRoot, DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore,
+    KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::sync::mpsc::Receiver;
@@ -573,7 +574,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .start_slot(T::EthSpec::slots_per_epoch());
         let is_canonical = self
             .block_root_at_slot(block_slot, WhenSlotSkipped::None)?
-            .map_or(false, |canonical_root| block_root == &canonical_root);
+            .is_some_and(|canonical_root| block_root == &canonical_root);
         Ok(block_slot <= finalized_slot && is_canonical)
     }
 
@@ -604,7 +605,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot_is_finalized = state_slot <= finalized_slot;
         let canonical = self
             .state_root_at_slot(state_slot)?
-            .map_or(false, |canonical_root| state_root == &canonical_root);
+            .is_some_and(|canonical_root| state_root == &canonical_root);
         Ok(FinalizationAndCanonicity {
             slot_is_finalized,
             canonical,
@@ -1147,9 +1148,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<BlobSidecarList<T::EthSpec>, Error> {
+    ) -> Result<BlobSidecarListFromRoot<T::EthSpec>, Error> {
         self.early_attester_cache
             .get_blobs(*block_root)
+            .map(Into::into)
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
@@ -1240,11 +1242,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Errors
     /// May return a database error.
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobSidecarList<T::EthSpec>, Error> {
-        match self.store.get_blobs(block_root)? {
-            Some(blobs) => Ok(blobs),
-            None => Ok(BlobSidecarList::default()),
-        }
+    pub fn get_blobs(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<BlobSidecarListFromRoot<T::EthSpec>, Error> {
+        self.store.get_blobs(block_root).map_err(Error::from)
     }
 
     /// Returns the data columns at the given root, if any.
@@ -5118,9 +5120,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_of(slot)
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
-        block_delays.observed.map_or(false, |delay| {
-            delay >= self.slot_clock.unagg_attestation_production_delay()
-        })
+        block_delays
+            .observed
+            .is_some_and(|delay| delay >= self.slot_clock.unagg_attestation_production_delay())
     }
 
     /// Produce a block for some `slot` upon the given `state`.
@@ -5317,23 +5319,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If required, start the process of loading an execution payload from the EL early. This
         // allows it to run concurrently with things like attestation packing.
-        let prepare_payload_handle = match &state {
-            BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
-                let prepare_payload_handle = get_execution_payload(
-                    self.clone(),
-                    &state,
-                    parent_root,
-                    proposer_index,
-                    builder_params,
-                    builder_boost_factor,
-                    block_production_version,
-                )?;
-                Some(prepare_payload_handle)
-            }
+        let prepare_payload_handle = if state.fork_name_unchecked().bellatrix_enabled() {
+            let prepare_payload_handle = get_execution_payload(
+                self.clone(),
+                &state,
+                parent_root,
+                proposer_index,
+                builder_params,
+                builder_boost_factor,
+                block_production_version,
+            )?;
+            Some(prepare_payload_handle)
+        } else {
+            None
         };
 
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
@@ -5727,6 +5725,48 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         parent_root,
                         state_root: Hash256::zero(),
                         body: BeaconBlockBodyElectra {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings_electra.into(),
+                            attestations: attestations_electra.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            blob_kzg_commitments: kzg_commitments
+                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                            execution_requests: maybe_requests
+                                .ok_or(BlockProductionError::MissingExecutionRequests)?,
+                        },
+                    }),
+                    maybe_blobs_and_proofs,
+                    execution_payload_value,
+                )
+            }
+            BeaconState::Fulu(_) => {
+                let (
+                    payload,
+                    kzg_commitments,
+                    maybe_blobs_and_proofs,
+                    maybe_requests,
+                    execution_payload_value,
+                ) = block_contents
+                    .ok_or(BlockProductionError::MissingExecutionPayload)?
+                    .deconstruct();
+
+                (
+                    BeaconBlock::Fulu(BeaconBlockFulu {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyFulu {
                             randao_reveal,
                             eth1_data,
                             graffiti,

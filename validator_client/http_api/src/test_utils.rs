@@ -251,9 +251,9 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetElectra>()
+            .get_lighthouse_spec::<ConfigAndPresetFulu>()
             .await
-            .map(|res| ConfigAndPreset::Electra(res.data))
+            .map(|res| ConfigAndPreset::Fulu(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
 
