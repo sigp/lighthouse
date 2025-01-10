@@ -18,9 +18,9 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
-    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, EthSpecId, ForkContext,
-    ForkName, LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
-    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    BeaconBlockFulu, BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, EthSpecId,
+    ForkContext, ForkName, LightClientBootstrap, LightClientBootstrapAltair,
+    LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
     Signature, SignedBeaconBlock,
 };
@@ -73,6 +73,15 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: LazyLock<usize> = La
     .len()
 });
 
+pub static SIGNED_BEACON_BLOCK_FULU_MAX_WITHOUT_PAYLOAD: LazyLock<usize> = LazyLock::new(|| {
+    SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Fulu(BeaconBlockFulu::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len()
+});
+
 /// The `BeaconBlockBellatrix` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
 /// We calculate the value from its fields instead of constructing the block and checking the length.
 /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
@@ -106,6 +115,13 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
+
+pub static SIGNED_BEACON_BLOCK_FULU_MAX: LazyLock<usize> = LazyLock::new(|| {
+    *SIGNED_BEACON_BLOCK_FULU_MAX_WITHOUT_PAYLOAD
+        + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_fulu_size()
+        + ssz::BYTES_PER_LENGTH_OFFSET
+        + ssz::BYTES_PER_LENGTH_OFFSET
+});
 
 pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
@@ -203,6 +219,10 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
             *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
+        ForkName::Fulu => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than all other blocks
+            *SIGNED_BEACON_BLOCK_FULU_MAX, // Fulu block is largest
+        ),
     }
 }
 
@@ -220,7 +240,7 @@ fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> R
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX)
         }
-        ForkName::Electra => {
+        ForkName::Electra | ForkName::Fulu => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX)
         }
     }
@@ -240,7 +260,7 @@ fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> Rp
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra => {
+        ForkName::Electra | ForkName::Fulu => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
         }
     }
@@ -261,7 +281,7 @@ fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> 
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra => RpcLimits::new(
+        ForkName::Electra | ForkName::Fulu => RpcLimits::new(
             altair_fixed_len,
             *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
         ),
@@ -278,7 +298,9 @@ fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimit
         }
         ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
         ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
-        ForkName::Electra => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX),
+        ForkName::Electra | ForkName::Fulu => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX)
+        }
     }
 }
 
@@ -688,6 +710,7 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     }
 }
 
+// TODO(peerdas): fix hardcoded max here
 pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName) -> RpcLimits {
     RpcLimits::new(
         DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),

@@ -1263,7 +1263,7 @@ async fn progressive_balances_cache_proposer_slashing() {
         // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
         // the slot in this scenario rather than panic-ing. The same applies to
         // `progressive_balances_cache_attester_slashing`.
-        .apply_blocks(2)
+        .apply_blocks(1)
         .await
         .add_previous_epoch_proposer_slashing(MainnetEthSpec::slots_per_epoch())
         .await

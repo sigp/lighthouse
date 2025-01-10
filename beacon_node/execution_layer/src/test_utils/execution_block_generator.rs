@@ -19,7 +19,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadHeader, FixedBytesExtended, ForkName, Hash256, Transaction, Transactions,
     Uint256,
 };
@@ -147,6 +147,7 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     pub shanghai_time: Option<u64>, // capella
     pub cancun_time: Option<u64>,   // deneb
     pub prague_time: Option<u64>,   // electra
+    pub osaka_time: Option<u64>,    // fulu
     /*
      * deneb stuff
      */
@@ -171,6 +172,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
+        osaka_time: Option<u64>,
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
@@ -188,6 +190,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             shanghai_time,
             cancun_time,
             prague_time,
+            osaka_time,
             blobs_bundles: <_>::default(),
             kzg,
             rng: make_rng(),
@@ -237,13 +240,16 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     }
 
     pub fn get_fork_at_timestamp(&self, timestamp: u64) -> ForkName {
-        match self.prague_time {
-            Some(fork_time) if timestamp >= fork_time => ForkName::Electra,
-            _ => match self.cancun_time {
-                Some(fork_time) if timestamp >= fork_time => ForkName::Deneb,
-                _ => match self.shanghai_time {
-                    Some(fork_time) if timestamp >= fork_time => ForkName::Capella,
-                    _ => ForkName::Bellatrix,
+        match self.osaka_time {
+            Some(fork_time) if timestamp >= fork_time => ForkName::Fulu,
+            _ => match self.prague_time {
+                Some(fork_time) if timestamp >= fork_time => ForkName::Electra,
+                _ => match self.cancun_time {
+                    Some(fork_time) if timestamp >= fork_time => ForkName::Deneb,
+                    _ => match self.shanghai_time {
+                        Some(fork_time) if timestamp >= fork_time => ForkName::Capella,
+                        _ => ForkName::Bellatrix,
+                    },
                 },
             },
         }
@@ -668,6 +674,25 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
                 }),
+                ForkName::Fulu => ExecutionPayload::Fulu(ExecutionPayloadFulu {
+                    parent_hash: head_block_hash,
+                    fee_recipient: pa.suggested_fee_recipient,
+                    receipts_root: Hash256::repeat_byte(42),
+                    state_root: Hash256::repeat_byte(43),
+                    logs_bloom: vec![0; 256].into(),
+                    prev_randao: pa.prev_randao,
+                    block_number: parent.block_number() + 1,
+                    gas_limit: DEFAULT_GAS_LIMIT,
+                    gas_used: GAS_USED,
+                    timestamp: pa.timestamp,
+                    extra_data: "block gen was here".as_bytes().to_vec().into(),
+                    base_fee_per_gas: Uint256::from(1u64),
+                    block_hash: ExecutionBlockHash::zero(),
+                    transactions: vec![].into(),
+                    withdrawals: pa.withdrawals.clone().into(),
+                    blob_gas_used: 0,
+                    excess_blob_gas: 0,
+                }),
                 _ => unreachable!(),
             },
         };
@@ -819,6 +844,12 @@ pub fn generate_genesis_header<E: EthSpec>(
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
+        ForkName::Fulu => {
+            let mut header = ExecutionPayloadHeader::Fulu(<_>::default());
+            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
+            *header.transactions_root_mut() = empty_transactions_root;
+            Some(header)
+        }
     }
 }
 
@@ -888,6 +919,7 @@ mod test {
             Uint256::from(TERMINAL_DIFFICULTY),
             TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
+            None,
             None,
             None,
             None,
