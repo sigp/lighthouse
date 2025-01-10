@@ -553,7 +553,7 @@ fn handle_length(
 fn handle_rpc_request<E: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
-    current_fork: ForkName,
+    _current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Result<Option<RequestType<E>>, RPCError> {
     match versioned_protocol {
@@ -588,7 +588,7 @@ fn handle_rpc_request<E: EthSpec>(
         SupportedProtocol::BlobsByRangeV1 => {
             let req = BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?;
             // TODO(pawan): change this to max_blobs_per_rpc_request in the alpha10 PR
-            let max_blobs = spec.max_blobs_per_block_by_fork(current_fork);
+            let max_blobs = spec.max_request_blob_sidecars;
             if req.count > max_blobs {
                 return Err(RPCError::ErrorResponse(
                     RpcErrorResponse::InvalidRequest,
