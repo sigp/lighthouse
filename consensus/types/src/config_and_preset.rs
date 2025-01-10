@@ -1,6 +1,6 @@
 use crate::{
     consts::altair, consts::deneb, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset,
-    ChainSpec, Config, DenebPreset, ElectraPreset, EthSpec, ForkName,
+    ChainSpec, Config, DenebPreset, ElectraPreset, EthSpec, ForkName, FuluPreset,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use superstruct::superstruct;
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Capella, Deneb, Electra),
+    variants(Deneb, Electra, Fulu),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -29,12 +29,14 @@ pub struct ConfigAndPreset {
     pub bellatrix_preset: BellatrixPreset,
     #[serde(flatten)]
     pub capella_preset: CapellaPreset,
-    #[superstruct(only(Deneb, Electra))]
     #[serde(flatten)]
     pub deneb_preset: DenebPreset,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     #[serde(flatten)]
     pub electra_preset: ElectraPreset,
+    #[superstruct(only(Fulu))]
+    #[serde(flatten)]
+    pub fulu_preset: FuluPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,
@@ -48,13 +50,31 @@ impl ConfigAndPreset {
         let altair_preset = AltairPreset::from_chain_spec::<E>(spec);
         let bellatrix_preset = BellatrixPreset::from_chain_spec::<E>(spec);
         let capella_preset = CapellaPreset::from_chain_spec::<E>(spec);
+        let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        if spec.electra_fork_epoch.is_some()
+        if spec.fulu_fork_epoch.is_some()
+            || fork_name.is_none()
+            || fork_name == Some(ForkName::Fulu)
+        {
+            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
+            let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
+
+            ConfigAndPreset::Fulu(ConfigAndPresetFulu {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                deneb_preset,
+                electra_preset,
+                fulu_preset,
+                extra_fields,
+            })
+        } else if spec.electra_fork_epoch.is_some()
             || fork_name.is_none()
             || fork_name == Some(ForkName::Electra)
         {
-            let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
 
             ConfigAndPreset::Electra(ConfigAndPresetElectra {
@@ -67,11 +87,7 @@ impl ConfigAndPreset {
                 electra_preset,
                 extra_fields,
             })
-        } else if spec.deneb_fork_epoch.is_some()
-            || fork_name.is_none()
-            || fork_name == Some(ForkName::Deneb)
-        {
-            let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
+        } else {
             ConfigAndPreset::Deneb(ConfigAndPresetDeneb {
                 config,
                 base_preset,
@@ -79,15 +95,6 @@ impl ConfigAndPreset {
                 bellatrix_preset,
                 capella_preset,
                 deneb_preset,
-                extra_fields,
-            })
-        } else {
-            ConfigAndPreset::Capella(ConfigAndPresetCapella {
-                config,
-                base_preset,
-                altair_preset,
-                bellatrix_preset,
-                capella_preset,
                 extra_fields,
             })
         }
@@ -164,8 +171,8 @@ mod test {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: ConfigAndPresetElectra =
+        let from: ConfigAndPresetFulu =
             serde_yaml::from_reader(reader).expect("error while deserializing");
-        assert_eq!(ConfigAndPreset::Electra(from), yamlconfig);
+        assert_eq!(ConfigAndPreset::Fulu(from), yamlconfig);
     }
 }

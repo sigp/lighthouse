@@ -99,7 +99,8 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_NEW_PAYLOAD_V1
         | ENGINE_NEW_PAYLOAD_V2
         | ENGINE_NEW_PAYLOAD_V3
-        | ENGINE_NEW_PAYLOAD_V4 => {
+        | ENGINE_NEW_PAYLOAD_V4
+        | ENGINE_NEW_PAYLOAD_V5 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::V1(
                     get_param::<JsonExecutionPayloadV1<E>>(params, 0)
@@ -120,6 +121,9 @@ pub async fn handle_rpc<E: EthSpec>(
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::V4(jep))
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadV5<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V5(jep))
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
@@ -222,6 +226,54 @@ pub async fn handle_rpc<E: EthSpec>(
                         ));
                     }
                 }
+                ForkName::Fulu => {
+                    if method == ENGINE_NEW_PAYLOAD_V1
+                        || method == ENGINE_NEW_PAYLOAD_V2
+                        || method == ENGINE_NEW_PAYLOAD_V3
+                        || method == ENGINE_NEW_PAYLOAD_V4
+                    {
+                        return Err((
+                            format!("{} called after Fulu fork!", method),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V1(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV1` after Fulu fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V2(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV2` after Fulu fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V3(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV3` after Fulu fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V4(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV4` after Fulu fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                }
                 _ => unreachable!(),
             };
 
@@ -260,7 +312,8 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_GET_PAYLOAD_V1
         | ENGINE_GET_PAYLOAD_V2
         | ENGINE_GET_PAYLOAD_V3
-        | ENGINE_GET_PAYLOAD_V4 => {
+        | ENGINE_GET_PAYLOAD_V4
+        | ENGINE_GET_PAYLOAD_V5 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
@@ -316,6 +369,23 @@ pub async fn handle_rpc<E: EthSpec>(
             {
                 return Err((
                     format!("{} called after Electra fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
+            }
+
+            // validate method called correctly according to fulu fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Fulu
+                && (method == ENGINE_GET_PAYLOAD_V1
+                    || method == ENGINE_GET_PAYLOAD_V2
+                    || method == ENGINE_GET_PAYLOAD_V3
+                    || method == ENGINE_GET_PAYLOAD_V4)
+            {
+                return Err((
+                    format!("{} called after Fulu fork!", method),
                     FORK_REQUEST_MISMATCH_ERROR_CODE,
                 ));
             }
@@ -380,6 +450,24 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                     _ => unreachable!(),
                 }),
+                ENGINE_GET_PAYLOAD_V5 => Ok(match JsonExecutionPayload::from(response) {
+                    JsonExecutionPayload::V5(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV5 {
+                            execution_payload,
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                            blobs_bundle: maybe_blobs
+                                .ok_or((
+                                    "No blobs returned despite V5 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
+                                .into(),
+                            should_override_builder: false,
+                            execution_requests: Default::default(),
+                        })
+                        .unwrap()
+                    }
+                    _ => unreachable!(),
+                }),
                 _ => unreachable!(),
             }
         }
@@ -411,7 +499,10 @@ pub async fn handle_rpc<E: EthSpec>(
                                             .map(|opt| opt.map(JsonPayloadAttributes::V1))
                                             .transpose()
                                     }
-                                    ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
+                                    ForkName::Capella
+                                    | ForkName::Deneb
+                                    | ForkName::Electra
+                                    | ForkName::Fulu => {
                                         get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V2))
                                             .transpose()
@@ -475,7 +566,7 @@ pub async fn handle_rpc<E: EthSpec>(
                             ));
                         }
                     }
-                    ForkName::Deneb | ForkName::Electra => {
+                    ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err((
                                 format!("{} called after Deneb fork!", method),
