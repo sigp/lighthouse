@@ -315,7 +315,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
         let valid = extra
             .execution_metadata
             .as_ref()
-            .map_or(false, |e| e.execution_valid);
+            .is_some_and(|e| e.execution_valid);
         if valid {
             process_execution_payload::<E, FullPayload<E>>(state, self.to_ref(), spec)
         } else {
@@ -374,7 +374,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
         let valid = extra
             .execution_metadata
             .as_ref()
-            .map_or(false, |e| e.execution_valid);
+            .is_some_and(|e| e.execution_valid);
         if valid {
             process_execution_payload::<E, BlindedPayload<E>>(state, self.to_ref(), spec)
         } else {

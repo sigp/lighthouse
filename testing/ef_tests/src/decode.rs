@@ -28,7 +28,7 @@ pub fn log_file_access<P: AsRef<Path>>(file_accessed: P) {
 
     writeln!(&mut file, "{:?}", file_accessed.as_ref()).expect("should write to file");
 
-    file.unlock().expect("unable to unlock file");
+    fs2::FileExt::unlock(&file).expect("unable to unlock file");
 }
 
 pub fn yaml_decode<T: serde::de::DeserializeOwned>(string: &str) -> Result<T, Error> {

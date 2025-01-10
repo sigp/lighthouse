@@ -910,7 +910,7 @@ where
                         .forkchoice_update_parameters();
                     if params
                         .head_hash
-                        .map_or(false, |hash| hash != ExecutionBlockHash::zero())
+                        .is_some_and(|hash| hash != ExecutionBlockHash::zero())
                     {
                         // Spawn a new task to update the EE without waiting for it to complete.
                         let inner_chain = beacon_chain.clone();

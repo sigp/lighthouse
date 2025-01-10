@@ -127,9 +127,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
-async fn notify_new_payload<'a, T: BeaconChainTypes>(
+async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<'a, T::EthSpec>,
+    block: BeaconBlockRef<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
         .execution_layer
@@ -230,9 +230,9 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
 /// Equivalent to the `validate_merge_block` function in the merge Fork Choice Changes:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/fork-choice.md#validate_merge_block
-pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
+pub async fn validate_merge_block<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<'a, T::EthSpec>,
+    block: BeaconBlockRef<'_, T::EthSpec>,
     allow_optimistic_import: AllowOptimisticImport,
 ) -> Result<(), BlockError> {
     let spec = &chain.spec;

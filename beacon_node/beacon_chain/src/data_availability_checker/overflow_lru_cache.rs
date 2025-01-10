@@ -228,13 +228,10 @@ impl<E: EthSpec> PendingComponents<E> {
         );
 
         let all_blobs_received = block_kzg_commitments_count_opt
-            .map_or(false, |num_expected_blobs| {
-                num_expected_blobs == num_received_blobs
-            });
+            .is_some_and(|num_expected_blobs| num_expected_blobs == num_received_blobs);
 
-        let all_columns_received = expected_columns_opt.map_or(false, |num_expected_columns| {
-            num_expected_columns == num_received_columns
-        });
+        let all_columns_received = expected_columns_opt
+            .is_some_and(|num_expected_columns| num_expected_columns == num_received_columns);
 
         all_blobs_received || all_columns_received
     }

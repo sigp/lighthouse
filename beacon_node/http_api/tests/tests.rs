@@ -1278,7 +1278,7 @@ impl ApiTester {
                 .chain
                 .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                 .unwrap()
-                .map_or(false, |canonical| block_root == canonical);
+                .is_some_and(|canonical| block_root == canonical);
 
             assert_eq!(result.canonical, canonical, "{:?}", block_id);
             assert_eq!(result.root, block_root, "{:?}", block_id);
