@@ -35,11 +35,11 @@ where
                 .unwrap_or(false),
             Subnet::SyncCommittee(s) => sync_committee_bitfield
                 .as_ref()
-                .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
+                .is_ok_and(|b| b.get(*s.deref() as usize).unwrap_or(false)),
             Subnet::DataColumn(s) => {
                 if let Ok(custody_group_count) = enr.custody_group_count::<E>(&spec) {
                     compute_subnets_for_node(enr.node_id().raw(), custody_group_count, &spec)
-                        .map_or(false, |subnets| subnets.contains(s))
+                        .is_ok_and(|subnets| subnets.contains(s))
                 } else {
                     false
                 }

@@ -94,7 +94,7 @@ impl<E: EthSpec> SyncDutiesMap<E> {
         self.committees
             .read()
             .get(&committee_period)
-            .map_or(false, |committee_duties| {
+            .is_some_and(|committee_duties| {
                 let validator_duties = committee_duties.validators.read();
                 validator_indices
                     .iter()

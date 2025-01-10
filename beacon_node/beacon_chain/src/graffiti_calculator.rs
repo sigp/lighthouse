@@ -293,10 +293,7 @@ mod tests {
             .await
             .unwrap();
 
-        let version_bytes = std::cmp::min(
-            lighthouse_version::VERSION.as_bytes().len(),
-            GRAFFITI_BYTES_LEN,
-        );
+        let version_bytes = std::cmp::min(lighthouse_version::VERSION.len(), GRAFFITI_BYTES_LEN);
         // grab the slice of the graffiti that corresponds to the lighthouse version
         let graffiti_slice =
             &harness.chain.graffiti_calculator.get_graffiti(None).await.0[..version_bytes];
@@ -361,7 +358,7 @@ mod tests {
 
         let graffiti_str = "nice graffiti bro";
         let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
-        graffiti_bytes[..graffiti_str.as_bytes().len()].copy_from_slice(graffiti_str.as_bytes());
+        graffiti_bytes[..graffiti_str.len()].copy_from_slice(graffiti_str.as_bytes());
 
         let found_graffiti = harness
             .chain

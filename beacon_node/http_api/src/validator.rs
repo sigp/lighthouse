@@ -14,7 +14,7 @@ pub fn pubkey_to_validator_index<T: BeaconChainTypes>(
             state
                 .validators()
                 .get(index)
-                .map_or(false, |v| v.pubkey == *pubkey)
+                .is_some_and(|v| v.pubkey == *pubkey)
         })
         .map(Result::Ok)
         .transpose()

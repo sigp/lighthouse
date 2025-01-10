@@ -38,7 +38,7 @@ pub fn process_sync_aggregate<E: EthSpec>(
         )?;
 
         // If signature set is `None` then the signature is valid (infinity).
-        if signature_set.map_or(false, |signature| !signature.verify()) {
+        if signature_set.is_some_and(|signature| !signature.verify()) {
             return Err(SyncAggregateInvalid::SignatureInvalid.into());
         }
     }
