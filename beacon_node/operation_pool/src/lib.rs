@@ -186,7 +186,7 @@ impl<E: EthSpec> OperationPool<E> {
         self.sync_contributions.write().retain(|_, contributions| {
             // All the contributions in this bucket have the same data, so we only need to
             // check the first one.
-            contributions.first().map_or(false, |contribution| {
+            contributions.first().is_some_and(|contribution| {
                 current_slot <= contribution.slot.saturating_add(Slot::new(1))
             })
         });
@@ -401,7 +401,7 @@ impl<E: EthSpec> OperationPool<E> {
                     && state
                         .validators()
                         .get(slashing.as_inner().signed_header_1.message.proposer_index as usize)
-                        .map_or(false, |validator| !validator.slashed)
+                        .is_some_and(|validator| !validator.slashed)
             },
             |slashing| slashing.as_inner().clone(),
             E::MaxProposerSlashings::to_usize(),
@@ -484,7 +484,7 @@ impl<E: EthSpec> OperationPool<E> {
                     validator.exit_epoch > head_state.finalized_checkpoint().epoch
                 },
             )
-            .map_or(false, |indices| !indices.is_empty());
+            .is_ok_and(|indices| !indices.is_empty());
 
             signature_ok && slashing_ok
         });
@@ -583,9 +583,7 @@ impl<E: EthSpec> OperationPool<E> {
                 address_change.signature_is_still_valid(&state.fork())
                     && state
                         .get_validator(address_change.as_inner().message.validator_index as usize)
-                        .map_or(false, |validator| {
-                            !validator.has_execution_withdrawal_credential(spec)
-                        })
+                        .is_ok_and(|validator| !validator.has_execution_withdrawal_credential(spec))
             },
             |address_change| address_change.as_inner().clone(),
             E::MaxBlsToExecutionChanges::to_usize(),
@@ -609,9 +607,7 @@ impl<E: EthSpec> OperationPool<E> {
                 address_change.signature_is_still_valid(&state.fork())
                     && state
                         .get_validator(address_change.as_inner().message.validator_index as usize)
-                        .map_or(false, |validator| {
-                            !validator.has_eth1_withdrawal_credential(spec)
-                        })
+                        .is_ok_and(|validator| !validator.has_eth1_withdrawal_credential(spec))
             },
             |address_change| address_change.as_inner().clone(),
             usize::MAX,

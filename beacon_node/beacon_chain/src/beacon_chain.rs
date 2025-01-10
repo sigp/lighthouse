@@ -573,7 +573,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .start_slot(T::EthSpec::slots_per_epoch());
         let is_canonical = self
             .block_root_at_slot(block_slot, WhenSlotSkipped::None)?
-            .map_or(false, |canonical_root| block_root == &canonical_root);
+            .is_some_and(|canonical_root| block_root == &canonical_root);
         Ok(block_slot <= finalized_slot && is_canonical)
     }
 
@@ -604,7 +604,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot_is_finalized = state_slot <= finalized_slot;
         let canonical = self
             .state_root_at_slot(state_slot)?
-            .map_or(false, |canonical_root| state_root == &canonical_root);
+            .is_some_and(|canonical_root| state_root == &canonical_root);
         Ok(FinalizationAndCanonicity {
             slot_is_finalized,
             canonical,
@@ -5118,9 +5118,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_of(slot)
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
-        block_delays.observed.map_or(false, |delay| {
-            delay >= self.slot_clock.unagg_attestation_production_delay()
-        })
+        block_delays
+            .observed
+            .is_some_and(|delay| delay >= self.slot_clock.unagg_attestation_production_delay())
     }
 
     /// Produce a block for some `slot` upon the given `state`.

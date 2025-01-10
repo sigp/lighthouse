@@ -319,7 +319,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         (self, block_hash)
     }
 
-    pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
+    pub async fn with_terminal_block<U, V>(self, func: U) -> Self
     where
         U: Fn(Arc<ChainSpec>, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
         V: Future<Output = ()>,
