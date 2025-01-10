@@ -1856,7 +1856,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn committee_cache_is_initialized(&self, relative_epoch: RelativeEpoch) -> bool {
         let i = Self::committee_cache_index(relative_epoch);
 
-        self.committee_cache_at_index(i).map_or(false, |cache| {
+        self.committee_cache_at_index(i).is_ok_and(|cache| {
             cache.is_initialized_at(relative_epoch.into_epoch(self.current_epoch()))
         })
     }

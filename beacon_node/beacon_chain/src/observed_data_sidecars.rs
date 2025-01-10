@@ -118,7 +118,7 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
                 slot: data_sidecar.slot(),
                 proposer: data_sidecar.block_proposer_index(),
             })
-            .map_or(false, |indices| indices.contains(&data_sidecar.index()));
+            .is_some_and(|indices| indices.contains(&data_sidecar.index()));
         Ok(is_known)
     }
 

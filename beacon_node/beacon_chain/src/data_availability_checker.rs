@@ -519,13 +519,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Returns true if the given epoch lies within the da boundary and false otherwise.
     pub fn da_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
         self.data_availability_boundary()
-            .map_or(false, |da_epoch| block_epoch >= da_epoch)
+            .is_some_and(|da_epoch| block_epoch >= da_epoch)
     }
 
     /// Returns `true` if the current epoch is greater than or equal to the `Deneb` epoch.
     pub fn is_deneb(&self) -> bool {
-        self.slot_clock.now().map_or(false, |slot| {
-            self.spec.deneb_fork_epoch.map_or(false, |deneb_epoch| {
+        self.slot_clock.now().is_some_and(|slot| {
+            self.spec.deneb_fork_epoch.is_some_and(|deneb_epoch| {
                 let now_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
                 now_epoch >= deneb_epoch
             })

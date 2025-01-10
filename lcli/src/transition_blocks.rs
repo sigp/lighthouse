@@ -223,7 +223,7 @@ pub fn run<E: EthSpec>(
             .update_tree_hash_cache()
             .map_err(|e| format!("Unable to build THC: {:?}", e))?;
 
-        if state_root_opt.map_or(false, |expected| expected != state_root) {
+        if state_root_opt.is_some_and(|expected| expected != state_root) {
             return Err(format!(
                 "State root mismatch! Expected {}, computed {}",
                 state_root_opt.unwrap(),
@@ -331,7 +331,7 @@ fn do_transition<E: EthSpec>(
             .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
         debug!("Initial tree hash: {:?}", t.elapsed());
 
-        if state_root_opt.map_or(false, |expected| expected != state_root) {
+        if state_root_opt.is_some_and(|expected| expected != state_root) {
             return Err(format!(
                 "State root mismatch! Expected {}, computed {}",
                 state_root_opt.unwrap(),

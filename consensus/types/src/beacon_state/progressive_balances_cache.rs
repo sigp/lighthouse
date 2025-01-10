@@ -145,7 +145,7 @@ impl ProgressiveBalancesCache {
     pub fn is_initialized_at(&self, epoch: Epoch) -> bool {
         self.inner
             .as_ref()
-            .map_or(false, |inner| inner.current_epoch == epoch)
+            .is_some_and(|inner| inner.current_epoch == epoch)
     }
 
     /// When a new target attestation has been processed, we update the cached
