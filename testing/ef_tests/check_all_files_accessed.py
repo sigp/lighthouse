@@ -35,6 +35,8 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
+    # LightClientDataCollection
+    "tests/minimal/.*/light_client/data_collection",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\\.DS_Store.*",
     # More Mac weirdness.
