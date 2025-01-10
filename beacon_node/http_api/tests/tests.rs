@@ -1826,7 +1826,7 @@ impl ApiTester {
 
     pub async fn test_post_beacon_pool_attestations_valid_v2(mut self) -> Self {
         if self.single_attestations.is_empty() {
-            return;
+            return self;
         }
         let fork_name = self
             .single_attestations
@@ -1883,7 +1883,7 @@ impl ApiTester {
     }
     pub async fn test_post_beacon_pool_attestations_invalid_v2(mut self) -> Self {
         if self.single_attestations.is_empty() {
-            return;
+            return self;
         }
         let mut attestations = Vec::new();
         for attestation in &self.single_attestations {
