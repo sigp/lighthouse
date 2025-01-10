@@ -53,10 +53,9 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     pub fn new(
         config: OutboundRateLimiterConfig,
         fork_context: Arc<ForkContext>,
-        log: Logger,
     ) -> Result<Self, &'static str> {
         debug!(?config, "Using self rate limiting params");
-        let limiter = RateLimiter::new_with_config(config.0)?;
+        let limiter = RateLimiter::new_with_config(config.0, fork_context)?;
 
         Ok(SelfRateLimiter {
             delayed_requests: Default::default(),

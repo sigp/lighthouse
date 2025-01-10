@@ -18,10 +18,8 @@ futures = { workspace = true }
 int_to_bytes = { workspace = true }
 merkle_proof = { workspace = true }
 rayon = { workspace = true }
-slog = { workspace = true }
 state_processing = { workspace = true }
 tokio = { workspace = true }
 tree_hash = { workspace = true }
 tracing = { workspace = true }
-tokio = { workspace = true }
-int_to_bytes = { workspace = true }
+types = { workspace = true }
