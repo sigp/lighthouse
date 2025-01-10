@@ -7,7 +7,7 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttestationBase, AttestationElectra, AttesterSlashing, AttesterSlashingBase,
+    Attestation, AttestationBase, AttesterSlashing, AttesterSlashingBase,
     AttesterSlashingElectra, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec,
     ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
     ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
