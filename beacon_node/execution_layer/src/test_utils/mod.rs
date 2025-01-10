@@ -44,6 +44,7 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v2: true,
     new_payload_v3: true,
     new_payload_v4: true,
+    new_payload_v5: true,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: true,
     forkchoice_updated_v3: true,
@@ -53,6 +54,7 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_v2: true,
     get_payload_v3: true,
     get_payload_v4: true,
+    get_payload_v5: true,
     get_client_version_v1: true,
     get_blobs_v1: true,
 };
@@ -82,6 +84,7 @@ pub struct MockExecutionConfig {
     pub shanghai_time: Option<u64>,
     pub cancun_time: Option<u64>,
     pub prague_time: Option<u64>,
+    pub osaka_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -95,6 +98,7 @@ impl Default for MockExecutionConfig {
             shanghai_time: None,
             cancun_time: None,
             prague_time: None,
+            osaka_time: None,
         }
     }
 }
@@ -117,6 +121,7 @@ impl<E: EthSpec> MockServer<E> {
             None, // FIXME(capella): should this be the default?
             None, // FIXME(deneb): should this be the default?
             None, // FIXME(electra): should this be the default?
+            None, // FIXME(fulu): should this be the default?
             None,
         )
     }
@@ -135,6 +140,7 @@ impl<E: EthSpec> MockServer<E> {
             shanghai_time,
             cancun_time,
             prague_time,
+            osaka_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -145,6 +151,7 @@ impl<E: EthSpec> MockServer<E> {
             shanghai_time,
             cancun_time,
             prague_time,
+            osaka_time,
             kzg,
         );
 
@@ -208,6 +215,7 @@ impl<E: EthSpec> MockServer<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
+        osaka_time: Option<u64>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         Self::new_with_config(
@@ -221,6 +229,7 @@ impl<E: EthSpec> MockServer<E> {
                 shanghai_time,
                 cancun_time,
                 prague_time,
+                osaka_time,
             },
             kzg,
         )

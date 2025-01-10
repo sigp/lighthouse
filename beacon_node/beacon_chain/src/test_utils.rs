@@ -501,6 +501,9 @@ where
             spec.electra_fork_epoch.map(|epoch| {
                 genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
             });
+        mock.server.execution_block_generator().osaka_time = spec.fulu_fork_epoch.map(|epoch| {
+            genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
 
         self
     }
@@ -623,6 +626,9 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
     let prague_time = spec.electra_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
+    let osaka_time = spec.fulu_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+    });
 
     let kzg = get_kzg(spec);
 
@@ -632,6 +638,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         shanghai_time,
         cancun_time,
         prague_time,
+        osaka_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
         Some(kzg),
@@ -913,15 +920,12 @@ where
             &self.spec,
         ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+        let block_contents: SignedBlockContentsTuple<E> =
+            if signed_block.fork_name_unchecked().deneb_enabled() {
                 (signed_block, block_response.blob_items)
-            }
-        };
+            } else {
+                (signed_block, None)
+            };
 
         (block_contents, block_response.state)
     }
@@ -977,15 +981,12 @@ where
             &self.spec,
         ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+        let block_contents: SignedBlockContentsTuple<E> =
+            if signed_block.fork_name_unchecked().deneb_enabled() {
                 (signed_block, block_response.blob_items)
-            }
-        };
+            } else {
+                (signed_block, None)
+            };
         (block_contents, pre_state)
     }
 
@@ -2849,6 +2850,25 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         }) => {
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+            payload.execution_payload.transactions = <_>::default();
+            for tx in Vec::from(transactions) {
+                payload.execution_payload.transactions.push(tx).unwrap();
+            }
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
+            bundle
+        }
+        SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
+            ref mut message, ..
+        }) => {
+            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
+            let payload: &mut FullPayloadFulu<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
                 NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
                 NumBlobs::Number(n) => n,
