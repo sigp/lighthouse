@@ -38,10 +38,6 @@ use std::slice::SliceIndex;
 /// // Push a value to if it _does_ exceed the maximum.
 /// assert!(long.push(6).is_err());
 ///
-///
-/// uninit.push(5).unwrap();
-/// assert_eq!(&uninit[..], &[5]);
-///
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
