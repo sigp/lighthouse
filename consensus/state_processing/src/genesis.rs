@@ -143,7 +143,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     // Upgrade to fulu if configured from genesis.
     if spec
         .fulu_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
         upgrade_to_fulu(&mut state, spec)?;
 
