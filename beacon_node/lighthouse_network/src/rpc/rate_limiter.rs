@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::time::Interval;
-use types::{ChainSpec, EthSpec, ForkName, ForkContext};
+use types::{ChainSpec, EthSpec, ForkContext, ForkName};
 
 /// Nanoseconds since a given time.
 // Maintained as u64 to reduce footprint
