@@ -2095,7 +2095,7 @@ fn verify_builder_bid<E: EthSpec>(
             payload: header.timestamp(),
             expected: payload_attributes.timestamp(),
         }))
-    } else if block_number.map_or(false, |n| n != header.block_number()) {
+    } else if block_number.is_some_and(|n| n != header.block_number()) {
         Err(Box::new(InvalidBuilderPayload::BlockNumber {
             payload: header.block_number(),
             expected: block_number,

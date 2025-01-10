@@ -426,9 +426,8 @@ impl ChainSpec {
 
     /// Returns true if `EIP7594_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
     pub fn is_peer_das_scheduled(&self) -> bool {
-        self.eip7594_fork_epoch.is_some_and(|eip7594_fork_epoch| {
-            eip7594_fork_epoch != self.far_future_epoch
-        })
+        self.eip7594_fork_epoch
+            .is_some_and(|eip7594_fork_epoch| eip7594_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns a full `Fork` struct for a given epoch.
