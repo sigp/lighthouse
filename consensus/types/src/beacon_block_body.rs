@@ -283,7 +283,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     /// Return `true` if this block body has a non-zero number of blobs.
     pub fn has_blobs(self) -> bool {
         self.blob_kzg_commitments()
-            .map_or(false, |blobs| !blobs.is_empty())
+            .is_ok_and(|blobs| !blobs.is_empty())
     }
 
     pub fn attestations_len(&self) -> usize {

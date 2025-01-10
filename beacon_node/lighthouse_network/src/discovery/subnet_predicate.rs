@@ -35,7 +35,7 @@ where
                 .unwrap_or(false),
             Subnet::SyncCommittee(s) => sync_committee_bitfield
                 .as_ref()
-                .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
+                .is_ok_and(|b| b.get(*s.deref() as usize).unwrap_or(false)),
             Subnet::DataColumn(s) => {
                 if let Ok(custody_subnet_count) = enr.custody_subnet_count::<E>(&spec) {
                     DataColumnSubnetId::compute_custody_subnets::<E>(
@@ -43,7 +43,7 @@ where
                         custody_subnet_count,
                         &spec,
                     )
-                    .map_or(false, |mut subnets| subnets.contains(s))
+                    .is_ok_and(|mut subnets| subnets.contains(s))
                 } else {
                     false
                 }

@@ -1305,7 +1305,7 @@ impl BannedPeersCount {
     pub fn ip_is_banned(&self, ip: &IpAddr) -> bool {
         self.banned_peers_per_ip
             .get(ip)
-            .map_or(false, |count| *count > BANNED_PEERS_PER_IP_THRESHOLD)
+            .is_some_and(|count| *count > BANNED_PEERS_PER_IP_THRESHOLD)
     }
 }
 
