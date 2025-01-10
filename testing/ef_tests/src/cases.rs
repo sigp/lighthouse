@@ -111,7 +111,8 @@ pub trait Case: Debug + Sync {
     ///
     /// Returns `true` by default.
     fn is_enabled_for_feature(_feature_name: FeatureName) -> bool {
-        true
+        // FIXME(das): waiting for Jimmy's PR
+        false
     }
 
     /// Execute a test and return the result.

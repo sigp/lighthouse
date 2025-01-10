@@ -48,6 +48,10 @@ excluded_paths = [
     "tests/.*/eip6110",
     "tests/.*/whisk",
     "tests/.*/eip7594",
+    # Fulu tests are not yet being run
+    "tests/.*/fulu",
+    # TODO(electra): SingleAttestation tests are waiting on Eitan's PR
+    "tests/.*/electra/ssz_static/SingleAttestation"
 ]
 
 

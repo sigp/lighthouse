@@ -161,7 +161,7 @@ impl ForkChoiceUpdates {
                 update
                     .payload_attributes
                     .as_ref()
-                    .map_or(false, |payload_attributes| {
+                    .is_some_and(|payload_attributes| {
                         payload_attributes.timestamp() == proposal_timestamp
                     })
             })

@@ -21,7 +21,7 @@ use tree_hash_derive::TreeHash;
 )]
 pub struct PendingPartialWithdrawal {
     #[serde(with = "serde_utils::quoted_u64")]
-    pub index: u64,
+    pub validator_index: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub amount: u64,
     pub withdrawable_epoch: Epoch,

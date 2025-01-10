@@ -46,6 +46,7 @@ mod tests;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
+const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
 
 pub type Validators<E> = List<Validator, <E as EthSpec>::ValidatorRegistryLimit>;
 pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
@@ -895,6 +896,11 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
+            MAX_RANDOM_VALUE
+        } else {
+            MAX_RANDOM_BYTE
+        };
 
         let mut i = 0;
         loop {
@@ -908,14 +914,22 @@ impl<E: EthSpec> BeaconState<E> {
             let candidate_index = *indices
                 .get(shuffled_index)
                 .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
-            let random_byte = Self::shuffling_random_byte(i, seed)?;
+            let random_value = self.shuffling_random_value(i, seed)?;
             let effective_balance = self.get_effective_balance(candidate_index)?;
-            if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= max_effective_balance.safe_mul(u64::from(random_byte))?
+            if effective_balance.safe_mul(max_random_value)?
+                >= max_effective_balance.safe_mul(random_value)?
             {
                 return Ok(candidate_index);
             }
             i.safe_add_assign(1)?;
+        }
+    }
+
+    fn shuffling_random_value(&self, i: usize, seed: &[u8]) -> Result<u64, Error> {
+        if self.fork_name_unchecked().electra_enabled() {
+            Self::shuffling_random_u16_electra(i, seed).map(u64::from)
+        } else {
+            Self::shuffling_random_byte(i, seed).map(u64::from)
         }
     }
 
@@ -930,6 +944,21 @@ impl<E: EthSpec> BeaconState<E> {
             .get(index)
             .copied()
             .ok_or(Error::ShuffleIndexOutOfBounds(index))
+    }
+
+    /// Get two random bytes from the given `seed`.
+    ///
+    /// This is used in place of the
+    fn shuffling_random_u16_electra(i: usize, seed: &[u8]) -> Result<u16, Error> {
+        let mut preimage = seed.to_vec();
+        preimage.append(&mut int_to_bytes8(i.safe_div(16)? as u64));
+        let offset = i.safe_rem(16)?.safe_mul(2)?;
+        hash(&preimage)
+            .get(offset..offset.safe_add(2)?)
+            .ok_or(Error::ShuffleIndexOutOfBounds(offset))?
+            .try_into()
+            .map(u16::from_le_bytes)
+            .map_err(|_| Error::ShuffleIndexOutOfBounds(offset))
     }
 
     /// Convenience accessor for the `execution_payload_header` as an `ExecutionPayloadHeaderRef`.
@@ -1093,6 +1122,11 @@ impl<E: EthSpec> BeaconState<E> {
 
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
         let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
+            MAX_RANDOM_VALUE
+        } else {
+            MAX_RANDOM_BYTE
+        };
 
         let mut i = 0;
         let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
@@ -1107,10 +1141,10 @@ impl<E: EthSpec> BeaconState<E> {
             let candidate_index = *active_validator_indices
                 .get(shuffled_index)
                 .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
-            let random_byte = Self::shuffling_random_byte(i, seed.as_slice())?;
+            let random_value = self.shuffling_random_value(i, seed.as_slice())?;
             let effective_balance = self.get_validator(candidate_index)?.effective_balance;
-            if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= max_effective_balance.safe_mul(u64::from(random_byte))?
+            if effective_balance.safe_mul(max_random_value)?
+                >= max_effective_balance.safe_mul(random_value)?
             {
                 sync_committee_indices.push(candidate_index);
             }
@@ -1856,7 +1890,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn committee_cache_is_initialized(&self, relative_epoch: RelativeEpoch) -> bool {
         let i = Self::committee_cache_index(relative_epoch);
 
-        self.committee_cache_at_index(i).map_or(false, |cache| {
+        self.committee_cache_at_index(i).is_ok_and(|cache| {
             cache.is_initialized_at(relative_epoch.into_epoch(self.current_epoch()))
         })
     }
@@ -2159,7 +2193,7 @@ impl<E: EthSpec> BeaconState<E> {
         for withdrawal in self
             .pending_partial_withdrawals()?
             .iter()
-            .filter(|withdrawal| withdrawal.index as usize == validator_index)
+            .filter(|withdrawal| withdrawal.validator_index as usize == validator_index)
         {
             pending_balance.safe_add_assign(withdrawal.amount)?;
         }
