@@ -963,14 +963,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let response = self.blobs_by_root_requests.on_response(id, rpc_event);
         let response = response.map(|res| {
             res.and_then(|(blobs, seen_timestamp)| {
-                let max_len = if let Some(blob) = blobs.first() {
-                    self.chain.spec.max_blobs_per_block(blob.epoch()) as usize
+                if let Some(max_len) = blobs
+                    .first()
+                    .map(|blob| self.chain.spec.max_blobs_per_block(blob.epoch()) as usize)
+                {
+                    match to_fixed_blob_sidecar_list(blobs, max_len) {
+                        Ok(blobs) => Ok((blobs, seen_timestamp)),
+                        Err(e) => Err(e.into()),
+                    }
                 } else {
-                    6
-                };
-                match to_fixed_blob_sidecar_list(blobs, max_len) {
-                    Ok(blobs) => Ok((blobs, seen_timestamp)),
-                    Err(e) => Err(e.into()),
+                    Err(RpcResponseError::VerifyError(
+                        LookupVerifyError::InternalError(
+                            "Requested blobs for a block that has no blobs".to_string(),
+                        ),
+                    ))
                 }
             })
         });

@@ -93,7 +93,7 @@ pub static SIGNED_BEACON_BLOCK_DENEB_MAX: LazyLock<usize> = LazyLock::new(|| {
     *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
-    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * MAX_BLOBS_PER_BLOCK_CEILING as usize)
+    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * MainnetEthSpec::default_spec().max_blobs_per_block_by_fork(ForkName::Deneb) as usize)
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
     //
@@ -101,7 +101,7 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
-    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * MAX_BLOBS_PER_BLOCK_CEILING as usize)
+    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * MainnetEthSpec::default_spec().max_blobs_per_block_by_fork(ForkName::Electra) as usize)
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
 
@@ -603,8 +603,10 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
-            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(),
-            Protocol::DataColumnsByRange => rpc_data_column_limits::<E>(),
+            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(fork_context.current_fork()),
+            Protocol::DataColumnsByRange => {
+                rpc_data_column_limits::<E>(fork_context.current_fork())
+            }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -684,10 +686,12 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     }
 }
 
-pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
+pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName) -> RpcLimits {
     RpcLimits::new(
         DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
-        DataColumnSidecar::<E>::max_size(MAX_BLOBS_PER_BLOCK_CEILING as usize),
+        DataColumnSidecar::<E>::max_size(
+            E::default_spec().max_blobs_per_block_by_fork(fork_name) as usize
+        ),
     )
 }
 
@@ -786,13 +790,13 @@ impl<E: EthSpec> RequestType<E> {
     /* These functions are used in the handler for stream management */
 
     /// Maximum number of responses expected for this request.
-    pub fn max_responses(&self) -> u64 {
+    pub fn max_responses(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
         match self {
             RequestType::Status(_) => 1,
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
-            RequestType::BlobsByRange(req) => req.max_blobs_requested::<E>(),
+            RequestType::BlobsByRange(req) => req.max_blobs_requested(current_fork, spec),
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
             RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),

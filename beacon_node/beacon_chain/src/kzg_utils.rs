@@ -255,6 +255,7 @@ pub fn reconstruct_blobs<E: EthSpec>(
     data_columns: &[Arc<DataColumnSidecar<E>>],
     blob_indices_opt: Option<Vec<u64>>,
     signed_block: &SignedBlindedBeaconBlock<E>,
+    spec: &ChainSpec,
 ) -> Result<BlobSidecarList<E>, String> {
     // The data columns are from the database, so we assume their correctness.
     let first_data_column = data_columns
@@ -317,10 +318,11 @@ pub fn reconstruct_blobs<E: EthSpec>(
             .map(Arc::new)
             .map_err(|e| format!("{e:?}"))
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .into();
+        .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(blob_sidecars)
+    let max_blobs = spec.max_blobs_per_block(signed_block.epoch()) as usize;
+
+    BlobSidecarList::new(blob_sidecars, max_blobs).map_err(|e| format!("{e:?}"))
 }
 
 /// Reconstruct all data columns from a subset of data column sidecars (requires at least 50%).
@@ -480,6 +482,7 @@ mod test {
             &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
             Some(blob_indices.clone()),
             &signed_blinded_block,
+            spec,
         )
         .unwrap();
 

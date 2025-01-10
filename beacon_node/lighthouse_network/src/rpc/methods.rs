@@ -15,6 +15,7 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
+use types::ForkName;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
     Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
@@ -24,13 +25,6 @@ use types::{
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
 pub const MAX_ERROR_LEN: u64 = 256;
-
-/// The max number of blobs we expect in the configs to set for compile time params.
-/// Note: This value is an estimate that we should use only for rate limiting,
-/// bounds checking and other non-consensus critical operations.
-///
-/// For exact value, we should always check the chainspec.
-pub const MAX_BLOBS_PER_BLOCK_CEILING: u64 = 16;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
@@ -334,13 +328,9 @@ pub struct BlobsByRangeRequest {
 }
 
 impl BlobsByRangeRequest {
-    /// This function provides an upper bound on number of blobs expected in
-    /// a certain slot range.
-    ///
-    /// Note: **must not** use for anything consensus critical, only for
-    /// bounds checking and rate limiting.
-    pub fn max_blobs_requested<E: EthSpec>(&self) -> u64 {
-        self.count.saturating_mul(MAX_BLOBS_PER_BLOCK_CEILING)
+    pub fn max_blobs_requested(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
+        let max_blobs_per_block = spec.max_blobs_per_block_by_fork(current_fork);
+        self.count.saturating_mul(max_blobs_per_block)
     }
 }
 
@@ -861,18 +851,5 @@ impl slog::KV for StatusMessage {
         Value::serialize(&self.head_slot, record, "head_slot", serializer)?;
         serializer.emit_arguments("head_root", &format_args!("{}", self.head_root))?;
         slog::Result::Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use types::{ForkName, MainnetEthSpec};
-
-    #[test]
-    fn max_blobs_per_block_ceiling() {
-        let spec = MainnetEthSpec::default_spec();
-        let latest_fork = ForkName::latest();
-        assert!(spec.max_blobs_per_block_by_fork(latest_fork) <= MAX_BLOBS_PER_BLOCK_CEILING);
     }
 }

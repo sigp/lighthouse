@@ -1,4 +1,7 @@
-/// Emulates a SSZ `Vector`.
+//! Emulates a fixed size array but with the length set at runtime.
+//!
+//! The length of the list cannot be changed once it is set.
+
 #[derive(Clone, Debug)]
 pub struct RuntimeFixedVector<T> {
     vec: Vec<T>,

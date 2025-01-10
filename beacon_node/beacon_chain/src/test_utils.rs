@@ -742,15 +742,15 @@ where
     pub fn get_head_block(&self) -> RpcBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
-        let blobs = self.chain.get_blobs(&block_root).unwrap();
-        RpcBlock::new(Some(block_root), block, Some(blobs)).unwrap()
+        let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
+        RpcBlock::new(Some(block_root), block, blobs).unwrap()
     }
 
     pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
         let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
-        let blobs = self.chain.get_blobs(block_root).unwrap();
-        RpcBlock::new(Some(*block_root), Arc::new(full_block), Some(blobs)).unwrap()
+        let blobs = self.chain.get_blobs(block_root).unwrap().blobs();
+        RpcBlock::new(Some(*block_root), Arc::new(full_block), blobs).unwrap()
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {

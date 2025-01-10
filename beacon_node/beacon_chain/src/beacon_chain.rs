@@ -117,7 +117,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
-    DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+    BlobSidecarListFromRoot, DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore,
+    KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::sync::mpsc::Receiver;
@@ -1147,9 +1148,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<BlobSidecarList<T::EthSpec>, Error> {
+    ) -> Result<BlobSidecarListFromRoot<T::EthSpec>, Error> {
         self.early_attester_cache
             .get_blobs(*block_root)
+            .map(Into::into)
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
@@ -1240,11 +1242,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Errors
     /// May return a database error.
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobSidecarList<T::EthSpec>, Error> {
-        match self.store.get_blobs(block_root)? {
-            Some(blobs) => Ok(blobs),
-            None => Ok(BlobSidecarList::empty_uninitialized()),
-        }
+    pub fn get_blobs(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<BlobSidecarListFromRoot<T::EthSpec>, Error> {
+        self.store.get_blobs(block_root).map_err(Error::from)
     }
 
     /// Returns the data columns at the given root, if any.
