@@ -2923,10 +2923,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         Ok(verified) => {
                             let commitments_formatted = verified.block.commitments_formatted();
                             debug!(
-                                graffiti = %graffiti_string,
+                                graffiti = graffiti_string,
                                 %slot,
                                 root = ?verified.block_root(),
-                                commitments = %commitments_formatted,
+                                commitments = commitments_formatted,
                                 "Successfully verified gossip block"
                             );
 
@@ -4244,7 +4244,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     debug!(
                         error = ?e,
                         epoch = %a.data().target.epoch,
-                        %validator_index,
+                        validator_index,
                         "Failed to register observed block attester"
                     )
                 }
@@ -4709,7 +4709,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if proposer_head != head_block_root && proposer_head != head_parent_block_root {
             warn!(
                 block_root = ?proposer_head,
-                head_block_root =?head_block_root,
+                head_block_root = ?head_block_root,
                 "Unable to compute payload attributes"
             );
             return Ok(None);
@@ -5834,7 +5834,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Err(e) = fork_choice_result {
             crit!(
                 error = ?e,
-                latest_valid_ancestor=?op.latest_valid_ancestor(),
+                latest_valid_ancestor = ?op.latest_valid_ancestor(),
                 block_root = ?op.block_root(),
                 "Failed to process invalid payload"
             );
@@ -6445,7 +6445,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
         let finalized_checkpoint = state.finalized_checkpoint();
-        info!(weak_subjectivity_epoch = %wss_checkpoint.epoch, weak_subjectivity_root = ?wss_checkpoint.root,"Verifying the configured weak subjectivity checkpoint");
+        info!(
+            weak_subjectivity_epoch = %wss_checkpoint.epoch,
+            weak_subjectivity_root = ?wss_checkpoint.root,
+            "Verifying the configured weak subjectivity checkpoint"
+        );
         // If epochs match, simply compare roots.
         if wss_checkpoint.epoch == finalized_checkpoint.epoch
             && wss_checkpoint.root != finalized_checkpoint.root
@@ -6467,7 +6471,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Some(root) => {
                     if root != wss_checkpoint.root {
                         crit!(
-                            weak_subjectivity_root =?wss_checkpoint.root,
+                            weak_subjectivity_root = ?wss_checkpoint.root,
                             finalized_checkpoint_root = ?finalized_checkpoint.root,
                              "Root found at the specified checkpoint differs"
                         );
@@ -6475,7 +6479,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                 }
                 None => {
-                    crit!(wss_checkpoint_slot = ?slot, "The root at the start slot of the given epoch could not be found");
+                    crit!(
+                        wss_checkpoint_slot = ?slot,
+                        "The root at the start slot of the given epoch could not be found"
+                    );
                     return Err(BeaconChainError::WeakSubjectivtyVerificationFailure);
                 }
             }

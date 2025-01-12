@@ -194,7 +194,7 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
                 debug!("Engine version cache refresh service firing");
 
                 match execution_layer.get_engine_version(None).await {
-                    Err(e) => warn!( error = ?e,"Failed to populate engine version cache"),
+                    Err(e) => warn!( error = ?e, "Failed to populate engine version cache"),
                     Ok(versions) => {
                         if versions.is_empty() {
                             // Empty array indicates the EL doesn't support the method
@@ -285,7 +285,10 @@ mod tests {
         let graffiti_str =
             std::str::from_utf8(graffiti_slice).expect("bytes should convert nicely to ascii");
 
-        info!(lighthouse_version = lighthouse_version::VERSION, graffiti_str = %graffiti_str, "results");
+        info!(
+            lighthouse_version = lighthouse_version::VERSION,
+            graffiti_str, "results"
+        );
         println!("lighthouse_version: '{}'", lighthouse_version::VERSION);
         println!("graffiti_str:       '{}'", graffiti_str);
 
@@ -322,7 +325,7 @@ mod tests {
             std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
                 .expect("bytes should convert nicely to ascii");
 
-        info!(%expected_graffiti_string, %found_graffiti_string, "results");
+        info!(expected_graffiti_string, found_graffiti_string, "results");
         println!("expected_graffiti_string: '{}'", expected_graffiti_string);
         println!("found_graffiti_string:    '{}'", found_graffiti_string);
 

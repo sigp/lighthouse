@@ -817,7 +817,7 @@ mod test {
                 .expect("should be deneb fork")
                 .clone(),
         ) {
-            info!(commitment = ?comm ,"kzg commitment");
+            info!(commitment = ?comm, "kzg commitment");
         }
         info!("done printing kzg commitments");
 

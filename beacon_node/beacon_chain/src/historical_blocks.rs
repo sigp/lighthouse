@@ -85,8 +85,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if blocks_to_import.len() != total_blocks {
             debug!(
-                oldest_block_slot = ?anchor_info.oldest_block_slot,
-                ?total_blocks,
+                oldest_block_slot = %anchor_info.oldest_block_slot,
+                total_blocks,
                 ignored = total_blocks.saturating_sub(blocks_to_import.len()),
                 "Ignoring some historic blocks"
             );

@@ -351,10 +351,6 @@ where
             (),
         );
 
-        // let log = self
-        //     .log
-        //     .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
-
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),

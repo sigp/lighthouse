@@ -486,8 +486,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
 
         debug!(
-            old_finalized_epoch = ?old_finalized_checkpoint.epoch,
-            new_finalized_epoch = ?new_finalized_checkpoint.epoch,
+            old_finalized_epoch = %old_finalized_checkpoint.epoch,
+            new_finalized_epoch = %new_finalized_checkpoint.epoch,
             "Starting database pruning"
         );
         // For each slot between the new finalized checkpoint and the old finalized checkpoint,

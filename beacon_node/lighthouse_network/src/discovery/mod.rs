@@ -1046,7 +1046,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             */
                         }
                         discv5::Event::SocketUpdated(socket_addr) => {
-                            info!( ip = %socket_addr.ip(), udp_port = %socket_addr.port(),"Address updated");
+                            info!(ip = %socket_addr.ip(), udp_port = %socket_addr.port(),"Address updated");
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.

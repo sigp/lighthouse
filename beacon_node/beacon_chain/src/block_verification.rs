@@ -917,7 +917,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             let (mut parent, block) = load_parent(block, chain)?;
 
             debug!(
-                parent_root = %parent.beacon_block_root,
+                parent_root = ?parent.beacon_block_root,
                 parent_slot = %parent.beacon_block.slot(),
                 ?block_root,
                 block_slot = %block.slot(),

@@ -615,7 +615,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             sent = n_sent,
             succeeded = n_success,
             failed = (n_sent - n_success),
-            ?engine_requests,
+            engine_requests,
             "BeaconBlockStreamer finished"
         );
     }

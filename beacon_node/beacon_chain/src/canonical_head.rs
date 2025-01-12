@@ -1422,13 +1422,13 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
         } else {
             debug!(
                 block_root = ?head_block_root,
-                proposer_index= head_block_proposer_index,
+                proposer_index = head_block_proposer_index,
                 slot = %head_block_slot,
                 total_delay_ms = block_delay_total.as_millis(),
                 observed_delay_ms = format_delay(&block_delays.observed),
                 blob_delay_ms = format_delay(&block_delays.all_blobs_observed),
-                consensus_time_ms =format_delay(&block_delays.consensus_verification_time),
-                execution_time_ms= format_delay(&block_delays.execution_time),
+                consensus_time_ms = format_delay(&block_delays.consensus_verification_time),
+                execution_time_ms = format_delay(&block_delays.execution_time),
                 available_delay_ms = format_delay(&block_delays.available),
                 attestable_delay_ms = format_delay(&block_delays.attestable),
                 imported_time_ms = format_delay(&block_delays.imported),

@@ -594,7 +594,7 @@ impl<E: EthSpec> PeerDB<E> {
                 .checked_duration_since(Instant::now())
                 .map(|duration| duration.as_secs())
                 .unwrap_or_else(|| 0);
-            debug!(%peer_id, future_min_ttl_secs = min_ttl_secs,"Updating the time a peer is required for");
+            debug!(%peer_id, future_min_ttl_secs = min_ttl_secs, "Updating the time a peer is required for");
         }
     }
 
@@ -633,7 +633,7 @@ impl<E: EthSpec> PeerDB<E> {
                     .checked_duration_since(Instant::now())
                     .map(|duration| duration.as_secs())
                     .unwrap_or_else(|| 0);
-                trace!(%peer_id,min_ttl_secs,"Updating minimum duration a peer is required for");
+                trace!(%peer_id, min_ttl_secs, "Updating minimum duration a peer is required for");
             });
     }
 
@@ -1076,7 +1076,7 @@ impl<E: EthSpec> PeerDB<E> {
                 self.banned_peers_count = BannedPeersCount::default();
                 None
             } {
-                debug!(%to_drop, "Removing old banned peer");
+                debug!(peer_id = %to_drop, "Removing old banned peer");
                 self.peers.remove(&to_drop);
                 unbanned_peers.push((to_drop, unbanned_ips))
             }
@@ -1095,7 +1095,11 @@ impl<E: EthSpec> PeerDB<E> {
                 .min_by_key(|(_, age)| *age)
                 .map(|(id, _)| *id)
             {
-                debug!(peer_id = %to_drop, disconnected_size = self.disconnected_peers.saturating_sub(1),"Removing old disconnected peer");
+                debug!(
+                    peer_id = %to_drop,
+                    disconnected_size = self.disconnected_peers.saturating_sub(1),
+                    "Removing old disconnected peer"
+                );
                 self.peers.remove(&to_drop);
             }
             // If there is no minimum, this is a coding error. For safety we decrease
@@ -1119,7 +1123,12 @@ impl<E: EthSpec> PeerDB<E> {
                 ScoreTransitionResult::Banned
             }
             (ScoreState::ForcedDisconnect, ScoreState::Banned | ScoreState::Healthy) => {
-                debug!(%peer_id, score = %info.score(), past_score_state = %previous_state, "Peer transitioned to forced disconnect score state");
+                debug!(
+                    %peer_id,
+                    score = %info.score(),
+                    past_score_state = %previous_state,
+                    "Peer transitioned to forced disconnect score state"
+                );
                 // disconnect the peer if it's currently connected or dialing
                 if info.is_connected_or_dialing() {
                     ScoreTransitionResult::Disconnected
@@ -1132,11 +1141,21 @@ impl<E: EthSpec> PeerDB<E> {
                 }
             }
             (ScoreState::Healthy, ScoreState::ForcedDisconnect) => {
-                debug!(%peer_id, score = %info.score(), past_score_state = %previous_state, "Peer transitioned to healthy score state");
+                debug!(
+                    %peer_id,
+                    score = %info.score(),
+                    past_score_state = %previous_state,
+                    "Peer transitioned to healthy score state"
+                );
                 ScoreTransitionResult::NoAction
             }
             (ScoreState::Healthy, ScoreState::Banned) => {
-                debug!( %peer_id, score = %info.score(), past_score_state = %previous_state, "Peer transitioned to healthy score state");
+                debug!(
+                    %peer_id,
+                    score = %info.score(),
+                    past_score_state = %previous_state,
+                    "Peer transitioned to healthy score state"
+                );
                 // unban the peer if it was previously banned.
                 ScoreTransitionResult::Unbanned
             }

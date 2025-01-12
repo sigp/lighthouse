@@ -296,7 +296,7 @@ where
         let Some(inbound_info) = self.inbound_substreams.get_mut(&inbound_id) else {
             if !matches!(response, RpcResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
-                trace!(%response, id = ?inbound_id,"Inbound stream has expired. Response not sent");
+                trace!(%response, id = ?inbound_id, "Inbound stream has expired. Response not sent");
             }
             return;
         };

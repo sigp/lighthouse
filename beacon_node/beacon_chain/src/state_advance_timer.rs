@@ -187,7 +187,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                         Err(Error::MaxDistanceExceeded {
                             current_slot,
                             head_slot,
-                        }) => debug!(?head_slot, ?current_slot, "Refused to advance head state"),
+                        }) => debug!(%head_slot, %current_slot, "Refused to advance head state"),
                         other => warn!(
                             reason = ?other,
                             "Did not advance head state"

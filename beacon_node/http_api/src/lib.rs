@@ -60,7 +60,6 @@ pub use publish_blocks::{
     publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
 };
 use serde::{Deserialize, Serialize};
-
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
@@ -2157,7 +2156,7 @@ pub fn serve<T: BeaconChainTypes>(
                             }
                             Err(e) => {
                                 warn!(
-                                    %validator_index,
+                                    validator_index,
                                     reason = ?e,
                                     source = "HTTP",
                                     "Invalid BLS to execution change"
@@ -3452,7 +3451,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     request_index = index,
                                     aggregator_index = aggregate.message().aggregator_index(),
                                     attestation_index = aggregate.message().aggregate().committee_index(),
-                                    attestation_slot = ?aggregate.message().aggregate().data().slot,
+                                    attestation_slot = %aggregate.message().aggregate().data().slot,
                                     "Failure verifying aggregate and proofs"
                                 );
                                 failures.push(api_types::Failure::new(index, format!("Verification: {:?}", e)));
@@ -3473,7 +3472,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 request_index = index,
                                 aggregator_index = verified_aggregate.aggregate().message().aggregator_index(),
                                 attestation_index = verified_aggregate.attestation().committee_index(),
-                                attestation_slot = ?verified_aggregate.attestation().data().slot,
+                                attestation_slot = %verified_aggregate.attestation().data().slot,
                                     "Failure applying verified aggregate attestation to fork choice"
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));

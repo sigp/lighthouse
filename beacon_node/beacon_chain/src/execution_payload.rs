@@ -198,7 +198,7 @@ async fn notify_new_payload<T: BeaconChainTypes>(
                     ?validation_error,
                     ?execution_block_hash,
                     root = ?block.tree_hash_root(),
-                    graffiti =block.body().graffiti().as_utf8_lossy(),
+                    graffiti = block.body().graffiti().as_utf8_lossy(),
                     proposer_index = block.proposer_index(),
                     slot = %block.slot(),
                     method = "new_payload",

@@ -527,7 +527,12 @@ impl<E: EthSpec> Network<E> {
             bandwidth_config = format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name),
             "Libp2p Starting"
         );
-        debug!(listen_addrs = ?config.listen_addrs(),discovery_enabled = !config.disable_discovery, quic_enabled = !config.disable_quic_support,"Attempting to open listening ports");
+        debug!(
+            listen_addrs = ?config.listen_addrs(),
+            discovery_enabled = !config.disable_discovery,
+            quic_enabled = !config.disable_quic_support,
+            "Attempting to open listening ports"
+        );
 
         for listen_multiaddr in config.listen_addrs().libp2p_addresses() {
             // If QUIC is disabled, ignore listening on QUIC ports
@@ -624,12 +629,12 @@ impl<E: EthSpec> Network<E> {
             if self.subscribe_kind(topic_kind.clone()) {
                 subscribed_topics.push(topic_kind.clone());
             } else {
-                warn!(topic = %topic_kind,"Could not subscribe to topic");
+                warn!(topic = %topic_kind, "Could not subscribe to topic");
             }
         }
 
         if !subscribed_topics.is_empty() {
-            info!(topics = ?subscribed_topics,"Subscribed to topics");
+            info!(topics = ?subscribed_topics, "Subscribed to topics");
         }
 
         Ok(())
@@ -863,9 +868,9 @@ impl<E: EthSpec> Network<E> {
                 .gossipsub_mut()
                 .set_topic_params(libp2p_topic, new_param.clone())
             {
-                Ok(_) => debug!(%topic,"Removed topic weight"),
+                Ok(_) => debug!(%topic, "Removed topic weight"),
                 Err(e) => {
-                    warn!(%topic, error = e,"Failed to remove topic weight")
+                    warn!(%topic, error = e, "Failed to remove topic weight")
                 }
             }
         }
@@ -905,11 +910,11 @@ impl<E: EthSpec> Network<E> {
 
         match self.gossipsub_mut().subscribe(&topic) {
             Err(e) => {
-                warn!(%topic, error = ?e,"Failed to subscribe to topic");
+                warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
             }
             Ok(_) => {
-                debug!(%topic,"Subscribed to topic");
+                debug!(%topic, "Subscribed to topic");
                 true
             }
         }
@@ -934,12 +939,12 @@ impl<E: EthSpec> Network<E> {
 
         match self.gossipsub_mut().unsubscribe(&libp2p_topic) {
             Err(_) => {
-                warn!(topic = %libp2p_topic,"Failed to unsubscribe from topic");
+                warn!(topic = %libp2p_topic, "Failed to unsubscribe from topic");
                 false
             }
             Ok(v) => {
                 // Inform the network
-                debug!(%topic,"Unsubscribed to topic");
+                debug!(%topic, "Unsubscribed to topic");
                 v
             }
         }
@@ -1042,7 +1047,12 @@ impl<E: EthSpec> Network<E> {
             propagation_source,
             validation_result,
         ) {
-            warn!(%message_id, peer_id = %propagation_source, error = ?e,"Failed to report message validation");
+            warn!(
+                %message_id,
+                peer_id = %propagation_source,
+                error = ?e,
+                "Failed to report message validation"
+            );
         }
     }
 
@@ -1504,7 +1514,12 @@ impl<E: EthSpec> Network<E> {
                             &propagation_source,
                             MessageAcceptance::Reject,
                         ) {
-                            warn!(message_id = %id, peer_id = %propagation_source, error = ?e,"Failed to report message validation");
+                            warn!(
+                                message_id = %id,
+                                peer_id = %propagation_source,
+                                error = ?e,
+                                "Failed to report message validation"
+                            );
                         }
                     }
                     Ok(msg) => {
@@ -1592,10 +1607,17 @@ impl<E: EthSpec> Network<E> {
                 peer_id,
                 failed_messages,
             } => {
-                debug!(peer_id = %peer_id, publish = failed_messages.publish, forward = failed_messages.forward, priority = failed_messages.priority, non_priority = failed_messages.non_priority, "Slow gossipsub peer");
+                debug!(
+                    peer_id = %peer_id,
+                    publish = failed_messages.publish,
+                    forward = failed_messages.forward,
+                    priority = failed_messages.priority,
+                    non_priority = failed_messages.non_priority,
+                    "Slow gossipsub peer"
+                );
                 // Punish the peer if it cannot handle priority messages
                 if failed_messages.total_timeout() > 10 {
-                    debug!(%peer_id,"Slow gossipsub peer penalized for priority failure");
+                    debug!(%peer_id, "Slow gossipsub peer penalized for priority failure");
                     self.peer_manager_mut().report_peer(
                         &peer_id,
                         PeerAction::HighToleranceError,
@@ -1989,7 +2011,7 @@ impl<E: EthSpec> Network<E> {
                 None
             }
             PeerManagerEvent::DisconnectPeer(peer_id, reason) => {
-                debug!(%peer_id, %reason,"Peer Manager disconnecting peer");
+                debug!(%peer_id, %reason, "Peer Manager disconnecting peer");
                 // send one goodbye
                 self.eth2_rpc_mut()
                     .shutdown(peer_id, RequestId::Internal, reason);

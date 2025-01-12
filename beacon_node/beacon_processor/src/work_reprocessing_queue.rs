@@ -759,7 +759,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             hint = "system may be overloaded",
                             ?block_root,
                             failed_to_send_count,
-                            ?sent_count,
+                            sent_count,
                             "Ignored scheduled sampling requests for block"
                         );
                     }
