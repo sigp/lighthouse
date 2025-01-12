@@ -1223,8 +1223,9 @@ async fn verify_block_for_gossip_slashing_detection() {
     create_test_tracing_subscriber();
     let slasher_dir = tempdir().unwrap();
     let spec = Arc::new(test_spec::<E>());
-    let slasher =
-        Arc::new(Slasher::open(SlasherConfig::new(slasher_dir.path().into()), spec.clone()).unwrap());
+    let slasher = Arc::new(
+        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), spec.clone()).unwrap(),
+    );
 
     let inner_slasher = slasher.clone();
     let harness = BeaconChainHarness::builder(MainnetEthSpec)

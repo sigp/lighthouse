@@ -28,7 +28,6 @@ hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
-tracing = { workspace = true }
 maplit = { workspace = true }
 merkle_proof = { workspace = true }
 metastruct = "0.1.0"
@@ -50,6 +49,7 @@ superstruct = { workspace = true }
 swap_or_not_shuffle = { workspace = true, features = ["arbitrary"] }
 tempfile = { workspace = true }
 test_random_derive = { path = "../../common/test_random_derive" }
+tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 
