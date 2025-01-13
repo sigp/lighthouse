@@ -42,8 +42,8 @@ use tokio::sync::mpsc;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, Epoch, EthSpec, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkName, Hash256,
+    MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -54,7 +54,7 @@ type DCByRootIds = Vec<DCByRootId>;
 type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
 impl TestRig {
-    fn test_setup() -> Self {
+    pub fn test_setup() -> Self {
         let logger_type = if cfg!(feature = "test_logger") {
             LoggerType::Test
         } else if cfg!(feature = "ci_logger") {
