@@ -185,8 +185,8 @@ pub fn cli_app() -> Command {
                 .long("port6")
                 .value_name("PORT")
                 .help("The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and \
-                      IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.")
-                .default_value("9090")
+                      IPv6. Defaults to 9000. The Quic UDP port will be set to this value + 1.")
+                .default_value("9000")
                 .action(ArgAction::Set)
                 .display_order(0)
         )

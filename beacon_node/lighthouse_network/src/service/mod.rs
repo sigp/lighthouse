@@ -197,6 +197,11 @@ impl<E: EthSpec> Network<E> {
             &ctx.chain_spec,
         )?;
 
+        // Pre-initializes metrics
+        // This is is an initial value to specify NAT ports start closed until proven otherwise.
+        set_gauge_vec(&NAT_OPEN, &["libp2p_ipv4"], 0),
+        set_gauge_vec(&NAT_OPEN, &["libp2p_ipv6"], 0),
+
         // Construct the metadata
         let custody_subnet_count = ctx.chain_spec.is_peer_das_scheduled().then(|| {
             if config.subscribe_all_data_column_subnets {
