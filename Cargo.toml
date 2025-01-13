@@ -298,5 +298,12 @@ lto = "fat"
 codegen-units = 1
 incremental = false
 
+[profile.reproducible]
+inherits = "release"
+debug = false
+panic = "abort"
+codegen-units = 1
+overflow-checks = true
+
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }
