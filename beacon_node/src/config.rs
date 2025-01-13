@@ -934,10 +934,9 @@ pub fn parse_listening_addresses(
         .map_err(|parse_error| format!("Failed to parse --port as an integer: {parse_error}"))?;
     let port6 = cli_args
         .get_one::<String>("port6")
-        .map(|s| str::parse::<u16>(s))
-        .transpose()
-        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?
-        .unwrap_or(9090);
+        .expect("--port6 has a default value")
+        .parse::<u16>()
+        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?;
 
     // parse the possible discovery ports.
     let maybe_disc_port = cli_args
@@ -1070,7 +1069,7 @@ pub fn parse_listening_addresses(
                     ipv4_tcp_port + 1
                 });
 
-            // Defaults to 9090 when required
+            // Defaults to 9000 when required
             let ipv6_tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp6_port)
                 .transpose()?
