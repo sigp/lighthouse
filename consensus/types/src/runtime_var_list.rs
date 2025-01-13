@@ -2,13 +2,15 @@ use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_types::Error;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
 
 /// Emulates a SSZ `List`.
 ///
 /// An ordered, heap-allocated, variable-length, homogeneous collection of `T`, with no more than
 /// `max_len` values.
+///
+/// To ensure there are no inconsistent states, we do not allow any mutating operation if `max_len` is not set.
 ///
 /// ## Example
 ///
@@ -35,6 +37,7 @@ use std::slice::SliceIndex;
 ///
 /// // Push a value to if it _does_ exceed the maximum.
 /// assert!(long.push(6).is_err());
+///
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
@@ -65,7 +68,7 @@ impl<T> RuntimeVariableList<T> {
         Self { vec, max_len }
     }
 
-    /// Create an empty list.
+    /// Create an empty list with the given `max_len`.
     pub fn empty(max_len: usize) -> Self {
         Self {
             vec: vec![],
@@ -75,6 +78,10 @@ impl<T> RuntimeVariableList<T> {
 
     pub fn as_slice(&self) -> &[T] {
         self.vec.as_slice()
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        self.vec.as_mut_slice()
     }
 
     /// Returns the number of values presently in `self`.
@@ -88,6 +95,8 @@ impl<T> RuntimeVariableList<T> {
     }
 
     /// Returns the type-level maximum length.
+    ///
+    /// Returns `None` if self is uninitialized with a max_len.
     pub fn max_len(&self) -> usize {
         self.max_len
     }
@@ -166,12 +175,6 @@ impl<T> Deref for RuntimeVariableList<T> {
 
     fn deref(&self) -> &[T] {
         &self.vec[..]
-    }
-}
-
-impl<T> DerefMut for RuntimeVariableList<T> {
-    fn deref_mut(&mut self) -> &mut [T] {
-        &mut self.vec[..]
     }
 }
 
