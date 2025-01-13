@@ -38,7 +38,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
         derive(
             Debug,
@@ -81,6 +81,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockDeneb<E, Payload>,
     #[superstruct(only(Electra), partial_getter(rename = "message_electra"))]
     pub message: BeaconBlockElectra<E, Payload>,
+    #[superstruct(only(Fulu), partial_getter(rename = "message_fulu"))]
+    pub message: BeaconBlockFulu<E, Payload>,
     pub signature: Signature,
 }
 
@@ -162,6 +164,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             }
             BeaconBlock::Electra(message) => {
                 SignedBeaconBlock::Electra(SignedBeaconBlockElectra { message, signature })
+            }
+            BeaconBlock::Fulu(message) => {
+                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu { message, signature })
             }
         }
     }
@@ -570,6 +575,64 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
     }
 }
 
+impl<E: EthSpec> SignedBeaconBlockFulu<E, BlindedPayload<E>> {
+    pub fn into_full_block(
+        self,
+        execution_payload: ExecutionPayloadFulu<E>,
+    ) -> SignedBeaconBlockFulu<E, FullPayload<E>> {
+        let SignedBeaconBlockFulu {
+            message:
+                BeaconBlockFulu {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body:
+                        BeaconBlockBodyFulu {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload: BlindedPayloadFulu { .. },
+                            bls_to_execution_changes,
+                            blob_kzg_commitments,
+                            execution_requests,
+                        },
+                },
+            signature,
+        } = self;
+        SignedBeaconBlockFulu {
+            message: BeaconBlockFulu {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root,
+                body: BeaconBlockBodyFulu {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload: FullPayloadFulu { execution_payload },
+                    bls_to_execution_changes,
+                    blob_kzg_commitments,
+                    execution_requests,
+                },
+            },
+            signature,
+        }
+    }
+}
+
 impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
     pub fn try_into_full_block(
         self,
@@ -590,12 +653,16 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Electra(block), Some(ExecutionPayload::Electra(payload))) => {
                 SignedBeaconBlock::Electra(block.into_full_block(payload))
             }
+            (SignedBeaconBlock::Fulu(block), Some(ExecutionPayload::Fulu(payload))) => {
+                SignedBeaconBlock::Fulu(block.into_full_block(payload))
+            }
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
             (SignedBeaconBlock::Bellatrix(_), _) => return None,
             (SignedBeaconBlock::Capella(_), _) => return None,
             (SignedBeaconBlock::Deneb(_), _) => return None,
             (SignedBeaconBlock::Electra(_), _) => return None,
+            (SignedBeaconBlock::Fulu(_), _) => return None,
         };
         Some(full_block)
     }
@@ -741,6 +808,9 @@ pub mod ssz_tagged_signed_beacon_block {
                 ForkName::Electra => Ok(SignedBeaconBlock::Electra(
                     SignedBeaconBlockElectra::from_ssz_bytes(body)?,
                 )),
+                ForkName::Fulu => Ok(SignedBeaconBlock::Fulu(
+                    SignedBeaconBlockFulu::from_ssz_bytes(body)?,
+                )),
             }
         }
     }
@@ -841,8 +911,9 @@ mod test {
             ),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Electra(BeaconBlockElectra::empty(spec)),
-                sig,
+                sig.clone(),
             ),
+            SignedBeaconBlock::from_block(BeaconBlock::Fulu(BeaconBlockFulu::empty(spec)), sig),
         ];
 
         for block in blocks {

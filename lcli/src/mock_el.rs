@@ -20,6 +20,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
     let shanghai_time = parse_required(matches, "shanghai-time")?;
     let cancun_time = parse_optional(matches, "cancun-time")?;
     let prague_time = parse_optional(matches, "prague-time")?;
+    let osaka_time = parse_optional(matches, "osaka-time")?;
 
     let handle = env.core_context().executor.handle().unwrap();
     let spec = Arc::new(E::default_spec());
@@ -38,6 +39,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
         shanghai_time: Some(shanghai_time),
         cancun_time,
         prague_time,
+        osaka_time,
     };
     let kzg = None;
     let server: MockServer<E> = MockServer::new_with_config(&handle, config, spec, kzg);

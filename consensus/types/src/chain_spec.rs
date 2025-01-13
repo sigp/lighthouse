@@ -194,6 +194,14 @@ pub struct ChainSpec {
     pub max_blobs_per_block_electra: u64,
 
     /*
+     * Fulu hard fork params
+     */
+    pub fulu_fork_version: [u8; 4],
+    /// The Fulu fork epoch is optional, with `None` representing "Fulu never happens".
+    pub fulu_fork_epoch: Option<Epoch>,
+    pub fulu_placeholder: u64,
+
+    /*
      * DAS params
      */
     pub eip7594_fork_epoch: Option<Epoch>,
@@ -315,17 +323,20 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.electra_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
-            _ => match self.deneb_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-                _ => match self.capella_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                    _ => match self.bellatrix_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
-                        _ => match self.altair_fork_epoch {
-                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                            _ => ForkName::Base,
+        match self.fulu_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Fulu,
+            _ => match self.electra_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
+                _ => match self.deneb_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
+                    _ => match self.capella_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                        _ => match self.bellatrix_fork_epoch {
+                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
+                            _ => match self.altair_fork_epoch {
+                                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                                _ => ForkName::Base,
+                            },
                         },
                     },
                 },
@@ -342,6 +353,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
+            ForkName::Fulu => self.fulu_fork_version,
         }
     }
 
@@ -354,6 +366,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
+            ForkName::Fulu => self.fulu_fork_epoch,
         }
     }
 
@@ -820,6 +833,13 @@ impl ChainSpec {
             max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
 
             /*
+             * Fulu hard fork params
+             */
+            fulu_fork_version: [0x06, 0x00, 0x00, 0x00],
+            fulu_fork_epoch: None,
+            fulu_placeholder: 0,
+
+            /*
              * DAS params
              */
             eip7594_fork_epoch: None,
@@ -935,6 +955,9 @@ impl ChainSpec {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+            // Fulu
+            fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
+            fulu_fork_epoch: None,
             // PeerDAS
             eip7594_fork_epoch: None,
             // Other
@@ -1141,6 +1164,13 @@ impl ChainSpec {
             max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
 
             /*
+             * Fulu hard fork params
+             */
+            fulu_fork_version: [0x06, 0x00, 0x00, 0x64],
+            fulu_fork_epoch: None,
+            fulu_placeholder: 0,
+
+            /*
              * DAS params
              */
             eip7594_fork_epoch: None,
@@ -1274,6 +1304,14 @@ pub struct Config {
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub electra_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
+    #[serde(default = "default_fulu_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    fulu_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub fulu_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
@@ -1414,6 +1452,11 @@ fn default_deneb_fork_version() -> [u8; 4] {
 }
 
 fn default_electra_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_fulu_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1691,6 +1734,11 @@ impl Config {
                 .electra_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            fulu_fork_version: spec.fulu_fork_version,
+            fulu_fork_epoch: spec
+                .fulu_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             eip7594_fork_epoch: spec
                 .eip7594_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
@@ -1776,6 +1824,8 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch,
             electra_fork_version,
+            fulu_fork_epoch,
+            fulu_fork_version,
             eip7594_fork_epoch,
             seconds_per_slot,
             seconds_per_eth1_block,
@@ -1841,6 +1891,8 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
             electra_fork_version,
+            fulu_fork_epoch: fulu_fork_epoch.map(|q| q.value),
+            fulu_fork_version,
             eip7594_fork_epoch: eip7594_fork_epoch.map(|q| q.value),
             seconds_per_slot,
             seconds_per_eth1_block,

@@ -374,19 +374,15 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header = state.latest_execution_payload_header()?;
     let latest_execution_payload_header_block_hash = latest_execution_payload_header.block_hash();
     let latest_execution_payload_header_gas_limit = latest_execution_payload_header.gas_limit();
-    let withdrawals = match state {
-        &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
-            Some(get_expected_withdrawals(state, spec)?.0.into())
-        }
-        &BeaconState::Bellatrix(_) => None,
-        // These shouldn't happen but they're here to make the pattern irrefutable
-        &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
+    let withdrawals = if state.fork_name_unchecked().capella_enabled() {
+        Some(get_expected_withdrawals(state, spec)?.0.into())
+    } else {
+        None
     };
-    let parent_beacon_block_root = match state {
-        BeaconState::Deneb(_) | BeaconState::Electra(_) => Some(parent_block_root),
-        BeaconState::Bellatrix(_) | BeaconState::Capella(_) => None,
-        // These shouldn't happen but they're here to make the pattern irrefutable
-        BeaconState::Base(_) | BeaconState::Altair(_) => None,
+    let parent_beacon_block_root = if state.fork_name_unchecked().deneb_enabled() {
+        Some(parent_block_root)
+    } else {
+        None
     };
 
     // Spawn a task to obtain the execution payload from the EL via a series of async calls. The

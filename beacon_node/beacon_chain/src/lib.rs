@@ -31,6 +31,7 @@ pub mod execution_payload;
 pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod fork_revert;
+pub mod fulu_readiness;
 pub mod graffiti_calculator;
 mod head_tracker;
 pub mod historical_blocks;

@@ -284,29 +284,22 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    match block_body {
-        BeaconBlockBodyRef::Base(_) => {
-            base::process_attestations(
-                state,
-                block_body.attestations(),
-                verify_signatures,
-                ctxt,
-                spec,
-            )?;
-        }
-        BeaconBlockBodyRef::Altair(_)
-        | BeaconBlockBodyRef::Bellatrix(_)
-        | BeaconBlockBodyRef::Capella(_)
-        | BeaconBlockBodyRef::Deneb(_)
-        | BeaconBlockBodyRef::Electra(_) => {
-            altair_deneb::process_attestations(
-                state,
-                block_body.attestations(),
-                verify_signatures,
-                ctxt,
-                spec,
-            )?;
-        }
+    if state.fork_name_unchecked().altair_enabled() {
+        altair_deneb::process_attestations(
+            state,
+            block_body.attestations(),
+            verify_signatures,
+            ctxt,
+            spec,
+        )?;
+    } else {
+        base::process_attestations(
+            state,
+            block_body.attestations(),
+            verify_signatures,
+            ctxt,
+            spec,
+        )?;
     }
     Ok(())
 }
