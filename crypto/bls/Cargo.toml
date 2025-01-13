@@ -6,18 +6,18 @@ edition = { workspace = true }
 
 [dependencies]
 alloy-primitives = { workspace = true }
-ethereum_ssz = { workspace = true }
-tree_hash = { workspace = true }
-rand = { workspace = true }
-serde = { workspace = true }
-ethereum_serde_utils = { workspace = true }
-hex = { workspace = true }
-ethereum_hashing = { workspace = true }
 arbitrary = { workspace = true }
-zeroize = { workspace = true }
 blst = { version = "0.3.3", optional = true }
-safe_arith = { workspace = true }
+ethereum_hashing = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+ethereum_ssz = { workspace = true }
 fixed_bytes = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+safe_arith = { workspace = true }
+serde = { workspace = true }
+tree_hash = { workspace = true }
+zeroize = { workspace = true }
 
 [features]
 arbitrary = []

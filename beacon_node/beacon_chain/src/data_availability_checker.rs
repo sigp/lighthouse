@@ -215,9 +215,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // Note: currently not reporting which specific blob is invalid because we fetch all blobs
         // from the same peer for both lookup and range sync.
 
-        let verified_blobs =
-            KzgVerifiedBlobList::new(blobs.iter().flatten().cloned(), &self.kzg, seen_timestamp)
-                .map_err(AvailabilityCheckError::InvalidBlobs)?;
+        let verified_blobs = KzgVerifiedBlobList::new(
+            blobs.into_vec().into_iter().flatten(),
+            &self.kzg,
+            seen_timestamp,
+        )
+        .map_err(AvailabilityCheckError::InvalidBlobs)?;
 
         self.availability_cache
             .put_kzg_verified_blobs(block_root, verified_blobs, &self.log)
@@ -400,14 +403,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
         let mut results = Vec::with_capacity(blocks.len());
-        let all_blobs: BlobSidecarList<T::EthSpec> = blocks
+        let all_blobs = blocks
             .iter()
             .filter(|block| self.blobs_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
             .filter_map(|block| block.blobs().cloned())
             .flatten()
-            .collect::<Vec<_>>()
-            .into();
+            .collect::<Vec<_>>();
 
         // verify kzg for all blobs at once
         if !all_blobs.is_empty() {
@@ -519,13 +521,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Returns true if the given epoch lies within the da boundary and false otherwise.
     pub fn da_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
         self.data_availability_boundary()
-            .map_or(false, |da_epoch| block_epoch >= da_epoch)
+            .is_some_and(|da_epoch| block_epoch >= da_epoch)
     }
 
     /// Returns `true` if the current epoch is greater than or equal to the `Deneb` epoch.
     pub fn is_deneb(&self) -> bool {
-        self.slot_clock.now().map_or(false, |slot| {
-            self.spec.deneb_fork_epoch.map_or(false, |deneb_epoch| {
+        self.slot_clock.now().is_some_and(|slot| {
+            self.spec.deneb_fork_epoch.is_some_and(|deneb_epoch| {
                 let now_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
                 now_epoch >= deneb_epoch
             })

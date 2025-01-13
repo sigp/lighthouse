@@ -17,4 +17,4 @@ types = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }
-logging = {workspace = true }
+logging = { workspace = true }

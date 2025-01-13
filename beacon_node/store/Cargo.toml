@@ -5,34 +5,34 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 beacon_chain = { workspace = true }
 criterion = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
+tempfile = { workspace = true }
 
 [dependencies]
+bls = { workspace = true }
 db-key = "0.0.5"
-leveldb = { version = "0.8" }
-parking_lot = { workspace = true }
-itertools = { workspace = true }
+directory = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+itertools = { workspace = true }
+leveldb = { version = "0.8" }
+logging = { workspace = true }
+lru = { workspace = true }
+metrics = { workspace = true }
+parking_lot = { workspace = true }
+safe_arith = { workspace = true }
+serde = { workspace = true }
+slog = { workspace = true }
+sloggers = { workspace = true }
+smallvec = { workspace = true }
+state_processing = { workspace = true }
+strum = { workspace = true }
 superstruct = { workspace = true }
 types = { workspace = true }
-safe_arith = { workspace = true }
-state_processing = { workspace = true }
-slog = { workspace = true }
-serde = { workspace = true }
-metrics = { workspace = true }
-lru = { workspace = true }
-sloggers = { workspace = true }
-directory = { workspace = true }
-strum = { workspace = true }
 xdelta3 = { workspace = true }
 zstd = { workspace = true }
-bls = { workspace = true }
-smallvec = { workspace = true }
-logging = { workspace = true }
 
 [[bench]]
 name = "hdiff"

@@ -128,6 +128,11 @@ pub struct ChainSpec {
     pub deposit_contract_address: Address,
 
     /*
+     * Execution Specs
+     */
+    pub gas_limit_adjustment_factor: u64,
+
+    /*
      * Altair hard fork params
      */
     pub inactivity_penalty_quotient_altair: u64,
@@ -188,6 +193,14 @@ pub struct ChainSpec {
     pub max_per_epoch_activation_exit_churn_limit: u64,
 
     /*
+     * Fulu hard fork params
+     */
+    pub fulu_fork_version: [u8; 4],
+    /// The Fulu fork epoch is optional, with `None` representing "Fulu never happens".
+    pub fulu_fork_epoch: Option<Epoch>,
+    pub fulu_placeholder: u64,
+
+    /*
      * DAS params
      */
     pub eip7594_fork_epoch: Option<Epoch>,
@@ -224,6 +237,7 @@ pub struct ChainSpec {
     pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
     pub blob_sidecar_subnet_count: u64,
+    max_blobs_per_block: u64,
 
     /*
      * Networking Derived
@@ -308,17 +322,20 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.electra_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
-            _ => match self.deneb_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-                _ => match self.capella_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                    _ => match self.bellatrix_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
-                        _ => match self.altair_fork_epoch {
-                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                            _ => ForkName::Base,
+        match self.fulu_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Fulu,
+            _ => match self.electra_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
+                _ => match self.deneb_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
+                    _ => match self.capella_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                        _ => match self.bellatrix_fork_epoch {
+                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
+                            _ => match self.altair_fork_epoch {
+                                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                                _ => ForkName::Base,
+                            },
                         },
                     },
                 },
@@ -335,6 +352,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
+            ForkName::Fulu => self.fulu_fork_version,
         }
     }
 
@@ -347,6 +365,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
+            ForkName::Fulu => self.fulu_fork_epoch,
         }
     }
 
@@ -415,16 +434,14 @@ impl ChainSpec {
 
     /// Returns true if the given epoch is greater than or equal to the `EIP7594_FORK_EPOCH`.
     pub fn is_peer_das_enabled_for_epoch(&self, block_epoch: Epoch) -> bool {
-        self.eip7594_fork_epoch.map_or(false, |eip7594_fork_epoch| {
-            block_epoch >= eip7594_fork_epoch
-        })
+        self.eip7594_fork_epoch
+            .is_some_and(|eip7594_fork_epoch| block_epoch >= eip7594_fork_epoch)
     }
 
     /// Returns true if `EIP7594_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
     pub fn is_peer_das_scheduled(&self) -> bool {
-        self.eip7594_fork_epoch.map_or(false, |eip7594_fork_epoch| {
-            eip7594_fork_epoch != self.far_future_epoch
-        })
+        self.eip7594_fork_epoch
+            .is_some_and(|eip7594_fork_epoch| eip7594_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns a full `Fork` struct for a given epoch.
@@ -600,6 +617,17 @@ impl ChainSpec {
         }
     }
 
+    /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for the fork at `epoch`.
+    pub fn max_blobs_per_block(&self, epoch: Epoch) -> u64 {
+        self.max_blobs_per_block_by_fork(self.fork_name_at_epoch(epoch))
+    }
+
+    /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for `fork`.
+    pub fn max_blobs_per_block_by_fork(&self, _fork_name: ForkName) -> u64 {
+        // TODO(electra): add Electra blobs per block change here
+        self.max_blobs_per_block
+    }
+
     pub fn data_columns_per_subnet(&self) -> usize {
         self.number_of_columns
             .safe_div(self.data_column_sidecar_subnet_count as usize)
@@ -716,6 +744,11 @@ impl ChainSpec {
                 .expect("chain spec deposit contract address"),
 
             /*
+             * Execution Specs
+             */
+            gas_limit_adjustment_factor: 1024,
+
+            /*
              * Altair hard fork params
              */
             inactivity_penalty_quotient_altair: option_wrapper(|| {
@@ -795,6 +828,13 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
 
             /*
+             * Fulu hard fork params
+             */
+            fulu_fork_version: [0x06, 0x00, 0x00, 0x00],
+            fulu_fork_epoch: None,
+            fulu_placeholder: 0,
+
+            /*
              * DAS params
              */
             eip7594_fork_epoch: None,
@@ -831,6 +871,7 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
+            max_blobs_per_block: default_max_blobs_per_block(),
 
             /*
              * Derived Deneb Specific
@@ -909,6 +950,9 @@ impl ChainSpec {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+            // Fulu
+            fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
+            fulu_fork_epoch: None,
             // PeerDAS
             eip7594_fork_epoch: None,
             // Other
@@ -1030,6 +1074,11 @@ impl ChainSpec {
                 .expect("chain spec deposit contract address"),
 
             /*
+             * Execution Specs
+             */
+            gas_limit_adjustment_factor: 1024,
+
+            /*
              * Altair hard fork params
              */
             inactivity_penalty_quotient_altair: option_wrapper(|| {
@@ -1109,6 +1158,13 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
 
             /*
+             * Fulu hard fork params
+             */
+            fulu_fork_version: [0x06, 0x00, 0x00, 0x64],
+            fulu_fork_epoch: None,
+            fulu_placeholder: 0,
+
+            /*
              * DAS params
              */
             eip7594_fork_epoch: None,
@@ -1144,6 +1200,7 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
+            max_blobs_per_block: default_max_blobs_per_block(),
 
             /*
              * Derived Deneb Specific
@@ -1242,6 +1299,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub electra_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_fulu_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    fulu_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub fulu_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
@@ -1284,6 +1349,10 @@ pub struct Config {
     deposit_network_id: u64,
     #[serde(with = "serde_utils::address_hex")]
     deposit_contract_address: Address,
+
+    #[serde(default = "default_gas_limit_adjustment_factor")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    gas_limit_adjustment_factor: u64,
 
     #[serde(default = "default_gossip_max_size")]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1333,6 +1402,9 @@ pub struct Config {
     #[serde(default = "default_blob_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     blob_sidecar_subnet_count: u64,
+    #[serde(default = "default_max_blobs_per_block")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_blobs_per_block: u64,
 
     #[serde(default = "default_min_per_epoch_churn_limit_electra")]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1375,6 +1447,11 @@ fn default_electra_fork_version() -> [u8; 4] {
     [0xff, 0xff, 0xff, 0xff]
 }
 
+fn default_fulu_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
 /// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
 ///
 /// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
@@ -1405,6 +1482,10 @@ fn default_attestation_subnet_prefix_bits() -> u8 {
 
 const fn default_max_per_epoch_activation_churn_limit() -> u64 {
     8
+}
+
+const fn default_gas_limit_adjustment_factor() -> u64 {
+    1024
 }
 
 const fn default_gossip_max_size() -> u64 {
@@ -1456,6 +1537,12 @@ const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
 }
 
 const fn default_blob_sidecar_subnet_count() -> u64 {
+    6
+}
+
+/// Its important to keep this consistent with the deneb preset value for
+/// `MAX_BLOBS_PER_BLOCK` else we might run into consensus issues.
+const fn default_max_blobs_per_block() -> u64 {
     6
 }
 
@@ -1634,6 +1721,11 @@ impl Config {
                 .electra_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            fulu_fork_version: spec.fulu_fork_version,
+            fulu_fork_epoch: spec
+                .fulu_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             eip7594_fork_epoch: spec
                 .eip7594_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
@@ -1659,6 +1751,8 @@ impl Config {
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
 
+            gas_limit_adjustment_factor: spec.gas_limit_adjustment_factor,
+
             gossip_max_size: spec.gossip_max_size,
             max_request_blocks: spec.max_request_blocks,
             min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
@@ -1674,6 +1768,7 @@ impl Config {
             max_request_data_column_sidecars: spec.max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
+            max_blobs_per_block: spec.max_blobs_per_block,
 
             min_per_epoch_churn_limit_electra: spec.min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit: spec
@@ -1715,6 +1810,8 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch,
             electra_fork_version,
+            fulu_fork_epoch,
+            fulu_fork_version,
             eip7594_fork_epoch,
             seconds_per_slot,
             seconds_per_eth1_block,
@@ -1733,6 +1830,7 @@ impl Config {
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            gas_limit_adjustment_factor,
             gossip_max_size,
             min_epochs_for_block_requests,
             max_chunk_size,
@@ -1748,6 +1846,7 @@ impl Config {
             max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
+            max_blobs_per_block,
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
@@ -1777,6 +1876,8 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
             electra_fork_version,
+            fulu_fork_epoch: fulu_fork_epoch.map(|q| q.value),
+            fulu_fork_version,
             eip7594_fork_epoch: eip7594_fork_epoch.map(|q| q.value),
             seconds_per_slot,
             seconds_per_eth1_block,
@@ -1794,6 +1895,7 @@ impl Config {
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            gas_limit_adjustment_factor,
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
@@ -1813,6 +1915,7 @@ impl Config {
             max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
+            max_blobs_per_block,
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,

@@ -1,5 +1,5 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
-use crate::{Config, ExecutionLayer, PayloadAttributes};
+use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
 use eth2::types::{BlobsBundle, BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER};
 use fork_choice::ForkchoiceUpdateParameters;
@@ -16,7 +16,7 @@ use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::builder_bid::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
-    SignedBuilderBid,
+    BuilderBidFulu, SignedBuilderBid,
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
@@ -54,6 +54,10 @@ impl Operation {
     }
 }
 
+pub fn mock_builder_extra_data<E: EthSpec>() -> types::VariableList<u8, E::MaxExtraDataBytes> {
+    "mock_builder".as_bytes().to_vec().into()
+}
+
 #[derive(Debug)]
 // We don't use the string value directly, but it's used in the Debug impl which is required by `warp::reject::Reject`.
 struct Custom(#[allow(dead_code)] String);
@@ -72,6 +76,8 @@ pub trait BidStuff<E: EthSpec> {
     fn set_withdrawals_root(&mut self, withdrawals_root: Hash256);
 
     fn sign_builder_message(&mut self, sk: &SecretKey, spec: &ChainSpec) -> Signature;
+
+    fn stamp_payload(&mut self);
 }
 
 impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
@@ -89,6 +95,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.fee_recipient = fee_recipient;
             }
+            ExecutionPayloadHeaderRefMut::Fulu(header) => {
+                header.fee_recipient = fee_recipient;
+            }
         }
     }
 
@@ -104,6 +113,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.gas_limit = gas_limit;
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.gas_limit = gas_limit;
+            }
+            ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.gas_limit = gas_limit;
             }
         }
@@ -127,6 +139,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
             }
+            ExecutionPayloadHeaderRefMut::Fulu(header) => {
+                header.parent_hash = ExecutionBlockHash::from_root(parent_hash);
+            }
         }
     }
 
@@ -142,6 +157,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.prev_randao = prev_randao;
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.prev_randao = prev_randao;
+            }
+            ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.prev_randao = prev_randao;
             }
         }
@@ -161,6 +179,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.block_number = block_number;
             }
+            ExecutionPayloadHeaderRefMut::Fulu(header) => {
+                header.block_number = block_number;
+            }
         }
     }
 
@@ -176,6 +197,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
                 header.timestamp = timestamp;
             }
             ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.timestamp = timestamp;
+            }
+            ExecutionPayloadHeaderRefMut::Fulu(header) => {
                 header.timestamp = timestamp;
             }
         }
@@ -195,6 +219,9 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
             ExecutionPayloadHeaderRefMut::Electra(header) => {
                 header.withdrawals_root = withdrawals_root;
             }
+            ExecutionPayloadHeaderRefMut::Fulu(header) => {
+                header.withdrawals_root = withdrawals_root;
+            }
         }
     }
 
@@ -202,6 +229,33 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
         let domain = spec.get_builder_domain();
         let message = self.signing_root(domain);
         sk.sign(message)
+    }
+
+    // this helps differentiate a builder block from a regular block
+    fn stamp_payload(&mut self) {
+        let extra_data = mock_builder_extra_data::<E>();
+        match self.to_mut().header_mut() {
+            ExecutionPayloadHeaderRefMut::Bellatrix(header) => {
+                header.extra_data = extra_data;
+                header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
+            }
+            ExecutionPayloadHeaderRefMut::Capella(header) => {
+                header.extra_data = extra_data;
+                header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
+            }
+            ExecutionPayloadHeaderRefMut::Deneb(header) => {
+                header.extra_data = extra_data;
+                header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
+            }
+            ExecutionPayloadHeaderRefMut::Electra(header) => {
+                header.extra_data = extra_data;
+                header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
+            }
+            ExecutionPayloadHeaderRefMut::Fulu(header) => {
+                header.extra_data = extra_data;
+                header.block_hash = ExecutionBlockHash::from_root(header.tree_hash_root());
+            }
+        }
     }
 }
 
@@ -286,6 +340,7 @@ impl<E: EthSpec> MockBuilder<E> {
         while let Some(op) = guard.pop() {
             op.apply(bid);
         }
+        bid.stamp_payload();
     }
 }
 
@@ -346,6 +401,9 @@ pub fn serve<E: EthSpec>(
                             block.message.body.execution_payload.tree_hash_root()
                         }
                         SignedBlindedBeaconBlock::Electra(block) => {
+                            block.message.body.execution_payload.tree_hash_root()
+                        }
+                        SignedBlindedBeaconBlock::Fulu(block) => {
                             block.message.body.execution_payload.tree_hash_root()
                         }
                     };
@@ -413,11 +471,12 @@ pub fn serve<E: EthSpec>(
 
                 let block = head.data.message();
                 let head_block_root = block.tree_hash_root();
-                let head_execution_hash = block
+                let head_execution_payload = block
                     .body()
                     .execution_payload()
-                    .map_err(|_| reject("pre-merge block"))?
-                    .block_hash();
+                    .map_err(|_| reject("pre-merge block"))?;
+                let head_execution_hash = head_execution_payload.block_hash();
+                let head_gas_limit = head_execution_payload.gas_limit();
                 if head_execution_hash != parent_hash {
                     return Err(reject("head mismatch"));
                 }
@@ -505,7 +564,7 @@ pub fn serve<E: EthSpec>(
                         expected_withdrawals,
                         None,
                     ),
-                    ForkName::Deneb | ForkName::Electra => PayloadAttributes::new(
+                    ForkName::Deneb | ForkName::Electra | ForkName::Fulu => PayloadAttributes::new(
                         timestamp,
                         *prev_randao,
                         fee_recipient,
@@ -529,14 +588,24 @@ pub fn serve<E: EthSpec>(
                     finalized_hash: Some(finalized_execution_hash),
                 };
 
+                let proposer_gas_limit = builder
+                    .val_registration_cache
+                    .read()
+                    .get(&pubkey)
+                    .map(|v| v.message.gas_limit);
+
+                let payload_parameters = PayloadParameters {
+                    parent_hash: head_execution_hash,
+                    parent_gas_limit: head_gas_limit,
+                    proposer_gas_limit,
+                    payload_attributes: &payload_attributes,
+                    forkchoice_update_params: &forkchoice_update_params,
+                    current_fork: fork,
+                };
+
                 let payload_response_type = builder
                     .el
-                    .get_full_payload_caching(
-                        head_execution_hash,
-                        &payload_attributes,
-                        forkchoice_update_params,
-                        fork,
-                    )
+                    .get_full_payload_caching(payload_parameters)
                     .await
                     .map_err(|_| reject("couldn't get payload"))?;
 
@@ -551,6 +620,17 @@ pub fn serve<E: EthSpec>(
                         ) = payload_response.into();
 
                         match fork {
+                            ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
+                                header: payload
+                                    .as_fulu()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
                             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                                 header: payload
                                     .as_electra()
@@ -603,6 +683,17 @@ pub fn serve<E: EthSpec>(
                             Option<ExecutionRequests<E>>,
                         ) = payload_response.into();
                         match fork {
+                            ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu {
+                                header: payload
+                                    .as_fulu()
+                                    .map_err(|_| reject("incorrect payload variant"))?
+                                    .into(),
+                                blob_kzg_commitments: maybe_blobs_bundle
+                                    .map(|b| b.commitments)
+                                    .unwrap_or_default(),
+                                value: Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI),
+                                pubkey: builder.builder_sk.public_key().compress(),
+                            }),
                             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                                 header: payload
                                     .as_electra()
@@ -647,8 +738,6 @@ pub fn serve<E: EthSpec>(
                         }
                     }
                 };
-
-                message.set_gas_limit(cached_data.gas_limit);
 
                 builder.apply_operations(&mut message);
 

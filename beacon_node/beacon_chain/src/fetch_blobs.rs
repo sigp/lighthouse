@@ -21,8 +21,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::{
-    BeaconStateError, BlobSidecar, DataColumnSidecar, DataColumnSidecarList, EthSpec, FullPayload,
-    Hash256, SignedBeaconBlock, SignedBeaconBlockHeader,
+    BeaconStateError, BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockHeader,
 };
 
 pub enum BlobsOrDataColumns<T: BeaconChainTypes> {
@@ -112,6 +112,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         response,
         signed_block_header,
         &kzg_commitments_proof,
+        &chain.spec,
     )?;
 
     let num_fetched_blobs = fixed_blob_sidecar_list
@@ -275,8 +276,11 @@ fn build_blob_sidecars<E: EthSpec>(
     response: Vec<Option<BlobAndProofV1<E>>>,
     signed_block_header: SignedBeaconBlockHeader,
     kzg_commitments_inclusion_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+    spec: &ChainSpec,
 ) -> Result<FixedBlobSidecarList<E>, FetchEngineBlobError> {
-    let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
+    let epoch = block.epoch();
+    let mut fixed_blob_sidecar_list =
+        FixedBlobSidecarList::default(spec.max_blobs_per_block(epoch) as usize);
     for (index, blob_and_proof) in response
         .into_iter()
         .enumerate()

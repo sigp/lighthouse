@@ -1156,18 +1156,20 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
     };
 
     // recreate the chain exactly
-    ForkChoiceTest::new_with_chain_config(chain_config.clone())
-        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .skip_slots(E::slots_per_epoch() as usize)
-        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch < 5)
-        .await
-        .unwrap()
-        .apply_blocks(1)
-        .await
-        .assert_finalized_epoch(5)
-        .assert_shutdown_signal_not_sent();
+    Box::pin(
+        ForkChoiceTest::new_with_chain_config(chain_config.clone())
+            .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+            .await
+            .unwrap()
+            .skip_slots(E::slots_per_epoch() as usize)
+            .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch < 5)
+            .await
+            .unwrap()
+            .apply_blocks(1),
+    )
+    .await
+    .assert_finalized_epoch(5)
+    .assert_shutdown_signal_not_sent();
 }
 
 #[tokio::test]
@@ -1261,7 +1263,7 @@ async fn progressive_balances_cache_proposer_slashing() {
         // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
         // the slot in this scenario rather than panic-ing. The same applies to
         // `progressive_balances_cache_attester_slashing`.
-        .apply_blocks(2)
+        .apply_blocks(1)
         .await
         .add_previous_epoch_proposer_slashing(MainnetEthSpec::slots_per_epoch())
         .await

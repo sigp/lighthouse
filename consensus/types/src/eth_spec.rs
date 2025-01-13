@@ -4,8 +4,7 @@ use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
     bit::B0, UInt, U0, U1, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U134217728,
-    U16, U16777216, U2, U2048, U256, U262144, U32, U4, U4096, U512, U6, U625, U64, U65536, U8,
-    U8192,
+    U16, U16777216, U2, U2048, U256, U262144, U32, U4, U4096, U512, U625, U64, U65536, U8, U8192,
 };
 use ssz_types::typenum::{U17, U9};
 use std::fmt::{self, Debug};
@@ -109,7 +108,6 @@ pub trait EthSpec:
     /*
      * New in Deneb
      */
-    type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type MaxBlobCommitmentsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -151,7 +149,7 @@ pub trait EthSpec:
     /*
      * New in Electra
      */
-    type PendingBalanceDepositsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type PendingDepositsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type PendingPartialWithdrawalsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type PendingConsolidationsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxConsolidationRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -159,6 +157,7 @@ pub trait EthSpec:
     type MaxAttesterSlashingsElectra: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxAttestationsElectra: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxWithdrawalRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxPendingDepositsPerEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -280,11 +279,6 @@ pub trait EthSpec:
         Self::MaxWithdrawalsPerPayload::to_usize()
     }
 
-    /// Returns the `MAX_BLOBS_PER_BLOCK` constant for this specification.
-    fn max_blobs_per_block() -> usize {
-        Self::MaxBlobsPerBlock::to_usize()
-    }
-
     /// Returns the `MAX_BLOB_COMMITMENTS_PER_BLOCK` constant for this specification.
     fn max_blob_commitments_per_block() -> usize {
         Self::MaxBlobCommitmentsPerBlock::to_usize()
@@ -331,9 +325,9 @@ pub trait EthSpec:
             .expect("Preset values are not configurable and never result in non-positive block body depth")
     }
 
-    /// Returns the `PENDING_BALANCE_DEPOSITS_LIMIT` constant for this specification.
-    fn pending_balance_deposits_limit() -> usize {
-        Self::PendingBalanceDepositsLimit::to_usize()
+    /// Returns the `PENDING_DEPOSITS_LIMIT` constant for this specification.
+    fn pending_deposits_limit() -> usize {
+        Self::PendingDepositsLimit::to_usize()
     }
 
     /// Returns the `PENDING_PARTIAL_WITHDRAWALS_LIMIT` constant for this specification.
@@ -369,6 +363,11 @@ pub trait EthSpec:
     /// Returns the `MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD` constant for this specification.
     fn max_withdrawal_requests_per_payload() -> usize {
         Self::MaxWithdrawalRequestsPerPayload::to_usize()
+    }
+
+    /// Returns the `MAX_PENDING_DEPOSITS_PER_EPOCH` constant for this specification.
+    fn max_pending_deposits_per_epoch() -> usize {
+        Self::MaxPendingDepositsPerEpoch::to_usize()
     }
 
     fn kzg_commitments_inclusion_proof_depth() -> usize {
@@ -415,7 +414,6 @@ impl EthSpec for MainnetEthSpec {
     type GasLimitDenominator = U1024;
     type MinGasLimit = U5000;
     type MaxExtraDataBytes = U32;
-    type MaxBlobsPerBlock = U6;
     type MaxBlobCommitmentsPerBlock = U4096;
     type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
@@ -430,7 +428,7 @@ impl EthSpec for MainnetEthSpec {
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
     type MaxBlsToExecutionChanges = U16;
     type MaxWithdrawalsPerPayload = U16;
-    type PendingBalanceDepositsLimit = U134217728;
+    type PendingDepositsLimit = U134217728;
     type PendingPartialWithdrawalsLimit = U134217728;
     type PendingConsolidationsLimit = U262144;
     type MaxConsolidationRequestsPerPayload = U1;
@@ -438,6 +436,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
+    type MaxPendingDepositsPerEpoch = U16;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -498,9 +497,9 @@ impl EthSpec for MinimalEthSpec {
         MinGasLimit,
         MaxExtraDataBytes,
         MaxBlsToExecutionChanges,
-        MaxBlobsPerBlock,
         BytesPerFieldElement,
-        PendingBalanceDepositsLimit,
+        PendingDepositsLimit,
+        MaxPendingDepositsPerEpoch,
         MaxConsolidationRequestsPerPayload,
         MaxAttesterSlashingsElectra,
         MaxAttestationsElectra
@@ -551,13 +550,12 @@ impl EthSpec for GnosisEthSpec {
     type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
     type MaxBlsToExecutionChanges = U16;
     type MaxWithdrawalsPerPayload = U8;
-    type MaxBlobsPerBlock = U6;
     type MaxBlobCommitmentsPerBlock = U4096;
     type FieldElementsPerBlob = U4096;
     type BytesPerFieldElement = U32;
     type BytesPerBlob = U131072;
     type KzgCommitmentInclusionProofDepth = U17;
-    type PendingBalanceDepositsLimit = U134217728;
+    type PendingDepositsLimit = U134217728;
     type PendingPartialWithdrawalsLimit = U134217728;
     type PendingConsolidationsLimit = U262144;
     type MaxConsolidationRequestsPerPayload = U1;
@@ -565,6 +563,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
+    type MaxPendingDepositsPerEpoch = U16;
     type FieldElementsPerCell = U64;
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;

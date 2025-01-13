@@ -74,9 +74,35 @@ pub use ssz_generic::*;
 pub use ssz_static::*;
 pub use transition::TransitionTest;
 
-#[derive(Debug, PartialEq)]
+/// Used for running feature tests for future forks that have not yet been added to `ForkName`.
+/// This runs tests in the directory named by the feature instead of the fork name. This has been
+/// the pattern used in the `consensus-spec-tests` repository:
+/// `consensus-spec-tests/tests/general/[feature_name]/[runner_name].`
+/// e.g. consensus-spec-tests/tests/general/peerdas/ssz_static
+///
+/// The feature tests can be run with one of the following methods:
+/// 1. `handler.run_for_feature(feature_name)` for new tests that are not on existing fork, i.e. a
+///     new handler. This will be temporary and the test will need to be updated to use
+///     `handle.run()` once the feature is incorporated into a fork.
+/// 2. `handler.run()` for tests that are already on existing forks, but with new test vectors for
+///     the feature. In this case the `handler.is_enabled_for_feature` will need to be implemented
+///     to return `true` for the feature in order for the feature test vector to be tested.
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FeatureName {
     Eip7594,
+}
+
+impl FeatureName {
+    pub fn list_all() -> Vec<FeatureName> {
+        vec![FeatureName::Eip7594]
+    }
+
+    /// `ForkName` to use when running the feature tests.
+    pub fn fork_name(&self) -> ForkName {
+        match self {
+            FeatureName::Eip7594 => ForkName::Deneb,
+        }
+    }
 }
 
 impl Display for FeatureName {
@@ -107,11 +133,13 @@ pub trait Case: Debug + Sync {
         true
     }
 
-    /// Whether or not this test exists for the given `feature_name`.
+    /// Whether or not this test exists for the given `feature_name`. This is intended to be used
+    /// for features that have not been added to a fork yet, and there is usually a separate folder
+    /// for the feature in the `consensus-spec-tests` repository.
     ///
-    /// Returns `true` by default.
+    /// Returns `false` by default.
     fn is_enabled_for_feature(_feature_name: FeatureName) -> bool {
-        true
+        false
     }
 
     /// Execute a test and return the result.

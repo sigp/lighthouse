@@ -362,6 +362,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         self.sampling.get_request_status(block_root, index)
     }
 
+    #[cfg(test)]
+    pub(crate) fn range_sync_state(&self) -> super::range_sync::SyncChainStatus {
+        self.range_sync.state()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_execution_engine_state(&mut self, state: EngineState) {
+        self.handle_new_execution_engine_state(state);
+    }
+
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
         self.network.network_globals()
     }
@@ -1224,6 +1234,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .network
             .range_block_and_blob_response(id, block_or_blob)
         {
+            let epoch = resp.sender_id.batch_id();
             match resp.responses {
                 Ok(blocks) => {
                     match resp.sender_id {
@@ -1267,6 +1278,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             resp.expects_custody_columns,
                             None,
                             vec![],
+                            self.chain.spec.max_blobs_per_block(epoch) as usize,
                         ),
                     );
                     // inform range that the request needs to be treated as failed

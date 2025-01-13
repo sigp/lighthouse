@@ -1164,7 +1164,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     .map_err(warp_utils::reject::beacon_chain_error)?
                                     // Ignore any skip-slots immediately following the parent.
                                     .find(|res| {
-                                        res.as_ref().map_or(false, |(root, _)| *root != parent_root)
+                                        res.as_ref().is_ok_and(|(root, _)| *root != parent_root)
                                     })
                                     .transpose()
                                     .map_err(warp_utils::reject::beacon_chain_error)?
@@ -1249,7 +1249,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let canonical = chain
                         .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                         .map_err(warp_utils::reject::beacon_chain_error)?
-                        .map_or(false, |canonical| root == canonical);
+                        .is_some_and(|canonical| root == canonical);
 
                     let data = api_types::BlockHeaderData {
                         root,
@@ -3704,7 +3704,10 @@ pub fn serve<T: BeaconChainTypes>(
                     );
 
                     execution_layer
-                        .update_proposer_preparation(current_epoch, &preparation_data)
+                        .update_proposer_preparation(
+                            current_epoch,
+                            preparation_data.iter().map(|data| (data, &None)),
+                        )
                         .await;
 
                     chain
@@ -3762,7 +3765,7 @@ pub fn serve<T: BeaconChainTypes>(
                         let spec = &chain.spec;
 
                         let (preparation_data, filtered_registration_data): (
-                            Vec<ProposerPreparationData>,
+                            Vec<(ProposerPreparationData, Option<u64>)>,
                             Vec<SignedValidatorRegistrationData>,
                         ) = register_val_data
                             .into_iter()
@@ -3792,12 +3795,15 @@ pub fn serve<T: BeaconChainTypes>(
                                         // Filter out validators who are not 'active' or 'pending'.
                                         is_active_or_pending.then_some({
                                             (
-                                                ProposerPreparationData {
-                                                    validator_index: validator_index as u64,
-                                                    fee_recipient: register_data
-                                                        .message
-                                                        .fee_recipient,
-                                                },
+                                                (
+                                                    ProposerPreparationData {
+                                                        validator_index: validator_index as u64,
+                                                        fee_recipient: register_data
+                                                            .message
+                                                            .fee_recipient,
+                                                    },
+                                                    Some(register_data.message.gas_limit),
+                                                ),
                                                 register_data,
                                             )
                                         })
@@ -3807,7 +3813,10 @@ pub fn serve<T: BeaconChainTypes>(
 
                         // Update the prepare beacon proposer cache based on this request.
                         execution_layer
-                            .update_proposer_preparation(current_epoch, &preparation_data)
+                            .update_proposer_preparation(
+                                current_epoch,
+                                preparation_data.iter().map(|(data, limit)| (data, limit)),
+                            )
                             .await;
 
                         // Call prepare beacon proposer blocking with the latest update in order to make

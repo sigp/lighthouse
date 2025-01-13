@@ -277,7 +277,7 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     }
 }
 
-async fn run<'a>(config: MoveConfig) -> Result<(), String> {
+async fn run(config: MoveConfig) -> Result<(), String> {
     let MoveConfig {
         src_vc_url,
         src_vc_token_path,
@@ -978,13 +978,13 @@ mod test {
                     })
                     .unwrap();
                 // Set all definitions to use the same password path as the primary.
-                definitions.iter_mut().enumerate().for_each(|(_, def)| {
-                    match &mut def.signing_definition {
-                        SigningDefinition::LocalKeystore {
-                            voting_keystore_password_path: Some(path),
-                            ..
-                        } => *path = primary_path.clone(),
-                        _ => (),
+                definitions.iter_mut().for_each(|def| {
+                    if let SigningDefinition::LocalKeystore {
+                        voting_keystore_password_path: Some(path),
+                        ..
+                    } = &mut def.signing_definition
+                    {
+                        *path = primary_path.clone()
                     }
                 })
             }

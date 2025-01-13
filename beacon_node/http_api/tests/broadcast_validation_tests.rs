@@ -75,7 +75,7 @@ pub async fn gossip_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -124,7 +124,7 @@ pub async fn gossip_partial_pass() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -165,7 +165,7 @@ pub async fn gossip_full_pass() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
             validation_level,
         )
@@ -261,7 +261,7 @@ pub async fn consensus_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -307,7 +307,7 @@ pub async fn consensus_gossip() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -322,7 +322,7 @@ pub async fn consensus_gossip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn consensus_partial_pass_only_consensus() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Consensus);
+    let validation_level = BroadcastValidation::Consensus;
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
@@ -378,7 +378,7 @@ pub async fn consensus_partial_pass_only_consensus() {
         tester.harness.chain.clone(),
         &channel.0,
         test_logger,
-        validation_level.unwrap(),
+        validation_level,
         StatusCode::ACCEPTED,
         network_globals,
     )
@@ -423,7 +423,7 @@ pub async fn consensus_full_pass() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
             validation_level,
         )
@@ -475,7 +475,7 @@ pub async fn equivocation_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -533,7 +533,7 @@ pub async fn equivocation_consensus_early_equivocation() {
     /* submit `block_a` as valid */
     assert!(tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block_a.clone(), blobs_a),
             validation_level
         )
@@ -547,7 +547,7 @@ pub async fn equivocation_consensus_early_equivocation() {
     /* submit `block_b` which should induce equivocation */
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block_b.clone(), blobs_b),
             validation_level,
         )
@@ -596,7 +596,7 @@ pub async fn equivocation_gossip() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
     assert!(response.is_err());
 
@@ -615,8 +615,7 @@ pub async fn equivocation_gossip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn equivocation_consensus_late_equivocation() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> =
-        Some(BroadcastValidation::ConsensusAndEquivocation);
+    let validation_level = BroadcastValidation::ConsensusAndEquivocation;
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
@@ -671,7 +670,7 @@ pub async fn equivocation_consensus_late_equivocation() {
         tester.harness.chain,
         &channel.0,
         test_logger,
-        validation_level.unwrap(),
+        validation_level,
         StatusCode::ACCEPTED,
         network_globals,
     )
@@ -722,7 +721,7 @@ pub async fn equivocation_full_pass() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
             validation_level,
         )
@@ -1228,8 +1227,7 @@ pub async fn blinded_equivocation_gossip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_equivocation_consensus_late_equivocation() {
     /* this test targets gossip-level validation */
-    let validation_level: Option<BroadcastValidation> =
-        Some(BroadcastValidation::ConsensusAndEquivocation);
+    let validation_level = BroadcastValidation::ConsensusAndEquivocation;
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
@@ -1311,7 +1309,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         tester.harness.chain,
         &channel.0,
         test_logger,
-        validation_level.unwrap(),
+        validation_level,
         StatusCode::ACCEPTED,
         network_globals,
     )
@@ -1415,7 +1413,7 @@ pub async fn block_seen_on_gossip_without_blobs() {
     // Post the block *and* blobs to the HTTP API.
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some(blobs)),
             validation_level,
         )
@@ -1462,11 +1460,12 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
     let blobs = blobs.expect("should have some blobs");
     assert!(
         blobs.0.len() >= 2,
-        "need at least 2 blobs for partial reveal"
+        "need at least 2 blobs for partial reveal, got: {}",
+        blobs.0.len()
     );
 
-    let partial_kzg_proofs = vec![blobs.0.get(0).unwrap().clone()];
-    let partial_blobs = vec![blobs.1.get(0).unwrap().clone()];
+    let partial_kzg_proofs = vec![*blobs.0.first().unwrap()];
+    let partial_blobs = vec![blobs.1.first().unwrap().clone()];
 
     // Simulate the block being seen on gossip.
     block
@@ -1500,7 +1499,7 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
     // Post the block *and* all blobs to the HTTP API.
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some(blobs)),
             validation_level,
         )
@@ -1573,7 +1572,7 @@ pub async fn blobs_seen_on_gossip_without_block() {
     // Post the block *and* all blobs to the HTTP API.
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some((kzg_proofs, blobs))),
             validation_level,
         )
@@ -1647,7 +1646,7 @@ pub async fn blobs_seen_on_gossip_without_block_and_no_http_blobs() {
     // Post just the block to the HTTP API (blob lists are empty).
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(
                 block.clone(),
                 Some((Default::default(), Default::default())),
@@ -1719,7 +1718,7 @@ pub async fn slashable_blobs_seen_on_gossip_cause_failure() {
     // Post block A *and* all its blobs to the HTTP API.
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(
+        .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block_a.clone(), Some((kzg_proofs_a, blobs_a))),
             validation_level,
         )
@@ -1780,7 +1779,7 @@ pub async fn duplicate_block_status_code() {
     let block_request = PublishBlockRequest::new(block.clone(), Some((kzg_proofs, blobs)));
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block_request, validation_level)
+        .post_beacon_blocks_v2_ssz(&block_request, validation_level)
         .await;
 
     // This should result in the block being fully imported.
@@ -1793,7 +1792,7 @@ pub async fn duplicate_block_status_code() {
     // Post again.
     let duplicate_response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2(&block_request, validation_level)
+        .post_beacon_blocks_v2_ssz(&block_request, validation_level)
         .await;
     let err = duplicate_response.unwrap_err();
     assert_eq!(err.status().unwrap(), duplicate_block_status_code);

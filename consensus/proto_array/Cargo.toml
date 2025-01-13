@@ -9,10 +9,10 @@ name = "proto_array"
 path = "src/bin.rs"
 
 [dependencies]
-types = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+safe_arith = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
-safe_arith = { workspace = true }
 superstruct = { workspace = true }
+types = { workspace = true }

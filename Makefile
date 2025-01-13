@@ -30,7 +30,7 @@ PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair bellatrix capella deneb electra
+FORKS=phase0 altair bellatrix capella deneb electra fulu
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -219,6 +219,10 @@ lint:
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
 	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
+
+# Also run the lints on the optimized-only tests
+lint-full:
+	RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
 
 # Runs the makefile in the `ef_tests` repo.
 #

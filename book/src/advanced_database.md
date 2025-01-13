@@ -56,7 +56,7 @@ that we have observed are:
   _a lot_ of space. It's even possible to push beyond that with `--hierarchy-exponents 0` which
   would store a full state every single slot (NOT RECOMMENDED).
 - **Less diff layers are not necessarily faster**. One might expect that the fewer diff layers there
-  are, the less work Lighthouse would have to do to reconstruct any particular state. In practise
+  are, the less work Lighthouse would have to do to reconstruct any particular state. In practice
   this seems to be offset by the increased size of diffs in each layer making the diffs take longer
   to apply. We observed no significant performance benefit from `--hierarchy-exponents 5,7,11`, and
   a substantial increase in space consumed.

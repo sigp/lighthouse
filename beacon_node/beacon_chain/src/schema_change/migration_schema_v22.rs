@@ -152,7 +152,7 @@ pub fn delete_old_schema_freezer_data<T: BeaconChainTypes>(
     db.cold_db.do_atomically(cold_ops)?;
 
     // In order to reclaim space, we need to compact the freezer DB as well.
-    db.cold_db.compact()?;
+    db.compact_freezer()?;
 
     Ok(())
 }

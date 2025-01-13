@@ -209,7 +209,7 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     }
 }
 
-async fn run<'a>(config: ImportConfig) -> Result<(), String> {
+async fn run(config: ImportConfig) -> Result<(), String> {
     let ImportConfig {
         validators_file_path,
         keystore_file_path,
@@ -520,7 +520,7 @@ pub mod tests {
 
                 let local_validators: Vec<ValidatorSpecification> = {
                     let contents =
-                        fs::read_to_string(&self.import_config.validators_file_path.unwrap())
+                        fs::read_to_string(self.import_config.validators_file_path.unwrap())
                             .unwrap();
                     serde_json::from_str(&contents).unwrap()
                 };
@@ -557,7 +557,7 @@ pub mod tests {
                 self.vc.ensure_key_cache_consistency().await;
 
                 let local_keystore: Keystore =
-                    Keystore::from_json_file(&self.import_config.keystore_file_path.unwrap())
+                    Keystore::from_json_file(self.import_config.keystore_file_path.unwrap())
                         .unwrap();
 
                 let list_keystores_response = self.vc.client.get_keystores().await.unwrap().data;

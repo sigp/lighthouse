@@ -83,6 +83,7 @@ impl TestRig {
             .logger(log.clone())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .testing_slot_clock(TestingSlotClock::new(
                 Slot::new(0),
                 Duration::from_secs(0),
@@ -118,6 +119,8 @@ impl TestRig {
             .network_globals
             .set_sync_state(SyncState::Synced);
 
+        let spec = chain.spec.clone();
+
         let rng = XorShiftRng::from_seed([42; 16]);
         TestRig {
             beacon_processor_rx,
@@ -141,10 +144,11 @@ impl TestRig {
             harness,
             fork_name,
             log,
+            spec,
         }
     }
 
-    fn test_setup() -> Self {
+    pub fn test_setup() -> Self {
         Self::test_setup_with_config(None)
     }
 
@@ -168,12 +172,12 @@ impl TestRig {
         }
     }
 
-    fn log(&self, msg: &str) {
+    pub fn log(&self, msg: &str) {
         info!(self.log, "TEST_RIG"; "msg" => msg);
     }
 
-    fn after_deneb(&self) -> bool {
-        matches!(self.fork_name, ForkName::Deneb | ForkName::Electra)
+    pub fn after_deneb(&self) -> bool {
+        self.fork_name.deneb_enabled()
     }
 
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
@@ -212,7 +216,7 @@ impl TestRig {
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let fork_name = self.fork_name;
         let rng = &mut self.rng;
-        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng, &self.spec)
     }
 
     fn rand_block_and_data_columns(
@@ -238,7 +242,7 @@ impl TestRig {
         (parent, block, parent_root, block_root)
     }
 
-    fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
+    pub fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
         self.sync_manager.handle_message(sync_message);
     }
 
@@ -369,7 +373,7 @@ impl TestRig {
         self.expect_empty_network();
     }
 
-    fn new_connected_peer(&mut self) -> PeerId {
+    pub fn new_connected_peer(&mut self) -> PeerId {
         self.network_globals
             .peers
             .write()
@@ -811,7 +815,7 @@ impl TestRig {
         }
     }
 
-    fn peer_disconnected(&mut self, peer_id: PeerId) {
+    pub fn peer_disconnected(&mut self, peer_id: PeerId) {
         self.send_sync_message(SyncMessage::Disconnect(peer_id));
     }
 
@@ -827,7 +831,7 @@ impl TestRig {
         }
     }
 
-    fn pop_received_network_event<T, F: Fn(&NetworkMessage<E>) -> Option<T>>(
+    pub fn pop_received_network_event<T, F: Fn(&NetworkMessage<E>) -> Option<T>>(
         &mut self,
         predicate_transform: F,
     ) -> Result<T, String> {
@@ -847,7 +851,7 @@ impl TestRig {
         }
     }
 
-    fn pop_received_processor_event<T, F: Fn(&WorkEvent<E>) -> Option<T>>(
+    pub fn pop_received_processor_event<T, F: Fn(&WorkEvent<E>) -> Option<T>>(
         &mut self,
         predicate_transform: F,
     ) -> Result<T, String> {
@@ -868,6 +872,16 @@ impl TestRig {
                 self.beacon_processor_rx_queue
             )
             .to_string())
+        }
+    }
+
+    pub fn expect_empty_processor(&mut self) {
+        self.drain_processor_rx();
+        if !self.beacon_processor_rx_queue.is_empty() {
+            panic!(
+                "Expected processor to be empty, but has events: {:?}",
+                self.beacon_processor_rx_queue
+            );
         }
     }
 
@@ -1317,8 +1331,10 @@ impl TestRig {
 
 #[test]
 fn stable_rng() {
+    let spec = types::MainnetEthSpec::default_spec();
     let mut rng = XorShiftRng::from_seed([42; 16]);
-    let (block, _) = generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng);
+    let (block, _) =
+        generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng, &spec);
     assert_eq!(
         block.canonical_root(),
         Hash256::from_slice(
@@ -2173,10 +2189,11 @@ fn custody_lookup_happy_path() {
 mod deneb_only {
     use super::*;
     use beacon_chain::{
-        block_verification_types::RpcBlock, data_availability_checker::AvailabilityCheckError,
+        block_verification_types::{AsBlock, RpcBlock},
+        data_availability_checker::AvailabilityCheckError,
     };
-    use ssz_types::VariableList;
     use std::collections::VecDeque;
+    use types::RuntimeVariableList;
 
     struct DenebTester {
         rig: TestRig,
@@ -2534,12 +2551,15 @@ mod deneb_only {
         fn parent_block_unknown_parent(mut self) -> Self {
             self.rig.log("parent_block_unknown_parent");
             let block = self.unknown_parent_block.take().unwrap();
+            let max_len = self.rig.spec.max_blobs_per_block(block.epoch()) as usize;
             // Now this block is the one we expect requests from
             self.block = block.clone();
             let block = RpcBlock::new(
                 Some(block.canonical_root()),
                 block,
-                self.unknown_parent_blobs.take().map(VariableList::from),
+                self.unknown_parent_blobs
+                    .take()
+                    .map(|vec| RuntimeVariableList::from_vec(vec, max_len)),
             )
             .unwrap();
             self.rig.parent_block_processed(

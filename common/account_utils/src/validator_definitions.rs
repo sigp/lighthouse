@@ -435,7 +435,7 @@ pub fn recursively_find_voting_keystores<P: AsRef<Path>>(
             && dir_entry
                 .file_name()
                 .to_str()
-                .map_or(false, is_voting_keystore)
+                .is_some_and(is_voting_keystore)
         {
             matches.push(dir_entry.path())
         }
