@@ -350,7 +350,7 @@ where
         self.supported_forks.contains(&fork_name)
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
         // This ensures we only run the tests **once** for `Eip7594`, using the types matching the
         // correct fork, e.g. `Eip7594` uses SSZ types from `Deneb` as of spec test version
         // `v1.5.0-alpha.8`, therefore the `Eip7594` tests should get included when testing Deneb types.
@@ -362,8 +362,11 @@ where
         // SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
         // SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
         // ```
+        /* TODO(das): re-enable
         feature_name == FeatureName::Eip7594
             && self.supported_forks.contains(&feature_name.fork_name())
+        */
+        false
     }
 }
 
@@ -385,8 +388,10 @@ where
         BeaconState::<E>::name().into()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // TODO(das): re-enable
+        // feature_name == FeatureName::Eip7594
+        false
     }
 }
 
@@ -410,8 +415,10 @@ where
         T::name().into()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // TODO(das): re-enable
+        // feature_name == FeatureName::Eip7594
+        false
     }
 }
 
@@ -995,8 +1002,10 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
         fork_name.deneb_enabled()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // TODO(das): re-enable this
+        // feature_name == FeatureName::Eip7594
+        false
     }
 }
 
