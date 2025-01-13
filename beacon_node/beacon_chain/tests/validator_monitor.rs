@@ -117,7 +117,7 @@ async fn missed_blocks_across_epochs() {
 }
 
 #[tokio::test]
-async fn produces_missed_blocks() {
+async fn missed_blocks_basic() {
     let validator_count = 16;
 
     let slots_per_epoch = E::slots_per_epoch();
@@ -167,7 +167,7 @@ async fn produces_missed_blocks() {
         beacon_proposer_cache.lock().insert(
             epoch,
             proposer_shuffling_decision_root,
-            validator_indexes.into_iter().collect::<Vec<usize>>(),
+            validator_indexes,
             _state.fork()
         ),
         Ok(())
@@ -236,7 +236,7 @@ async fn produces_missed_blocks() {
         beacon_proposer_cache.lock().insert(
             epoch,
             duplicate_block_root,
-            validator_indexes.into_iter().collect::<Vec<usize>>(),
+            validator_indexes.clone(),
             _state2.fork()
         ),
         Ok(())
@@ -264,16 +264,19 @@ async fn produces_missed_blocks() {
         //
         // A missed block happens but the validator is not monitored
         // it should not be flagged as a missed block
-        idx = initial_blocks + (advance_slot_by) - 7;
+        while validator_indexes[(idx % slots_per_epoch) as usize] == missed_block_proposer
+            && idx / slots_per_epoch == epoch.as_u64()
+        {
+            idx += 1;
+        }
         slot = Slot::new(idx);
         prev_slot = Slot::new(idx - 1);
         slot_in_epoch = slot % slots_per_epoch;
         duplicate_block_root = *_state2.block_roots().get(idx as usize).unwrap();
-        validator_indexes = _state2.get_beacon_proposer_indices(&harness2.spec).unwrap();
         let second_missed_block_proposer = validator_indexes[slot_in_epoch.as_usize()];
 
-        // This test is still a bit fragile, and dependent on a particular shuffling.
-        // https://github.com/sigp/lighthouse/issues/6293
+        // This test may fail if we can't find another distinct proposer in the same epoch.
+        // However, this should be vanishingly unlikely: P ~= (1/16)^32 = 2e-39.
         assert_ne!(missed_block_proposer, second_missed_block_proposer);
 
         assert_eq!(
@@ -334,7 +337,7 @@ async fn produces_missed_blocks() {
         beacon_proposer_cache.lock().insert(
             epoch,
             proposer_shuffling_decision_root,
-            validator_indexes.into_iter().collect::<Vec<usize>>(),
+            validator_indexes,
             _state3.fork()
         ),
         Ok(())
