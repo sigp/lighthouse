@@ -21,6 +21,7 @@ use types::{DataColumnSubnetId, EthSpec, SyncSubnetId};
 
 pub use libp2p::core::Multiaddr;
 pub use libp2p::identity::Keypair;
+use libp2p::multiaddr::Protocol as MProtocol;
 
 pub mod peerdb;
 
@@ -1306,6 +1307,8 @@ impl<E: EthSpec> PeerManager<E> {
     // Update peer count related metrics.
     fn update_peer_count_metrics(&self) {
         let mut peers_connected = 0;
+        let mut inbound_ipv4_peers_connected = 0;
+        let mut inbound_ipv6_peers_connected = 0;
         let mut clients_per_peer = HashMap::new();
         let mut peers_connected_mutli: HashMap<(&str, &str), i32> = HashMap::new();
         let mut peers_per_custody_subnet_count: HashMap<u64, i64> = HashMap::new();
@@ -1322,6 +1325,27 @@ impl<E: EthSpec> PeerManager<E> {
                 Some(ConnectionDirection::Outgoing) => "outbound",
                 None => "none",
             };
+
+            // Add NAT statistics for inbound peers.
+            if matches!(
+                peer_info.connection_direction(),
+                Some(ConnectionDirection::Incoming)
+            ) {
+                // Helper closure to simplify the code
+                let multiaddr_is_ipv6 = |multiaddr: &Multiaddr| {
+                    matches!(multiaddr.iter().next(), Some(MProtocol::Ip6(_)))
+                };
+
+                if peer_info
+                    .seen_multiaddrs()
+                    .any(|addr| multiaddr_is_ipv6(addr))
+                {
+                    inbound_ipv6_peers_connected += 1;
+                } else {
+                    inbound_ipv4_peers_connected += 1;
+                }
+            }
+
             // Note: the `transport` is set to `unknown` if the `listening_addresses` list is empty.
             // This situation occurs when the peer is initially registered in PeerDB, but the peer
             // info has not yet been updated at `PeerManager::identify`.
@@ -1345,6 +1369,14 @@ impl<E: EthSpec> PeerManager<E> {
                     .entry(meta_data.custody_subnet_count)
                     .or_default() += 1;
             }
+        }
+
+        // If we have no inbound peers, we consider the NAT closed.
+        if inbound_ipv4_peers_connected < 1 {
+            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv4"], 0);
+        }
+        if inbound_ipv6_peers_connected < 1 {
+            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv6"], 0);
         }
 
         // PEERS_CONNECTED
