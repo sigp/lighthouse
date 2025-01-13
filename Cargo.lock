@@ -2605,7 +2605,6 @@ dependencies = [
  "eth2_config",
  "ethereum_ssz",
  "kzg",
- "logging",
  "pretty_reqwest_error",
  "reqwest",
  "sensitive_url",
@@ -8018,7 +8017,6 @@ dependencies = [
  "libmdbx",
  "lmdb-rkv",
  "lmdb-rkv-sys",
- "logging",
  "lru",
  "maplit",
  "metrics",
@@ -8469,7 +8467,6 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "futures",
- "logging",
  "metrics",
  "tokio",
  "tracing",
