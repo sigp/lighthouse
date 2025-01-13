@@ -459,7 +459,7 @@ impl SupportedProtocol {
             ProtocolId::new(Self::BlocksByRootV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::PingV1, Encoding::SSZSnappy),
         ];
-        if fork_context.spec.is_peer_das_scheduled() {
+        if fork_context.fork_exists(ForkName::Fulu) {
             supported.extend_from_slice(&[
                 // V3 variants have higher preference for protocol negotation
                 ProtocolId::new(Self::MetaDataV3, Encoding::SSZSnappy),
@@ -478,7 +478,7 @@ impl SupportedProtocol {
                 ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
-        if fork_context.spec.is_peer_das_scheduled() {
+        if fork_context.fork_exists(ForkName::Fulu) {
             supported.extend_from_slice(&[
                 ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
@@ -627,9 +627,11 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
-            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(fork_context.current_fork()),
+            Protocol::DataColumnsByRoot => {
+                rpc_data_column_limits::<E>(fork_context.current_fork(), &fork_context.spec)
+            }
             Protocol::DataColumnsByRange => {
-                rpc_data_column_limits::<E>(fork_context.current_fork())
+                rpc_data_column_limits::<E>(fork_context.current_fork(), &fork_context.spec)
             }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
@@ -710,13 +712,10 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     }
 }
 
-// TODO(peerdas): fix hardcoded max here
-pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName) -> RpcLimits {
+pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName, spec: &ChainSpec) -> RpcLimits {
     RpcLimits::new(
-        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
-        DataColumnSidecar::<E>::max_size(
-            E::default_spec().max_blobs_per_block_by_fork(fork_name) as usize
-        ),
+        DataColumnSidecar::<E>::min_size(),
+        DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block_by_fork(fork_name) as usize),
     )
 }
 

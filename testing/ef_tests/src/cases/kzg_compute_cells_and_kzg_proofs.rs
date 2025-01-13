@@ -31,7 +31,7 @@ impl<E: EthSpec> Case for KZGComputeCellsAndKZGProofs<E> {
     }
 
     fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

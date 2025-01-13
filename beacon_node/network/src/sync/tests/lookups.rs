@@ -53,12 +53,8 @@ const SAMPLING_REQUIRED_SUCCESSES: usize = 2;
 type DCByRootIds = Vec<DCByRootId>;
 type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
-struct TestRigConfig {
-    peer_das_enabled: bool,
-}
-
 impl TestRig {
-    fn test_setup_with_config(config: Option<TestRigConfig>) -> Self {
+    fn test_setup() -> Self {
         let logger_type = if cfg!(feature = "test_logger") {
             LoggerType::Test
         } else if cfg!(feature = "ci_logger") {
@@ -69,13 +65,7 @@ impl TestRig {
         let log = build_log(slog::Level::Trace, logger_type);
 
         // Use `fork_from_env` logic to set correct fork epochs
-        let mut spec = test_spec::<E>();
-
-        if let Some(config) = config {
-            if config.peer_das_enabled {
-                spec.eip7594_fork_epoch = Some(Epoch::new(0));
-            }
-        }
+        let spec = test_spec::<E>();
 
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
@@ -148,10 +138,6 @@ impl TestRig {
         }
     }
 
-    pub fn test_setup() -> Self {
-        Self::test_setup_with_config(None)
-    }
-
     fn test_setup_after_deneb() -> Option<Self> {
         let r = Self::test_setup();
         if r.after_deneb() {
@@ -161,11 +147,9 @@ impl TestRig {
         }
     }
 
-    fn test_setup_after_peerdas() -> Option<Self> {
-        let r = Self::test_setup_with_config(Some(TestRigConfig {
-            peer_das_enabled: true,
-        }));
-        if r.after_deneb() {
+    fn test_setup_after_fulu() -> Option<Self> {
+        let r = Self::test_setup();
+        if r.fork_name.fulu_enabled() {
             Some(r)
         } else {
             None
@@ -2026,7 +2010,7 @@ fn blobs_in_da_checker_skip_download() {
 
 #[test]
 fn sampling_happy_path() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     r.new_connected_peers_for_peerdas();
@@ -2043,7 +2027,7 @@ fn sampling_happy_path() {
 
 #[test]
 fn sampling_with_retries() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     r.new_connected_peers_for_peerdas();
@@ -2065,7 +2049,7 @@ fn sampling_with_retries() {
 
 #[test]
 fn sampling_avoid_retrying_same_peer() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let peer_id_1 = r.new_connected_supernode_peer();
@@ -2086,7 +2070,7 @@ fn sampling_avoid_retrying_same_peer() {
 
 #[test]
 fn sampling_batch_requests() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let _supernode = r.new_connected_supernode_peer();
@@ -2112,7 +2096,7 @@ fn sampling_batch_requests() {
 
 #[test]
 fn sampling_batch_requests_not_enough_responses_returned() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let _supernode = r.new_connected_supernode_peer();
@@ -2157,7 +2141,7 @@ fn sampling_batch_requests_not_enough_responses_returned() {
 
 #[test]
 fn custody_lookup_happy_path() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let spec = E::default_spec();

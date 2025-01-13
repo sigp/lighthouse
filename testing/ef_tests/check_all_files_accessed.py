@@ -47,7 +47,7 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip6110",
     "tests/.*/whisk",
-    "tests/.*/eip7594",
+    "tests/.*/fulu",
 ]
 
 

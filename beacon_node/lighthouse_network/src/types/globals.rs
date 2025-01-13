@@ -207,7 +207,7 @@ mod test {
     fn test_sampling_subnets() {
         let log = logging::test_logger();
         let mut spec = E::default_spec();
-        spec.eip7594_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
 
         let custody_subnet_count = spec.data_column_sidecar_subnet_count / 2;
         let subnet_sampling_size = std::cmp::max(custody_subnet_count, spec.samples_per_slot);
@@ -231,7 +231,7 @@ mod test {
     fn test_sampling_columns() {
         let log = logging::test_logger();
         let mut spec = E::default_spec();
-        spec.eip7594_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
 
         let custody_subnet_count = spec.data_column_sidecar_subnet_count / 2;
         let subnet_sampling_size = std::cmp::max(custody_subnet_count, spec.samples_per_slot);

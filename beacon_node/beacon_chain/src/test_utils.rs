@@ -104,7 +104,7 @@ static KZG_NO_PRECOMP: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
 });
 
 pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
-    if spec.eip7594_fork_epoch.is_some() {
+    if spec.fulu_fork_epoch.is_some() {
         KZG_PEERDAS.clone()
     } else if spec.deneb_fork_epoch.is_some() {
         KZG.clone()

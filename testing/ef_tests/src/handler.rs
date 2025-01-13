@@ -362,7 +362,7 @@ where
         // SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
         // SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
         // ```
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
             && self.supported_forks.contains(&feature_name.fork_name())
     }
 }
@@ -386,7 +386,7 @@ where
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -411,7 +411,7 @@ where
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -996,7 +996,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 }
 

@@ -324,16 +324,15 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info.clone())?;
 
         let data_column_info = db.load_data_column_info()?;
-        let eip7594_fork_slot = db
+        let fulu_fork_slot = db
             .spec
-            .eip7594_fork_epoch
+            .fulu_fork_epoch
             .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
         let new_data_column_info = match &data_column_info {
             Some(data_column_info) => {
                 // Set the oldest data column slot to the fork slot if it is not yet set.
-                let oldest_data_column_slot = data_column_info
-                    .oldest_data_column_slot
-                    .or(eip7594_fork_slot);
+                let oldest_data_column_slot =
+                    data_column_info.oldest_data_column_slot.or(fulu_fork_slot);
                 DataColumnInfo {
                     oldest_data_column_slot,
                 }
@@ -341,7 +340,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             // First start.
             None => DataColumnInfo {
                 // Set the oldest data column slot to the fork slot if it is not yet set.
-                oldest_data_column_slot: eip7594_fork_slot,
+                oldest_data_column_slot: fulu_fork_slot,
             },
         };
         db.compare_and_set_data_column_info_with_write(
@@ -2278,7 +2277,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Initialize the `DataColumnInfo` when starting from genesis or a checkpoint.
     pub fn init_data_column_info(&self, anchor_slot: Slot) -> Result<KeyValueStoreOp, Error> {
-        let oldest_data_column_slot = self.spec.eip7594_fork_epoch.map(|fork_epoch| {
+        let oldest_data_column_slot = self.spec.fulu_fork_epoch.map(|fork_epoch| {
             std::cmp::max(anchor_slot, fork_epoch.start_slot(E::slots_per_epoch()))
         });
         let data_column_info = DataColumnInfo {

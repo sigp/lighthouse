@@ -198,12 +198,6 @@ pub struct ChainSpec {
     pub fulu_fork_version: [u8; 4],
     /// The Fulu fork epoch is optional, with `None` representing "Fulu never happens".
     pub fulu_fork_epoch: Option<Epoch>,
-    pub fulu_placeholder: u64,
-
-    /*
-     * DAS params
-     */
-    pub eip7594_fork_epoch: Option<Epoch>,
     pub custody_requirement: u64,
     pub data_column_sidecar_subnet_count: u64,
     pub number_of_columns: usize,
@@ -432,16 +426,16 @@ impl ChainSpec {
         }
     }
 
-    /// Returns true if the given epoch is greater than or equal to the `EIP7594_FORK_EPOCH`.
+    /// Returns true if the given epoch is greater than or equal to the `FULU_FORK_EPOCH`.
     pub fn is_peer_das_enabled_for_epoch(&self, block_epoch: Epoch) -> bool {
-        self.eip7594_fork_epoch
-            .is_some_and(|eip7594_fork_epoch| block_epoch >= eip7594_fork_epoch)
+        self.fulu_fork_epoch
+            .is_some_and(|fulu_fork_epoch| block_epoch >= fulu_fork_epoch)
     }
 
-    /// Returns true if `EIP7594_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    /// Returns true if `FULU_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
     pub fn is_peer_das_scheduled(&self) -> bool {
-        self.eip7594_fork_epoch
-            .is_some_and(|eip7594_fork_epoch| eip7594_fork_epoch != self.far_future_epoch)
+        self.fulu_fork_epoch
+            .is_some_and(|fulu_fork_epoch| fulu_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns a full `Fork` struct for a given epoch.
@@ -832,12 +826,6 @@ impl ChainSpec {
              */
             fulu_fork_version: [0x06, 0x00, 0x00, 0x00],
             fulu_fork_epoch: None,
-            fulu_placeholder: 0,
-
-            /*
-             * DAS params
-             */
-            eip7594_fork_epoch: None,
             custody_requirement: 4,
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
@@ -953,8 +941,6 @@ impl ChainSpec {
             // Fulu
             fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
             fulu_fork_epoch: None,
-            // PeerDAS
-            eip7594_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1162,12 +1148,6 @@ impl ChainSpec {
              */
             fulu_fork_version: [0x06, 0x00, 0x00, 0x64],
             fulu_fork_epoch: None,
-            fulu_placeholder: 0,
-
-            /*
-             * DAS params
-             */
-            eip7594_fork_epoch: None,
             custody_requirement: 4,
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
@@ -1306,11 +1286,6 @@ pub struct Config {
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub fulu_fork_epoch: Option<MaybeQuoted<Epoch>>,
-
-    #[serde(default)]
-    #[serde(serialize_with = "serialize_fork_epoch")]
-    #[serde(deserialize_with = "deserialize_fork_epoch")]
-    pub eip7594_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -1726,10 +1701,6 @@ impl Config {
                 .fulu_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
-            eip7594_fork_epoch: spec
-                .eip7594_fork_epoch
-                .map(|epoch| MaybeQuoted { value: epoch }),
-
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
@@ -1812,7 +1783,6 @@ impl Config {
             electra_fork_version,
             fulu_fork_epoch,
             fulu_fork_version,
-            eip7594_fork_epoch,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1878,7 +1848,6 @@ impl Config {
             electra_fork_version,
             fulu_fork_epoch: fulu_fork_epoch.map(|q| q.value),
             fulu_fork_version,
-            eip7594_fork_epoch: eip7594_fork_epoch.map(|q| q.value),
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,

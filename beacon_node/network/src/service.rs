@@ -25,6 +25,7 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -33,8 +34,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, DataColumnSubnetId, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, Unsigned, ValidatorSubscription,
+    ChainSpec, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Slot, SubnetId,
+    SyncCommitteeSubscription, SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -734,12 +735,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
-                // TODO(das): This is added here for the purpose of testing, *without* having to
-                // activate Electra. This should happen as part of the Electra upgrade and we should
-                // move the subscription logic once it's ready to rebase PeerDAS on Electra, or if
-                // we decide to activate via the soft fork route:
-                // https://github.com/sigp/lighthouse/pull/5899
-                if self.fork_context.spec.is_peer_das_scheduled() {
+                if self.fork_context.fork_exists(ForkName::Fulu) {
                     self.subscribe_to_peer_das_topics(&mut subscribed_topics);
                 }
 
@@ -789,32 +785,29 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         }
     }
 
+    /// Keeping these separate from core topics because it has custom logic:
+    /// 1. Data column subscription logic depends on subscription configuration.
+    /// 2. Data column topic subscriptions will be dynamic based on validator balances due to
+    ///    validator custody.
     fn subscribe_to_peer_das_topics(&mut self, subscribed_topics: &mut Vec<GossipTopic>) {
-        if self.subscribe_all_data_column_subnets {
-            for column_subnet in 0..self.fork_context.spec.data_column_sidecar_subnet_count {
-                for fork_digest in self.required_gossip_fork_digests() {
-                    let gossip_kind =
-                        Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
-                    let topic =
-                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
-                    if self.libp2p.subscribe(topic.clone()) {
-                        subscribed_topics.push(topic);
-                    } else {
-                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                    }
-                }
-            }
+        let column_subnets_to_subscribe = if self.subscribe_all_data_column_subnets {
+            Cow::Owned(
+                (0..self.fork_context.spec.data_column_sidecar_subnet_count)
+                    .map(DataColumnSubnetId::new)
+                    .collect(),
+            )
         } else {
-            for column_subnet in &self.network_globals.sampling_subnets {
-                for fork_digest in self.required_gossip_fork_digests() {
-                    let gossip_kind = Subnet::DataColumn(*column_subnet).into();
-                    let topic =
-                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
-                    if self.libp2p.subscribe(topic.clone()) {
-                        subscribed_topics.push(topic);
-                    } else {
-                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                    }
+            Cow::Borrowed(&self.network_globals.sampling_subnets)
+        };
+
+        for column_subnet in column_subnets_to_subscribe.iter() {
+            for fork_digest in self.required_gossip_fork_digests() {
+                let gossip_kind = Subnet::DataColumn(*column_subnet).into();
+                let topic = GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
+                if self.libp2p.subscribe(topic.clone()) {
+                    subscribed_topics.push(topic);
+                } else {
+                    warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
                 }
             }
         }
