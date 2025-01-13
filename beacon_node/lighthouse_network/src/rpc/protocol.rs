@@ -106,7 +106,6 @@ pub static SIGNED_BEACON_BLOCK_DENEB_MAX: LazyLock<usize> = LazyLock::new(|| {
     *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
-    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * MainnetEthSpec::default_spec().max_blobs_per_block_by_fork(ForkName::Deneb) as usize)
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
     //
@@ -114,7 +113,6 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
-    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * MainnetEthSpec::default_spec().max_blobs_per_block_by_fork(ForkName::Electra) as usize)
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
 
@@ -712,6 +710,7 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     }
 }
 
+// TODO(peerdas): fix hardcoded max here
 pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName) -> RpcLimits {
     RpcLimits::new(
         DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),

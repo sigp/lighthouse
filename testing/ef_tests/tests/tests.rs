@@ -626,17 +626,17 @@ mod ssz_static {
     #[test]
     fn data_column_sidecar() {
         SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
-            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+            .run_for_feature(FeatureName::Eip7594);
         SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
-            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+            .run_for_feature(FeatureName::Eip7594);
     }
 
     #[test]
     fn data_column_identifier() {
         SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::deneb_only()
-            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+            .run_for_feature(FeatureName::Eip7594);
         SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::deneb_only()
-            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+            .run_for_feature(FeatureName::Eip7594);
     }
     */
 
@@ -903,19 +903,19 @@ fn kzg_verify_kzg_proof() {
 #[test]
 fn kzg_compute_cells_and_proofs() {
     KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+        .run_for_feature(FeatureName::Eip7594);
 }
 
 #[test]
 fn kzg_verify_cell_proof_batch() {
     KZGVerifyCellKZGProofBatchHandler::<MainnetEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+        .run_for_feature(FeatureName::Eip7594);
 }
 
 #[test]
 fn kzg_recover_cells_and_proofs() {
     KZGRecoverCellsAndKZGProofHandler::<MainnetEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+        .run_for_feature(FeatureName::Eip7594);
 }
 */
 
@@ -952,9 +952,7 @@ fn rewards() {
 /* FIXME(das): re-enable these tests
 #[test]
 fn get_custody_columns() {
-    GetCustodyColumnsHandler::<MainnetEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
-    GetCustodyColumnsHandler::<MinimalEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+    GetCustodyColumnsHandler::<MainnetEthSpec>::default().run_for_feature(FeatureName::Eip7594);
+    GetCustodyColumnsHandler::<MinimalEthSpec>::default().run_for_feature(FeatureName::Eip7594);
 }
 */

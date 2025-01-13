@@ -946,6 +946,11 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
+    /// Fork-aware abstraction for the shuffling.
+    ///
+    /// In Electra and later, the random value is a 16-bit integer stored in a `u64`.
+    ///
+    /// Prior to Electra, the random value is an 8-bit integer stored in a `u64`.
     fn shuffling_random_value(&self, i: usize, seed: &[u8]) -> Result<u64, Error> {
         if self.fork_name_unchecked().electra_enabled() {
             Self::shuffling_random_u16_electra(i, seed).map(u64::from)

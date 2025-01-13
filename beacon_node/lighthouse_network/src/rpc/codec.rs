@@ -590,14 +590,16 @@ fn handle_rpc_request<E: EthSpec>(
         ))),
         SupportedProtocol::BlobsByRangeV1 => {
             let req = BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?;
+            let max_requested_blobs = req
+                .count
+                .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
             // TODO(pawan): change this to max_blobs_per_rpc_request in the alpha10 PR
-            let max_blobs = spec.max_blobs_per_block_by_fork(current_fork);
-            if req.count > max_blobs {
+            if max_requested_blobs > spec.max_request_blob_sidecars {
                 return Err(RPCError::ErrorResponse(
                     RpcErrorResponse::InvalidRequest,
                     format!(
                         "requested exceeded limit. allowed: {}, requested: {}",
-                        max_blobs, req.count
+                        spec.max_request_blob_sidecars, max_requested_blobs
                     ),
                 ));
             }

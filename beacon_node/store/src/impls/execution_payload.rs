@@ -4,6 +4,7 @@ use types::{
     EthSpec, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
     ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
 };
+
 macro_rules! impl_store_item {
     ($ty_name:ident) => {
         impl<E: EthSpec> StoreItem for $ty_name<E> {
