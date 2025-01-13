@@ -133,7 +133,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 });
             }
 
-            if !self.config.prune_payloads {
+            if !self.store.get_config().prune_payloads {
                 // If prune-payloads is set to false, store the block which includes the execution payload
                 self.store
                     .block_as_kv_store_ops(&block_root, (*block).clone(), &mut hot_batch)?;

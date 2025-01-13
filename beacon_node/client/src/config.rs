@@ -82,7 +82,6 @@ pub struct Config {
     pub genesis_state_url: Option<String>,
     pub genesis_state_url_timeout: Duration,
     pub allow_insecure_genesis_sync: bool,
-    pub prune_payloads: bool,
 }
 
 impl Default for Config {
@@ -116,7 +115,6 @@ impl Default for Config {
             // This default value should always be overwritten by the CLI default value.
             genesis_state_url_timeout: Duration::from_secs(60),
             allow_insecure_genesis_sync: false,
-            prune_payloads: true,
         }
     }
 }

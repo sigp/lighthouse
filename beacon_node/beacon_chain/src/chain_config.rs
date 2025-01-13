@@ -94,8 +94,6 @@ pub struct ChainConfig {
     /// The delay in milliseconds applied by the node between sending each blob or data column batch.
     /// This doesn't apply if the node is the block proposer.
     pub blob_publication_batch_interval: Duration,
-    /// When prune execution payloads is set to false, store full block information instead of blinded block.
-    pub prune_payloads: bool,
 }
 
 impl Default for ChainConfig {
@@ -131,7 +129,6 @@ impl Default for ChainConfig {
             enable_sampling: false,
             blob_publication_batches: 4,
             blob_publication_batch_interval: Duration::from_millis(300),
-            prune_payloads: true,
         }
     }
 }
