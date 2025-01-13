@@ -626,18 +626,16 @@ mod ssz_static {
 
     #[test]
     fn data_column_sidecar() {
-        SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
-            .run_for_feature(FeatureName::Fulu);
-        SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
-            .run_for_feature(FeatureName::Fulu);
+        SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::fulu_and_later()
+            .run();
+        SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::fulu_and_later()
+            .run();
     }
 
     #[test]
     fn data_column_identifier() {
-        SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::deneb_only()
-            .run_for_feature(FeatureName::Fulu);
-        SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::deneb_only()
-            .run_for_feature(FeatureName::Fulu);
+        SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::fulu_and_later().run();
+        SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::fulu_and_later().run();
     }
 
     #[test]
@@ -901,20 +899,17 @@ fn kzg_verify_kzg_proof() {
 
 #[test]
 fn kzg_compute_cells_and_proofs() {
-    KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default()
-        .run_for_feature(FeatureName::Fulu);
+    KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
 fn kzg_verify_cell_proof_batch() {
-    KZGVerifyCellKZGProofBatchHandler::<MainnetEthSpec>::default()
-        .run_for_feature(FeatureName::Fulu);
+    KZGVerifyCellKZGProofBatchHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
 fn kzg_recover_cells_and_proofs() {
-    KZGRecoverCellsAndKZGProofHandler::<MainnetEthSpec>::default()
-        .run_for_feature(FeatureName::Fulu);
+    KZGRecoverCellsAndKZGProofHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
@@ -949,6 +944,6 @@ fn rewards() {
 
 #[test]
 fn get_custody_columns() {
-    GetCustodyColumnsHandler::<MainnetEthSpec>::default().run_for_feature(FeatureName::Fulu);
-    GetCustodyColumnsHandler::<MinimalEthSpec>::default().run_for_feature(FeatureName::Fulu);
+    GetCustodyColumnsHandler::<MainnetEthSpec>::default().run();
+    GetCustodyColumnsHandler::<MinimalEthSpec>::default().run()
 }

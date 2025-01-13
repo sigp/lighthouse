@@ -89,18 +89,18 @@ pub use transition::TransitionTest;
 ///     to return `true` for the feature in order for the feature test vector to be tested.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FeatureName {
-    Fulu,
+    Placeholder,
 }
 
 impl FeatureName {
     pub fn list_all() -> Vec<FeatureName> {
-        vec![FeatureName::Fulu]
+        vec![FeatureName::Placeholder]
     }
 
     /// `ForkName` to use when running the feature tests.
     pub fn fork_name(&self) -> ForkName {
         match self {
-            FeatureName::Fulu => ForkName::Deneb,
+            FeatureName::Placeholder => ForkName::Fulu,
         }
     }
 }
@@ -108,7 +108,7 @@ impl FeatureName {
 impl Display for FeatureName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FeatureName::Fulu => f.write_str("fulu"),
+            FeatureName::Placeholder => f.write_str("placeholder"),
         }
     }
 }
