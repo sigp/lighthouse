@@ -236,10 +236,8 @@ pub fn load_or_build_metadata<E: EthSpec>(
 /// possible fork digests.
 pub(crate) fn create_whitelist_filter(
     possible_fork_digests: Vec<[u8; 4]>,
-    attestation_subnet_count: u64,
+    spec: &ChainSpec,
     sync_committee_subnet_count: u64,
-    blob_sidecar_subnet_count: u64,
-    data_column_sidecar_subnet_count: u64,
 ) -> gossipsub::WhitelistSubscriptionFilter {
     let mut possible_hashes = HashSet::new();
     for fork_digest in possible_fork_digests {
@@ -259,16 +257,21 @@ pub(crate) fn create_whitelist_filter(
         add(BlsToExecutionChange);
         add(LightClientFinalityUpdate);
         add(LightClientOptimisticUpdate);
-        for id in 0..attestation_subnet_count {
+        for id in 0..spec.attestation_subnet_count {
             add(Attestation(SubnetId::new(id)));
         }
         for id in 0..sync_committee_subnet_count {
             add(SyncCommitteeMessage(SyncSubnetId::new(id)));
         }
-        for id in 0..blob_sidecar_subnet_count {
+        let blob_subnet_count = if spec.electra_fork_epoch.is_some() {
+            spec.blob_sidecar_subnet_count_electra
+        } else {
+            spec.blob_sidecar_subnet_count
+        };
+        for id in 0..blob_subnet_count {
             add(BlobSidecar(id));
         }
-        for id in 0..data_column_sidecar_subnet_count {
+        for id in 0..spec.data_column_sidecar_subnet_count {
             add(DataColumnSidecar(DataColumnSubnetId::new(id)));
         }
     }
