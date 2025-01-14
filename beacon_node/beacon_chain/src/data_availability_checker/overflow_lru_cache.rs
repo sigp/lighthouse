@@ -569,7 +569,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if custody_column_count != total_column_count {
             return ReconstructColumnsDecision::No("not required for full node");
         }
-        if received_column_count == total_column_count {
+        if received_column_count >= total_column_count {
             return ReconstructColumnsDecision::No("all columns received");
         }
         if received_column_count < total_column_count / 2 {
