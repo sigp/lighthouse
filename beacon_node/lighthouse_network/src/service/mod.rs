@@ -16,7 +16,7 @@ use crate::rpc::{
 use crate::types::{
     attestation_sync_committee_topics, fork_core_topics, subnet_from_topic_hash, GossipEncoding,
     GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS,
-    BASE_CORE_TOPICS, CAPELLA_CORE_TOPICS, DENEB_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
+    BASE_CORE_TOPICS, CAPELLA_CORE_TOPICS, LIGHT_CLIENT_GOSSIP_TOPICS,
 };
 use crate::EnrExt;
 use crate::Eth2Enr;
@@ -285,26 +285,23 @@ impl<E: EthSpec> Network<E> {
 
             let max_topics = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
-                + ctx.chain_spec.blob_sidecar_subnet_count as usize
+                + ctx.chain_spec.blob_sidecar_subnet_count_electra as usize
                 + ctx.chain_spec.data_column_sidecar_subnet_count as usize
                 + BASE_CORE_TOPICS.len()
                 + ALTAIR_CORE_TOPICS.len()
-                + CAPELLA_CORE_TOPICS.len()
-                + DENEB_CORE_TOPICS.len()
+                + CAPELLA_CORE_TOPICS.len() // 0 core deneb and electra topics
                 + LIGHT_CLIENT_GOSSIP_TOPICS.len();
 
             let possible_fork_digests = ctx.fork_context.all_fork_digests();
             let filter = gossipsub::MaxCountSubscriptionFilter {
                 filter: utils::create_whitelist_filter(
                     possible_fork_digests,
-                    ctx.chain_spec.attestation_subnet_count,
+                    &ctx.chain_spec,
                     SYNC_COMMITTEE_SUBNET_COUNT,
-                    ctx.chain_spec.blob_sidecar_subnet_count,
-                    ctx.chain_spec.data_column_sidecar_subnet_count,
                 ),
                 // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
-                // 418 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics + 128 column topics) * 2
+                // 424 in theory = (64 attestation + 4 sync committee + 7 core topics + 9 blob topics + 128 column topics) * 2
                 max_subscriptions_per_request: max_topics * 2,
             };
 

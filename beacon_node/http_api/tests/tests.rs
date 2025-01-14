@@ -1278,7 +1278,7 @@ impl ApiTester {
                 .chain
                 .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                 .unwrap()
-                .map_or(false, |canonical| block_root == canonical);
+                .is_some_and(|canonical| block_root == canonical);
 
             assert_eq!(result.canonical, canonical, "{:?}", block_id);
             assert_eq!(result.root, block_root, "{:?}", block_id);
@@ -2232,9 +2232,9 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self
             .client
-            .get_config_spec::<ConfigAndPresetElectra>()
+            .get_config_spec::<ConfigAndPresetFulu>()
             .await
-            .map(|res| ConfigAndPreset::Electra(res.data))
+            .map(|res| ConfigAndPreset::Fulu(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
 
