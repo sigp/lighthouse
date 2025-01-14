@@ -1099,7 +1099,6 @@ where
             attestation.committee_index().unwrap() as usize
         );
         assert_eq!(single_attestation.attester_index, validator_index);
-        // assert_eq!(single_attestation.attester_index, attestation.attester_index());
         Ok(single_attestation)
     }
 

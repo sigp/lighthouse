@@ -44,6 +44,7 @@ pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
+use either::Either;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
     LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
@@ -1856,6 +1857,7 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
+                let attestations = attestations.into_iter().map(Either::Left).collect();
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
@@ -1885,7 +1887,8 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
-                let result = crate::publish_attestations::publish_single_attestations(
+                let attestations = attestations.into_iter().map(Either::Right).collect();
+                let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
                     attestations,

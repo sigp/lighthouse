@@ -40,6 +40,7 @@ use beacon_chain::{
     BeaconChainTypes,
 };
 use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
+use either::Either;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
@@ -62,6 +63,7 @@ enum Error {
     ReprocessDisabled,
     ReprocessFull,
     ReprocessTimeout,
+    FailedConversion(#[allow(dead_code)] BeaconChainError),
 }
 
 enum PublishAttestationResult {
@@ -73,13 +75,14 @@ enum PublishAttestationResult {
 
 fn verify_and_publish_attestation<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    attestation: &Attestation<T::EthSpec>,
+    attestation: &Either<Attestation<T::EthSpec>, SingleAttestation>,
     seen_timestamp: Duration,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: &Logger,
 ) -> Result<(), Error> {
+    let attestation = convert_to_attestation(chain, attestation)?;
     let attestation = chain
-        .verify_unaggregated_attestation_for_gossip(attestation, None)
+        .verify_unaggregated_attestation_for_gossip(&attestation, None)
         .map_err(Error::Validation)?;
 
     match attestation.attestation() {
@@ -161,55 +164,40 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     }
 }
 
-pub async fn publish_single_attestations<T: BeaconChainTypes>(
-    task_spawner: TaskSpawner<T::EthSpec>,
-    chain: Arc<BeaconChain<T>>,
-    single_attestations: Vec<SingleAttestation>,
-    network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-    reprocess_send: Option<Sender<ReprocessQueueMessage>>,
-    log: Logger,
-) -> Result<(), warp::Rejection> {
-    let mut attestations = vec![];
+fn convert_to_attestation<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    attestation: &Either<Attestation<T::EthSpec>, SingleAttestation>,
+) -> Result<Attestation<T::EthSpec>, Error> {
+    let a = match attestation {
+        Either::Left(a) => a.clone(),
+        Either::Right(single_attestation) => chain
+            .with_committee_cache(
+                single_attestation.data.target.root,
+                single_attestation
+                    .data
+                    .slot
+                    .epoch(T::EthSpec::slots_per_epoch()),
+                |committee_cache, _| {
+                    let committee = committee_cache.get_beacon_committee(
+                        single_attestation.data.slot,
+                        single_attestation.committee_index as u64,
+                    );
 
-    for single_attestation in single_attestations {
-        let attestation = chain.with_committee_cache(
-            single_attestation.data.target.root,
-            single_attestation
-                .data
-                .slot
-                .epoch(T::EthSpec::slots_per_epoch()),
-            |committee_cache, _| {
-                let committee = committee_cache.get_beacon_committee(
-                    single_attestation.data.slot,
-                    single_attestation.committee_index as u64,
-                );
+                    let attestation = single_attestation.to_attestation::<T::EthSpec>(committee)?;
 
-                let attestation = single_attestation.to_attestation::<T::EthSpec>(committee)?;
+                    Ok(attestation)
+                },
+            )
+            .map_err(Error::FailedConversion)?,
+    };
 
-                Ok(attestation)
-            },
-        );
-
-        if let Ok(attestation) = attestation {
-            attestations.push(attestation);
-        }
-    }
-
-    publish_attestations(
-        task_spawner,
-        chain,
-        attestations,
-        network_tx,
-        reprocess_send,
-        log,
-    )
-    .await
+    Ok(a)
 }
 
 pub async fn publish_attestations<T: BeaconChainTypes>(
     task_spawner: TaskSpawner<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
-    attestations: Vec<Attestation<T::EthSpec>>,
+    attestations: Vec<Either<Attestation<T::EthSpec>, SingleAttestation>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     reprocess_send: Option<Sender<ReprocessQueueMessage>>,
     log: Logger,
@@ -218,7 +206,10 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     // move the `attestations` vec into the blocking task, so this small overhead is unavoidable.
     let attestation_metadata = attestations
         .iter()
-        .map(|att| (att.data().slot, att.committee_index()))
+        .map(|att| match att {
+            Either::Left(att) => (att.data().slot, att.committee_index()),
+            Either::Right(att) => (att.data.slot, Some(att.committee_index as u64)),
+        })
         .collect::<Vec<_>>();
 
     // Gossip validate and publish attestations that can be immediately processed.

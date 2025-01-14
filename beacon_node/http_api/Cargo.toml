@@ -11,6 +11,7 @@ beacon_processor = { workspace = true }
 bs58 = "0.4.0"
 bytes = { workspace = true }
 directory = { workspace = true }
+either = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
 ethereum_serde_utils = { workspace = true }
