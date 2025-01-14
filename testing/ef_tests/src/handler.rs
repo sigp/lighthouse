@@ -355,11 +355,11 @@ where
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        // This ensures we only run the tests **once** for `Eip7594`, using the types matching the
-        // correct fork, e.g. `Eip7594` uses SSZ types from `Deneb` as of spec test version
-        // `v1.5.0-alpha.8`, therefore the `Eip7594` tests should get included when testing Deneb types.
+        // This ensures we only run the tests **once** for the feature, using the types matching the
+        // correct fork, e.g. `Fulu` uses SSZ types from `Electra` fork as of spec test version
+        // `v1.5.0-beta.0`, therefore the `Fulu` tests should get included when testing Electra types.
         //
-        // e.g. Eip7594 test vectors are executed in the first line below, but excluded in the 2nd
+        // e.g. Fulu test vectors are executed in the first line below, but excluded in the 2nd
         // line when testing the type `AttestationElectra`:
         //
         // ```
