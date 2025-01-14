@@ -1,4 +1,5 @@
 use crate::block_verification_types::{AsBlock, RpcBlock};
+use crate::data_column_verification::CustodyDataColumn;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -2019,22 +2020,19 @@ where
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
 
-        let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
-            .transpose()
-            .unwrap();
+        let rpc_block = self.build_rpc_block(block_root, block, blob_items)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await?
             .try_into()
-            .unwrap();
+            .expect("block blobs are available");
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
@@ -2045,16 +2043,13 @@ where
     ) -> Result<SignedBeaconBlockHash, BlockError> {
         let (block, blob_items) = block_contents;
 
-        let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
-            .transpose()
-            .unwrap();
         let block_root = block.canonical_root();
+        let rpc_block = self.build_rpc_block(block_root, block, blob_items)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
@@ -2064,6 +2059,43 @@ where
             .expect("block blobs are available");
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
+    }
+
+    fn build_rpc_block(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
+        blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
+    ) -> Result<RpcBlock<E>, BlockError> {
+        Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+            let columns = blob_items
+                .map(|(_proofs, blobs)| {
+                    blobs_to_data_column_sidecars(
+                        &blobs.iter().collect::<Vec<_>>(),
+                        &block,
+                        &self.chain.kzg,
+                        &self.spec,
+                    )
+                    .map(|column_sidecars| {
+                        column_sidecars
+                            .into_iter()
+                            .map(CustodyDataColumn::from_asserted_custody)
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .transpose()
+                .expect("should convert blobs to columns")
+                .unwrap_or(vec![]);
+            RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+        } else {
+            let blobs = blob_items
+                .map(|(proofs, blobs)| {
+                    BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec)
+                })
+                .transpose()
+                .unwrap();
+            RpcBlock::new(Some(block_root), block, blobs)?
+        })
     }
 
     pub fn process_attestations(&self, attestations: HarnessAttestations<E>) {
