@@ -710,7 +710,7 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     }
 }
 
-// TODO(peerdas): fix hardcoded max here
+// TODO(das): fix hardcoded max here
 pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName) -> RpcLimits {
     RpcLimits::new(
         DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),

@@ -974,7 +974,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Get two random bytes from the given `seed`.
     ///
-    /// This is used in place of the
+    /// This is used in place of `shuffling_random_byte` from Electra onwards.
     fn shuffling_random_u16_electra(i: usize, seed: &[u8]) -> Result<u16, Error> {
         let mut preimage = seed.to_vec();
         preimage.append(&mut int_to_bytes8(i.safe_div(16)? as u64));
