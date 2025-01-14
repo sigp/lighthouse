@@ -461,8 +461,23 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         .iter()
                         .zip(validator_indices)
                         .filter_map(|(a, i)| {
-                            a.to_single_attestation_with_attester_index(*i as usize)
-                                .ok()
+                            match a.to_single_attestation_with_attester_index(*i as usize) {
+                                Ok(a) => Some(a),
+                                Err(e) => {
+                                    // I can't think of a reason why we'd reach this error case. The
+                                    // unaggregated attestation was constructed using the validator index `i`.
+                                    // Since it's an unaggregated attestation it should only have one committee bit set.
+                                    error!(
+                                        log,
+                                        "Unable to convert to single_attestation";
+                                        "error" => ?e,
+                                        "committee_index" => attestation_data.index,
+                                        "slot" => slot.as_u64(),
+                                        "type" => "unaggregated",
+                                    );
+                                    None
+                                }
+                            }
                         })
                         .collect::<Vec<_>>();
                     beacon_node
