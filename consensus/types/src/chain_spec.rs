@@ -625,7 +625,7 @@ impl ChainSpec {
     }
 
     pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.max_request_blob_sidecars_electra as usize
         } else {
             self.max_request_blob_sidecars as usize
@@ -639,7 +639,7 @@ impl ChainSpec {
 
     /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for `fork`.
     pub fn max_blobs_per_block_by_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.max_blobs_per_block_electra
         } else {
             self.max_blobs_per_block
