@@ -4,6 +4,7 @@ use crate::rpc::{MetaData, MetaDataV3};
 use crate::types::{BackFillState, SyncState};
 use crate::{Client, Enr, EnrExt, GossipTopic, Multiaddr, NetworkConfig, PeerId};
 use parking_lot::RwLock;
+use slog::error;
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::data_column_custody_group::{
@@ -50,14 +51,25 @@ impl<E: EthSpec> NetworkGlobals<E> {
         let (sampling_subnets, sampling_columns) = if spec.is_peer_das_scheduled() {
             let node_id = enr.node_id().raw();
 
-            let custody_group_count = local_metadata
-                .custody_group_count()
-                .copied()
-                .expect("custody group count must be set if PeerDAS is scheduled");
+            let custody_group_count = match local_metadata.custody_group_count() {
+                Ok(&cgc) if cgc <= spec.number_of_custody_groups => cgc,
+                _ => {
+                    error!(
+                        log,
+                        "custody_group_count from metadata is either invalid or not set. This is a bug!";
+                        "info" => "falling back to default custody requirement"
+                    );
+                    spec.custody_requirement
+                }
+            };
 
-            let sampling_size = spec.sampling_size(custody_group_count);
+            // The below `expect` calls will panic on start up if the chain spec config values used
+            // are invalid
+            let sampling_size = spec
+                .sampling_size(custody_group_count)
+                .expect("should compute node sampling size from valid chain spec");
             let custody_groups = get_custody_groups(node_id, sampling_size, &spec)
-                .expect("should compute custody groups for node");
+                .expect("should compute node custody groups");
 
             let mut sampling_subnets = HashSet::new();
             for custody_index in &custody_groups {
@@ -214,7 +226,7 @@ mod test {
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 
         let custody_group_count = spec.number_of_custody_groups / 2;
-        let subnet_sampling_size = spec.sampling_size(custody_group_count);
+        let subnet_sampling_size = spec.sampling_size(custody_group_count).unwrap();
         let metadata = get_metadata(custody_group_count);
         let config = Arc::new(NetworkConfig::default());
 
@@ -238,7 +250,7 @@ mod test {
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 
         let custody_group_count = spec.number_of_custody_groups / 2;
-        let subnet_sampling_size = spec.sampling_size(custody_group_count);
+        let subnet_sampling_size = spec.sampling_size(custody_group_count).unwrap();
         let metadata = get_metadata(custody_group_count);
         let config = Arc::new(NetworkConfig::default());
 
