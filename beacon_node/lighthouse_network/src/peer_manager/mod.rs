@@ -1336,10 +1336,7 @@ impl<E: EthSpec> PeerManager<E> {
                     matches!(multiaddr.iter().next(), Some(MProtocol::Ip6(_)))
                 };
 
-                if peer_info
-                    .seen_multiaddrs()
-                    .any(|addr| multiaddr_is_ipv6(addr))
-                {
+                if peer_info.seen_multiaddrs().any(multiaddr_is_ipv6) {
                     inbound_ipv6_peers_connected += 1;
                 } else {
                     inbound_ipv4_peers_connected += 1;
