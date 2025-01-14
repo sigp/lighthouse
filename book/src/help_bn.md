@@ -298,8 +298,8 @@ Options:
           [default: 9000]
       --port6 <PORT>
           The TCP/UDP ports to listen on over IPv6 when listening over both IPv4
-          and IPv6. Defaults to 9000. The Quic UDP port will be set to this
-          value + 1. [default: 9000]
+          and IPv6. Defaults to --port. The Quic UDP port will be set to this
+          value + 1.
       --prepare-payload-lookahead <MILLISECONDS>
           The time before the start of a proposal slot at which payload
           attributes should be sent. Low values are useful for execution nodes
