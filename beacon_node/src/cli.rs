@@ -225,6 +225,13 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("disable-ipv6")
+                .long("disable-ipv6")
+                .help("If 0.0.0.0 is set as the IPv4 listening address and the host has a globally routeable IPv6 address, Lighthouse will listen on :: by default, in dual-stack mode. This flag prevents this.")
+                .action(ArgAction::SetTrue)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("target-peers")
                 .long("target-peers")
                 .help("The target number of peers.")

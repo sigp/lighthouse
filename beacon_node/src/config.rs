@@ -899,6 +899,7 @@ pub fn parse_listening_addresses(
     // parse the possible ips
     let mut maybe_ipv4 = None;
     let mut maybe_ipv6 = None;
+
     for addr_str in listen_addresses_str {
         let addr = addr_str.parse::<IpAddr>().map_err(|parse_error| {
             format!("Failed to parse listen-address ({addr_str}) as an Ip address: {parse_error}")
@@ -924,6 +925,19 @@ pub fn parse_listening_addresses(
                 None => maybe_ipv6 = Some(v6_addr),
             },
         }
+    }
+
+    // If we have specified an IPv4 listen address and not an IPv6 address and the
+    // host has a globally routeable IPv6 address and the CLI doesn't expressly disable IPv6,
+    // then we also listen on IPv6.
+    // Note that we will only listen on all interfaces if the IPv4 counterpart is also listening on
+    // all interfaces, to prevent accidental exposure of ports.
+    if maybe_ipv4 == Some(Ipv4Addr::UNSPECIFIED)
+        && maybe_ipv6.is_none()
+        && !cli_args.get_flag("disable_ipv6")
+        && NetworkConfig::is_ipv6_supported()
+    {
+        maybe_ipv6 = Some(Ipv6Addr::UNSPECIFIED);
     }
 
     // parse the possible tcp ports

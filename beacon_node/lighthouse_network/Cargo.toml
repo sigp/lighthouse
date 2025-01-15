@@ -19,6 +19,7 @@ fnv = { workspace = true }
 futures = { workspace = true }
 gossipsub = { workspace = true }
 hex = { workspace = true }
+local-ip-address = "0.6"
 itertools = { workspace = true }
 libp2p-mplex = "0.42"
 lighthouse_version = { workspace = true }
