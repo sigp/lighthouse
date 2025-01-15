@@ -1280,7 +1280,7 @@ where
                         };
 
                         let subnet_id = SubnetId::compute_subnet_for_single_attestation::<E>(
-                            attestation.clone(),
+                            &attestation,
                             committee_count,
                             &self.chain.spec,
                         )
