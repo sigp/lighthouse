@@ -109,15 +109,12 @@ mod test {
 
     #[test]
     fn test_compute_columns_for_custody_group() {
-        let number_of_custody_groups = 64;
-        let spec = ChainSpec {
-            number_of_columns: 128,
-            number_of_custody_groups,
-            ..ChainSpec::mainnet()
-        };
-        let columns_per_custody_group = spec.number_of_columns / number_of_custody_groups;
+        let mut spec = ChainSpec::mainnet();
+        spec.number_of_custody_groups = 64;
+        spec.number_of_columns = 128;
+        let columns_per_custody_group = spec.number_of_columns / spec.number_of_custody_groups;
 
-        for custody_group in 0..number_of_custody_groups {
+        for custody_group in 0..spec.number_of_custody_groups {
             let columns = compute_columns_for_custody_group(custody_group, &spec)
                 .unwrap()
                 .collect::<Vec<_>>();
@@ -127,12 +124,11 @@ mod test {
 
     #[test]
     fn test_compute_subnets_from_custody_group() {
-        let spec = ChainSpec {
-            number_of_columns: 256,
-            number_of_custody_groups: 64,
-            data_column_sidecar_subnet_count: 128,
-            ..ChainSpec::mainnet()
-        };
+        let mut spec = ChainSpec::mainnet();
+        spec.number_of_custody_groups = 64;
+        spec.number_of_columns = 256;
+        spec.data_column_sidecar_subnet_count = 128;
+
         let subnets_per_custody_group =
             spec.data_column_sidecar_subnet_count / spec.number_of_custody_groups;
 

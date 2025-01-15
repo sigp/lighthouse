@@ -237,7 +237,9 @@ macro_rules! ssz_static_test_no_run {
 
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
-    use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
+    use ef_tests::{
+        FeatureName, Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler,
+    };
     use types::historical_summary::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DepositRequest,
@@ -946,7 +948,15 @@ fn rewards() {
 }
 
 #[test]
-fn get_custody_columns() {
-    GetCustodyColumnsHandler::<MainnetEthSpec>::default().run_for_feature(FeatureName::Fulu);
-    GetCustodyColumnsHandler::<MinimalEthSpec>::default().run_for_feature(FeatureName::Fulu);
+fn get_custody_groups() {
+    GetCustodyGroupsHandler::<MainnetEthSpec>::default().run_for_feature(FeatureName::Fulu);
+    GetCustodyGroupsHandler::<MinimalEthSpec>::default().run_for_feature(FeatureName::Fulu);
+}
+
+#[test]
+fn compute_columns_for_custody_group() {
+    ComputeColumnsForCustodyGroupHandler::<MainnetEthSpec>::default()
+        .run_for_feature(FeatureName::Fulu);
+    ComputeColumnsForCustodyGroupHandler::<MinimalEthSpec>::default()
+        .run_for_feature(FeatureName::Fulu);
 }
