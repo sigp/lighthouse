@@ -464,13 +464,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             match a.to_single_attestation_with_attester_index(*i as usize) {
                                 Ok(a) => Some(a),
                                 Err(e) => {
-                                    // If the BN and VC are out of sync, we could get an `IncorrectStateVariant` error here. 
-                                    // Assuming the BN and VC are in sync, we shouldn't see any other errors.
-                                    // The unaggregated attestation was constructed using the validator index `i`.
-                                    // It's an unaggregated attestation so it's guaranteed to have one committee bit set.
+                                    // This shouldn't happen unless BN and VC are out of sync with
+                                    // respect to the Electra fork.
                                     error!(
                                         log,
-                                        "Unable to convert to single_attestation";
+                                        "Unable to convert to SingleAttestation";
                                         "error" => ?e,
                                         "committee_index" => attestation_data.index,
                                         "slot" => slot.as_u64(),
