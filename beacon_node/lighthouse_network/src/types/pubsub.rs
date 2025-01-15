@@ -27,9 +27,9 @@ pub enum PubsubMessage<E: EthSpec> {
     DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar<E>>)>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<E>>),
-    /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
+    /// Gossipsub message providing notification of a raw un-aggregated attestation with its subnet id.
     Attestation(Box<(SubnetId, Attestation<E>)>),
-    /// Gossipsub message providing notification of a `SingleAttestation`` with its shard id.
+    /// Gossipsub message providing notification of a `SingleAttestation`` with its subnet id.
     SingleAttestation(Box<(SubnetId, SingleAttestation)>),
     /// Gossipsub message providing notification of a voluntary exit.
     VoluntaryExit(Box<SignedVoluntaryExit>),
