@@ -128,7 +128,7 @@ You can replace `1` in the above command with the validator index that you would
 
 ### Events API
 
-The [events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream) provides information such as the payload attributes that are of interest to block builders and relays. To query the payload attributes, it is necessary to run Lighthouse beacon node with the flag `--always-prepare-payload`. It is also recommended to add the flag `--prepare-payload-lookahead 8000` which configures the payload attributes to be sent at 4s into each slot (or 8s from the start of the next slot). An example of the command is:
+The [events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream) provides information such as the payload attributes that are of interest to block builders and relays. To query the payload attributes, it is necessary to run Lighthouse beacon node with the flag `--always-prepare-payload`. With the flag `--always-prepare-payload`, it is mandatory to also have the flag `--suggested-fee-recipient` set on the beacon node. You could pass a dummy fee recipient and have it override with the intended fee recipient of the proposer during the actual block proposal. It is also recommended to add the flag `--prepare-payload-lookahead 8000` which configures the payload attributes to be sent at 4s into each slot (or 8s from the start of the next slot). An example of the command is:
 
 ```bash
 curl -X 'GET' \

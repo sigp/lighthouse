@@ -17,12 +17,12 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// Optionally verifies the aggregate signature, depending on `verify_signatures`.
 pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
     state: &BeaconState<E>,
-    attestation: &Attestation<E>,
+    attestation: AttestationRef<'ctxt, E>,
     ctxt: &'ctxt mut ConsensusContext<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<&'ctxt IndexedAttestation<E>> {
-    let data = &attestation.data;
+) -> Result<IndexedAttestationRef<'ctxt, E>> {
+    let data = attestation.data();
 
     verify!(
         data.slot.safe_add(spec.min_attestation_inclusion_delay)? <= state.slot(),
@@ -61,17 +61,27 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
 /// Spec v0.12.1
 pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
     state: &BeaconState<E>,
-    attestation: &Attestation<E>,
+    attestation: AttestationRef<'ctxt, E>,
     ctxt: &'ctxt mut ConsensusContext<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<&'ctxt IndexedAttestation<E>> {
-    let data = &attestation.data;
+) -> Result<IndexedAttestationRef<'ctxt, E>> {
+    let data = attestation.data();
 
-    verify!(
-        data.index < state.get_committee_count_at_slot(data.slot)?,
-        Invalid::BadCommitteeIndex
-    );
+    // TODO(electra) choosing a validation based on the attestation's fork
+    // rather than the state's fork makes this simple, but technically the spec
+    // defines this verification based on the state's fork.
+    match attestation {
+        AttestationRef::Base(_) => {
+            verify!(
+                data.index < state.get_committee_count_at_slot(data.slot)?,
+                Invalid::BadCommitteeIndex
+            );
+        }
+        AttestationRef::Electra(_) => {
+            verify!(data.index == 0, Invalid::BadCommitteeIndex);
+        }
+    }
 
     // Verify the Casper FFG vote.
     verify_casper_ffg_vote(attestation, state)?;
@@ -87,10 +97,10 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
 ///
 /// Spec v0.12.1
 fn verify_casper_ffg_vote<E: EthSpec>(
-    attestation: &Attestation<E>,
+    attestation: AttestationRef<E>,
     state: &BeaconState<E>,
 ) -> Result<()> {
-    let data = &attestation.data;
+    let data = attestation.data();
     verify!(
         data.target.epoch == data.slot.epoch(E::slots_per_epoch()),
         Invalid::TargetEpochSlotMismatch {

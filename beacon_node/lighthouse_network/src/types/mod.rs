@@ -1,4 +1,3 @@
-pub mod error;
 mod globals;
 mod pubsub;
 mod subnet;

@@ -116,7 +116,7 @@ location of the file varies, but it is located in the "validator directory" of y
 alongside validator keystores. For example: `~/.lighthouse/mainnet/validators/api-token.txt`. If you are unsure of the `api-token.txt` path, you can run `curl http://localhost:5062/lighthouse/auth` which will show the path.
 
 Copy the contents of that file into a new file on the **destination host** at `~/src-token.txt`. The
-API token should be similar to `api-token-0x03eace4c98e8f77477bb99efb74f9af10d800bd3318f92c33b719a4644254d4123`.
+API token is a random string, e.g., `hGut6B8uEujufDXSmZsT0thnxvdvKFBvh`.
 
 ### 4. Create an SSH Tunnel
 

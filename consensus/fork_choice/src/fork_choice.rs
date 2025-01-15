@@ -1,3 +1,4 @@
+use crate::metrics::{self, scrape_for_metrics};
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
@@ -14,9 +15,9 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
-    AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch,
-    EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch,
-    SignedBeaconBlock, Slot,
+    AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
+    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, Hash256,
+    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -238,13 +239,13 @@ pub struct QueuedAttestation {
     target_epoch: Epoch,
 }
 
-impl<E: EthSpec> From<&IndexedAttestation<E>> for QueuedAttestation {
-    fn from(a: &IndexedAttestation<E>) -> Self {
+impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
+    fn from(a: IndexedAttestationRef<'a, E>) -> Self {
         Self {
-            slot: a.data.slot,
-            attesting_indices: a.attesting_indices[..].to_vec(),
-            block_root: a.data.beacon_block_root,
-            target_epoch: a.data.target.epoch,
+            slot: a.data().slot,
+            attesting_indices: a.attesting_indices_to_vec(),
+            block_root: a.data().beacon_block_root,
+            target_epoch: a.data().target.epoch,
         }
     }
 }
@@ -260,6 +261,11 @@ fn dequeue_attestations(
             .iter()
             .position(|a| a.slot >= current_slot)
             .unwrap_or(queued_attestations.len()),
+    );
+
+    metrics::inc_counter_by(
+        &metrics::FORK_CHOICE_DEQUEUED_ATTESTATIONS,
+        queued_attestations.len() as u64,
     );
 
     std::mem::replace(queued_attestations, remaining)
@@ -649,6 +655,8 @@ where
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_BLOCK_TIMES);
+
         // If this block has already been processed we do not need to reprocess it.
         // We check this immediately in case re-processing the block mutates some property of the
         // global fork choice store, e.g. the justified checkpoints or the proposer boost root.
@@ -940,7 +948,7 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#validate_on_attestation
     fn validate_on_attestation(
         &self,
-        indexed_attestation: &IndexedAttestation<E>,
+        indexed_attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
     ) -> Result<(), InvalidAttestation> {
         // There is no point in processing an attestation with an empty bitfield. Reject
@@ -948,20 +956,20 @@ where
         //
         // This is not in the specification, however it should be transparent to other nodes. We
         // return early here to avoid wasting precious resources verifying the rest of it.
-        if indexed_attestation.attesting_indices.is_empty() {
+        if indexed_attestation.attesting_indices_is_empty() {
             return Err(InvalidAttestation::EmptyAggregationBitfield);
         }
 
-        let target = indexed_attestation.data.target;
+        let target = indexed_attestation.data().target;
 
         if matches!(is_from_block, AttestationFromBlock::False) {
             self.validate_target_epoch_against_current_time(target.epoch)?;
         }
 
-        if target.epoch != indexed_attestation.data.slot.epoch(E::slots_per_epoch()) {
+        if target.epoch != indexed_attestation.data().slot.epoch(E::slots_per_epoch()) {
             return Err(InvalidAttestation::BadTargetEpoch {
                 target: target.epoch,
-                slot: indexed_attestation.data.slot,
+                slot: indexed_attestation.data().slot,
             });
         }
 
@@ -983,9 +991,9 @@ where
         // attestation and do not delay consideration for later.
         let block = self
             .proto_array
-            .get_block(&indexed_attestation.data.beacon_block_root)
+            .get_block(&indexed_attestation.data().beacon_block_root)
             .ok_or(InvalidAttestation::UnknownHeadBlock {
-                beacon_block_root: indexed_attestation.data.beacon_block_root,
+                beacon_block_root: indexed_attestation.data().beacon_block_root,
             })?;
 
         // If an attestation points to a block that is from an earlier slot than the attestation,
@@ -993,7 +1001,7 @@ where
         // is from a prior epoch to the attestation, then the target root must be equal to the root
         // of the block that is being attested to.
         let expected_target = if target.epoch > block.slot.epoch(E::slots_per_epoch()) {
-            indexed_attestation.data.beacon_block_root
+            indexed_attestation.data().beacon_block_root
         } else {
             block.target_root
         };
@@ -1007,10 +1015,10 @@ where
 
         // Attestations must not be for blocks in the future. If this is the case, the attestation
         // should not be considered.
-        if block.slot > indexed_attestation.data.slot {
+        if block.slot > indexed_attestation.data().slot {
             return Err(InvalidAttestation::AttestsToFutureBlock {
                 block: block.slot,
-                attestation: indexed_attestation.data.slot,
+                attestation: indexed_attestation.data().slot,
             });
         }
 
@@ -1037,9 +1045,11 @@ where
     pub fn on_attestation(
         &mut self,
         system_time_current_slot: Slot,
-        attestation: &IndexedAttestation<E>,
+        attestation: IndexedAttestationRef<E>,
         is_from_block: AttestationFromBlock,
     ) -> Result<(), Error<T::Error>> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_ATTESTATION_TIMES);
+
         self.update_time(system_time_current_slot)?;
 
         // Ignore any attestations to the zero hash.
@@ -1055,18 +1065,18 @@ where
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
         // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
-        if attestation.data.beacon_block_root == Hash256::zero() {
+        if attestation.data().beacon_block_root == Hash256::zero() {
             return Ok(());
         }
 
         self.validate_on_attestation(attestation, is_from_block)?;
 
-        if attestation.data.slot < self.fc_store.get_current_slot() {
-            for validator_index in attestation.attesting_indices.iter() {
+        if attestation.data().slot < self.fc_store.get_current_slot() {
+            for validator_index in attestation.attesting_indices_iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
-                    attestation.data.beacon_block_root,
-                    attestation.data.target.epoch,
+                    attestation.data().beacon_block_root,
+                    attestation.data().target.epoch,
                 )?;
             }
         } else {
@@ -1086,15 +1096,16 @@ where
     /// Apply an attester slashing to fork choice.
     ///
     /// We assume that the attester slashing provided to this function has already been verified.
-    pub fn on_attester_slashing(&mut self, slashing: &AttesterSlashing<E>) {
-        let attesting_indices_set = |att: &IndexedAttestation<E>| {
-            att.attesting_indices
-                .iter()
+    pub fn on_attester_slashing(&mut self, slashing: AttesterSlashingRef<'_, E>) {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_ATTESTER_SLASHING_TIMES);
+
+        let attesting_indices_set = |att: IndexedAttestationRef<'_, E>| {
+            att.attesting_indices_iter()
                 .copied()
                 .collect::<BTreeSet<_>>()
         };
-        let att1_indices = attesting_indices_set(&slashing.attestation_1);
-        let att2_indices = attesting_indices_set(&slashing.attestation_2);
+        let att1_indices = attesting_indices_set(slashing.attestation_1());
+        let att2_indices = attesting_indices_set(slashing.attestation_2());
         self.fc_store
             .extend_equivocating_indices(att1_indices.intersection(&att2_indices).copied());
     }
@@ -1289,43 +1300,6 @@ where
         }
     }
 
-    /// Returns `Ok(false)` if a block is not viable to be imported optimistically.
-    ///
-    /// ## Notes
-    ///
-    /// Equivalent to the function with the same name in the optimistic sync specs:
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/dev/sync/optimistic.md#helpers
-    pub fn is_optimistic_candidate_block(
-        &self,
-        current_slot: Slot,
-        block_slot: Slot,
-        block_parent_root: &Hash256,
-        spec: &ChainSpec,
-    ) -> Result<bool, Error<T::Error>> {
-        // If the block is sufficiently old, import it.
-        if block_slot + spec.safe_slots_to_import_optimistically <= current_slot {
-            return Ok(true);
-        }
-
-        // If the parent block has execution enabled, always import the block.
-        //
-        // See:
-        //
-        // https://github.com/ethereum/consensus-specs/pull/2844
-        if self
-            .proto_array
-            .get_block(block_parent_root)
-            .map_or(false, |parent| {
-                parent.execution_status.is_execution_enabled()
-            })
-        {
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
     /// Return the current finalized checkpoint.
     pub fn finalized_checkpoint(&self) -> Checkpoint {
         *self.fc_store.finalized_checkpoint()
@@ -1502,6 +1476,11 @@ where
             proto_array_bytes: self.proto_array().as_bytes(),
             queued_attestations: self.queued_attestations().to_vec(),
         }
+    }
+
+    /// Update the global metrics `DEFAULT_REGISTRY` with info from the fork choice
+    pub fn scrape_for_metrics(&self) {
+        scrape_for_metrics(self);
     }
 }
 

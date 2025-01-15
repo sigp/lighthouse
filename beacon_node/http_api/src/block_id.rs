@@ -5,7 +5,10 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{BlobSidecarList, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{
+    BlobSidecarList, EthSpec, FixedBytesExtended, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
+};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -123,6 +126,15 @@ impl BlockId {
         }
     }
 
+    pub fn blinded_block_by_root<T: BeaconChainTypes>(
+        root: &Hash256,
+        chain: &BeaconChain<T>,
+    ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, warp::Rejection> {
+        chain
+            .get_blinded_block(root)
+            .map_err(warp_utils::reject::beacon_chain_error)
+    }
+
     /// Return the `SignedBeaconBlock` identified by `self`.
     pub fn blinded_block<T: BeaconChainTypes>(
         &self,
@@ -149,38 +161,32 @@ impl BlockId {
             }
             CoreBlockId::Slot(slot) => {
                 let (root, execution_optimistic, finalized) = self.root(chain)?;
-                chain
-                    .get_blinded_block(&root)
-                    .map_err(warp_utils::reject::beacon_chain_error)
-                    .and_then(|block_opt| match block_opt {
-                        Some(block) => {
-                            if block.slot() != *slot {
-                                return Err(warp_utils::reject::custom_not_found(format!(
-                                    "slot {} was skipped",
-                                    slot
-                                )));
-                            }
-                            Ok((block, execution_optimistic, finalized))
+                BlockId::blinded_block_by_root(&root, chain).and_then(|block_opt| match block_opt {
+                    Some(block) => {
+                        if block.slot() != *slot {
+                            return Err(warp_utils::reject::custom_not_found(format!(
+                                "slot {} was skipped",
+                                slot
+                            )));
                         }
-                        None => Err(warp_utils::reject::custom_not_found(format!(
-                            "beacon block with root {}",
-                            root
-                        ))),
-                    })
+                        Ok((block, execution_optimistic, finalized))
+                    }
+                    None => Err(warp_utils::reject::custom_not_found(format!(
+                        "beacon block with root {}",
+                        root
+                    ))),
+                })
             }
             _ => {
                 let (root, execution_optimistic, finalized) = self.root(chain)?;
-                let block = chain
-                    .get_blinded_block(&root)
-                    .map_err(warp_utils::reject::beacon_chain_error)
-                    .and_then(|root_opt| {
-                        root_opt.ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(format!(
-                                "beacon block with root {}",
-                                root
-                            ))
-                        })
-                    })?;
+                let block = BlockId::blinded_block_by_root(&root, chain).and_then(|root_opt| {
+                    root_opt.ok_or_else(|| {
+                        warp_utils::reject::custom_not_found(format!(
+                            "beacon block with root {}",
+                            root
+                        ))
+                    })
+                })?;
                 Ok((block, execution_optimistic, finalized))
             }
         }
@@ -252,23 +258,47 @@ impl BlockId {
         }
     }
 
-    /// Return the `BlobSidecarList` identified by `self`.
-    pub fn blob_sidecar_list<T: BeaconChainTypes>(
-        &self,
-        chain: &BeaconChain<T>,
-    ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
-        let root = self.root(chain)?.0;
-        chain
-            .get_blobs(&root)
-            .map_err(warp_utils::reject::beacon_chain_error)
-    }
-
-    pub fn blob_sidecar_list_filtered<T: BeaconChainTypes>(
+    #[allow(clippy::type_complexity)]
+    pub fn get_blinded_block_and_blob_list_filtered<T: BeaconChainTypes>(
         &self,
         indices: BlobIndicesQuery,
         chain: &BeaconChain<T>,
-    ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
-        let blob_sidecar_list = self.blob_sidecar_list(chain)?;
+    ) -> Result<
+        (
+            SignedBlindedBeaconBlock<T::EthSpec>,
+            BlobSidecarList<T::EthSpec>,
+            ExecutionOptimistic,
+            Finalized,
+        ),
+        warp::Rejection,
+    > {
+        let (root, execution_optimistic, finalized) = self.root(chain)?;
+        let block = BlockId::blinded_block_by_root(&root, chain)?.ok_or_else(|| {
+            warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
+        })?;
+
+        // Error if the block is pre-Deneb and lacks blobs.
+        let blob_kzg_commitments = block.message().body().blob_kzg_commitments().map_err(|_| {
+            warp_utils::reject::custom_bad_request(
+                "block is pre-Deneb and has no blobs".to_string(),
+            )
+        })?;
+
+        // Return the `BlobSidecarList` identified by `self`.
+        let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
+            chain
+                .store
+                .get_blobs(&root)
+                .map_err(|e| warp_utils::reject::beacon_chain_error(e.into()))?
+                .ok_or_else(|| {
+                    warp_utils::reject::custom_not_found(format!(
+                        "no blobs stored for block {root}"
+                    ))
+                })?
+        } else {
+            BlobSidecarList::default()
+        };
+
         let blob_sidecar_list_filtered = match indices.indices {
             Some(vec) => {
                 let list = blob_sidecar_list
@@ -280,7 +310,12 @@ impl BlockId {
             }
             None => blob_sidecar_list,
         };
-        Ok(blob_sidecar_list_filtered)
+        Ok((
+            block,
+            blob_sidecar_list_filtered,
+            execution_optimistic,
+            finalized,
+        ))
     }
 }
 

@@ -1,24 +1,22 @@
 //! Identifies each sync committee subnet by an integer identifier.
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::EthSpec;
-use lazy_static::lazy_static;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::Unsigned;
 use std::collections::HashSet;
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
+use std::sync::LazyLock;
 
-lazy_static! {
-    static ref SYNC_SUBNET_ID_TO_STRING: Vec<String> = {
-        let mut v = Vec::with_capacity(SYNC_COMMITTEE_SUBNET_COUNT as usize);
+static SYNC_SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut v = Vec::with_capacity(SYNC_COMMITTEE_SUBNET_COUNT as usize);
 
-        for i in 0..SYNC_COMMITTEE_SUBNET_COUNT {
-            v.push(i.to_string());
-        }
-        v
-    };
-}
+    for i in 0..SYNC_COMMITTEE_SUBNET_COUNT {
+        v.push(i.to_string());
+    }
+    v
+});
 
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]

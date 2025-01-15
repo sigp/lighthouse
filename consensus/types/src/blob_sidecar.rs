@@ -1,9 +1,10 @@
 use crate::test_utils::TestRandom;
+use crate::ForkName;
 use crate::{
     beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, BeaconStateError, Blob,
-    EthSpec, FixedVector, Hash256, SignedBeaconBlockHeader, Slot, VariableList,
+    Epoch, EthSpec, FixedVector, Hash256, SignedBeaconBlockHeader, Slot, VariableList,
 };
-use crate::{KzgProofs, SignedBeaconBlock};
+use crate::{ForkVersionDeserialize, KzgProofs, SignedBeaconBlock};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::{Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT};
@@ -149,6 +150,37 @@ impl<E: EthSpec> BlobSidecar<E> {
         })
     }
 
+    pub fn new_with_existing_proof(
+        index: usize,
+        blob: Blob<E>,
+        signed_block: &SignedBeaconBlock<E>,
+        signed_block_header: SignedBeaconBlockHeader,
+        kzg_commitments_inclusion_proof: &[Hash256],
+        kzg_proof: KzgProof,
+    ) -> Result<Self, BlobSidecarError> {
+        let expected_kzg_commitments = signed_block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_err(|_e| BlobSidecarError::PreDeneb)?;
+        let kzg_commitment = *expected_kzg_commitments
+            .get(index)
+            .ok_or(BlobSidecarError::MissingKzgCommitment)?;
+        let kzg_commitment_inclusion_proof = signed_block
+            .message()
+            .body()
+            .complete_kzg_commitment_merkle_proof(index, kzg_commitments_inclusion_proof)?;
+
+        Ok(Self {
+            index: index as u64,
+            blob,
+            kzg_commitment,
+            kzg_proof,
+            signed_block_header,
+            kzg_commitment_inclusion_proof,
+        })
+    }
+
     pub fn id(&self) -> BlobIdentifier {
         BlobIdentifier {
             block_root: self.block_root(),
@@ -158,6 +190,13 @@ impl<E: EthSpec> BlobSidecar<E> {
 
     pub fn slot(&self) -> Slot {
         self.signed_block_header.message.slot
+    }
+
+    pub fn epoch(&self) -> Epoch {
+        self.signed_block_header
+            .message
+            .slot
+            .epoch(E::slots_per_epoch())
     }
 
     pub fn block_root(&self) -> Hash256 {
@@ -266,3 +305,12 @@ pub type BlobSidecarList<E> = VariableList<Arc<BlobSidecar<E>>, <E as EthSpec>::
 pub type FixedBlobSidecarList<E> =
     FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>;
 pub type BlobsList<E> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+
+impl<E: EthSpec> ForkVersionDeserialize for BlobSidecarList<E> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        _: ForkName,
+    ) -> Result<Self, D::Error> {
+        serde_json::from_value::<BlobSidecarList<E>>(value).map_err(serde::de::Error::custom)
+    }
+}

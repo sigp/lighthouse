@@ -1,6 +1,8 @@
 use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use crate::epoch_cache::initialize_epoch_cache;
-use types::{BeaconState, ChainSpec, EpochCacheError, EthSpec, Hash256, RelativeEpoch};
+use types::{
+    BeaconState, ChainSpec, EpochCacheError, EthSpec, FixedBytesExtended, Hash256, RelativeEpoch,
+};
 
 /// Mixin trait for the beacon state that provides operations on *all* caches.
 ///

@@ -1,0 +1,19 @@
+[package]
+name = "graffiti_file"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[lib]
+name = "graffiti_file"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+bls = { workspace = true }
+types = { workspace = true }
+slog = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+hex = { workspace = true }

@@ -163,6 +163,7 @@ pub struct Web3SignerValidatorRequest {
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct UpdateFeeRecipientRequest {
+    #[serde(with = "serde_utils::address_hex")]
     pub ethaddress: Address,
 }
 

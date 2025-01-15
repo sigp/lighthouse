@@ -8,28 +8,6 @@ pub fn initiate_validator_exit<E: EthSpec>(
     index: usize,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    // We do things in a slightly different order to the spec here. Instead of immediately checking
-    // whether the validator has already exited, we instead prepare the exit cache and compute the
-    // cheap-to-calculate values from that. *Then* we look up the validator a single time in the
-    // validator tree (expensive), make the check and mutate as appropriate. Compared to the spec
-    // ordering, this saves us from looking up the validator in the validator registry multiple
-    // times.
-
-    // Ensure the exit cache is built.
-    state.build_exit_cache(spec)?;
-
-    // Compute exit queue epoch
-    let delayed_epoch = state.compute_activation_exit_epoch(state.current_epoch(), spec)?;
-    let mut exit_queue_epoch = state
-        .exit_cache()
-        .max_epoch()?
-        .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
-    let exit_queue_churn = state.exit_cache().get_churn_at(exit_queue_epoch)?;
-
-    if exit_queue_churn >= state.get_validator_churn_limit(spec)? {
-        exit_queue_epoch.safe_add_assign(1)?;
-    }
-
     let validator = state.get_validator_cow(index)?;
 
     // Return if the validator already initiated exit
@@ -37,7 +15,28 @@ pub fn initiate_validator_exit<E: EthSpec>(
         return Ok(());
     }
 
-    let validator = validator.into_mut()?;
+    // Ensure the exit cache is built.
+    state.build_exit_cache(spec)?;
+
+    // Compute exit queue epoch
+    let exit_queue_epoch = if state.fork_name_unchecked() >= ForkName::Electra {
+        let effective_balance = state.get_effective_balance(index)?;
+        state.compute_exit_epoch_and_update_churn(effective_balance, spec)?
+    } else {
+        let delayed_epoch = state.compute_activation_exit_epoch(state.current_epoch(), spec)?;
+        let mut exit_queue_epoch = state
+            .exit_cache()
+            .max_epoch()?
+            .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
+        let exit_queue_churn = state.exit_cache().get_churn_at(exit_queue_epoch)?;
+
+        if exit_queue_churn >= state.get_validator_churn_limit(spec)? {
+            exit_queue_epoch.safe_add_assign(1)?;
+        }
+        exit_queue_epoch
+    };
+
+    let validator = state.get_validator_mut(index)?;
     validator.exit_epoch = exit_queue_epoch;
     validator.withdrawable_epoch =
         exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;

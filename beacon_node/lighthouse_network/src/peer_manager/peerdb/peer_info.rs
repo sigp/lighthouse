@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
 use strum::AsRefStr;
-use types::EthSpec;
+use types::{DataColumnSubnetId, EthSpec};
 use PeerConnectionStatus::*;
 
 /// Information about a given connected peer.
@@ -40,6 +40,11 @@ pub struct PeerInfo<E: EthSpec> {
     meta_data: Option<MetaData<E>>,
     /// Subnets the peer is connected to.
     subnets: HashSet<Subnet>,
+    /// This is computed from either metadata or the ENR, and contains the subnets that the peer
+    /// is *assigned* to custody, rather than *connected* to (different to `self.subnets`).
+    /// Note: Another reason to keep this separate to `self.subnets` is an upcoming change to
+    /// decouple custody requirements from the actual subnets, i.e. changing this to `custody_groups`.
+    custody_subnets: HashSet<DataColumnSubnetId>,
     /// The time we would like to retain this peer. After this time, the peer is no longer
     /// necessary.
     #[serde(skip)]
@@ -62,6 +67,7 @@ impl<E: EthSpec> Default for PeerInfo<E> {
             listening_addresses: Vec::new(),
             seen_multiaddrs: HashSet::new(),
             subnets: HashSet::new(),
+            custody_subnets: HashSet::new(),
             sync_status: SyncStatus::Unknown,
             meta_data: None,
             min_ttl: None,
@@ -83,6 +89,7 @@ impl<E: EthSpec> PeerInfo<E> {
     }
 
     /// Returns if the peer is subscribed to a given `Subnet` from the metadata attnets/syncnets field.
+    /// Also returns true if the peer is assigned to custody a given data column `Subnet` computed from the metadata `custody_column_count` field or ENR `csc` field.
     pub fn on_subnet_metadata(&self, subnet: &Subnet) -> bool {
         if let Some(meta_data) = &self.meta_data {
             match subnet {
@@ -94,6 +101,7 @@ impl<E: EthSpec> PeerInfo<E> {
                         .syncnets()
                         .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
                 }
+                Subnet::DataColumn(column) => return self.custody_subnets.contains(column),
             }
         }
         false
@@ -199,6 +207,11 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Returns if the peer is subscribed to a given `Subnet` from the gossipsub subscriptions.
     pub fn on_subnet_gossipsub(&self, subnet: &Subnet) -> bool {
         self.subnets.contains(subnet)
+    }
+
+    /// Returns if the peer is assigned to a given `DataColumnSubnetId`.
+    pub fn is_assigned_to_custody_subnet(&self, subnet: &DataColumnSubnetId) -> bool {
+        self.custody_subnets.contains(subnet)
     }
 
     /// Returns true if the peer is connected to a long-lived subnet.
@@ -345,12 +358,19 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Sets an explicit value for the meta data.
     // VISIBILITY: The peer manager is able to adjust the meta_data
     pub(in crate::peer_manager) fn set_meta_data(&mut self, meta_data: MetaData<E>) {
-        self.meta_data = Some(meta_data)
+        self.meta_data = Some(meta_data);
     }
 
     /// Sets the connection status of the peer.
     pub(super) fn set_connection_status(&mut self, connection_status: PeerConnectionStatus) {
         self.connection_status = connection_status
+    }
+
+    pub(in crate::peer_manager) fn set_custody_subnets(
+        &mut self,
+        custody_subnets: HashSet<DataColumnSubnetId>,
+    ) {
+        self.custody_subnets = custody_subnets
     }
 
     /// Sets the ENR of the peer if one is known.

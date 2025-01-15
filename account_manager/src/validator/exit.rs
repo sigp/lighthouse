@@ -1,4 +1,4 @@
-use crate::wallet::create::STDIN_INPUTS_FLAG;
+use account_utils::STDIN_INPUTS_FLAG;
 use bls::{Keypair, PublicKey};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
@@ -73,15 +73,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-        )
-        .arg(
-            Arg::new(STDIN_INPUTS_FLAG)
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .hide(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty.")
-                .display_order(0)
         )
 }
 

@@ -5,6 +5,7 @@ use compare_fields_derive::CompareFields;
 use serde::Deserialize;
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
+use state_processing::per_epoch_processing::base::rewards_and_penalties::ProposerRewardCalculation;
 use state_processing::{
     per_epoch_processing::{
         altair,
@@ -130,6 +131,7 @@ impl<E: EthSpec> Case for RewardsTest<E> {
                 let deltas = base::rewards_and_penalties::get_attestation_deltas_all(
                     &state,
                     &validator_statuses,
+                    ProposerRewardCalculation::Include,
                     spec,
                 )?;
 

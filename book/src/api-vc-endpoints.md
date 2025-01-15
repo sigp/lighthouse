@@ -53,12 +53,12 @@ Example Response Body:
 }
 ```
 
-> Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/API-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
+> Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/api-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
 
-> As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176`. In this case, you obtain the token from the file `API token.txt` and the command becomes:
+> As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh`. In this case, you obtain the token from the file `api-token.txt` and the command becomes:
 
 ```bash
-curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176" | jq
+curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh" | jq
 ```
 
 ## `GET /lighthouse/health`
@@ -230,7 +230,6 @@ Example Response Body
     "TERMINAL_TOTAL_DIFFICULTY": "10790000",
     "TERMINAL_BLOCK_HASH": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH": "18446744073709551615",
-    "SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY": "128",
     "MIN_GENESIS_ACTIVE_VALIDATOR_COUNT": "16384",
     "MIN_GENESIS_TIME": "1614588812",
     "GENESIS_FORK_VERSION": "0x00001020",
@@ -263,7 +262,6 @@ Example Response Body
     "HYSTERESIS_QUOTIENT": "4",
     "HYSTERESIS_DOWNWARD_MULTIPLIER": "1",
     "HYSTERESIS_UPWARD_MULTIPLIER": "5",
-    "SAFE_SLOTS_TO_UPDATE_JUSTIFIED": "8",
     "MIN_DEPOSIT_AMOUNT": "1000000000",
     "MAX_EFFECTIVE_BALANCE": "32000000000",
     "EFFECTIVE_BALANCE_INCREMENT": "1000000000",

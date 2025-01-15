@@ -520,6 +520,7 @@ impl ConnectionHandler for Handler {
                         ..
                     }) => match protocol {
                         Either::Left(protocol) => handler.on_fully_negotiated_inbound(protocol),
+                        #[allow(unreachable_patterns)]
                         Either::Right(v) => void::unreachable(v),
                     },
                     ConnectionEvent::FullyNegotiatedOutbound(fully_negotiated_outbound) => {
@@ -531,6 +532,9 @@ impl ConnectionHandler for Handler {
                     }) => {
                         tracing::debug!("Dial upgrade error: Protocol negotiation timeout");
                     }
+                    // This pattern is unreachable as of Rust 1.82, we can remove it once the
+                    // MSRV is increased past that version.
+                    #[allow(unreachable_patterns)]
                     ConnectionEvent::DialUpgradeError(DialUpgradeError {
                         error: StreamUpgradeError::Apply(e),
                         ..

@@ -47,6 +47,7 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     #[superstruct(getter(copy))]
     pub parent_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
+    #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
@@ -77,21 +78,14 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella, Deneb, Electra))]
-    #[superstruct(getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
     pub withdrawals_root: Hash256,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
-    #[superstruct(getter(copy))]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
-    #[superstruct(getter(copy))]
     pub excess_blob_gas: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
-    pub deposit_receipts_root: Hash256,
-    #[superstruct(only(Electra), partial_getter(copy))]
-    pub withdrawal_requests_root: Hash256,
 }
 
 impl<E: EthSpec> ExecutionPayloadHeader<E> {
@@ -121,15 +115,20 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         // Matching here in case variable fields are added in future forks.
         match fork_name {
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
+            ForkName::Base | ForkName::Altair => 0,
+            ForkName::Bellatrix | ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                 // Max size of variable length `extra_data` field
                 E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
             }
+        }
+    }
+
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            ExecutionPayloadHeader::Bellatrix(_) => ForkName::Bellatrix,
+            ExecutionPayloadHeader::Capella(_) => ForkName::Capella,
+            ExecutionPayloadHeader::Deneb(_) => ForkName::Deneb,
+            ExecutionPayloadHeader::Electra(_) => ForkName::Electra,
         }
     }
 }
@@ -209,8 +208,6 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
             withdrawals_root: self.withdrawals_root,
             blob_gas_used: self.blob_gas_used,
             excess_blob_gas: self.excess_blob_gas,
-            deposit_receipts_root: Hash256::zero(),
-            withdrawal_requests_root: Hash256::zero(),
         }
     }
 }
@@ -302,8 +299,6 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
             withdrawals_root: payload.withdrawals.tree_hash_root(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            deposit_receipts_root: payload.deposit_receipts.tree_hash_root(),
-            withdrawal_requests_root: payload.withdrawal_requests.tree_hash_root(),
         }
     }
 }
@@ -376,7 +371,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderDe
     }
 }
 
-impl<'a, E: EthSpec> ExecutionPayloadHeaderRefMut<'a, E> {
+impl<E: EthSpec> ExecutionPayloadHeaderRefMut<'_, E> {
     /// Mutate through
     pub fn replace(self, header: ExecutionPayloadHeader<E>) -> Result<(), BeaconStateError> {
         match self {

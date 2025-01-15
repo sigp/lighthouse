@@ -241,20 +241,20 @@ mod tests {
     use crate::ChainConfig;
     use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use execution_layer::EngineCapabilities;
-    use lazy_static::lazy_static;
     use slog::info;
+    use std::sync::Arc;
+    use std::sync::LazyLock;
     use std::time::Duration;
     use types::{ChainSpec, Graffiti, Keypair, MinimalEthSpec, GRAFFITI_BYTES_LEN};
 
     const VALIDATOR_COUNT: usize = 48;
-    lazy_static! {
-        /// A cached set of keys.
-        static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-    }
+    /// A cached set of keys.
+    static KEYPAIRS: LazyLock<Vec<Keypair>> =
+        LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
     fn get_harness(
         validator_count: usize,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         chain_config: Option<ChainConfig>,
     ) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
         let harness = BeaconChainHarness::builder(MinimalEthSpec)
@@ -273,7 +273,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_graffiti_without_el_version_support() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
         // modify execution engine so it doesn't support engine_getClientVersionV1 method
         let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
@@ -314,7 +314,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_graffiti_with_el_version_support() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
         let found_graffiti_bytes = harness.chain.graffiti_calculator.get_graffiti(None).await.0;
@@ -356,7 +356,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_graffiti_with_validator_specified_value() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
         let graffiti_str = "nice graffiti bro";

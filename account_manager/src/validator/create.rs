@@ -1,8 +1,8 @@
 use crate::common::read_wallet_name_from_cli;
-use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
 use account_utils::{
     random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
+    STDIN_INPUTS_FLAG,
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
@@ -113,16 +113,6 @@ pub fn cli_app() -> Command {
                 .conflicts_with("count")
                 .action(ArgAction::Set)
                 .display_order(0)
-        )
-        .arg(
-            Arg::new(STDIN_INPUTS_FLAG)
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .hide(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty.")
-                .display_order(0)
-                .action(ArgAction::SetTrue)
         )
 }
 

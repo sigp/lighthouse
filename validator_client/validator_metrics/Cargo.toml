@@ -1,0 +1,12 @@
+[package]
+name = "validator_metrics"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[lib]
+name = "validator_metrics"
+path = "src/lib.rs"
+
+[dependencies]
+metrics = { workspace = true }

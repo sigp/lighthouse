@@ -19,6 +19,7 @@ pub const DEFAULT_IPV4_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
 pub const DEFAULT_TCP_PORT: u16 = 9000u16;
 pub const DEFAULT_DISC_PORT: u16 = 9000u16;
 pub const DEFAULT_QUIC_PORT: u16 = 9001u16;
+pub const DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD: usize = 1000usize;
 
 /// The maximum size of gossip messages.
 pub fn gossip_max_size(is_merge_enabled: bool, gossip_max_size: usize) -> usize {
@@ -42,7 +43,7 @@ pub struct Config {
     pub network_dir: PathBuf,
 
     /// IP addresses to listen on.
-    listen_addresses: ListenAddress,
+    pub(crate) listen_addresses: ListenAddress,
 
     /// The address to broadcast to peers about which address we are listening on. None indicates
     /// that no discovery address has been set in the CLI args.
@@ -100,6 +101,9 @@ pub struct Config {
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
 
+    /// Subscribe to all data column subnets for the duration of the runtime.
+    pub subscribe_all_data_column_subnets: bool,
+
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
 
@@ -138,6 +142,10 @@ pub struct Config {
 
     /// Configuration for the inbound rate limiter (requests received by this node).
     pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
+
+    /// Configuration for the minimum message size for which IDONTWANT messages are send in the mesh.
+    /// Lower the value reduces the optimization effect of the IDONTWANT messages.
+    pub idontwant_message_size_threshold: usize,
 }
 
 impl Config {
@@ -297,12 +305,12 @@ impl Default for Config {
         let discv5_config = discv5::ConfigBuilder::new(discv5_listen_config)
             .enable_packet_filter()
             .session_cache_capacity(5000)
-            .request_timeout(Duration::from_secs(1))
+            .request_timeout(Duration::from_secs(2))
             .query_peer_timeout(Duration::from_secs(2))
             .query_timeout(Duration::from_secs(30))
             .request_retries(1)
             .enr_peer_update_min(10)
-            .query_parallelism(5)
+            .query_parallelism(8)
             .disable_report_discovered_peers()
             .ip_limit() // limits /24 IP's in buckets.
             .incoming_bucket_limit(8) // half the bucket size
@@ -338,6 +346,7 @@ impl Default for Config {
             upnp_enabled: true,
             network_load: 4,
             private: false,
+            subscribe_all_data_column_subnets: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
             shutdown_after_sync: false,
@@ -348,6 +357,7 @@ impl Default for Config {
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
+            idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
         }
     }
 }
@@ -429,6 +439,7 @@ pub fn gossipsub_config(
     gossipsub_config_params: GossipsubConfigParams,
     seconds_per_slot: u64,
     slots_per_epoch: u64,
+    idontwant_message_size_threshold: usize,
 ) -> gossipsub::Config {
     fn prefix(
         prefix: [u8; 4],
@@ -436,28 +447,22 @@ pub fn gossipsub_config(
         fork_context: Arc<ForkContext>,
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
-        match fork_context.current_fork() {
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                let topic_len_bytes = topic_bytes.len().to_le_bytes();
-                let mut vec = Vec::with_capacity(
-                    prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
-                );
-                vec.extend_from_slice(&prefix);
-                vec.extend_from_slice(&topic_len_bytes);
-                vec.extend_from_slice(topic_bytes);
-                vec.extend_from_slice(&message.data);
-                vec
-            }
-            ForkName::Base => {
-                let mut vec = Vec::with_capacity(prefix.len() + message.data.len());
-                vec.extend_from_slice(&prefix);
-                vec.extend_from_slice(&message.data);
-                vec
-            }
+
+        if fork_context.current_fork().altair_enabled() {
+            let topic_len_bytes = topic_bytes.len().to_le_bytes();
+            let mut vec = Vec::with_capacity(
+                prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
+            );
+            vec.extend_from_slice(&prefix);
+            vec.extend_from_slice(&topic_len_bytes);
+            vec.extend_from_slice(topic_bytes);
+            vec.extend_from_slice(&message.data);
+            vec
+        } else {
+            let mut vec = Vec::with_capacity(prefix.len() + message.data.len());
+            vec.extend_from_slice(&prefix);
+            vec.extend_from_slice(&message.data);
+            vec
         }
     }
     let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;
@@ -500,6 +505,7 @@ pub fn gossipsub_config(
         .duplicate_cache_time(duplicate_cache_time)
         .message_id_fn(gossip_message_id)
         .allow_self_origin(true)
+        .idontwant_message_size_threshold(idontwant_message_size_threshold)
         .build()
         .expect("valid gossipsub configuration")
 }

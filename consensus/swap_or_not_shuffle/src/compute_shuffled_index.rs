@@ -87,7 +87,7 @@ fn bytes_to_int64(slice: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ethereum_types::H256 as Hash256;
+    use alloy_primitives::B256 as Hash256;
 
     #[test]
     #[ignore]

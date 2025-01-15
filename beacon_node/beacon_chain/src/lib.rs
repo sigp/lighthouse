@@ -19,6 +19,7 @@ pub mod canonical_head;
 pub mod capella_readiness;
 pub mod chain_config;
 pub mod data_availability_checker;
+pub mod data_column_verification;
 pub mod deneb_readiness;
 mod early_attester_cache;
 pub mod electra_readiness;
@@ -27,6 +28,7 @@ pub mod eth1_chain;
 mod eth1_finalization_cache;
 pub mod events;
 pub mod execution_payload;
+pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod fork_revert;
 pub mod graffiti_calculator;
@@ -39,10 +41,10 @@ mod light_client_server_cache;
 pub mod metrics;
 pub mod migrate;
 mod naive_aggregation_pool;
-mod observed_aggregates;
+pub mod observed_aggregates;
 mod observed_attesters;
-mod observed_blob_sidecars;
 pub mod observed_block_producers;
+pub mod observed_data_sidecars;
 pub mod observed_operations;
 mod observed_slashable;
 pub mod otb_verification_service;
@@ -56,7 +58,6 @@ pub mod state_advance_timer;
 pub mod sync_committee_rewards;
 pub mod sync_committee_verification;
 pub mod test_utils;
-mod timeout_rw_lock;
 pub mod validator_monitor;
 pub mod validator_pubkey_cache;
 
@@ -75,9 +76,9 @@ pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
-    get_block_root, BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock, IntoGossipVerifiedBlockContents, PayloadVerificationOutcome,
-    PayloadVerificationStatus,
+    build_blob_data_column_sidecars, get_block_root, BlockError, ExecutionPayloadError,
+    ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock, IntoGossipVerifiedBlock,
+    PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;
@@ -97,5 +98,4 @@ pub use state_processing::per_block_processing::errors::{
     ExitValidationError, ProposerSlashingValidationError,
 };
 pub use store;
-pub use timeout_rw_lock::TimeoutRwLock;
 pub use types;

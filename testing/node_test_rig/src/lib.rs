@@ -16,12 +16,13 @@ use validator_client::ProductionValidatorClient;
 use validator_dir::insecure_keys::build_deterministic_validator_dirs;
 
 pub use beacon_node::{ClientConfig, ClientGenesis, ProductionClient};
+pub use beacon_node_fallback::ApiTopic;
 pub use environment;
 pub use eth2;
 pub use execution_layer::test_utils::{
     Config as MockServerConfig, MockExecutionConfig, MockServer,
 };
-pub use validator_client::{ApiTopic, Config as ValidatorConfig};
+pub use validator_client::Config as ValidatorConfig;
 
 /// The global timeout for HTTP requests to the beacon node.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
@@ -102,8 +103,6 @@ pub fn testing_client_config() -> ClientConfig {
     client_config.network.upnp_enabled = false;
     client_config.http_api.enabled = true;
     client_config.http_api.listen_port = 0;
-
-    client_config.dummy_eth1_backend = true;
 
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

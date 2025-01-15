@@ -2,7 +2,6 @@ use super::common::*;
 use crate::DumpConfig;
 use account_utils::{read_password_from_user, ZeroizeString};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
 use eth2::{
     lighthouse_vc::{
         std_types::{
@@ -74,15 +73,6 @@ pub fn cli_app() -> Command {
                 are defined in a JSON file which can be generated using the \"create-validators\" \
                 command. This command only supports validators signing via a keystore on the local \
                 file system (i.e., not Web3Signer validators).",
-        )
-        .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER),
         )
         .arg(
             Arg::new(SRC_VC_URL_FLAG)
@@ -182,14 +172,6 @@ pub fn cli_app() -> Command {
                 .required(false)
                 .value_parser(["true", "false"])
                 .action(ArgAction::Set)
-                .display_order(0),
-        )
-        .arg(
-            Arg::new(STDIN_INPUTS_FLAG)
-                .action(ArgAction::SetTrue)
-                .hide(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty.")
                 .display_order(0),
         )
         .arg(
@@ -686,7 +668,7 @@ mod test {
     use account_utils::validator_definitions::SigningDefinition;
     use std::fs;
     use tempfile::{tempdir, TempDir};
-    use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
 
     const SRC_VC_TOKEN_FILE_NAME: &str = "src_vc_token.json";
     const DEST_VC_TOKEN_FILE_NAME: &str = "dest_vc_token.json";

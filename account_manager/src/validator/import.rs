@@ -1,4 +1,4 @@
-use crate::wallet::create::{PASSWORD_FLAG, STDIN_INPUTS_FLAG};
+use crate::wallet::create::PASSWORD_FLAG;
 use account_utils::validator_definitions::SigningDefinition;
 use account_utils::{
     eth2_keystore::Keystore,
@@ -7,7 +7,7 @@ use account_utils::{
         recursively_find_voting_keystores, PasswordStorage, ValidatorDefinition,
         ValidatorDefinitions, CONFIG_FILENAME,
     },
-    ZeroizeString,
+    ZeroizeString, STDIN_INPUTS_FLAG,
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
@@ -57,15 +57,6 @@ pub fn cli_app() -> Command {
                 .conflicts_with(KEYSTORE_FLAG)
                 .required_unless_present(KEYSTORE_FLAG)
                 .action(ArgAction::Set)
-                .display_order(0),
-        )
-        .arg(
-            Arg::new(STDIN_INPUTS_FLAG)
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .hide(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty.")
                 .display_order(0),
         )
         .arg(
@@ -178,7 +169,13 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         let password_opt = loop {
             if let Some(password) = previous_password.clone() {
                 eprintln!("Reuse previous password.");
-                break Some(password);
+                if check_password_on_keystore(&keystore, &password)? {
+                    break Some(password);
+                } else {
+                    eprintln!("Reused password incorrect. Retry!");
+                    previous_password = None;
+                    continue;
+                }
             }
             eprintln!();
             eprintln!("{}", PASSWORD_PROMPT);
@@ -201,20 +198,12 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                 }
             };
 
-            match keystore.decrypt_keypair(password.as_ref()) {
-                Ok(_) => {
-                    eprintln!("Password is correct.");
-                    eprintln!();
-                    sleep(Duration::from_secs(1)); // Provides nicer UX.
-                    if reuse_password {
-                        previous_password = Some(password.clone());
-                    }
-                    break Some(password);
+            // Check if the password unlocks the keystore
+            if check_password_on_keystore(&keystore, &password)? {
+                if reuse_password {
+                    previous_password = Some(password.clone());
                 }
-                Err(eth2_keystore::Error::InvalidPassword) => {
-                    eprintln!("Invalid password");
-                }
-                Err(e) => return Err(format!("Error whilst decrypting keypair: {:?}", e)),
+                break Some(password);
             }
         };
 
@@ -316,4 +305,28 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     eprintln!("WARNING: {}", KEYSTORE_REUSE_WARNING);
 
     Ok(())
+}
+
+/// Checks if the given password unlocks the keystore.
+///
+/// Returns `Ok(true)` if password unlocks the keystore successfully.
+/// Returns `Ok(false` if password is incorrect.
+/// Otherwise, returns the keystore error.
+fn check_password_on_keystore(
+    keystore: &Keystore,
+    password: &ZeroizeString,
+) -> Result<bool, String> {
+    match keystore.decrypt_keypair(password.as_ref()) {
+        Ok(_) => {
+            eprintln!("Password is correct.");
+            eprintln!();
+            sleep(Duration::from_secs(1)); // Provides nicer UX.
+            Ok(true)
+        }
+        Err(eth2_keystore::Error::InvalidPassword) => {
+            eprintln!("Invalid password");
+            Ok(false)
+        }
+        Err(e) => Err(format!("Error whilst decrypting keypair: {:?}", e)),
+    }
 }

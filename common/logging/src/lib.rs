@@ -1,11 +1,9 @@
-use lazy_static::lazy_static;
-use lighthouse_metrics::{
-    inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
-};
+use metrics::{inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult};
 use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
@@ -25,16 +23,14 @@ pub use tracing_metrics_layer::MetricsLayer;
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
-lazy_static! {
-    pub static ref INFOS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("info_total", "Count of infos logged");
-    pub static ref WARNS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("warn_total", "Count of warns logged");
-    pub static ref ERRORS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("error_total", "Count of errors logged");
-    pub static ref CRITS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("crit_total", "Count of crits logged");
-}
+pub static INFOS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("info_total", "Count of infos logged"));
+pub static WARNS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("warn_total", "Count of warns logged"));
+pub static ERRORS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("error_total", "Count of errors logged"));
+pub static CRITS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("crit_total", "Count of crits logged"));
 
 pub struct AlignedTermDecorator<D: Decorator> {
     wrapped: D,
@@ -102,17 +98,14 @@ impl<'a> AlignedRecordDecorator<'a> {
             self.ignore_comma = false;
             Ok(buf.len())
         } else if self.message_active {
-            self.wrapped.write(buf).map(|n| {
-                self.message_count += n;
-                n
-            })
+            self.wrapped.write(buf).inspect(|n| self.message_count += n)
         } else {
             self.wrapped.write(buf)
         }
     }
 }
 
-impl<'a> Write for AlignedRecordDecorator<'a> {
+impl Write for AlignedRecordDecorator<'_> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         if buf.iter().any(u8::is_ascii_control) {
             let filtered = buf
@@ -131,7 +124,7 @@ impl<'a> Write for AlignedRecordDecorator<'a> {
     }
 }
 
-impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
+impl slog_term::RecordDecorator for AlignedRecordDecorator<'_> {
     fn reset(&mut self) -> Result<()> {
         self.message_active = false;
         self.message_count = 0;
@@ -222,6 +215,19 @@ impl TimeLatch {
 }
 
 pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
+    let mut tracing_log_path = PathBuf::new();
+
+    // Ensure that `tracing_log_path` only contains directories.
+    for p in base_tracing_log_path.iter() {
+        tracing_log_path = tracing_log_path.join(p);
+        if let Ok(metadata) = tracing_log_path.metadata() {
+            if !metadata.is_dir() {
+                tracing_log_path.pop();
+                break;
+            }
+        }
+    }
+
     let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
         .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
     {
@@ -237,7 +243,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
         .max_log_files(2)
         .filename_prefix("libp2p")
         .filename_suffix("log")
-        .build(base_tracing_log_path.clone())
+        .build(tracing_log_path.clone())
     else {
         eprintln!("Failed to initialize libp2p rolling file appender");
         return;
@@ -248,7 +254,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
         .max_log_files(2)
         .filename_prefix("discv5")
         .filename_suffix("log")
-        .build(base_tracing_log_path.clone())
+        .build(tracing_log_path)
     else {
         eprintln!("Failed to initialize discv5 rolling file appender");
         return;
@@ -291,10 +297,10 @@ pub fn test_logger() -> Logger {
         sloggers::terminal::TerminalLoggerBuilder::new()
             .level(sloggers::types::Severity::Debug)
             .build()
-            .expect("Should build test_logger")
+            .expect("Should build TerminalLoggerBuilder")
     } else {
         sloggers::null::NullLoggerBuilder
             .build()
-            .expect("Should build null_logger")
+            .expect("Should build NullLoggerBuilder")
     }
 }

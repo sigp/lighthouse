@@ -18,6 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 use crate::{Address, EthSpec, ExecutionPayloadRef, Hash256, Hash64, Uint256};
+use alloy_rlp::RlpEncodable;
 use metastruct::metastruct;
 
 /// Execution block header as used for RLP encoding and Keccak hashing.
@@ -73,19 +74,78 @@ impl ExecutionBlockHeader {
             transactions_root: rlp_transactions_root,
             receipts_root: payload.receipts_root(),
             logs_bloom: payload.logs_bloom().clone().into(),
-            difficulty: Uint256::zero(),
-            number: payload.block_number().into(),
-            gas_limit: payload.gas_limit().into(),
-            gas_used: payload.gas_used().into(),
+            difficulty: Uint256::ZERO,
+            number: Uint256::saturating_from(payload.block_number()),
+            gas_limit: Uint256::saturating_from(payload.gas_limit()),
+            gas_used: Uint256::saturating_from(payload.gas_used()),
             timestamp: payload.timestamp(),
             extra_data: payload.extra_data().clone().into(),
             mix_hash: payload.prev_randao(),
-            nonce: Hash64::zero(),
+            nonce: Hash64::ZERO,
             base_fee_per_gas: payload.base_fee_per_gas(),
             withdrawals_root: rlp_withdrawals_root,
             blob_gas_used: rlp_blob_gas_used,
             excess_blob_gas: rlp_excess_blob_gas,
             parent_beacon_block_root: rlp_parent_beacon_block_root,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable)]
+#[rlp(trailing)]
+pub struct EncodableExecutionBlockHeader<'a> {
+    pub parent_hash: &'a [u8],
+    pub ommers_hash: &'a [u8],
+    pub beneficiary: &'a [u8],
+    pub state_root: &'a [u8],
+    pub transactions_root: &'a [u8],
+    pub receipts_root: &'a [u8],
+    pub logs_bloom: &'a [u8],
+    pub difficulty: Uint256,
+    pub number: Uint256,
+    pub gas_limit: Uint256,
+    pub gas_used: Uint256,
+    pub timestamp: u64,
+    pub extra_data: &'a [u8],
+    pub mix_hash: &'a [u8],
+    pub nonce: &'a [u8],
+    pub base_fee_per_gas: Uint256,
+    pub withdrawals_root: Option<&'a [u8]>,
+    pub blob_gas_used: Option<u64>,
+    pub excess_blob_gas: Option<u64>,
+    pub parent_beacon_block_root: Option<&'a [u8]>,
+}
+
+impl<'a> From<&'a ExecutionBlockHeader> for EncodableExecutionBlockHeader<'a> {
+    fn from(header: &'a ExecutionBlockHeader) -> Self {
+        let mut encodable = Self {
+            parent_hash: header.parent_hash.as_slice(),
+            ommers_hash: header.ommers_hash.as_slice(),
+            beneficiary: header.beneficiary.as_slice(),
+            state_root: header.state_root.as_slice(),
+            transactions_root: header.transactions_root.as_slice(),
+            receipts_root: header.receipts_root.as_slice(),
+            logs_bloom: header.logs_bloom.as_slice(),
+            difficulty: header.difficulty,
+            number: header.number,
+            gas_limit: header.gas_limit,
+            gas_used: header.gas_used,
+            timestamp: header.timestamp,
+            extra_data: header.extra_data.as_slice(),
+            mix_hash: header.mix_hash.as_slice(),
+            nonce: header.nonce.as_slice(),
+            base_fee_per_gas: header.base_fee_per_gas,
+            withdrawals_root: None,
+            blob_gas_used: header.blob_gas_used,
+            excess_blob_gas: header.excess_blob_gas,
+            parent_beacon_block_root: None,
+        };
+        if let Some(withdrawals_root) = &header.withdrawals_root {
+            encodable.withdrawals_root = Some(withdrawals_root.as_slice());
+        }
+        if let Some(parent_beacon_block_root) = &header.parent_beacon_block_root {
+            encodable.parent_beacon_block_root = Some(parent_beacon_block_root.as_slice())
+        }
+        encodable
     }
 }

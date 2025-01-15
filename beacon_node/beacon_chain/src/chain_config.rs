@@ -28,8 +28,6 @@ pub struct ChainConfig {
     pub weak_subjectivity_checkpoint: Option<Checkpoint>,
     /// Determine whether to reconstruct historic states, usually after a checkpoint sync.
     pub reconstruct_historic_states: bool,
-    /// Whether timeouts on `TimeoutRwLock`s are enabled or not.
-    pub enable_lock_timeouts: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
     /// Maximum percentage of the head committee weight at which to attempt re-orging the canonical head.
@@ -86,6 +84,16 @@ pub struct ChainConfig {
     pub epochs_per_migration: u64,
     /// When set to true Light client server computes and caches state proofs for serving updates
     pub enable_light_client_server: bool,
+    /// The number of data columns to withhold / exclude from publishing when proposing a block.
+    pub malicious_withhold_count: usize,
+    /// Enable peer sampling on blocks.
+    pub enable_sampling: bool,
+    /// Number of batches that the node splits blobs or data columns into during publication.
+    /// This doesn't apply if the node is the block proposer. For PeerDAS only.
+    pub blob_publication_batches: usize,
+    /// The delay in milliseconds applied by the node between sending each blob or data column batch.
+    /// This doesn't apply if the node is the block proposer.
+    pub blob_publication_batch_interval: Duration,
 }
 
 impl Default for ChainConfig {
@@ -94,7 +102,6 @@ impl Default for ChainConfig {
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
             reconstruct_historic_states: false,
-            enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
             re_org_head_threshold: Some(DEFAULT_RE_ORG_HEAD_THRESHOLD),
             re_org_parent_threshold: Some(DEFAULT_RE_ORG_PARENT_THRESHOLD),
@@ -118,6 +125,10 @@ impl Default for ChainConfig {
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: false,
+            malicious_withhold_count: 0,
+            enable_sampling: false,
+            blob_publication_batches: 4,
+            blob_publication_batch_interval: Duration::from_millis(300),
         }
     }
 }

@@ -63,13 +63,6 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
         })
     }
 
-    /// Are the aggregation bitfields of these sync contribution disjoint?
-    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
-        self.aggregation_bits
-            .intersection(&other.aggregation_bits)
-            .is_zero()
-    }
-
     /// Aggregate another `SyncCommitteeContribution` into this one.
     ///
     /// The aggregation bitfields must be disjoint, and the data must be the same.
@@ -77,7 +70,6 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
         debug_assert_eq!(self.slot, other.slot);
         debug_assert_eq!(self.beacon_block_root, other.beacon_block_root);
         debug_assert_eq!(self.subcommittee_index, other.subcommittee_index);
-        debug_assert!(self.signers_disjoint_from(other));
 
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
@@ -105,6 +97,12 @@ impl SyncContributionData {
 }
 
 impl<E: EthSpec> SlotData for SyncCommitteeContribution<E> {
+    fn get_slot(&self) -> Slot {
+        self.slot
+    }
+}
+
+impl<E: EthSpec> SlotData for &SyncCommitteeContribution<E> {
     fn get_slot(&self) -> Slot {
         self.slot
     }

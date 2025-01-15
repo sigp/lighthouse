@@ -2,7 +2,7 @@ use eth2::types::{ErrorMessage, Failure, IndexedErrorMessage};
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
-use warp::{http::StatusCode, reject::Reject};
+use warp::{http::StatusCode, reject::Reject, reply::Response, Reply};
 
 #[derive(Debug)]
 pub struct ServerSentEventError(pub String);
@@ -137,6 +137,15 @@ pub fn invalid_auth(msg: String) -> warp::reject::Rejection {
 }
 
 #[derive(Debug)]
+pub struct UnsupportedMediaType(pub String);
+
+impl Reject for UnsupportedMediaType {}
+
+pub fn unsupported_media_type(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(UnsupportedMediaType(msg))
+}
+
+#[derive(Debug)]
 pub struct IndexedBadRequestErrors {
     pub message: String,
     pub failures: Vec<Failure>,
@@ -170,6 +179,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;
         message = "NOT_FOUND".to_string();
+    } else if err.find::<crate::reject::UnsupportedMediaType>().is_some() {
+        code = StatusCode::UNSUPPORTED_MEDIA_TYPE;
+        message = "UNSUPPORTED_MEDIA_TYPE".to_string();
     } else if let Some(e) = err.find::<crate::reject::CustomDeserializeError>() {
         message = format!("BAD_REQUEST: body deserialize error: {}", e.0);
         code = StatusCode::BAD_REQUEST;
@@ -242,4 +254,24 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     });
 
     Ok(warp::reply::with_status(json, code))
+}
+
+/// Convert a warp `Rejection` into a `Response`.
+///
+/// This function should *always* be used to convert rejections into responses. This prevents warp
+/// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
+pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Response {
+    match res {
+        Ok(response) => response.into_response(),
+        Err(e) => match handle_rejection(e).await {
+            Ok(reply) => reply.into_response(),
+            // We can simplify this once Rust 1.82 is MSRV
+            #[allow(unreachable_patterns)]
+            Err(_) => warp::reply::with_status(
+                warp::reply::json(&"unhandled error"),
+                eth2::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response(),
+        },
+    }
 }

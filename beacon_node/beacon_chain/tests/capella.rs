@@ -39,7 +39,7 @@ async fn base_altair_bellatrix_capella() {
     spec.capella_fork_epoch = Some(capella_fork_epoch);
 
     let harness = BeaconChainHarness::builder(E::default())
-        .spec(spec)
+        .spec(spec.into())
         .logger(logging::test_logger())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()

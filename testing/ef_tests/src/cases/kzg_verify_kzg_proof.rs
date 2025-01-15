@@ -33,6 +33,10 @@ impl<E: EthSpec> Case for KZGVerifyKZGProof<E> {
         fork_name == ForkName::Deneb
     }
 
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name != FeatureName::Eip7594
+    }
+
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let parse_input = |input: &KZGVerifyKZGProofInput| -> Result<_, Error> {
             let commitment = parse_commitment(&input.commitment)?;
@@ -42,7 +46,7 @@ impl<E: EthSpec> Case for KZGVerifyKZGProof<E> {
             Ok((commitment, z, y, proof))
         };
 
-        let kzg = get_kzg()?;
+        let kzg = get_kzg();
         let result = parse_input(&self.input).and_then(|(commitment, z, y, proof)| {
             verify_kzg_proof::<E>(&kzg, commitment, proof, z, y)
                 .map_err(|e| Error::InternalError(format!("Failed to validate proof: {:?}", e)))

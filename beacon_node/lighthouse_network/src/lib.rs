@@ -5,7 +5,6 @@
 mod config;
 pub mod service;
 
-#[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod discovery;
 pub mod listen_addr;
 pub mod metrics;
@@ -64,7 +63,7 @@ impl<'de> Deserialize<'de> for PeerIdSerialized {
 // A wrapper struct that prints a dial error nicely.
 struct ClearDialError<'a>(&'a DialError);
 
-impl<'a> ClearDialError<'a> {
+impl ClearDialError<'_> {
     fn most_inner_error(err: &(dyn std::error::Error)) -> &(dyn std::error::Error) {
         let mut current = err;
         while let Some(source) = current.source() {
@@ -74,7 +73,7 @@ impl<'a> ClearDialError<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for ClearDialError<'a> {
+impl std::fmt::Display for ClearDialError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match &self.0 {
             DialError::Transport(errors) => {
@@ -102,7 +101,7 @@ impl<'a> std::fmt::Display for ClearDialError<'a> {
 }
 
 pub use crate::types::{
-    error, Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
+    Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
     SubnetDiscovery,
 };
 
@@ -123,6 +122,6 @@ pub use peer_manager::{
     ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
 };
 // pub use service::{load_private_key, Context, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
-pub use service::api_types::{PeerRequestId, Request, Response};
+pub use service::api_types::{PeerRequestId, Response};
 pub use service::utils::*;
 pub use service::{Gossipsub, NetworkEvent};

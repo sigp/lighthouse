@@ -20,8 +20,9 @@ tree_hash = { workspace = true }
 eth2 = { workspace = true }
 hex = { workspace = true }
 tokio = { workspace = true }
+derivative = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 regex = { workspace = true }
-validator_client = { workspace = true }
+validator_http_api = { workspace = true }

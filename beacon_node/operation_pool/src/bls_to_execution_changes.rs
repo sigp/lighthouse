@@ -113,7 +113,7 @@ impl<E: EthSpec> BlsToExecutionChanges<E> {
                 .validators()
                 .get(validator_index as usize)
                 .map_or(true, |validator| {
-                    let prune = validator.has_eth1_withdrawal_credential(spec)
+                    let prune = validator.has_execution_withdrawal_credential(spec)
                         && head_block
                             .message()
                             .body()

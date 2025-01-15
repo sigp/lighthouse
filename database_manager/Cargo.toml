@@ -14,3 +14,4 @@ store = { workspace = true }
 types = { workspace = true }
 slog = { workspace = true }
 strum = { workspace = true }
+serde = { workspace = true }

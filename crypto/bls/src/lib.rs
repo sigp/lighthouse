@@ -33,7 +33,9 @@ mod zeroize_hash;
 
 pub mod impls;
 
-pub use generic_public_key::{INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN};
+pub use generic_public_key::{
+    INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+};
 pub use generic_secret_key::SECRET_KEY_BYTES_LEN;
 pub use generic_signature::{INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN};
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
@@ -42,7 +44,8 @@ pub use zeroize_hash::ZeroizeHash;
 #[cfg(feature = "supranational")]
 use blst::BLST_ERROR as BlstError;
 
-pub type Hash256 = ethereum_types::H256;
+pub type Hash256 = fixed_bytes::Hash256;
+pub use fixed_bytes::FixedBytesExtended;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {

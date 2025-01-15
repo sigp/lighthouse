@@ -4,7 +4,6 @@ use super::signature_sets::{Error as SignatureSetError, *};
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use crate::{ConsensusContext, ContextError};
 use bls::{verify_signature_sets, PublicKey, PublicKeyBytes, SignatureSet};
-use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{
     AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256,
@@ -122,7 +121,7 @@ where
     /// are valid.
     ///
     /// * : _Does not verify any signatures in `block.body.deposits`. A block is still valid if it
-    /// contains invalid signatures on deposits._
+    ///   contains invalid signatures on deposits._
     ///
     /// See `Self::verify` for more detail.
     pub fn verify_entire_block<Payload: AbstractExecPayload<E>>(
@@ -247,13 +246,12 @@ where
     ) -> Result<()> {
         self.sets
             .sets
-            .reserve(block.message().body().attester_slashings().len() * 2);
+            .reserve(block.message().body().attester_slashings_len() * 2);
 
         block
             .message()
             .body()
             .attester_slashings()
-            .iter()
             .try_for_each(|attester_slashing| {
                 let (set_1, set_2) = attester_slashing_signature_sets(
                     self.state,
@@ -277,20 +275,19 @@ where
     ) -> Result<()> {
         self.sets
             .sets
-            .reserve(block.message().body().attestations().len());
+            .reserve(block.message().body().attestations_len());
 
         block
             .message()
             .body()
             .attestations()
-            .iter()
             .try_for_each(|attestation| {
                 let indexed_attestation = ctxt.get_indexed_attestation(self.state, attestation)?;
 
                 self.sets.push(indexed_attestation_signature_set(
                     self.state,
                     self.get_pubkey.clone(),
-                    &attestation.signature,
+                    attestation.signature(),
                     indexed_attestation,
                     self.spec,
                 )?);
@@ -391,15 +388,10 @@ impl<'a> ParallelSignatureSets<'a> {
     /// It is not possible to know exactly _which_ signature is invalid here, just that
     /// _at least one_ was invalid.
     ///
-    /// Uses `rayon` to do a map-reduce of Vitalik's method across multiple cores.
+    /// Blst library spreads the signature verification work across multiple available cores, so
+    /// this function is already parallelized.
     #[must_use]
     pub fn verify(self) -> bool {
-        let num_sets = self.sets.len();
-        let num_chunks = std::cmp::max(1, num_sets / rayon::current_num_threads());
-        self.sets
-            .into_par_iter()
-            .chunks(num_chunks)
-            .map(|chunk| verify_signature_sets(chunk.iter()))
-            .reduce(|| true, |current, this| current && this)
+        verify_signature_sets(self.sets.iter())
     }
 }

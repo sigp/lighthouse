@@ -40,9 +40,10 @@ queue_rules:
     commit_message_template: |
       {{ title }} (#{{ number }})
 
-      {% for commit in commits %}
-      * {{ commit.commit_message }}
-      {% endfor %}
+        {{ body | get_section("## Issue Addressed", "") }}
+
+
+        {{ body | get_section("## Proposed Changes", "") }}
     queue_conditions:
       - "#approved-reviews-by >= 1"
       - "check-success=license/cla"

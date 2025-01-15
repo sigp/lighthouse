@@ -4,13 +4,12 @@ use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::eth1_chain::Error as Eth1ChainError;
-use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
-use crate::observed_blob_sidecars::Error as ObservedBlobSidecarsError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
+use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
 use futures::channel::mpsc::TrySendError;
@@ -28,7 +27,6 @@ use state_processing::{
     state_advance::Error as StateAdvanceError,
     BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
 };
-use std::time::Duration;
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;
 use types::milhouse::Error as MilhouseError;
@@ -77,14 +75,7 @@ pub enum BeaconChainError {
     ProposerSlashingValidationError(ProposerSlashingValidationError),
     AttesterSlashingValidationError(AttesterSlashingValidationError),
     BlsExecutionChangeValidationError(BlsExecutionChangeValidationError),
-    StateSkipTooLarge {
-        start_slot: Slot,
-        requested_slot: Slot,
-        max_task_runtime: Duration,
-    },
     MissingFinalizedStateRoot(Slot),
-    /// Returned when an internal check fails, indicating corrupt data.
-    InvariantViolated(String),
     SszTypesError(SszTypesError),
     NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
@@ -106,7 +97,7 @@ pub enum BeaconChainError {
     ObservedAttestationsError(ObservedAttestationsError),
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
-    ObservedBlobSidecarsError(ObservedBlobSidecarsError),
+    ObservedDataSidecarsError(ObservedDataSidecarsError),
     AttesterCacheError(AttesterCacheError),
     PruningError(PruningError),
     ArithError(ArithError),
@@ -131,7 +122,11 @@ pub enum BeaconChainError {
         block_slot: Slot,
         state_slot: Slot,
     },
-    HistoricalBlockError(HistoricalBlockError),
+    /// Block is not available (only returned when fetching historic blocks).
+    HistoricalBlockOutOfRange {
+        slot: Slot,
+        oldest_block_slot: Slot,
+    },
     InvalidStateForShuffling {
         state_epoch: Epoch,
         shuffling_epoch: Epoch,
@@ -222,10 +217,15 @@ pub enum BeaconChainError {
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     UnableToPublish,
+    UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
-    LightClientError(LightClientError),
+    LightClientUpdateError(LightClientUpdateError),
+    LightClientBootstrapError(String),
     UnsupportedFork,
     MilhouseError(MilhouseError),
+    EmptyRpcCustodyColumns,
+    AttestationError(AttestationError),
+    AttestationCommitteeIndexNotSet,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -242,20 +242,20 @@ easy_from_to!(NaiveAggregationError, BeaconChainError);
 easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
-easy_from_to!(ObservedBlobSidecarsError, BeaconChainError);
+easy_from_to!(ObservedDataSidecarsError, BeaconChainError);
 easy_from_to!(AttesterCacheError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
 easy_from_to!(ForkChoiceStoreError, BeaconChainError);
-easy_from_to!(HistoricalBlockError, BeaconChainError);
 easy_from_to!(StateAdvanceError, BeaconChainError);
 easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
-easy_from_to!(LightClientError, BeaconChainError);
+easy_from_to!(LightClientUpdateError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
+easy_from_to!(AttestationError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
@@ -293,10 +293,10 @@ pub enum BlockProductionError {
     TokioJoin(JoinError),
     BeaconChain(BeaconChainError),
     InvalidPayloadFork,
-    TrustedSetupNotInitialized,
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
     FailedToBuildBlobSidecars(String),
+    MissingExecutionRequests,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

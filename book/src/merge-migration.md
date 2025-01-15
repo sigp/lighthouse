@@ -7,7 +7,7 @@
 There are two configuration changes required for a Lighthouse node to operate correctly throughout
 the merge:
 
-1. You *must* run your own execution engine such as Besu, Erigon, Geth or Nethermind alongside Lighthouse.
+1. You *must* run your own execution engine such as Besu, Erigon, Reth, Geth or Nethermind alongside Lighthouse.
    You *must* update your `lighthouse bn` configuration to connect to the execution engine using new
    flags which are documented on this page in the
    [Connecting to an execution engine](#connecting-to-an-execution-engine) section.
@@ -65,6 +65,7 @@ Each execution engine has its own flags for configuring the engine API and JWT. 
 the relevant page for your execution engine for the required flags:
 
 - [Geth: Connecting to Consensus Clients](https://geth.ethereum.org/docs/getting-started/consensus-clients)
+- [Reth: Running the Consensus Layer](https://reth.rs/run/mainnet.html?highlight=consensus#running-the-consensus-layer)
 - [Nethermind: Running Nethermind Post Merge](https://docs.nethermind.io/nethermind/first-steps-with-nethermind/running-nethermind-post-merge)
 - [Besu: Prepare For The Merge](https://besu.hyperledger.org/en/stable/HowTo/Upgrade/Prepare-for-The-Merge/)
 - [Erigon: Beacon Chain (Consensus Layer)](https://github.com/ledgerwatch/erigon#beacon-chain-consensus-layer)
@@ -123,7 +124,7 @@ a deprecation warning will be logged and Lighthouse *may* remove these flags in 
 ### The relationship between `--eth1-endpoints` and `--execution-endpoint`
 
 Pre-merge users will be familiar with the `--eth1-endpoints` flag. This provides a list of Ethereum
-"eth1" nodes (Besu, Erigon, Geth or Nethermind). Each beacon node (BN) can have multiple eth1 endpoints
+"eth1" nodes (Besu, Erigon, Reth, Geth or Nethermind). Each beacon node (BN) can have multiple eth1 endpoints
 and each eth1 endpoint can have many BNs connection (many-to-many relationship). The eth1 node
 provides a source of truth for the [deposit
 contract](https://ethereum.org/en/staking/deposit-contract/) and beacon chain proposers include this
@@ -134,7 +135,7 @@ achieve this.
 To progress through the Bellatrix upgrade nodes will need a *new* connection to an "eth1" node;
 `--execution-endpoint`. This connection has a few different properties. Firstly, the term "eth1
 node" has been deprecated and replaced with "execution engine". Whilst "eth1 node" and "execution
-engine" still refer to the same projects (Besu, Erigon, Geth or Nethermind), the former refers to the pre-merge
+engine" still refer to the same projects (Besu, Erigon, Reth, Geth or Nethermind), the former refers to the pre-merge
 versions and the latter refers to post-merge versions. Secondly, there is a strict one-to-one
 relationship between Lighthouse and the execution engine; only one Lighthouse node can connect to
 one execution engine. Thirdly, it is impossible to fully verify the post-merge chain without an

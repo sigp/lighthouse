@@ -5,7 +5,7 @@ The primary component which connects to the Ethereum 2.0 P2P network and
 downloads, verifies and stores blocks. Provides a HTTP API for querying the
 beacon chain and publishing messages to the network.
 
-Usage: lighthouse beacon_node [OPTIONS]
+Usage: lighthouse beacon_node [OPTIONS] --execution-endpoint <EXECUTION-ENDPOINT>
 
 Options:
       --auto-compact-db <auto-compact-db>
@@ -46,8 +46,6 @@ Options:
       --builder-header-timeout <MILLISECONDS>
           Defines a timeout value (in milliseconds) to use when fetching a block
           header from the builder API. [default: 1000]
-      --builder-profit-threshold <WEI_VALUE>
-          This flag is deprecated and has no effect.
       --builder-user-agent <STRING>
           The HTTP user agent to send alongside requests to the builder URL. The
           default is Lighthouse's version string.
@@ -168,9 +166,23 @@ Options:
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
+      --hdiff-buffer-cache-size <SIZE>
+          Number of hierarchical diff (hdiff) buffers to cache in memory. Each
+          buffer is around the size of a BeaconState so you should be cautious
+          about setting this value too high. This flag is irrelevant for most
+          nodes, which run with state pruning enabled. [default: 16]
+      --hierarchy-exponents <EXPONENTS>
+          Specifies the frequency for storing full state snapshots and
+          hierarchical diffs in the freezer DB. Accepts a comma-separated list
+          of ascending exponents. Each exponent defines an interval for storing
+          diffs to the layer above. The last exponent defines the interval for
+          full snapshots. For example, a config of '4,8,12' would store a full
+          snapshot every 4096 (2^12) slots, first-level diffs every 256 (2^8)
+          slots, and second-level diffs every 16 (2^4) slots. Cannot be changed
+          after initialization. [default: 5,9,11,13,16,18,21]
       --historic-state-cache-size <SIZE>
-          Specifies how many states from the freezer database should cache in
-          memory [default: 1]
+          Specifies how many states from the freezer database should be cached
+          in memory [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>
@@ -241,7 +253,7 @@ Options:
           [possible values: DEFAULT, JSON]
       --logfile-max-number <COUNT>
           The maximum number of log files that will be stored. If set to 0,
-          background file logging is disabled. [default: 5]
+          background file logging is disabled. [default: 10]
       --logfile-max-size <SIZE>
           The maximum size (in MB) each log file can grow to before rotating. If
           set to 0, background file logging is disabled. [default: 200]
@@ -294,9 +306,6 @@ Options:
           which don't improve their payload after the first call, and high
           values are useful for ensuring the EL is given ample notice. Default:
           1/3 of a slot.
-      --progressive-balances <MODE>
-          Deprecated. This optimisation is now the default and cannot be
-          disabled.
       --proposer-reorg-cutoff <MILLISECONDS>
           Maximum delay after the start of the slot at which to propose a
           reorging block. Lower values can prevent failed reorgs by ensuring the
@@ -331,14 +340,6 @@ Options:
       --quic-port6 <PORT>
           The UDP port that quic will listen on over IPv6 if listening over both
           IPv4 and IPv6. Defaults to `port6` + 1
-      --safe-slots-to-import-optimistically <INTEGER>
-          Used to coordinate manual overrides of the
-          SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override this parameter in the event of an
-          attack at the PoS transition block. Incorrect use of this flag can
-          cause your node to possibly accept an invalid chain or sync more
-          slowly. Be extremely careful with this flag.
       --self-limiter-protocols <self-limiter-protocols>
           Enables the outbound rate limiter (requests made by this node).Rate
           limit quotas per protocol can be set in the form of
@@ -377,9 +378,7 @@ Options:
       --slasher-validator-chunk-size <NUM_VALIDATORS>
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
-          Specifies how often a freezer DB restore point should be stored.
-          Cannot be changed after initialization. [default: 8192 (mainnet) or 64
-          (minimal)]
+          DEPRECATED. This flag has no effect.
       --state-cache-size <STATE_CACHE_SIZE>
           Specifies the size of the state cache [default: 128]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
@@ -392,27 +391,6 @@ Options:
           database.
       --target-peers <target-peers>
           The target number of peers.
-      --terminal-block-hash-epoch-override <EPOCH>
-          Used to coordinate manual overrides to the
-          TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override the terminal PoW block. Incorrect
-          use of this flag will cause your node to experience a consensus
-          failure. Be extremely careful with this flag.
-      --terminal-block-hash-override <TERMINAL_BLOCK_HASH>
-          Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH
-          parameter. This flag should only be used if the user has a clear
-          understanding that the broad Ethereum community has elected to
-          override the terminal PoW block. Incorrect use of this flag will cause
-          your node to experience a consensus failure. Be extremely careful with
-          this flag.
-      --terminal-total-difficulty-override <INTEGER>
-          Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY
-          parameter. Accepts a 256-bit decimal integer (not a hex value). This
-          flag should only be used if the user has a clear understanding that
-          the broad Ethereum community has elected to override the terminal
-          difficulty. Incorrect use of this flag will cause your node to
-          experience a consensus failure. Be extremely careful with this flag.
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.
@@ -447,8 +425,6 @@ Flags:
           incompatible with data availability checks. Checkpoint syncing is the
           preferred method for syncing a node. Only use this flag when testing.
           DO NOT use on mainnet!
-      --always-prefer-builder-payload
-          This flag is deprecated and has no effect.
       --always-prepare-payload
           Send payload attributes with every fork choice update. This is
           intended for use by block builders, relays and developers. You should
@@ -472,8 +448,6 @@ Flags:
           Explicitly disables syncing of deposit logs from the execution node.
           This overrides any previous option that depends on it. Useful if you
           intend to run a non-validating beacon node.
-      --disable-duplicate-warn-logs
-          This flag is deprecated and has no effect.
       --disable-enr-auto-update
           Discovery automatically updates the nodes local ENR with an external
           IP address and port as seen by other peers on the network. This
@@ -481,10 +455,6 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
-      --disable-lock-timeouts
-          Disable the timeouts applied to some internal locks by default. This
-          can lead to less spurious failures on slow hardware but is considered
-          experimental as it may obscure performance issues.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
@@ -505,12 +475,11 @@ Flags:
       --disable-quic
           Disables the quic transport. The node will rely solely on the TCP
           transport for libp2p connections.
+      --disable-self-limiter
+          Disables the outbound rate limiter (requests sent by this node).
       --disable-upnp
           Disables UPnP support. Setting this will prevent Lighthouse from
           attempting to automatically establish external port mappings.
-      --dummy-eth1
-          If present, uses an eth1 backend that generates static dummy
-          data.Identical to the method used at the 2019 Canada interop.
   -e, --enr-match
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
@@ -518,10 +487,6 @@ Flags:
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
-      --eth1
-          If present the node will connect to an eth1 node. This is required for
-          block production, you must use this flag if you wish to serve a
-          validator.
       --eth1-purge-cache
           Purges the eth1 block and deposit caches
       --genesis-backfill
@@ -567,7 +532,11 @@ Flags:
           being referenced by validator client using the --proposer-node flag.
           This configuration is for enabling more secure setups.
       --purge-db
-          If present, the chain database will be deleted. Use with caution.
+          If present, the chain database will be deleted. Requires manual
+          confirmation.
+      --purge-db-force
+          If present, the chain database will be deleted without confirmation.
+          Use with caution.
       --reconstruct-historic-states
           After a checkpoint sync, reconstruct historic states in the database.
           This requires syncing all the way back to genesis.
@@ -575,12 +544,6 @@ Flags:
           When present, Lighthouse will forget the payload statuses of any
           already-imported blocks. This can assist in the recovery from a
           consensus failure caused by the execution layer.
-      --self-limiter
-          Enables the outbound rate limiter (requests made by this node). Use
-          the self-limiter-protocol flag to set per protocol configurations. If
-          the self rate limiter is enabled and a protocol is not present in the
-          configuration, the quotas used for the inbound rate limiter will be
-          used.
       --shutdown-after-sync
           Shutdown beacon node as soon as sync is completed. Backfill sync will
           not be performed before shutdown.
@@ -591,8 +554,9 @@ Flags:
       --staking
           Standard option for a staking beacon node. This will enable the HTTP
           server on localhost:5052 and import deposit logs from the execution
-          node. This is equivalent to `--http` on merge-ready networks, or
-          `--http --eth1` pre-merge
+          node.
+      --stdin-inputs
+          If present, read all user inputs from stdin instead of tty.
       --subscribe-all-subnets
           Subscribe to all subnets regardless of validator count. This will also
           advertise the beacon node as being long-lived subscribed to all

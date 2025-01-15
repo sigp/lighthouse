@@ -9,7 +9,7 @@ This setup can be useful for testing and development.
 
 1. Install [Kurtosis](https://docs.kurtosis.com/install/). Verify that Kurtosis has been successfully installed by running `kurtosis version` which should display the version.
 
-1. Install [yq](https://github.com/mikefarah/yq). If you are on Ubuntu, you can install `yq` by running `sudo apt install yq -y`.
+1. Install [yq](https://github.com/mikefarah/yq). If you are on Ubuntu, you can install `yq` by running `snap install yq`.
 
 ## Starting the testnet
 

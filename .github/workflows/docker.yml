@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-    DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-    DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+    DOCKER_PASSWORD: ${{ secrets.DH_KEY }}
+    DOCKER_USERNAME: ${{ secrets.DH_ORG }}
     # Enable self-hosted runners for the sigp repo only.
     SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
 
@@ -80,7 +80,7 @@ jobs:
             - name: Set `make` command for lighthouse
               if: startsWith(matrix.binary, 'lighthouse')
               run: |
-                echo "MAKE_CMD=build-${{ matrix.cpu_arch }}-portable" >> $GITHUB_ENV
+                echo "MAKE_CMD=build-${{ matrix.cpu_arch }}" >> $GITHUB_ENV
 
             - name: Set `make` command for lcli
               if: startsWith(matrix.binary, 'lcli')
@@ -124,9 +124,6 @@ jobs:
                 push: true
                 tags: |
                   ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}
-                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-dev
-                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern
-                  ${{ github.repository_owner}}/${{ matrix.binary }}:${{ env.VERSION }}-${{ env.SHORT_ARCH }}${{ env.VERSION_SUFFIX }}-modern-dev
 
             - name: Build and push (lcli)
               if: startsWith(matrix.binary, 'lcli')

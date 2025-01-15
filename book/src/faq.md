@@ -8,14 +8,12 @@
 - [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#bn-download-historical)
 - [I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?](#bn-duplicate)
 - [I see beacon node logs `Head is optimistic` and I am missing attestations. What should I do?](#bn-optimistic)
-- [My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout`, what should I do?](#bn-timeout)
 - [My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?](#bn-missing-beacon)
 - [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#bn-download-slow)
 - [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)
 - [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
 - [My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?](#bn-queue-full)
 - [My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?](#bn-deposit-cache)
-- [My beacon node logs `WARN Could not verify blob sidecar for gossip`, what does it mean?](#bn-blob)
 
 ## [Validator](#validator-1)
 
@@ -84,7 +82,7 @@ The `WARN Execution engine called failed` log is shown when the beacon node cann
 
 `error: HttpClient(url: http://127.0.0.1:8551/, kind: timeout, detail: operation timed out), service: exec`
 
-which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flags `--execution-timeout-multiplier 3` and `--disable-lock-timeouts` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
+which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flag `--execution-timeout-multiplier 3` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
 
 1. The execution engine is not synced. Check the log of the execution engine to make sure that it is synced. If it is syncing, wait until it is synced and the error will disappear. You will see the beacon node logs `INFO Execution engine online` when it is synced.
 1. The computer is overloaded. Check the CPU and RAM usage to see if it has overloaded. You can use `htop` to check for CPU and RAM usage.
@@ -139,17 +137,6 @@ WARN Head is optimistic       execution_block_hash: 0x47e7555f1d4215d1ad409b1ac1
 ```
 
 It means the beacon node will follow the chain, but it will not be able to attest or produce blocks. This is because the execution client is not synced, so the beacon chain cannot verify the authenticity of the chain head, hence the word `optimistic`. What you need to do is to make sure that the execution client is up and syncing. Once the execution client is synced, the error will disappear.
-
-### <a name="bn-timeout"></a> My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout, service: beacon`, what should I do?
-
-An example of the log is shown below:
-
-```text
-CRIT Beacon block processing error           error: ValidatorPubkeyCacheLockTimeout, service: beacon
-WARN BlockProcessingFailure                  outcome: ValidatorPubkeyCacheLockTimeout, msg: unexpected condition in processing block.
-```
-
-A `Timeout` error suggests that the computer may be overloaded at the moment, for example, the execution client is still syncing. You may use the flag `--disable-lock-timeouts` to silence this error, although it will not fix the underlying slowness. Nevertheless, this is a relatively harmless log, and the error should go away once the resources used are back to normal.
 
 ### <a name="bn-missing-beacon"></a> My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?
 
@@ -214,16 +201,6 @@ This suggests that the computer resources are being overwhelmed. It could be due
 ### <a name="bn-deposit-cache"></a> My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?
 
 This is a known [bug](https://github.com/sigp/lighthouse/issues/3707) that will fix by itself.
-
-### <a name="bn-blob"></a> My beacon node logs `WARN Could not verify blob sidecar for gossip`, what does it mean?
-
-An example of the full log is shown below:
-
-```text
-Jun 07 23:05:12.170 WARN Could not verify blob sidecar for gossip. Ignoring the blob sidecar, commitment: 0xaa97…6f54, index: 1, root: 0x93b8…c47c, slot: 9248017, error: PastFinalizedSlot { blob_slot: Slot(9248017), finalized_slot: Slot(9248032) }, module: network::network_beacon_processor::gossip_methods:720
-```
-
-The `PastFinalizedSlot` indicates that the time at which the node received the blob has past the finalization period. This could be due to a peer sending an earlier blob. The log will be gone when Lighthouse eventually drops the peer.
 
 ## Validator
 
@@ -293,28 +270,7 @@ limit](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beac
 it will only allow the number of validators to increase (churn) by a certain
 amount. If a new validator isn't within the churn limit from the front of the queue,
 they will need to wait another epoch (6.4 minutes) for their next chance. This
-repeats until the queue is cleared. The churn limit is summarised in the table below:
-
-<div align="center" style="text-align: center;">
-
-| Number of active validators | Validators activated per epoch | Validators activated per day |
-|----------------|----|------|
-| 327679 or less | 4  | 900  |
-| 327680-393215  | 5  | 1125 |
-| 393216-458751  | 6  | 1350 |
-| 458752-524287  | 7  | 1575 |
-| 524288-589823  | 8  | 1800 |
-| 589824-655359  | 9  | 2025 |
-| 655360-720895  | 10 | 2250 |
-| 720896-786431  | 11 | 2475 |
-| 786432-851967  | 12 | 2700 |
-| 851968-917503  | 13 | 2925 |
-| 917504-983039  | 14 | 3150 |
-| 983040-1048575 | 15 | 3375 |
-
-</div>
-
-For example, the number of active validators on Mainnet is about 574000 on May 2023. This means that 8 validators can be activated per epoch or 1800 per day (it is noted that the same applies to the exit queue). If, for example, there are 9000 validators waiting to be activated, this means that the waiting time can take up to 5 days.
+repeats until the queue is cleared. The churn limit for validators joining the beacon chain is capped at 8 per epoch or 1800 per day. If, for example, there are 9000 validators waiting to be activated, this means that the waiting time can take up to 5 days.
 
 Once a validator has been activated, congratulations! It's time to
 produce blocks and attestations!

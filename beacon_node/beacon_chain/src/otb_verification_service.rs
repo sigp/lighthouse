@@ -64,7 +64,7 @@ impl OptimisticTransitionBlock {
         store
             .as_ref()
             .hot_db
-            .key_delete(OTBColumn.into(), self.root.as_bytes())
+            .key_delete(OTBColumn.into(), self.root.as_slice())
     }
 
     fn is_canonical<T: BeaconChainTypes>(

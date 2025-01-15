@@ -7,7 +7,6 @@
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
-mod chunk_writer;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
@@ -15,25 +14,25 @@ pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
 mod garbage_collection;
+pub mod hdiff;
+pub mod historic_state_cache;
 pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
-mod partial_beacon_state;
+pub mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 
 pub mod iter;
 
-pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
 pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
-pub use self::partial_beacon_state::PartialBeaconState;
 pub use crate::metadata::BlobInfo;
 pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
@@ -43,6 +42,8 @@ use parking_lot::MutexGuard;
 use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
+
+const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
 
 pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
 pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
@@ -109,9 +110,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
         Box::new(std::iter::empty())
     }
 
-    fn iter_raw_keys(&self, _column: DBColumn, _prefix: &[u8]) -> RawKeyIter {
-        Box::new(std::iter::empty())
-    }
+    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter;
 
     /// Iterate through all keys in a particular column.
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
@@ -143,6 +142,35 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
     result
 }
 
+pub fn get_col_from_key(key: &[u8]) -> Option<String> {
+    if key.len() < 3 {
+        return None;
+    }
+    String::from_utf8(key[0..3].to_vec()).ok()
+}
+
+pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> Vec<u8> {
+    let mut result = block_root.as_slice().to_vec();
+    result.extend_from_slice(&column_index.to_le_bytes());
+    result
+}
+
+pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Error> {
+    if data.len() != DBColumn::BeaconDataColumn.key_size() {
+        return Err(Error::InvalidKey);
+    }
+    // split_at panics if 32 < 40 which will never happen after the length check above
+    let (block_root_bytes, column_index_bytes) = data.split_at(32);
+    let block_root = Hash256::from_slice(block_root_bytes);
+    // column_index_bytes is asserted to be 8 bytes after the length check above
+    let column_index = ColumnIndex::from_le_bytes(
+        column_index_bytes
+            .try_into()
+            .map_err(|_| Error::InvalidKey)?,
+    );
+    Ok((block_root, column_index))
+}
+
 #[must_use]
 #[derive(Clone)]
 pub enum KeyValueStoreOp {
@@ -154,7 +182,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     /// Store an item in `Self`.
     fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         self.put_bytes(column, key, &item.as_store_bytes())
             .map_err(Into::into)
@@ -162,7 +190,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
     fn put_sync<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         self.put_bytes_sync(column, key, &item.as_store_bytes())
             .map_err(Into::into)
@@ -171,7 +199,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     /// Retrieve an item from `Self`.
     fn get<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         match self.get_bytes(column, key)? {
             Some(bytes) => Ok(Some(I::from_store_bytes(&bytes[..])?)),
@@ -182,7 +210,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     /// Returns `true` if the given key represents an item in `Self`.
     fn exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         self.key_exists(column, key)
     }
@@ -190,7 +218,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     /// Remove an item from `Self`.
     fn delete<I: StoreItem>(&self, key: &Hash256) -> Result<(), Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         self.key_delete(column, key)
     }
@@ -203,13 +231,16 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
+    PutDataColumns(Hash256, DataColumnSidecarList<E>),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
+    DeleteDataColumns(Hash256, Vec<ColumnIndex>),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
 
@@ -219,16 +250,35 @@ pub enum DBColumn {
     /// For data related to the database itself.
     #[strum(serialize = "bma")]
     BeaconMeta,
+    /// Data related to blocks.
+    ///
+    /// - Key: `Hash256` block root.
+    /// - Value in hot DB: SSZ-encoded blinded block.
+    /// - Value in cold DB: 8-byte slot of block.
     #[strum(serialize = "blk")]
     BeaconBlock,
     #[strum(serialize = "blb")]
     BeaconBlob,
+    #[strum(serialize = "bdc")]
+    BeaconDataColumn,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,
-    /// For the mapping from state roots to their slots or summaries.
+    /// For beacon state snapshots in the freezer DB.
+    #[strum(serialize = "bsn")]
+    BeaconStateSnapshot,
+    /// For compact `BeaconStateDiff`s in the freezer DB.
+    #[strum(serialize = "bsd")]
+    BeaconStateDiff,
+    /// Mapping from state root to `HotStateSummary` in the hot DB.
+    ///
+    /// Previously this column also served a role in the freezer DB, mapping state roots to
+    /// `ColdStateSummary`. However that role is now filled by `BeaconColdStateSummary`.
     #[strum(serialize = "bss")]
     BeaconStateSummary,
+    /// Mapping from state root to `ColdStateSummary` in the cold DB.
+    #[strum(serialize = "bcs")]
+    BeaconColdStateSummary,
     /// For the list of temporary states stored during block import,
     /// and then made non-temporary by the deletion of their state root from this column.
     #[strum(serialize = "bst")]
@@ -247,15 +297,37 @@ pub enum DBColumn {
     ForkChoice,
     #[strum(serialize = "pkc")]
     PubkeyCache,
-    /// For the table mapping restore point numbers to state roots.
+    /// For the legacy table mapping restore point numbers to state roots.
+    ///
+    /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "brp")]
     BeaconRestorePoint,
-    #[strum(serialize = "bbr")]
-    BeaconBlockRoots,
-    #[strum(serialize = "bsr")]
+    /// Mapping from slot to beacon state root in the freezer DB.
+    ///
+    /// This new column was created to replace the previous `bsr` column. The replacement was
+    /// necessary to guarantee atomicity of the upgrade migration.
+    #[strum(serialize = "bsx")]
     BeaconStateRoots,
+    /// DEPRECATED. This is the previous column for beacon state roots stored by "chunk index".
+    ///
+    /// Can be removed once schema v22 is buried by a hard fork.
+    #[strum(serialize = "bsr")]
+    BeaconStateRootsChunked,
+    /// Mapping from slot to beacon block root in the freezer DB.
+    ///
+    /// This new column was created to replace the previous `bbr` column. The replacement was
+    /// necessary to guarantee atomicity of the upgrade migration.
+    #[strum(serialize = "bbx")]
+    BeaconBlockRoots,
+    /// DEPRECATED. This is the previous column for beacon block roots stored by "chunk index".
+    ///
+    /// Can be removed once schema v22 is buried by a hard fork.
+    #[strum(serialize = "bbr")]
+    BeaconBlockRootsChunked,
+    /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "bhr")]
     BeaconHistoricalRoots,
+    /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "brm")]
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
@@ -263,10 +335,20 @@ pub enum DBColumn {
     /// For Optimistically Imported Merge Transition Blocks
     #[strum(serialize = "otb")]
     OptimisticTransitionBlock,
+    /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "bhs")]
     BeaconHistoricalSummaries,
     #[strum(serialize = "olc")]
     OverflowLRUCache,
+    /// For persisting eagerly computed light client data
+    #[strum(serialize = "lcu")]
+    LightClientUpdate,
+    /// For helping persist eagerly computed light client bootstrap data
+    #[strum(serialize = "scb")]
+    SyncCommitteeBranch,
+    /// For helping persist eagerly computed light client bootstrap data
+    #[strum(serialize = "scm")]
+    SyncCommittee,
 }
 
 /// A block from the database, which might have an execution payload or not.
@@ -289,12 +371,13 @@ impl DBColumn {
     /// This function returns the number of bytes used by keys in a given column.
     pub fn key_size(self) -> usize {
         match self {
-            Self::OverflowLRUCache => 33, // See `OverflowKey` encode impl.
+            Self::OverflowLRUCache => 33, // DEPRECATED
             Self::BeaconMeta
             | Self::BeaconBlock
             | Self::BeaconState
             | Self::BeaconBlob
             | Self::BeaconStateSummary
+            | Self::BeaconColdStateSummary
             | Self::BeaconStateTemporary
             | Self::ExecPayload
             | Self::BeaconChain
@@ -306,10 +389,18 @@ impl DBColumn {
             | Self::DhtEnrs
             | Self::OptimisticTransitionBlock => 32,
             Self::BeaconBlockRoots
+            | Self::BeaconBlockRootsChunked
             | Self::BeaconStateRoots
+            | Self::BeaconStateRootsChunked
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
-            | Self::BeaconRandaoMixes => 8,
+            | Self::BeaconRandaoMixes
+            | Self::BeaconStateSnapshot
+            | Self::BeaconStateDiff
+            | Self::SyncCommittee
+            | Self::SyncCommitteeBranch
+            | Self::LightClientUpdate => 8,
+            Self::BeaconDataColumn => DATA_COLUMN_DB_KEY_SIZE,
         }
     }
 }
@@ -328,7 +419,7 @@ pub trait StoreItem: Sized {
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
     fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
-        let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
+        let db_key = get_key_for_col(Self::db_column().into(), key.as_slice());
         KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
     }
 }
@@ -411,5 +502,12 @@ mod tests {
         store.delete::<StorableThing>(&key).unwrap();
 
         assert!(!store.exists::<StorableThing>(&key).unwrap());
+    }
+
+    #[test]
+    fn test_get_col_from_key() {
+        let key = get_key_for_col(DBColumn::BeaconBlock.into(), &[1u8; 32]);
+        let col = get_col_from_key(&key).unwrap();
+        assert_eq!(col, "blk");
     }
 }

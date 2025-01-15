@@ -4,27 +4,25 @@ use eth1::{Config, Eth1Endpoint, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{AnvilEth1Instance, Http, Middleware, Provider};
 use execution_layer::http::{deposit_methods::*, HttpJsonRpc, Log};
+use logging::test_logger;
 use merkle_proof::verify_merkle_proof;
 use sensitive_url::SensitiveUrl;
-use slog::Logger;
-use sloggers::{null::NullLoggerBuilder, Build};
 use std::ops::Range;
+use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
-use types::{DepositData, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, Signature};
+use types::{
+    DepositData, EthSpec, FixedBytesExtended, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec,
+    Signature,
+};
 
 const DEPOSIT_CONTRACT_TREE_DEPTH: usize = 32;
-
-pub fn null_logger() -> Logger {
-    let log_builder = NullLoggerBuilder;
-    log_builder.build().expect("should build logger")
-}
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .null_logger()
+        .test_logger()
         .expect("should start null logger")
         .build()
         .expect("should build env")
@@ -103,7 +101,7 @@ mod eth1_cache {
     #[tokio::test]
     async fn simple_scenario() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             for follow_distance in 0..3 {
                 let eth1 = new_anvil_instance()
@@ -125,8 +123,12 @@ mod eth1_cache {
                 };
                 let cache_follow_distance = config.cache_follow_distance();
 
-                let service =
-                    Service::new(config, log.clone(), MainnetEthSpec::default_spec()).unwrap();
+                let service = Service::new(
+                    config,
+                    log.clone(),
+                    Arc::new(MainnetEthSpec::default_spec()),
+                )
+                .unwrap();
 
                 // Create some blocks and then consume them, performing the test `rounds` times.
                 for round in 0..2 {
@@ -185,7 +187,7 @@ mod eth1_cache {
     #[tokio::test]
     async fn big_skip() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let eth1 = new_anvil_instance()
                 .await
@@ -207,7 +209,7 @@ mod eth1_cache {
                     ..Config::default()
                 },
                 log,
-                MainnetEthSpec::default_spec(),
+                Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
 
@@ -240,7 +242,7 @@ mod eth1_cache {
     #[tokio::test]
     async fn pruning() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let eth1 = new_anvil_instance()
                 .await
@@ -262,7 +264,7 @@ mod eth1_cache {
                     ..Config::default()
                 },
                 log,
-                MainnetEthSpec::default_spec(),
+                Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
 
@@ -292,7 +294,7 @@ mod eth1_cache {
     #[tokio::test]
     async fn double_update() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let n = 16;
 
@@ -313,7 +315,7 @@ mod eth1_cache {
                     ..Config::default()
                 },
                 log,
-                MainnetEthSpec::default_spec(),
+                Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
 
@@ -345,7 +347,7 @@ mod deposit_tree {
     #[tokio::test]
     async fn updating() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let n = 4;
 
@@ -368,7 +370,7 @@ mod deposit_tree {
                     ..Config::default()
                 },
                 log,
-                MainnetEthSpec::default_spec(),
+                Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
 
@@ -426,7 +428,7 @@ mod deposit_tree {
     #[tokio::test]
     async fn double_update() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let n = 8;
 
@@ -450,7 +452,7 @@ mod deposit_tree {
                     ..Config::default()
                 },
                 log,
-                MainnetEthSpec::default_spec(),
+                Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
 
@@ -688,7 +690,7 @@ mod fast {
     #[tokio::test]
     async fn deposit_cache_query() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let eth1 = new_anvil_instance()
                 .await
@@ -697,7 +699,7 @@ mod fast {
             let anvil_client = eth1.json_rpc_client();
 
             let now = get_block_number(&anvil_client).await;
-            let spec = MainnetEthSpec::default_spec();
+            let spec = Arc::new(MainnetEthSpec::default_spec());
             let service = Service::new(
                 Config {
                     endpoint: Eth1Endpoint::NoAuth(
@@ -771,7 +773,7 @@ mod persist {
     #[tokio::test]
     async fn test_persist_caches() {
         async {
-            let log = null_logger();
+            let log = test_logger();
 
             let eth1 = new_anvil_instance()
                 .await
@@ -791,8 +793,12 @@ mod persist {
                 block_cache_truncation: None,
                 ..Config::default()
             };
-            let service =
-                Service::new(config.clone(), log.clone(), MainnetEthSpec::default_spec()).unwrap();
+            let service = Service::new(
+                config.clone(),
+                log.clone(),
+                Arc::new(MainnetEthSpec::default_spec()),
+            )
+            .unwrap();
             let n = 10;
             let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
             for deposit in &deposits {
@@ -831,9 +837,13 @@ mod persist {
             // Drop service and recover from bytes
             drop(service);
 
-            let recovered_service =
-                Service::from_bytes(&eth1_bytes, config, log, MainnetEthSpec::default_spec())
-                    .unwrap();
+            let recovered_service = Service::from_bytes(
+                &eth1_bytes,
+                config,
+                log,
+                Arc::new(MainnetEthSpec::default_spec()),
+            )
+            .unwrap();
             assert_eq!(
                 recovered_service.block_cache_len(),
                 block_count,

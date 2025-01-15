@@ -28,3 +28,4 @@ sensitive_url = { workspace = true }
 slog = { workspace = true }
 logging = { workspace = true }
 bytes = { workspace = true }
+kzg = { workspace = true }

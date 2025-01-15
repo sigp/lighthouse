@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
-    PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, DepositData, Epoch,
+    EthSpec, FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -15,6 +15,7 @@ use tree_hash_derive::TreeHash;
     Debug,
     Clone,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Encode,
@@ -35,6 +36,34 @@ pub struct Validator {
 }
 
 impl Validator {
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn from_deposit(
+        deposit_data: &DepositData,
+        amount: u64,
+        fork_name: ForkName,
+        spec: &ChainSpec,
+    ) -> Self {
+        let mut validator = Validator {
+            pubkey: deposit_data.pubkey,
+            withdrawal_credentials: deposit_data.withdrawal_credentials,
+            activation_eligibility_epoch: spec.far_future_epoch,
+            activation_epoch: spec.far_future_epoch,
+            exit_epoch: spec.far_future_epoch,
+            withdrawable_epoch: spec.far_future_epoch,
+            effective_balance: 0,
+            slashed: false,
+        };
+
+        let max_effective_balance = validator.get_max_effective_balance(spec, fork_name);
+        // safe math is unnecessary here since the spec.effecive_balance_increment is never <= 0
+        validator.effective_balance = std::cmp::min(
+            amount - (amount % spec.effective_balance_increment),
+            max_effective_balance,
+        );
+
+        validator
+    }
+
     /// Returns `true` if the validator is considered active at some epoch.
     pub fn is_active_at(&self, epoch: Epoch) -> bool {
         self.activation_epoch <= epoch && epoch < self.exit_epoch
@@ -63,7 +92,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        if current_fork >= ForkName::Electra {
+        if current_fork.electra_enabled() {
             self.is_eligible_for_activation_queue_electra(spec)
         } else {
             self.is_eligible_for_activation_queue_base(spec)
@@ -87,15 +116,25 @@ impl Validator {
     }
 
     /// Returns `true` if the validator is eligible to be activated.
-    ///
-    /// Spec v0.12.1
     pub fn is_eligible_for_activation<E: EthSpec>(
         &self,
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> bool {
+        self.is_eligible_for_activation_with_finalized_checkpoint(
+            &state.finalized_checkpoint(),
+            spec,
+        )
+    }
+
+    /// Returns `true` if the validator is eligible to be activated.
+    pub fn is_eligible_for_activation_with_finalized_checkpoint(
+        &self,
+        finalized_checkpoint: &Checkpoint,
+        spec: &ChainSpec,
+    ) -> bool {
         // Placement in queue is finalized
-        self.activation_eligibility_epoch <= state.finalized_checkpoint().epoch
+        self.activation_eligibility_epoch <= finalized_checkpoint.epoch
         // Has not yet been activated
         && self.activation_epoch == spec.far_future_epoch
     }
@@ -119,7 +158,7 @@ impl Validator {
     /// Returns `true` if the validator has eth1 withdrawal credential.
     pub fn has_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
         self.withdrawal_credentials
-            .as_bytes()
+            .as_slice()
             .first()
             .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
             .unwrap_or(false)
@@ -130,12 +169,12 @@ impl Validator {
         is_compounding_withdrawal_credential(self.withdrawal_credentials, spec)
     }
 
-    /// Get the eth1 withdrawal address if this validator has one initialized.
-    pub fn get_eth1_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
-        self.has_eth1_withdrawal_credential(spec)
+    /// Get the execution withdrawal address if this validator has one initialized.
+    pub fn get_execution_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
+        self.has_execution_withdrawal_credential(spec)
             .then(|| {
                 self.withdrawal_credentials
-                    .as_bytes()
+                    .as_slice()
                     .get(12..)
                     .map(Address::from_slice)
             })
@@ -148,7 +187,7 @@ impl Validator {
     pub fn change_withdrawal_credentials(&mut self, execution_address: &Address, spec: &ChainSpec) {
         let mut bytes = [0u8; 32];
         bytes[0] = spec.eth1_address_withdrawal_prefix_byte;
-        bytes[12..].copy_from_slice(execution_address.as_bytes());
+        bytes[12..].copy_from_slice(execution_address.as_slice());
         self.withdrawal_credentials = Hash256::from(bytes);
     }
 
@@ -162,7 +201,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        if current_fork >= ForkName::Electra {
+        if current_fork.electra_enabled() {
             self.is_fully_withdrawable_at_electra(balance, epoch, spec)
         } else {
             self.is_fully_withdrawable_at_capella(balance, epoch, spec)
@@ -202,13 +241,14 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        if current_fork >= ForkName::Electra {
-            self.is_partially_withdrawable_validator_electra(balance, spec)
+        if current_fork.electra_enabled() {
+            self.is_partially_withdrawable_validator_electra(balance, spec, current_fork)
         } else {
             self.is_partially_withdrawable_validator_capella(balance, spec)
         }
     }
 
+    /// TODO(electra): refactor these functions and make it simpler.. this is a mess
     /// Returns `true` if the validator is partially withdrawable.
     fn is_partially_withdrawable_validator_capella(&self, balance: u64, spec: &ChainSpec) -> bool {
         self.has_eth1_withdrawal_credential(spec)
@@ -223,8 +263,9 @@ impl Validator {
         &self,
         balance: u64,
         spec: &ChainSpec,
+        current_fork: ForkName,
     ) -> bool {
-        let max_effective_balance = self.get_validator_max_effective_balance(spec);
+        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
         let has_max_effective_balance = self.effective_balance == max_effective_balance;
         let has_excess_balance = balance > max_effective_balance;
         self.has_execution_withdrawal_credential(spec)
@@ -239,12 +280,26 @@ impl Validator {
     }
 
     /// Returns the max effective balance for a validator in gwei.
-    pub fn get_validator_max_effective_balance(&self, spec: &ChainSpec) -> u64 {
-        if self.has_compounding_withdrawal_credential(spec) {
-            spec.max_effective_balance_electra
+    pub fn get_max_effective_balance(&self, spec: &ChainSpec, current_fork: ForkName) -> u64 {
+        if current_fork >= ForkName::Electra {
+            if self.has_compounding_withdrawal_credential(spec) {
+                spec.max_effective_balance_electra
+            } else {
+                spec.min_activation_balance
+            }
         } else {
-            spec.min_activation_balance
+            spec.max_effective_balance
         }
+    }
+
+    pub fn get_active_balance(
+        &self,
+        validator_balance: u64,
+        spec: &ChainSpec,
+        current_fork: ForkName,
+    ) -> u64 {
+        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
+        std::cmp::min(validator_balance, max_effective_balance)
     }
 }
 
@@ -253,7 +308,7 @@ impl Default for Validator {
     fn default() -> Self {
         Self {
             pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::default(),
+            withdrawal_credentials: Hash256::zero(),
             activation_eligibility_epoch: Epoch::from(u64::MAX),
             activation_epoch: Epoch::from(u64::MAX),
             exit_epoch: Epoch::from(u64::MAX),
@@ -269,7 +324,7 @@ pub fn is_compounding_withdrawal_credential(
     spec: &ChainSpec,
 ) -> bool {
     withdrawal_credentials
-        .as_bytes()
+        .as_slice()
         .first()
         .map(|prefix_byte| *prefix_byte == spec.compounding_withdrawal_prefix_byte)
         .unwrap_or(false)

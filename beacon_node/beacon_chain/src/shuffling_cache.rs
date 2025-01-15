@@ -294,7 +294,7 @@ impl BlockShufflingIds {
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
-    use task_executor::test_utils::null_logger;
+    use task_executor::test_utils::test_logger;
     use types::*;
 
     use crate::test_utils::EphemeralHarnessType;
@@ -315,7 +315,7 @@ mod test {
             previous: Some(shuffling_id(current_epoch - 1)),
             block_root: Hash256::from_low_u64_le(0),
         };
-        let logger = null_logger().unwrap();
+        let logger = test_logger();
         ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids, logger)
     }
 

@@ -27,10 +27,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let split_attestations = block
             .body()
             .attestations()
-            .iter()
             .map(|att| {
                 let attesting_indices = get_attesting_indices_from_state(state, att)?;
-                Ok(SplitAttestation::new(att.clone(), attesting_indices))
+                Ok(SplitAttestation::new(
+                    att.clone_as_attestation(),
+                    attesting_indices,
+                ))
             })
             .collect::<Result<Vec<_>, BeaconChainError>>()?;
 
@@ -86,8 +88,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block
                 .body()
                 .attestations()
-                .iter()
-                .map(|a| a.data.clone())
+                .map(|a| a.data().clone())
                 .collect()
         } else {
             vec![]
