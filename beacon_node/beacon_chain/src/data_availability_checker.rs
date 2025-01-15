@@ -15,6 +15,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
+use tokio::sync::oneshot;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
@@ -223,7 +224,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         .map_err(AvailabilityCheckError::InvalidBlobs)?;
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs, &self.log)
+            .put_kzg_verified_blobs(block_root, verified_blobs, None, &self.log)
     }
 
     /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
@@ -263,6 +264,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
+        data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let seen_timestamp = self
             .slot_clock
@@ -272,8 +274,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let verified_blobs =
             KzgVerifiedBlobList::from_verified(blobs.iter().flatten().cloned(), seen_timestamp);
 
-        self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs, &self.log)
+        self.availability_cache.put_kzg_verified_blobs(
+            block_root,
+            verified_blobs,
+            data_column_recv,
+            &self.log,
+        )
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -288,6 +294,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.put_kzg_verified_blobs(
             gossip_blob.block_root(),
             vec![gossip_blob.into_inner()],
+            None,
             &self.log,
         )
     }
@@ -803,7 +810,6 @@ impl<E: EthSpec> AvailableBlock<E> {
             block,
             blobs,
             data_columns,
-            blobs_available_timestamp: _,
             ..
         } = self;
         (block_root, block, blobs, data_columns)
