@@ -76,54 +76,36 @@ enum PublishAttestationResult {
 
 fn verify_and_publish_attestation<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    attestation: &Either<Attestation<T::EthSpec>, SingleAttestation>,
+    either_attestation: &Either<Attestation<T::EthSpec>, SingleAttestation>,
     seen_timestamp: Duration,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: &Logger,
 ) -> Result<(), Error> {
-    let attestation = convert_to_attestation(chain, attestation)?;
-    let attestation = chain
+    let attestation = convert_to_attestation(chain, either_attestation)?;
+    let verified_attestation = chain
         .verify_unaggregated_attestation_for_gossip(&attestation, None)
         .map_err(Error::Validation)?;
 
-    match attestation.attestation() {
-        types::AttestationRef::Base(_) => {
+    match either_attestation {
+        Either::Left(attestation) => {
             // Publish.
             network_tx
                 .send(NetworkMessage::Publish {
                     messages: vec![PubsubMessage::Attestation(Box::new((
-                        attestation.subnet_id(),
-                        attestation.attestation().clone_as_attestation(),
+                        verified_attestation.subnet_id(),
+                        attestation.clone(),
                     )))],
                 })
                 .map_err(|_| Error::Publication)?;
         }
-        types::AttestationRef::Electra(attn) => {
-            chain
-                .with_committee_cache(
-                    attn.data.target.root,
-                    attn.data.slot.epoch(T::EthSpec::slots_per_epoch()),
-                    |committee_cache, _| {
-                        let committee_index = attn
-                            .committee_index()
-                            .ok_or(BeaconChainError::AttestationCommitteeIndexNotSet)?;
-
-                        let committee =
-                            committee_cache.get_beacon_committee(attn.data.slot, committee_index);
-
-                        let single_attestation = attn.to_single_attestation(committee)?;
-
-                        network_tx
-                            .send(NetworkMessage::Publish {
-                                messages: vec![PubsubMessage::SingleAttestation(Box::new((
-                                    attestation.subnet_id(),
-                                    single_attestation,
-                                )))],
-                            })
-                            .map_err(|_| BeaconChainError::UnableToPublish)?;
-                        Ok(())
-                    },
-                )
+        Either::Right(single_attestation) => {
+            network_tx
+                .send(NetworkMessage::Publish {
+                    messages: vec![PubsubMessage::SingleAttestation(Box::new((
+                        verified_attestation.subnet_id(),
+                        single_attestation.clone(),
+                    )))],
+                })
                 .map_err(|_| Error::Publication)?;
         }
     }
@@ -134,12 +116,12 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
         .read()
         .register_api_unaggregated_attestation(
             seen_timestamp,
-            attestation.indexed_attestation(),
+            verified_attestation.indexed_attestation(),
             &chain.slot_clock,
         );
 
-    let fc_result = chain.apply_attestation_to_fork_choice(&attestation);
-    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&attestation);
+    let fc_result = chain.apply_attestation_to_fork_choice(&verified_attestation);
+    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&verified_attestation);
 
     if let Err(e) = &fc_result {
         warn!(
