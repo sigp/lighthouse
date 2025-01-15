@@ -18,7 +18,7 @@ use slog::{debug, error, o, Logger};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::oneshot;
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::{
     BeaconStateError, BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarList, EthSpec,
@@ -213,9 +213,9 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
     blobs: FixedBlobSidecarList<T::EthSpec>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
     log: Logger,
-) -> Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
+) -> oneshot::Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
     let chain_cloned = chain.clone();
-    let (data_columns_sender, data_columns_receiver) = tokio::sync::mpsc::channel(1);
+    let (data_columns_sender, data_columns_receiver) = oneshot::channel();
 
     chain.task_executor.spawn_blocking(
         move || {
@@ -248,7 +248,7 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
                 }
             };
 
-            if let Err(e) = data_columns_sender.try_send(all_data_columns.clone()) {
+            if let Err(e) = data_columns_sender.send(all_data_columns.clone()) {
                 error!(log, "Failed to send computed data columns"; "error" => ?e);
             };
 

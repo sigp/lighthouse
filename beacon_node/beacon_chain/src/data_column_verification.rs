@@ -423,7 +423,7 @@ fn verify_data_column_sidecar<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
     spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
-    if data_column.index >= spec.number_of_columns as u64 {
+    if data_column.index >= spec.number_of_columns {
         return Err(GossipDataColumnError::InvalidColumnIndex(data_column.index));
     }
     if data_column.kzg_commitments.is_empty() {
@@ -611,7 +611,7 @@ fn verify_index_matches_subnet<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
     let expected_subnet: u64 =
-        DataColumnSubnetId::from_column_index::<E>(data_column.index as usize, spec).into();
+        DataColumnSubnetId::from_column_index(data_column.index, spec).into();
     if expected_subnet != subnet {
         return Err(GossipDataColumnError::InvalidSubnetId {
             received: subnet,

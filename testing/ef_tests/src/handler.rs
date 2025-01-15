@@ -39,6 +39,10 @@ pub trait Handler {
             }
         }
 
+        // Run feature tests for future forks that are not yet added to `ForkName`.
+        // This runs tests in the directory named by the feature instead of the fork name.
+        // e.g. consensus-spec-tests/tests/general/[feature_name]/[runner_name]
+        // e.g. consensus-spec-tests/tests/general/peerdas/ssz_static
         for feature_name in FeatureName::list_all() {
             if self.is_enabled_for_feature(feature_name) {
                 self.run_for_feature(feature_name);
@@ -846,10 +850,10 @@ impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct GetCustodyColumnsHandler<E>(PhantomData<E>);
+pub struct GetCustodyGroupsHandler<E>(PhantomData<E>);
 
-impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
-    type Case = cases::GetCustodyColumns<E>;
+impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
+    type Case = cases::GetCustodyGroups<E>;
 
     fn config_name() -> &'static str {
         E::name()
@@ -860,7 +864,27 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
     }
 
     fn handler_name(&self) -> String {
-        "get_custody_columns".into()
+        "get_custody_groups".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct ComputeColumnsForCustodyGroupHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> {
+    type Case = cases::ComputeColumnsForCustodyGroups<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "networking"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_columns_for_custody_group".into()
     }
 }
 

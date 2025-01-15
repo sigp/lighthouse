@@ -7,10 +7,11 @@ use derivative::Derivative;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
+use tokio::sync::oneshot;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
-    Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, DataColumnSidecarList,
+    Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A block that has been received over RPC. It has 2 internal variants:
@@ -164,7 +165,7 @@ impl<E: EthSpec> RpcBlock<E> {
         let inner = if !custody_columns.is_empty() {
             RpcBlockInner::BlockAndCustodyColumns(
                 block,
-                RuntimeVariableList::new(custody_columns, spec.number_of_columns)?,
+                RuntimeVariableList::new(custody_columns, spec.number_of_columns as usize)?,
             )
         } else {
             RpcBlockInner::Block(block)
@@ -337,7 +338,8 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Derivative)]
+#[derivative(PartialEq)]
 pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
     pub state: BeaconState<E>,
@@ -345,6 +347,12 @@ pub struct BlockImportData<E: EthSpec> {
     pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub confirmed_state_roots: Vec<Hash256>,
     pub consensus_context: ConsensusContext<E>,
+    #[derivative(PartialEq = "ignore")]
+    /// An optional receiver for `DataColumnSidecarList`.
+    ///
+    /// This field is `Some` when data columns are being computed asynchronously.
+    /// The resulting `DataColumnSidecarList` will be sent through this receiver.
+    pub data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<E>>>,
 }
 
 impl<E: EthSpec> BlockImportData<E> {
@@ -363,6 +371,7 @@ impl<E: EthSpec> BlockImportData<E> {
             },
             confirmed_state_roots: vec![],
             consensus_context: ConsensusContext::new(Slot::new(0)),
+            data_column_recv: None,
         }
     }
 }

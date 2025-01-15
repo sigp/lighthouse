@@ -1139,7 +1139,7 @@ mod tests {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
             syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
-            custody_subnet_count: 1,
+            custody_group_count: 1,
         })
     }
 

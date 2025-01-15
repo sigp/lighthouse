@@ -1737,7 +1737,7 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
         .unwrap()
     {
         ExecutedBlock::Available(block) => chain
-            .import_available_block(Box::from(block), None)
+            .import_available_block(Box::from(block))
             .await
             .map_err(|e| format!("{e:?}")),
         ExecutedBlock::AvailabilityPending(_) => {
