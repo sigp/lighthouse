@@ -598,7 +598,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // If we're sampling all columns, it means we must be custodying all columns.
         let custody_column_count = self.sampling_column_count();
-        let total_column_count = self.spec.number_of_columns;
+        let total_column_count = self.spec.number_of_columns as usize;
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
@@ -607,7 +607,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if custody_column_count != total_column_count {
             return ReconstructColumnsDecision::No("not required for full node");
         }
-        if received_column_count == self.spec.number_of_columns {
+        if received_column_count >= total_column_count {
             return ReconstructColumnsDecision::No("all columns received");
         }
         if received_column_count < total_column_count / 2 {

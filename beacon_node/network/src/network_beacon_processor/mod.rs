@@ -1122,10 +1122,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         messages: columns
                             .into_iter()
                             .map(|d| {
-                                let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                                    d.index as usize,
-                                    &chain.spec,
-                                );
+                                let subnet =
+                                    DataColumnSubnetId::from_column_index(d.index, &chain.spec);
                                 PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
                             })
                             .collect(),
@@ -1139,7 +1137,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let blob_publication_batches = chain.config.blob_publication_batches;
-                let batch_size = chain.spec.number_of_columns / blob_publication_batches;
+                let number_of_columns = chain.spec.number_of_columns as usize;
+                let batch_size = number_of_columns / blob_publication_batches;
                 let mut publish_count = 0usize;
 
                 for batch in data_columns_to_publish.chunks(batch_size) {

@@ -117,21 +117,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Result<Self, AvailabilityCheckError> {
-        let custody_subnet_count = if import_all_data_columns {
-            spec.data_column_sidecar_subnet_count as usize
-        } else {
-            spec.custody_requirement as usize
-        };
-
-        let subnet_sampling_size =
-            std::cmp::max(custody_subnet_count, spec.samples_per_slot as usize);
-        let sampling_column_count =
-            subnet_sampling_size.saturating_mul(spec.data_columns_per_subnet());
+        let custody_group_count = spec.custody_group_count(import_all_data_columns);
+        // This should only panic if the chain spec contains invalid values.
+        let sampling_size = spec
+            .sampling_size(custody_group_count)
+            .expect("should compute node sampling size from valid chain spec");
 
         let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY,
             store,
-            sampling_column_count,
+            sampling_size as usize,
             spec.clone(),
         )?;
         Ok(Self {
@@ -148,7 +143,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     pub(crate) fn is_supernode(&self) -> bool {
-        self.get_sampling_column_count() == self.spec.number_of_columns
+        self.get_sampling_column_count() == self.spec.number_of_columns as usize
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -433,7 +428,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(CustodyDataColumn::into_inner)
             .collect::<Vec<_>>();
         let all_data_columns =
-            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns);
+            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns as usize);
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
