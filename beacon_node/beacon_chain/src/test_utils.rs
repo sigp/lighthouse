@@ -1085,14 +1085,35 @@ where
                     .unwrap();
                 attn
             }
-            Attestation::Base(_) => panic!("MUST BE AN ELECTRA ATTESTATION"),
+            Attestation::Base(_) => panic!("Must be an Electra attestation"),
         };
+
+        let aggregation_bits = attestation.get_aggregation_bits();
+
+        if aggregation_bits.len() != 1 {
+            panic!("Must be an unaggregated attestation")
+        }
+
+        let aggregation_bit = *aggregation_bits.first().unwrap();
 
         let committee = state.get_beacon_committee(slot, index).unwrap();
 
-        let single_attestation = attestation.to_single_attestation(Some(committee.clone()))?;
+        let attester_index = committee
+            .committee
+            .iter()
+            .enumerate()
+            .find_map(|(i, &index)| {
+                if aggregation_bit as usize == i {
+                    return Some(index);
+                }
+                None
+            })
+            .unwrap();
 
-        let attestation: Attestation<E> = single_attestation.to_attestation(Some(committee))?;
+        let single_attestation =
+            attestation.to_single_attestation_with_attester_index(attester_index)?;
+
+        let attestation: Attestation<E> = single_attestation.to_attestation(committee.committee)?;
 
         assert_eq!(
             single_attestation.committee_index,

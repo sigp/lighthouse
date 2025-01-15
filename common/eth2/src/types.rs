@@ -1262,6 +1262,7 @@ pub enum EventTopic {
     Block,
     BlobSidecar,
     Attestation,
+    // SingleAttestation,
     VoluntaryExit,
     FinalizedCheckpoint,
     ChainReorg,

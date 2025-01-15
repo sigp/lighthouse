@@ -101,12 +101,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .slot
                 .epoch(T::EthSpec::slots_per_epoch()),
             |committee_cache, _| {
-                let committee = committee_cache.get_beacon_committee(
+                let Some(committee) = committee_cache.get_beacon_committee(
                     single_attestation.data.slot,
                     single_attestation.committee_index as u64,
-                );
+                ) else {
+                    warn!(
+                        self.log,
+                        "No beacon committee for slot and index";
+                        "slot" => single_attestation.data.slot,
+                        "index" => single_attestation.committee_index
+                    );
+                    return Ok(Ok(()));
+                };
 
-                let attestation = single_attestation.to_attestation(committee)?;
+                let attestation = single_attestation.to_attestation(committee.committee)?;
 
                 Ok(self.send_unaggregated_attestation(
                     message_id.clone(),

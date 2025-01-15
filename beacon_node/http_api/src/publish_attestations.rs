@@ -161,12 +161,20 @@ fn convert_to_attestation<'a, T: BeaconChainTypes>(
                     .slot
                     .epoch(T::EthSpec::slots_per_epoch()),
                 |committee_cache, _| {
-                    let committee = committee_cache.get_beacon_committee(
+                    let Some(committee) = committee_cache.get_beacon_committee(
                         single_attestation.data.slot,
                         single_attestation.committee_index as u64,
-                    );
+                    ) else {
+                        return Err(BeaconChainError::AttestationError(
+                            types::AttestationError::NoCommitteeForSlotAndIndex {
+                                slot: single_attestation.data.slot,
+                                index: single_attestation.committee_index as u64,
+                            },
+                        ));
+                    };
 
-                    let attestation = single_attestation.to_attestation::<T::EthSpec>(committee)?;
+                    let attestation =
+                        single_attestation.to_attestation::<T::EthSpec>(committee.committee)?;
 
                     Ok(Cow::Owned(attestation))
                 },
