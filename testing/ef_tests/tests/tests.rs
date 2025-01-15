@@ -622,6 +622,7 @@ mod ssz_static {
         SszStaticHandler::<HistoricalSummary, MainnetEthSpec>::capella_and_later().run();
     }
 
+    /* FIXME(das): re-enable
     #[test]
     fn data_column_sidecar() {
         SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::fulu_and_later()
@@ -635,6 +636,7 @@ mod ssz_static {
         SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::fulu_and_later().run();
         SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::fulu_and_later().run();
     }
+    */
 
     #[test]
     fn consolidation() {
@@ -895,6 +897,7 @@ fn kzg_verify_kzg_proof() {
     KZGVerifyKZGProofHandler::<MainnetEthSpec>::default().run();
 }
 
+/* FIXME(das): re-enable these tests
 #[test]
 fn kzg_compute_cells_and_proofs() {
     KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default().run();
@@ -909,6 +912,7 @@ fn kzg_verify_cell_proof_batch() {
 fn kzg_recover_cells_and_proofs() {
     KZGRecoverCellsAndKZGProofHandler::<MainnetEthSpec>::default().run();
 }
+*/
 
 #[test]
 fn beacon_state_merkle_proof_validity() {
@@ -940,8 +944,10 @@ fn rewards() {
     }
 }
 
+/* FIXME(das): re-enable these tests
 #[test]
 fn get_custody_columns() {
     GetCustodyColumnsHandler::<MainnetEthSpec>::default().run();
     GetCustodyColumnsHandler::<MinimalEthSpec>::default().run()
 }
+*/

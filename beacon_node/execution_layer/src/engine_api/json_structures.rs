@@ -7,7 +7,7 @@ use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
 use types::execution_requests::{
-    ConsolidationRequests, DepositRequests, RequestPrefix, WithdrawalRequests,
+    ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests,
 };
 use types::{Blob, FixedVector, KzgProof, Unsigned};
 
@@ -401,47 +401,80 @@ impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum RequestsError {
+    InvalidHex(hex::FromHexError),
+    EmptyRequest(usize),
+    InvalidOrdering,
+    InvalidPrefix(u8),
+    DecodeError(String),
+}
+
 /// Format of `ExecutionRequests` received over the engine api.
 ///
-/// Array of ssz-encoded requests list encoded as hex bytes.
-/// The prefix of the request type is used to index into the array.
-///
-/// For e.g. [0xab, 0xcd, 0xef]
-/// Here, 0xab are the deposits bytes (prefix and index == 0)
-/// 0xcd are the withdrawals bytes (prefix and index == 1)
-/// 0xef are the consolidations bytes (prefix and index == 2)
+/// Array of ssz-encoded requests list encoded as hex bytes prefixed
+/// with a `RequestType`
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct JsonExecutionRequests(pub Vec<String>);
 
 impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
-    type Error = String;
+    type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         let mut requests = ExecutionRequests::default();
-
+        let mut prev_prefix: Option<RequestType> = None;
         for (i, request) in value.0.into_iter().enumerate() {
             // hex string
             let decoded_bytes = hex::decode(request.strip_prefix("0x").unwrap_or(&request))
-                .map_err(|e| format!("Invalid hex {:?}", e))?;
-            match RequestPrefix::from_prefix(i as u8) {
-                Some(RequestPrefix::Deposit) => {
-                    requests.deposits = DepositRequests::<E>::from_ssz_bytes(&decoded_bytes)
-                        .map_err(|e| format!("Failed to decode DepositRequest from EL: {:?}", e))?;
+                .map_err(RequestsError::InvalidHex)?;
+
+            // The first byte of each element is the `request_type` and the remaining bytes are the `request_data`.
+            // Elements with empty `request_data` **MUST** be excluded from the list.
+            let Some((prefix_byte, request_bytes)) = decoded_bytes.split_first() else {
+                return Err(RequestsError::EmptyRequest(i));
+            };
+            if request_bytes.is_empty() {
+                return Err(RequestsError::EmptyRequest(i));
+            }
+            // Elements of the list **MUST** be ordered by `request_type` in ascending order
+            let current_prefix = RequestType::from_u8(*prefix_byte)
+                .ok_or(RequestsError::InvalidPrefix(*prefix_byte))?;
+            if let Some(prev) = prev_prefix {
+                if prev.to_u8() >= current_prefix.to_u8() {
+                    return Err(RequestsError::InvalidOrdering);
                 }
-                Some(RequestPrefix::Withdrawal) => {
-                    requests.withdrawals = WithdrawalRequests::<E>::from_ssz_bytes(&decoded_bytes)
+            }
+            prev_prefix = Some(current_prefix);
+
+            match current_prefix {
+                RequestType::Deposit => {
+                    requests.deposits = DepositRequests::<E>::from_ssz_bytes(request_bytes)
                         .map_err(|e| {
-                            format!("Failed to decode WithdrawalRequest from EL: {:?}", e)
+                            RequestsError::DecodeError(format!(
+                                "Failed to decode DepositRequest from EL: {:?}",
+                                e
+                            ))
                         })?;
                 }
-                Some(RequestPrefix::Consolidation) => {
-                    requests.consolidations =
-                        ConsolidationRequests::<E>::from_ssz_bytes(&decoded_bytes).map_err(
-                            |e| format!("Failed to decode ConsolidationRequest from EL: {:?}", e),
-                        )?;
+                RequestType::Withdrawal => {
+                    requests.withdrawals = WithdrawalRequests::<E>::from_ssz_bytes(request_bytes)
+                        .map_err(|e| {
+                        RequestsError::DecodeError(format!(
+                            "Failed to decode WithdrawalRequest from EL: {:?}",
+                            e
+                        ))
+                    })?;
                 }
-                None => return Err("Empty requests string".to_string()),
+                RequestType::Consolidation => {
+                    requests.consolidations =
+                        ConsolidationRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
+                            RequestsError::DecodeError(format!(
+                                "Failed to decode ConsolidationRequest from EL: {:?}",
+                                e
+                            ))
+                        })?;
+                }
             }
         }
         Ok(requests)
@@ -510,7 +543,9 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
-                    requests: response.execution_requests.try_into()?,
+                    requests: response.execution_requests.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution requests : {:?}", e)
+                    })?,
                 }))
             }
             JsonGetPayloadResponse::V5(response) => {
@@ -519,7 +554,9 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
-                    requests: response.execution_requests.try_into()?,
+                    requests: response.execution_requests.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution requests  {:?}", e)
+                    })?,
                 }))
             }
         }

@@ -234,7 +234,7 @@ pub struct ElectraPreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_pending_partials_per_withdrawals_sweep: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    pub pending_balance_deposits_limit: u64,
+    pub pending_deposits_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub pending_partial_withdrawals_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -260,7 +260,7 @@ impl ElectraPreset {
             whistleblower_reward_quotient_electra: spec.whistleblower_reward_quotient_electra,
             max_pending_partials_per_withdrawals_sweep: spec
                 .max_pending_partials_per_withdrawals_sweep,
-            pending_balance_deposits_limit: E::pending_deposits_limit() as u64,
+            pending_deposits_limit: E::pending_deposits_limit() as u64,
             pending_partial_withdrawals_limit: E::pending_partial_withdrawals_limit() as u64,
             pending_consolidations_limit: E::pending_consolidations_limit() as u64,
             max_consolidation_requests_per_payload: E::max_consolidation_requests_per_payload()
