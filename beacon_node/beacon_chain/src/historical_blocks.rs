@@ -1,7 +1,7 @@
 use crate::data_availability_checker::AvailableBlock;
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
-use slog::{debug, info};
+use slog::debug;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
     signature_sets::{block_proposal_signature_set_from_parts, Error as SignatureSetError},
