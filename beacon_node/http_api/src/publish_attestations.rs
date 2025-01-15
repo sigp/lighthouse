@@ -45,6 +45,7 @@ use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{debug, error, warn, Logger};
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{
@@ -164,12 +165,12 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     }
 }
 
-fn convert_to_attestation<T: BeaconChainTypes>(
+fn convert_to_attestation<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    attestation: &Either<Attestation<T::EthSpec>, SingleAttestation>,
-) -> Result<Attestation<T::EthSpec>, Error> {
+    attestation: &'a Either<Attestation<T::EthSpec>, SingleAttestation>,
+) -> Result<Cow<'a, Attestation<T::EthSpec>>, Error> {
     let a = match attestation {
-        Either::Left(a) => a.clone(),
+        Either::Left(a) => Cow::Borrowed(a),
         Either::Right(single_attestation) => chain
             .with_committee_cache(
                 single_attestation.data.target.root,
@@ -185,7 +186,7 @@ fn convert_to_attestation<T: BeaconChainTypes>(
 
                     let attestation = single_attestation.to_attestation::<T::EthSpec>(committee)?;
 
-                    Ok(attestation)
+                    Ok(Cow::Owned(attestation))
                 },
             )
             .map_err(Error::FailedConversion)?,
