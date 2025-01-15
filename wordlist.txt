@@ -194,7 +194,6 @@ rc
 reimport
 resync
 roadmap
-runtime
 rustfmt
 rustup
 schemas

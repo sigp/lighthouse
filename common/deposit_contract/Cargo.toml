@@ -7,13 +7,13 @@ edition = { workspace = true }
 build = "build.rs"
 
 [build-dependencies]
+hex = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-hex = { workspace = true }
 
 [dependencies]
-types = { workspace = true }
+ethabi = "16.0.0"
 ethereum_ssz = { workspace = true }
 tree_hash = { workspace = true }
-ethabi = "16.0.0"
+types = { workspace = true }

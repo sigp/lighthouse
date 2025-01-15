@@ -5,5 +5,5 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [dependencies]
-types = { workspace = true }
 paste = { workspace = true }
+types = { workspace = true }

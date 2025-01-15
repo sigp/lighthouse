@@ -10,15 +10,16 @@ The required API token may be found in the default data directory of the validat
 
 ## 3. How do I fix the Node Network Errors?
 
-If you receive a red notification with a BEACON or VALIDATOR NODE NETWORK ERROR you can refer to the lighthouse ui configuration and [`connecting to clients section`](./ui-configuration.md#connecting-to-the-clients).
+If you receive a red notification with a BEACON or VALIDATOR NODE NETWORK ERROR you can refer to the lighthouse ui [`configuration`](./ui-configuration.md#configuration).
 
 ## 4. How do I connect Siren to Lighthouse from a different computer on the same network?
 
-Siren is a webapp, you can access it like any other website. We don't recommend exposing it to the internet; if you require remote access a VPN or (authenticated) reverse proxy is highly recommended.
+Siren is a webapp, you can access it like any other website. We don't recommend exposing it to the internet; if you require remote access a VPN or (authenticated) reverse proxy is highly recommended.  
+That being said, it is entirely possible to have it published over the internet, how to do that goes well beyond the scope of this document but we want to emphasize once more the need for *at least* SSL encryption if you choose to do so.
 
 ## 5. How can I use Siren to monitor my validators remotely when I am not at home?
 
-Most contemporary home routers provide options for VPN access in various ways. A VPN permits a remote computer to establish a connection with internal computers within a home network. With a VPN configuration in place, connecting to the VPN enables you to treat your computer as if it is part of your local home network. The connection process involves following the setup steps for connecting via another machine on the same network on the Siren configuration page and [`connecting to clients section`](./ui-configuration.md#connecting-to-the-clients).
+Most contemporary home routers provide options for VPN access in various ways. A VPN permits a remote computer to establish a connection with internal computers within a home network. With a VPN configuration in place, connecting to the VPN enables you to treat your computer as if it is part of your local home network. The connection process involves following the setup steps for connecting via another machine on the same network on the Siren configuration page and [`configuration`](./ui-configuration.md#configuration).
 
 ## 6. Does Siren support reverse proxy or DNS named addresses?
 

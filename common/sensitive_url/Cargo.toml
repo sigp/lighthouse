@@ -3,9 +3,8 @@ name = "sensitive_url"
 version = "0.1.0"
 authors = ["Mac L <mjladson@pm.me>"]
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-url = { workspace = true }
 serde = { workspace = true }
+url = { workspace = true }

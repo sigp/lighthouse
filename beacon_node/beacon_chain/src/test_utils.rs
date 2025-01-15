@@ -501,6 +501,9 @@ where
             spec.electra_fork_epoch.map(|epoch| {
                 genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
             });
+        mock.server.execution_block_generator().osaka_time = spec.fulu_fork_epoch.map(|epoch| {
+            genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
 
         self
     }
@@ -511,7 +514,7 @@ where
 
     pub fn mock_execution_layer_with_config(mut self) -> Self {
         let mock = mock_execution_layer_from_parts::<E>(
-            self.spec.as_ref().expect("cannot build without spec"),
+            self.spec.clone().expect("cannot build without spec"),
             self.runtime.task_executor.clone(),
         );
         self.execution_layer = Some(mock.el.clone());
@@ -611,7 +614,7 @@ where
 }
 
 pub fn mock_execution_layer_from_parts<E: EthSpec>(
-    spec: &ChainSpec,
+    spec: Arc<ChainSpec>,
     task_executor: TaskExecutor,
 ) -> MockExecutionLayer<E> {
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
@@ -623,8 +626,11 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
     let prague_time = spec.electra_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
+    let osaka_time = spec.fulu_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+    });
 
-    let kzg = get_kzg(spec);
+    let kzg = get_kzg(&spec);
 
     MockExecutionLayer::new(
         task_executor,
@@ -632,8 +638,9 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         shanghai_time,
         cancun_time,
         prague_time,
+        osaka_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-        spec.clone(),
+        spec,
         Some(kzg),
     )
 }
@@ -742,15 +749,15 @@ where
     pub fn get_head_block(&self) -> RpcBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
-        let blobs = self.chain.get_blobs(&block_root).unwrap();
-        RpcBlock::new(Some(block_root), block, Some(blobs)).unwrap()
+        let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
+        RpcBlock::new(Some(block_root), block, blobs).unwrap()
     }
 
     pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
         let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
-        let blobs = self.chain.get_blobs(block_root).unwrap();
-        RpcBlock::new(Some(*block_root), Arc::new(full_block), Some(blobs)).unwrap()
+        let blobs = self.chain.get_blobs(block_root).unwrap().blobs();
+        RpcBlock::new(Some(*block_root), Arc::new(full_block), blobs).unwrap()
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -913,15 +920,12 @@ where
             &self.spec,
         ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+        let block_contents: SignedBlockContentsTuple<E> =
+            if signed_block.fork_name_unchecked().deneb_enabled() {
                 (signed_block, block_response.blob_items)
-            }
-        };
+            } else {
+                (signed_block, None)
+            };
 
         (block_contents, block_response.state)
     }
@@ -977,15 +981,12 @@ where
             &self.spec,
         ));
 
-        let block_contents: SignedBlockContentsTuple<E> = match *signed_block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => (signed_block, None),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+        let block_contents: SignedBlockContentsTuple<E> =
+            if signed_block.fork_name_unchecked().deneb_enabled() {
                 (signed_block, block_response.blob_items)
-            }
-        };
+            } else {
+                (signed_block, None)
+            };
         (block_contents, pre_state)
     }
 
@@ -2019,7 +2020,7 @@ where
         let (block, blob_items) = block_contents;
 
         let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
             .transpose()
             .unwrap();
         let block_hash: SignedBeaconBlockHash = self
@@ -2045,7 +2046,7 @@ where
         let (block, blob_items) = block_contents;
 
         let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
             .transpose()
             .unwrap();
         let block_root = block.canonical_root();
@@ -2816,11 +2817,12 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
     rng: &mut impl Rng,
+    spec: &ChainSpec,
 ) -> (SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>) {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
     let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
-
+    let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
@@ -2830,7 +2832,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                NumBlobs::Random => rng.gen_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -2850,7 +2852,26 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                NumBlobs::Random => rng.gen_range(1..=max_blobs),
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+            payload.execution_payload.transactions = <_>::default();
+            for tx in Vec::from(transactions) {
+                payload.execution_payload.transactions.push(tx).unwrap();
+            }
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
+            bundle
+        }
+        SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
+            ref mut message, ..
+        }) => {
+            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
+            let payload: &mut FullPayloadFulu<E> = &mut message.body.execution_payload;
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => rng.gen_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -2904,7 +2925,7 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     DataColumnSidecarList<E>,
 ) {
     let kzg = get_kzg(spec);
-    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
+    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng, spec);
     let blob_refs = blobs.iter().map(|b| &b.blob).collect::<Vec<_>>();
     let data_columns = blobs_to_data_column_sidecars(&blob_refs, &block, &kzg, spec).unwrap();
 

@@ -11,36 +11,36 @@ fake_crypto = ['bls/fake_crypto']
 jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
+account_utils = { workspace = true }
+beacon_chain = { workspace = true }
 bls = { workspace = true }
 clap = { workspace = true }
-log = { workspace = true }
-sloggers = { workspace = true }
-serde = { workspace = true }
-serde_yaml = { workspace = true }
-serde_json = { workspace = true }
+clap_utils = { workspace = true }
+deposit_contract = { workspace = true }
 env_logger = { workspace = true }
-types = { workspace = true }
-state_processing = { workspace = true }
+environment = { workspace = true }
+eth2 = { workspace = true }
+eth2_network_config = { workspace = true }
+eth2_wallet = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_ssz = { workspace = true }
-environment = { workspace = true }
-eth2_network_config = { workspace = true }
-deposit_contract = { workspace = true }
-tree_hash = { workspace = true }
-clap_utils = { workspace = true }
-lighthouse_network = { workspace = true }
-validator_dir = { workspace = true }
-lighthouse_version = { workspace = true }
-account_utils = { workspace = true }
-eth2_wallet = { workspace = true }
-eth2 = { workspace = true }
-snap = { workspace = true }
-beacon_chain = { workspace = true }
-store = { workspace = true }
-malloc_utils = { workspace = true }
-rayon = { workspace = true }
 execution_layer = { workspace = true }
 hex = { workspace = true }
+lighthouse_network = { workspace = true }
+lighthouse_version = { workspace = true }
+log = { workspace = true }
+malloc_utils = { workspace = true }
+rayon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sloggers = { workspace = true }
+snap = { workspace = true }
+state_processing = { workspace = true }
+store = { workspace = true }
+tree_hash = { workspace = true }
+types = { workspace = true }
+validator_dir = { workspace = true }
 
 [package.metadata.cargo-udeps.ignore]
 normal = ["malloc_utils"]

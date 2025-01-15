@@ -99,7 +99,7 @@ impl<E: EthSpec> PeerInfo<E> {
                 Subnet::SyncCommittee(id) => {
                     return meta_data
                         .syncnets()
-                        .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
+                        .is_ok_and(|s| s.get(**id as usize).unwrap_or(false))
                 }
                 Subnet::DataColumn(column) => return self.custody_subnets.contains(column),
             }
@@ -264,7 +264,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Reports if this peer has some future validator duty in which case it is valuable to keep it.
     pub fn has_future_duty(&self) -> bool {
-        self.min_ttl.map_or(false, |i| i >= Instant::now())
+        self.min_ttl.is_some_and(|i| i >= Instant::now())
     }
 
     /// Returns score of the peer.

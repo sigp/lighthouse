@@ -3,24 +3,23 @@ name = "http_metrics"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-warp = { workspace = true }
+beacon_chain = { workspace = true }
+lighthouse_network = { workspace = true }
+lighthouse_version = { workspace = true }
+malloc_utils = { workspace = true }
+metrics = { workspace = true }
 serde = { workspace = true }
 slog = { workspace = true }
-beacon_chain = { workspace = true }
-store = { workspace = true }
-lighthouse_network = { workspace = true }
 slot_clock = { workspace = true }
-metrics = { workspace = true }
-lighthouse_version = { workspace = true }
+store = { workspace = true }
+warp = { workspace = true }
 warp_utils = { workspace = true }
-malloc_utils = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true }
-reqwest = { workspace = true }
-types = { workspace = true }
 logging = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }

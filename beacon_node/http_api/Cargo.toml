@@ -6,49 +6,49 @@ edition = { workspace = true }
 autotests = false                               # using a single test binary compiles faster
 
 [dependencies]
-warp = { workspace = true }
-serde = { workspace = true }
-tokio = { workspace = true }
-tokio-stream = { workspace = true }
-types = { workspace = true }
-hex = { workspace = true }
 beacon_chain = { workspace = true }
-eth2 = { workspace = true }
-slog = { workspace = true }
-network = { workspace = true }
-lighthouse_network = { workspace = true }
-eth1 = { workspace = true }
-state_processing = { workspace = true }
-lighthouse_version = { workspace = true }
-metrics = { workspace = true }
-warp_utils = { workspace = true }
-slot_clock = { workspace = true }
-ethereum_ssz = { workspace = true }
+beacon_processor = { workspace = true }
 bs58 = "0.4.0"
-futures = { workspace = true }
+bytes = { workspace = true }
+directory = { workspace = true }
+eth1 = { workspace = true }
+eth2 = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
-parking_lot = { workspace = true }
-safe_arith = { workspace = true }
-task_executor = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+lighthouse_network = { workspace = true }
+lighthouse_version = { workspace = true }
+logging = { workspace = true }
 lru = { workspace = true }
-tree_hash = { workspace = true }
+metrics = { workspace = true }
+network = { workspace = true }
+operation_pool = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+safe_arith = { workspace = true }
+sensitive_url = { workspace = true }
+serde = { workspace = true }
+slog = { workspace = true }
+slot_clock = { workspace = true }
+state_processing = { workspace = true }
+store = { workspace = true }
 sysinfo = { workspace = true }
 system_health = { path = "../../common/system_health" }
-directory = { workspace = true }
-logging = { workspace = true }
-ethereum_serde_utils = { workspace = true }
-operation_pool = { workspace = true }
-sensitive_url = { workspace = true }
-store = { workspace = true }
-bytes = { workspace = true }
-beacon_processor = { workspace = true }
-rand = { workspace = true }
+task_executor = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tree_hash = { workspace = true }
+types = { workspace = true }
+warp = { workspace = true }
+warp_utils = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
-proto_array = { workspace = true }
 genesis = { workspace = true }
 logging = { workspace = true }
+proto_array = { workspace = true }
+serde_json = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"

@@ -4,12 +4,15 @@ use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
 use crate::sync::range_sync::RangeSyncType;
 use crate::sync::SyncMessage;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
-use beacon_chain::EngineState;
+use beacon_chain::{block_verification_types::RpcBlock, EngineState, NotifyExecutionLayer};
 use lighthouse_network::rpc::{RequestType, StatusMessage};
 use lighthouse_network::service::api_types::{AppRequestId, Id, SyncRequestId};
 use lighthouse_network::{PeerId, SyncInfo};
 use std::time::Duration;
-use types::{EthSpec, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot};
+use types::{
+    BlobSidecarList, BlockImportSource, EthSpec, Hash256, MinimalEthSpec as E, SignedBeaconBlock,
+    SignedBeaconBlockHash, Slot,
+};
 
 const D: Duration = Duration::new(0, 0);
 
@@ -154,7 +157,9 @@ impl TestRig {
         }
     }
 
-    async fn create_canonical_block(&mut self) -> SignedBeaconBlock<E> {
+    async fn create_canonical_block(
+        &mut self,
+    ) -> (SignedBeaconBlock<E>, Option<BlobSidecarList<E>>) {
         self.harness.advance_slot();
 
         let block_root = self
@@ -165,19 +170,39 @@ impl TestRig {
                 AttestationStrategy::AllValidators,
             )
             .await;
-        self.harness
-            .chain
-            .store
-            .get_full_block(&block_root)
-            .unwrap()
-            .unwrap()
+        // TODO(das): this does not handle data columns yet
+        let store = &self.harness.chain.store;
+        let block = store.get_full_block(&block_root).unwrap().unwrap();
+        let blobs = if block.fork_name_unchecked().deneb_enabled() {
+            store.get_blobs(&block_root).unwrap().blobs()
+        } else {
+            None
+        };
+        (block, blobs)
     }
 
-    async fn remember_block(&mut self, block: SignedBeaconBlock<E>) {
-        self.harness
-            .process_block(block.slot(), block.canonical_root(), (block.into(), None))
+    async fn remember_block(
+        &mut self,
+        (block, blob_sidecars): (SignedBeaconBlock<E>, Option<BlobSidecarList<E>>),
+    ) {
+        // This code is kind of duplicated from Harness::process_block, but takes sidecars directly.
+        let block_root = block.canonical_root();
+        self.harness.set_current_slot(block.slot());
+        let _: SignedBeaconBlockHash = self
+            .harness
+            .chain
+            .process_block(
+                block_root,
+                RpcBlock::new(Some(block_root), block.into(), blob_sidecars).unwrap(),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
+                || Ok(()),
+            )
             .await
+            .unwrap()
+            .try_into()
             .unwrap();
+        self.harness.chain.recompute_head_at_current_slot().await;
     }
 }
 
@@ -217,9 +242,9 @@ async fn state_update_while_purging() {
     // Need to create blocks that can be inserted into the fork-choice and fit the "known
     // conditions" below.
     let head_peer_block = rig_2.create_canonical_block().await;
-    let head_peer_root = head_peer_block.canonical_root();
+    let head_peer_root = head_peer_block.0.canonical_root();
     let finalized_peer_block = rig_2.create_canonical_block().await;
-    let finalized_peer_root = finalized_peer_block.canonical_root();
+    let finalized_peer_root = finalized_peer_block.0.canonical_root();
 
     // Get a peer with an advanced head
     let head_peer = rig.add_head_peer_with_root(head_peer_root);

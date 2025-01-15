@@ -206,8 +206,6 @@ impl CapellaPreset {
 #[serde(rename_all = "UPPERCASE")]
 pub struct DenebPreset {
     #[serde(with = "serde_utils::quoted_u64")]
-    pub max_blobs_per_block: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
     pub max_blob_commitments_per_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub field_elements_per_blob: u64,
@@ -216,7 +214,6 @@ pub struct DenebPreset {
 impl DenebPreset {
     pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
         Self {
-            max_blobs_per_block: E::max_blobs_per_block() as u64,
             max_blob_commitments_per_block: E::max_blob_commitments_per_block() as u64,
             field_elements_per_blob: E::field_elements_per_blob() as u64,
         }
@@ -237,7 +234,7 @@ pub struct ElectraPreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_pending_partials_per_withdrawals_sweep: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    pub pending_balance_deposits_limit: u64,
+    pub pending_deposits_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub pending_partial_withdrawals_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -263,7 +260,7 @@ impl ElectraPreset {
             whistleblower_reward_quotient_electra: spec.whistleblower_reward_quotient_electra,
             max_pending_partials_per_withdrawals_sweep: spec
                 .max_pending_partials_per_withdrawals_sweep,
-            pending_balance_deposits_limit: E::pending_deposits_limit() as u64,
+            pending_deposits_limit: E::pending_deposits_limit() as u64,
             pending_partial_withdrawals_limit: E::pending_partial_withdrawals_limit() as u64,
             pending_consolidations_limit: E::pending_consolidations_limit() as u64,
             max_consolidation_requests_per_payload: E::max_consolidation_requests_per_payload()
@@ -272,6 +269,21 @@ impl ElectraPreset {
             max_attester_slashings_electra: E::max_attester_slashings_electra() as u64,
             max_attestations_electra: E::max_attestations_electra() as u64,
             max_withdrawal_requests_per_payload: E::max_withdrawal_requests_per_payload() as u64,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct FuluPreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub fulu_placeholder: u64,
+}
+
+impl FuluPreset {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
+        Self {
+            fulu_placeholder: spec.fulu_placeholder,
         }
     }
 }
@@ -342,6 +354,9 @@ mod test {
 
         let electra: ElectraPreset = preset_from_file(&preset_name, "electra.yaml");
         assert_eq!(electra, ElectraPreset::from_chain_spec::<E>(&spec));
+
+        let fulu: FuluPreset = preset_from_file(&preset_name, "fulu.yaml");
+        assert_eq!(fulu, FuluPreset::from_chain_spec::<E>(&spec));
 
         let eip7594: Eip7594Preset = preset_from_file(&preset_name, "eip7594.yaml");
         assert_eq!(eip7594, Eip7594Preset::from_chain_spec::<E>(&spec));

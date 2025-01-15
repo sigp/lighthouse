@@ -21,6 +21,14 @@ impl<E: EthSpec> LoadCase for GetCustodyColumns<E> {
 }
 
 impl<E: EthSpec> Case for GetCustodyColumns<E> {
+    fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
+        false
+    }
+
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Eip7594
+    }
+
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let spec = E::default_spec();
         let node_id = U256::from_str_radix(&self.node_id, 10)
@@ -33,6 +41,7 @@ impl<E: EthSpec> Case for GetCustodyColumns<E> {
         )
         .expect("should compute custody columns")
         .collect::<Vec<_>>();
+
         let expected = &self.result;
         if computed == *expected {
             Ok(())
