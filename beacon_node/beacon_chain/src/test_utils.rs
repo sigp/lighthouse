@@ -2085,7 +2085,7 @@ where
                 })
                 .transpose()
                 .expect("should convert blobs to columns")
-                .unwrap_or(vec![]);
+                .unwrap_or_default();
             RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
         } else {
             let blobs = blob_items

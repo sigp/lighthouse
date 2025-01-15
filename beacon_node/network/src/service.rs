@@ -789,6 +789,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     /// 1. Data column subscription logic depends on subscription configuration.
     /// 2. Data column topic subscriptions will be dynamic based on validator balances due to
     ///    validator custody.
+    ///
+    /// TODO(das): The downside with not including it in core fork topic is - we subscribe to
+    /// PeerDAS topics on startup if Fulu is scheduled, rather than waiting until the fork.
+    /// If this is an issue we could potentially consider adding the logic to
+    /// `network.subscribe_new_fork_topics()`.
     fn subscribe_to_peer_das_topics(&mut self, subscribed_topics: &mut Vec<GossipTopic>) {
         let column_subnets_to_subscribe = if self.subscribe_all_data_column_subnets {
             Cow::Owned(
