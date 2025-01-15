@@ -2035,7 +2035,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             |v| {
                 // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
                 if let Some(event_handler) = self.event_handler.as_ref() {
-                    if event_handler.has_attestation_subscribers() {
+                    if event_handler.has_single_attestation_subscribers() {
                         let current_fork = self
                             .spec
                             .fork_name_at_slot::<T::EthSpec>(v.attestation().data().slot);
@@ -2047,10 +2047,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     single_attestation,
                                 )));
                             }
-                        } else {
-                            event_handler.register(EventKind::Attestation(Box::new(
-                                v.attestation().clone_as_attestation(),
-                            )));
                         }
                     }
                 }

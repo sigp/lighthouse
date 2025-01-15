@@ -4551,6 +4551,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::Attestation => {
                                     event_handler.subscribe_attestation()
                                 }
+                                api_types::EventTopic::SingleAttestation => {
+                                    event_handler.subscribe_single_attestation()
+                                }
                                 api_types::EventTopic::VoluntaryExit => {
                                     event_handler.subscribe_exit()
                                 }
