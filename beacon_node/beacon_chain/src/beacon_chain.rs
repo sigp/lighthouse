@@ -7163,7 +7163,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let custody_columns_available = data_columns
                 .as_ref()
-                .map_or(false, |columns| columns.len() == custody_columns_count);
+                .as_ref()
+                .is_some_and(|columns| columns.len() == custody_columns_count);
 
             let data_columns_to_persist = if custody_columns_available {
                 // If the block was made available via custody columns received from gossip / rpc, use them
