@@ -483,6 +483,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         debug!(self.log, "Backfill batch processed";
                             "batch_epoch" => epoch,
                             "first_block_slot" => start_slot,
+                            "keep_execution_payload" => !self.chain.store.get_config().prune_payloads,
                             "last_block_slot" => end_slot,
                             "processed_blocks" => sent_blocks,
                             "processed_blobs" => n_blobs,

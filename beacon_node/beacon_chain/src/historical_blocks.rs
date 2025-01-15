@@ -147,12 +147,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
 
-            info!(
-                self.log,
-                "Downloading historical blocks";
-                "Keep execution payload" => !self.store.get_config().prune_payloads,
-            );
-
             // Store the blobs too
             if let Some(blobs) = maybe_blobs {
                 new_oldest_blob_slot = Some(block.slot());
