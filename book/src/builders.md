@@ -244,13 +244,6 @@ INFO Builder payload ignored
 INFO Chain is unhealthy, using local payload
 ```
 
-In case of fallback you should see a log indicating that the locally produced payload was
-used in place of one from the builder:
-
-```text
-INFO Reconstructing a full block using a local payload
-```
-
 ## Information for block builders and relays
 
 Block builders and relays can query beacon node events from the [Events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream). An example of querying the payload attributes in the Events API is outlined in [Beacon node API - Events API](./api-bn.md#events-api)
