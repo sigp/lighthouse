@@ -2,8 +2,8 @@ use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
 use eth2::types::PublishBlockRequest;
 use eth2::types::{
-    BlobsBundle, BlockId, BroadcastValidation, EventKind, EventTopic, ProposerData, StateId,
-    ValidatorId,
+    BlobsBundle, BlockId, BroadcastValidation, EventKind, EventTopic, FullPayloadContents,
+    ProposerData, StateId, ValidatorId,
 };
 use eth2::{BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER};
 use fork_choice::ForkchoiceUpdateParameters;
@@ -444,7 +444,7 @@ impl<E: EthSpec> MockBuilder<E> {
     pub async fn submit_blinded_block(
         &self,
         block: SignedBlindedBeaconBlock<E>,
-    ) -> Result<ExecutionPayload<E>, String> {
+    ) -> Result<FullPayloadContents<E>, String> {
         let root = match &block {
             SignedBlindedBeaconBlock::Base(_) | types::SignedBeaconBlock::Altair(_) => {
                 return Err("invalid fork".to_string());
@@ -485,13 +485,15 @@ impl<E: EthSpec> MockBuilder<E> {
             "txs_count" => payload.transactions().len(),
             "blob_count" => blobs.as_ref().map(|b| b.commitments.len())
         );
-        let publish_block_request =
-            PublishBlockRequest::new(Arc::new(full_block), blobs.map(|b| (b.proofs, b.blobs)));
+        let publish_block_request = PublishBlockRequest::new(
+            Arc::new(full_block),
+            blobs.clone().map(|b| (b.proofs, b.blobs)),
+        );
         self.beacon_client
             .post_beacon_blocks_v2(&publish_block_request, Some(BroadcastValidation::Gossip))
             .await
             .map_err(|e| format!("Failed to post blinded block {:?}", e))?;
-        Ok(payload)
+        Ok(FullPayloadContents::new(payload, blobs))
     }
 
     pub async fn get_header(
@@ -512,7 +514,13 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let payload_parameters = match payload_parameters {
             Some(params) => params,
-            None => self.get_payload_params(slot, None, pubkey, None).await?,
+            None => {
+                warn!(
+                    self.log,
+                    "Payload params not cached for parent_hash {}", parent_hash
+                );
+                self.get_payload_params(slot, None, pubkey, None).await?
+            }
         };
 
         info!(self.log, "Got payload params");
@@ -530,8 +538,8 @@ impl<E: EthSpec> MockBuilder<E> {
             })
             .await
             .map_err(|e| format!("couldn't get payload {:?}", e))?;
-        info!(self.log, "Got payload message");
-        info!(self.log, "fork {}", fork);
+
+        info!(self.log, "Got payload message, fork {}", fork);
 
         let mut message = match payload_response_type {
             crate::GetPayloadResponseType::Full(payload_response) => {
@@ -613,7 +621,7 @@ impl<E: EthSpec> MockBuilder<E> {
             signature = Signature::empty();
         };
         let signed_bid = SignedBuilderBid { message, signature };
-        info!(self.log, "Builder bid {:?}", &signed_bid.message);
+        info!(self.log, "Builder bid {:?}", &signed_bid.message.value());
         Ok(signed_bid)
     }
 
@@ -725,17 +733,9 @@ impl<E: EthSpec> MockBuilder<E> {
             )
             .await?;
 
-        self.payload_id_cache.write().insert(
-            payload_parameters.parent_hash,
-            PayloadParametersCloned {
-                current_fork: payload_parameters.current_fork,
-                forkchoice_update_params: payload_parameters.forkchoice_update_params,
-                parent_gas_limit: payload_parameters.parent_gas_limit,
-                parent_hash: payload_parameters.parent_hash,
-                payload_attributes: payload_parameters.payload_attributes.clone(),
-                proposer_gas_limit: payload_parameters.proposer_gas_limit,
-            },
-        );
+        self.payload_id_cache
+            .write()
+            .insert(payload_parameters.parent_hash, payload_parameters);
         Ok(())
     }
 
@@ -804,7 +804,14 @@ impl<E: EthSpec> MockBuilder<E> {
                     cached_data.message.fee_recipient,
                     cached_data.message.gas_limit,
                 ),
-                None => (DEFAULT_FEE_RECIPIENT, DEFAULT_GAS_LIMIT),
+                None => {
+                    warn!(
+                        self.log,
+                        "Validator not registered {}, using default fee recipient and gas limits",
+                        pubkey
+                    );
+                    (DEFAULT_FEE_RECIPIENT, DEFAULT_GAS_LIMIT)
+                }
             };
         let slots_since_genesis = slot.as_u64() - self.spec.genesis_slot.as_u64();
 
