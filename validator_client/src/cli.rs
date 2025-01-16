@@ -39,20 +39,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .display_order(0)
         )
-        // TODO remove this flag in a future release
-        .arg(
-            Arg::new("disable-run-on-all")
-                .long("disable-run-on-all")
-                .value_name("DISABLE_RUN_ON_ALL")
-                .help("DEPRECATED. Use --broadcast. \
-                       By default, Lighthouse publishes attestation, sync committee subscriptions \
-                       and proposer preparation messages to all beacon nodes provided in the \
-                       `--beacon-nodes flag`. This option changes that behaviour such that these \
-                       api calls only go out to the first available and synced beacon node")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
         .arg(
             Arg::new("broadcast")
                 .long("broadcast")
@@ -168,14 +154,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("produce-block-v3")
-                .long("produce-block-v3")
-                .help("This flag is deprecated and is no longer in use.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("distributed")
                 .long("distributed")
                 .help("Enables functionality required for running the validator in a distributed validator cluster.")
@@ -267,6 +245,18 @@ pub fn cli_app() -> Command {
                     definitions file.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("http-token-path")
+                .long("http-token-path")
+                .requires("http")
+                .value_name("HTTP_TOKEN_PATH")
+                .help(
+                    "Path to file containing the HTTP API token for validator client authentication. \
+                    If not specified, defaults to {validators-dir}/api-token.txt."
+                )
+                .action(ArgAction::Set)
                 .display_order(0)
         )
         /* Prometheus metrics HTTP server related arguments */
@@ -402,15 +392,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
-        )
-        .arg(
-            Arg::new("latency-measurement-service")
-                .long("latency-measurement-service")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-                .hide(true)
         )
         .arg(
             Arg::new("validator-registration-batch-size")

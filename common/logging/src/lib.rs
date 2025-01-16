@@ -1,6 +1,4 @@
-use lighthouse_metrics::{
-    inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
-};
+use metrics::{inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult};
 use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
@@ -107,7 +105,7 @@ impl<'a> AlignedRecordDecorator<'a> {
     }
 }
 
-impl<'a> Write for AlignedRecordDecorator<'a> {
+impl Write for AlignedRecordDecorator<'_> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         if buf.iter().any(u8::is_ascii_control) {
             let filtered = buf
@@ -126,7 +124,7 @@ impl<'a> Write for AlignedRecordDecorator<'a> {
     }
 }
 
-impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
+impl slog_term::RecordDecorator for AlignedRecordDecorator<'_> {
     fn reset(&mut self) -> Result<()> {
         self.message_active = false;
         self.message_count = 0;
@@ -206,7 +204,7 @@ impl TimeLatch {
     pub fn elapsed(&mut self) -> bool {
         let now = Instant::now();
 
-        let is_elapsed = self.0.map_or(false, |elapse_time| now > elapse_time);
+        let is_elapsed = self.0.is_some_and(|elapse_time| now > elapse_time);
 
         if is_elapsed || self.0.is_none() {
             self.0 = Some(now + LOG_DEBOUNCE_INTERVAL);

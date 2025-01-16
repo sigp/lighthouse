@@ -1,13 +1,16 @@
 //! Identifies each shard by an integer identifier.
-use crate::{AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
+use crate::{AttestationRef, ChainSpec, CommitteeIndex, EthSpec, Slot};
 use alloy_primitives::{bytes::Buf, U256};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use std::sync::LazyLock;
-use swap_or_not_shuffle::compute_shuffled_index;
 
 const MAX_SUBNET_ID: usize = 64;
+
+/// The number of bits in a Discovery `NodeId`. This is used for binary operations on the node-id
+/// data.
+const NODE_ID_BITS: u64 = 256;
 
 static SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
     let mut v = Vec::with_capacity(MAX_SUBNET_ID);
@@ -74,51 +77,21 @@ impl SubnetId {
             .into())
     }
 
-    /// Computes the set of subnets the node should be subscribed to during the current epoch,
-    /// along with the first epoch in which these subscriptions are no longer valid.
+    /// Computes the set of subnets the node should be subscribed to. We subscribe to these subnets
+    /// for the duration of the node's runtime.
     #[allow(clippy::arithmetic_side_effects)]
-    pub fn compute_subnets_for_epoch<E: EthSpec>(
+    pub fn compute_attestation_subnets(
         raw_node_id: [u8; 32],
-        epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<(impl Iterator<Item = SubnetId>, Epoch), &'static str> {
-        // simplify variable naming
-        let subscription_duration = spec.epochs_per_subnet_subscription;
+    ) -> impl Iterator<Item = SubnetId> {
+        // The bits of the node-id we are using to define the subnets.
         let prefix_bits = spec.attestation_subnet_prefix_bits as u64;
-        let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
-        let node_id = U256::from_be_slice(&raw_node_id);
 
+        let node_id = U256::from_be_slice(&raw_node_id);
         // calculate the prefixes used to compute the subnet and shuffling
-        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_le_slice().get_u64_le();
-        let shuffling_prefix = (node_id >> (256 - (prefix_bits + shuffling_prefix_bits)))
+        let node_id_prefix = (node_id >> (NODE_ID_BITS - prefix_bits))
             .as_le_slice()
             .get_u64_le();
-
-        // number of groups the shuffling creates
-        let shuffling_groups = 1 << shuffling_prefix_bits;
-        // shuffling group for this node
-        let shuffling_bits = shuffling_prefix % shuffling_groups;
-        let epoch_transition = (node_id_prefix
-            + (shuffling_bits * (subscription_duration >> shuffling_prefix_bits)))
-            % subscription_duration;
-
-        // Calculate at which epoch this node needs to re-evaluate
-        let valid_until_epoch = epoch.as_u64()
-            + subscription_duration
-                .saturating_sub((epoch.as_u64() + epoch_transition) % subscription_duration);
-
-        let subscription_event_idx = (epoch.as_u64() + epoch_transition) / subscription_duration;
-        let permutation_seed =
-            ethereum_hashing::hash(&int_to_bytes::int_to_bytes8(subscription_event_idx));
-
-        let num_subnets = 1 << spec.attestation_subnet_prefix_bits;
-        let permutated_prefix = compute_shuffled_index(
-            node_id_prefix as usize,
-            num_subnets,
-            &permutation_seed,
-            spec.shuffle_round_count,
-        )
-        .ok_or("Unable to shuffle")? as u64;
 
         // Get the constants we need to avoid holding a reference to the spec
         let &ChainSpec {
@@ -127,10 +100,8 @@ impl SubnetId {
             ..
         } = spec;
 
-        let subnet_set_generator = (0..subnets_per_node).map(move |idx| {
-            SubnetId::new((permutated_prefix + idx as u64) % attestation_subnet_count)
-        });
-        Ok((subnet_set_generator, valid_until_epoch.into()))
+        (0..subnets_per_node)
+            .map(move |idx| SubnetId::new((node_id_prefix + idx as u64) % attestation_subnet_count))
     }
 }
 
@@ -180,7 +151,7 @@ mod tests {
 
     /// A set of tests compared to the python specification
     #[test]
-    fn compute_subnets_for_epoch_unit_test() {
+    fn compute_attestation_subnets_test() {
         // Randomized variables used generated with the python specification
         let node_ids = [
             "0",
@@ -189,59 +160,34 @@ mod tests {
             "27726842142488109545414954493849224833670205008410190955613662332153332462900",
             "39755236029158558527862903296867805548949739810920318269566095185775868999998",
             "31899136003441886988955119620035330314647133604576220223892254902004850516297",
-            "58579998103852084482416614330746509727562027284701078483890722833654510444626",
-            "28248042035542126088870192155378394518950310811868093527036637864276176517397",
-            "60930578857433095740782970114409273483106482059893286066493409689627770333527",
-            "103822458477361691467064888613019442068586830412598673713899771287914656699997",
         ]
         .map(|v| Uint256::from_str_radix(v, 10).unwrap().to_be_bytes::<32>());
 
-        let epochs = [
-            54321u64, 1017090249, 1827566880, 846255942, 766597383, 1204990115, 1616209495,
-            1774367616, 1484598751, 3525502229,
-        ]
-        .map(Epoch::from);
+        let expected_subnets = [
+            vec![0, 1],
+            vec![49u64, 50u64],
+            vec![10, 11],
+            vec![15, 16],
+            vec![21, 22],
+            vec![17, 18],
+        ];
 
         // Test mainnet
         let spec = ChainSpec::mainnet();
 
-        // Calculated by hand
-        let expected_valid_time = [
-            54528u64, 1017090255, 1827567030, 846256049, 766597387, 1204990287, 1616209536,
-            1774367857, 1484598847, 3525502311,
-        ];
-
-        // Calculated from pyspec
-        let expected_subnets = [
-            vec![4u64, 5u64],
-            vec![31, 32],
-            vec![39, 40],
-            vec![38, 39],
-            vec![53, 54],
-            vec![57, 58],
-            vec![48, 49],
-            vec![1, 2],
-            vec![34, 35],
-            vec![37, 38],
-        ];
-
         for x in 0..node_ids.len() {
             println!("Test: {}", x);
             println!(
-                "NodeId: {:?}\n Epoch: {}\n, expected_update_time: {}\n, expected_subnets: {:?}",
-                node_ids[x], epochs[x], expected_valid_time[x], expected_subnets[x]
+                "NodeId: {:?}\nExpected_subnets: {:?}",
+                node_ids[x], expected_subnets[x]
             );
 
-            let (computed_subnets, valid_time) = SubnetId::compute_subnets_for_epoch::<
-                crate::MainnetEthSpec,
-            >(node_ids[x], epochs[x], &spec)
-            .unwrap();
+            let computed_subnets = SubnetId::compute_attestation_subnets(node_ids[x], &spec);
 
             assert_eq!(
                 expected_subnets[x],
                 computed_subnets.map(SubnetId::into).collect::<Vec<u64>>()
             );
-            assert_eq!(Epoch::from(expected_valid_time[x]), valid_time);
         }
     }
 }

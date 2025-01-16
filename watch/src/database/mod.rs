@@ -109,9 +109,9 @@ pub fn get_active_config(conn: &mut PgConn) -> Result<Option<(String, i32)>, Err
         .optional()?)
 }
 
-///
-/// INSERT statements
-///
+/*
+ * INSERT statements
+ */
 
 /// Inserts a single row into the `canonical_slots` table.
 /// If `new_slot.beacon_block` is `None`, the value in the row will be `null`.
@@ -245,9 +245,9 @@ pub fn insert_batch_validators(
     Ok(())
 }
 
-///
-/// SELECT statements
-///
+/*
+ * SELECT statements
+ */
 
 /// Selects a single row of the `canonical_slots` table corresponding to a given `slot_query`.
 pub fn get_canonical_slot(
@@ -746,9 +746,9 @@ pub fn count_validators_activated_before_slot(
         .map_err(Error::Database)
 }
 
-///
-/// DELETE statements.
-///
+/*
+ * DELETE statements.
+ */
 
 /// Deletes all rows of the `canonical_slots` table which have `slot` greater than `slot_query`.
 ///

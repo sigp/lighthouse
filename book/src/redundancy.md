@@ -74,8 +74,7 @@ lighthouse bn \
 Prior to v3.2.0 fallback beacon nodes also required the `--subscribe-all-subnets` and
 `--import-all-attestations` flags. These flags are no longer required as the validator client will
 now broadcast subscriptions to all connected beacon nodes by default. This broadcast behaviour
-can be disabled using the `--broadcast none` flag for `lighthouse vc` (or `--disable-run-on-all`
-[deprecated]).
+can be disabled using the `--broadcast none` flag for `lighthouse vc`.
 
 ### Broadcast modes
 

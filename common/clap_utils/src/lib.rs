@@ -1,6 +1,5 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
-use alloy_primitives::U256 as Uint256;
 use clap::builder::styling::*;
 use clap::ArgMatches;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
@@ -30,37 +29,8 @@ pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfi
         Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
     };
 
-    let mut eth2_network_config =
+    let eth2_network_config =
         optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
-
-    if let Some(string) = parse_optional::<String>(cli_args, "terminal-total-difficulty-override")?
-    {
-        let stripped = string.replace(',', "");
-        let terminal_total_difficulty = Uint256::from_str(&stripped).map_err(|e| {
-            format!(
-                "Could not parse --terminal-total-difficulty-override as decimal value: {:?}",
-                e
-            )
-        })?;
-
-        eth2_network_config.config.terminal_total_difficulty = terminal_total_difficulty;
-    }
-
-    if let Some(hash) = parse_optional(cli_args, "terminal-block-hash-override")? {
-        eth2_network_config.config.terminal_block_hash = hash;
-    }
-
-    if let Some(epoch) = parse_optional(cli_args, "terminal-block-hash-epoch-override")? {
-        eth2_network_config
-            .config
-            .terminal_block_hash_activation_epoch = epoch;
-    }
-
-    if let Some(slots) = parse_optional(cli_args, "safe-slots-to-import-optimistically")? {
-        eth2_network_config
-            .config
-            .safe_slots_to_import_optimistically = slots;
-    }
 
     Ok(eth2_network_config)
 }

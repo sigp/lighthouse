@@ -233,7 +233,7 @@ impl<E: EthSpec> Attestation<E> {
     }
 }
 
-impl<'a, E: EthSpec> AttestationRef<'a, E> {
+impl<E: EthSpec> AttestationRef<'_, E> {
     pub fn clone_as_attestation(self) -> Attestation<E> {
         match self {
             Self::Base(att) => Attestation::Base(att.clone()),
@@ -422,7 +422,7 @@ impl<E: EthSpec> SlotData for Attestation<E> {
     }
 }
 
-impl<'a, E: EthSpec> SlotData for AttestationRef<'a, E> {
+impl<E: EthSpec> SlotData for AttestationRef<'_, E> {
     fn get_slot(&self) -> Slot {
         self.data().slot
     }

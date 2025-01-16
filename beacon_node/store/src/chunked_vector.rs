@@ -322,11 +322,11 @@ macro_rules! field {
 }
 
 field!(
-    BlockRoots,
+    BlockRootsChunked,
     FixedLengthField,
     Hash256,
     E::SlotsPerHistoricalRoot,
-    DBColumn::BeaconBlockRoots,
+    DBColumn::BeaconBlockRootsChunked,
     |_| OncePerNSlots {
         n: 1,
         activation_slot: Some(Slot::new(0)),
@@ -336,11 +336,11 @@ field!(
 );
 
 field!(
-    StateRoots,
+    StateRootsChunked,
     FixedLengthField,
     Hash256,
     E::SlotsPerHistoricalRoot,
-    DBColumn::BeaconStateRoots,
+    DBColumn::BeaconStateRootsChunked,
     |_| OncePerNSlots {
         n: 1,
         activation_slot: Some(Slot::new(0)),
@@ -859,8 +859,8 @@ mod test {
         fn test_fixed_length<F: Field<TestSpec>>(_: F, expected: bool) {
             assert_eq!(F::is_fixed_length(), expected);
         }
-        test_fixed_length(BlockRoots, true);
-        test_fixed_length(StateRoots, true);
+        test_fixed_length(BlockRootsChunked, true);
+        test_fixed_length(StateRootsChunked, true);
         test_fixed_length(HistoricalRoots, false);
         test_fixed_length(RandaoMixes, true);
     }
@@ -880,12 +880,12 @@ mod test {
 
     #[test]
     fn needs_genesis_value_block_roots() {
-        needs_genesis_value_once_per_slot(BlockRoots);
+        needs_genesis_value_once_per_slot(BlockRootsChunked);
     }
 
     #[test]
     fn needs_genesis_value_state_roots() {
-        needs_genesis_value_once_per_slot(StateRoots);
+        needs_genesis_value_once_per_slot(StateRootsChunked);
     }
 
     #[test]

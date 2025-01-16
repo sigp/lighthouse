@@ -354,14 +354,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn assert_sampling_request_status(
+    pub(crate) fn get_sampling_request_status(
         &self,
         block_root: Hash256,
-        ongoing: &Vec<ColumnIndex>,
-        no_peers: &Vec<ColumnIndex>,
-    ) {
-        self.sampling
-            .assert_sampling_request_status(block_root, ongoing, no_peers);
+        index: &ColumnIndex,
+    ) -> Option<super::peer_sampling::Status> {
+        self.sampling.get_request_status(block_root, index)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn range_sync_state(&self) -> super::range_sync::SyncChainStatus {
+        self.range_sync.state()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_execution_engine_state(&mut self, state: EngineState) {
+        self.handle_new_execution_engine_state(state);
     }
 
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -474,13 +482,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlob { id } => {
                 self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            SyncRequestId::DataColumnsByRoot(req_id, requester) => self
-                .on_data_columns_by_root_response(
-                    req_id,
-                    requester,
-                    peer_id,
-                    RpcEvent::RPCError(error),
-                ),
+            SyncRequestId::DataColumnsByRoot(req_id) => {
+                self.on_data_columns_by_root_response(req_id, peer_id, RpcEvent::RPCError(error))
+            }
             SyncRequestId::RangeBlockAndBlobs { id } => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
@@ -1106,10 +1110,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            SyncRequestId::DataColumnsByRoot(req_id, requester) => {
+            SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(
                     req_id,
-                    requester,
                     peer_id,
                     match data_column {
                         Some(data_column) => RpcEvent::Response(data_column, seen_timestamp),
@@ -1151,7 +1154,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn on_data_columns_by_root_response(
         &mut self,
         req_id: DataColumnsByRootRequestId,
-        requester: DataColumnsByRootRequester,
         peer_id: PeerId,
         data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
@@ -1159,7 +1161,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.network
                 .on_data_columns_by_root_response(req_id, peer_id, data_column)
         {
-            match requester {
+            match req_id.requester {
                 DataColumnsByRootRequester::Sampling(id) => {
                     if let Some((requester, result)) =
                         self.sampling
@@ -1196,22 +1198,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     fn on_sampling_result(&mut self, requester: SamplingRequester, result: SamplingResult) {
-        // TODO(das): How is a consumer of sampling results?
-        // - Fork-choice for trailing DA
-        // - Single lookups to complete import requirements
-        // - Range sync to complete import requirements? Can sampling for syncing lag behind and
-        //   accumulate in fork-choice?
-
         match requester {
             SamplingRequester::ImportedBlock(block_root) => {
                 debug!(self.log, "Sampling result"; "block_root" => %block_root, "result" => ?result);
 
-                // TODO(das): Consider moving SamplingResult to the beacon_chain crate and import
-                // here. No need to add too much enum variants, just whatever the beacon_chain or
-                // fork-choice needs to make a decision. Currently the fork-choice only needs to
-                // be notified of successful samplings, i.e. sampling failures don't trigger pruning
                 match result {
                     Ok(_) => {
+                        // Notify the fork-choice of a successful sampling result to mark the block
+                        // branch as safe.
                         if let Err(e) = self
                             .network
                             .beacon_processor()
@@ -1240,6 +1234,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .network
             .range_block_and_blob_response(id, block_or_blob)
         {
+            let epoch = resp.sender_id.batch_id();
             match resp.responses {
                 Ok(blocks) => {
                     match resp.sender_id {
@@ -1283,6 +1278,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             resp.expects_custody_columns,
                             None,
                             vec![],
+                            self.chain.spec.max_blobs_per_block(epoch) as usize,
                         ),
                     );
                     // inform range that the request needs to be treated as failed

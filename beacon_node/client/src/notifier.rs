@@ -4,6 +4,7 @@ use beacon_chain::{
     capella_readiness::CapellaReadiness,
     deneb_readiness::DenebReadiness,
     electra_readiness::ElectraReadiness,
+    fulu_readiness::FuluReadiness,
     BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
 use lighthouse_network::{types::SyncState, NetworkGlobals};
@@ -45,10 +46,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let mut current_sync_state = network.sync_state();
 
     // Store info if we are required to do a backfill sync.
-    let original_anchor_slot = beacon_chain
-        .store
-        .get_anchor_info()
-        .map(|ai| ai.oldest_block_slot);
+    let original_oldest_block_slot = beacon_chain.store.get_anchor_info().oldest_block_slot;
 
     let interval_future = async move {
         // Perform pre-genesis logging.
@@ -141,22 +139,17 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             match current_sync_state {
                 SyncState::BackFillSyncing { .. } => {
                     // Observe backfilling sync info.
-                    if let Some(oldest_slot) = original_anchor_slot {
-                        if let Some(current_anchor_slot) = beacon_chain
-                            .store
-                            .get_anchor_info()
-                            .map(|ai| ai.oldest_block_slot)
-                        {
-                            sync_distance = current_anchor_slot
-                                .saturating_sub(beacon_chain.genesis_backfill_slot);
-                            speedo
-                                // For backfill sync use a fake slot which is the distance we've progressed from the starting `oldest_block_slot`.
-                                .observe(
-                                    oldest_slot.saturating_sub(current_anchor_slot),
-                                    Instant::now(),
-                                );
-                        }
-                    }
+                    let current_oldest_block_slot =
+                        beacon_chain.store.get_anchor_info().oldest_block_slot;
+                    sync_distance = current_oldest_block_slot
+                        .saturating_sub(beacon_chain.genesis_backfill_slot);
+                    speedo
+                        // For backfill sync use a fake slot which is the distance we've progressed
+                        // from the starting `original_oldest_block_slot`.
+                        .observe(
+                            original_oldest_block_slot.saturating_sub(current_oldest_block_slot),
+                            Instant::now(),
+                        );
                 }
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
@@ -205,7 +198,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
 
                 let speed = speedo.slots_per_second();
-                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
 
                 if display_speed {
                     info!(
@@ -213,14 +206,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         "Downloading historical blocks";
                         "distance" => distance,
                         "speed" => sync_speed_pretty(speed),
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(beacon_chain.genesis_backfill_slot))),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_oldest_block_slot.saturating_sub(beacon_chain.genesis_backfill_slot))),
                     );
                 } else {
                     info!(
                         log,
                         "Downloading historical blocks";
                         "distance" => distance,
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(beacon_chain.genesis_backfill_slot))),
+                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_oldest_block_slot.saturating_sub(beacon_chain.genesis_backfill_slot))),
                     );
                 }
             } else if !is_backfilling && last_backfill_log_slot.is_some() {
@@ -241,7 +234,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
 
                 let speed = speedo.slots_per_second();
-                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
 
                 if display_speed {
                     info!(
@@ -323,6 +316,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             capella_readiness_logging(current_slot, &beacon_chain, &log).await;
             deneb_readiness_logging(current_slot, &beacon_chain, &log).await;
             electra_readiness_logging(current_slot, &beacon_chain, &log).await;
+            fulu_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -347,9 +341,7 @@ async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
         .message()
         .body()
         .execution_payload()
-        .map_or(false, |payload| {
-            payload.parent_hash() != ExecutionBlockHash::zero()
-        });
+        .is_ok_and(|payload| payload.parent_hash() != ExecutionBlockHash::zero());
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -590,6 +582,62 @@ async fn electra_readiness_logging<T: BeaconChainTypes>(
         readiness => warn!(
             log,
             "Not ready for Electra";
+            "hint" => "try updating the execution endpoint",
+            "info" => %readiness,
+        ),
+    }
+}
+
+/// Provides some helpful logging to users to indicate if their node is ready for Fulu.
+async fn fulu_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    let fulu_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_state
+        .fork_name_unchecked()
+        .fulu_enabled();
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if fulu_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_fulu(current_slot)
+    {
+        return;
+    }
+
+    if fulu_completed && !has_execution_layer {
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need a Fulu enabled execution engine to validate blocks."
+        );
+        return;
+    }
+
+    match beacon_chain.check_fulu_readiness().await {
+        FuluReadiness::Ready => {
+            info!(
+                log,
+                "Ready for Fulu";
+                "info" => "ensure the execution endpoint is updated to the latest Fulu release"
+            )
+        }
+        readiness @ FuluReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                log,
+                "Not ready for Fulu";
+                "hint" => "the execution endpoint may be offline",
+                "info" => %readiness,
+            )
+        }
+        readiness => warn!(
+            log,
+            "Not ready for Fulu";
             "hint" => "try updating the execution endpoint",
             "info" => %readiness,
         ),

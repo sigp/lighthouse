@@ -46,15 +46,6 @@ pub fn cli_app() -> Command {
                 deposits in the same format as the \"ethereum/staking-deposit-cli\" tool.",
         )
         .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER),
-        )
-        .arg(
             Arg::new(OUTPUT_PATH_FLAG)
                 .long(OUTPUT_PATH_FLAG)
                 .value_name("DIRECTORY")
@@ -295,7 +286,7 @@ struct ValidatorsAndDeposits {
 }
 
 impl ValidatorsAndDeposits {
-    async fn new<'a, E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<Self, String> {
+    async fn new<E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<Self, String> {
         let CreateConfig {
             // The output path is handled upstream.
             output_path: _,
@@ -554,7 +545,7 @@ pub async fn cli_run<E: EthSpec>(
     }
 }
 
-async fn run<'a, E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
+async fn run<E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
     let output_path = config.output_path.clone();
 
     if !output_path.exists() {

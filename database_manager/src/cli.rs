@@ -3,6 +3,7 @@ use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use store::hdiff::HierarchyConfig;
 
 use crate::InspectTarget;
 
@@ -21,13 +22,14 @@ use crate::InspectTarget;
 pub struct DatabaseManager {
     #[clap(
         long,
-        value_name = "SLOT_COUNT",
-        help = "Specifies how often a freezer DB restore point should be stored. \
-                Cannot be changed after initialization. \
-                [default: 2048 (mainnet) or 64 (minimal)]",
+        global = true,
+        value_name = "N0,N1,N2,...",
+        help = "Specifies the frequency for storing full state snapshots and hierarchical \
+                diffs in the freezer DB.",
+        default_value_t = HierarchyConfig::default(),
         display_order = 0
     )]
-    pub slots_per_restore_point: Option<u64>,
+    pub hierarchy_exponents: HierarchyConfig,
 
     #[clap(
         long,

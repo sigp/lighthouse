@@ -21,7 +21,8 @@ const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 1;
 const DENEB_FORK_EPOCH: u64 = 2;
-//const ELECTRA_FORK_EPOCH: u64 = 3;
+// const ELECTRA_FORK_EPOCH: u64 = 3;
+// const FULU_FORK_EPOCH: u64 = 4;
 
 // Since simulator tests are non-deterministic and there is a non-zero chance of missed
 // attestations, define an acceptable network-wide attestation performance.
@@ -123,6 +124,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
     //spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
+    //spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
@@ -178,7 +180,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             executor.spawn(
                 async move {
                     let mut validator_config = testing_validator_config();
-                    validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
+                    validator_config.validator_store.fee_recipient =
+                        Some(SUGGESTED_FEE_RECIPIENT.into());
                     println!("Adding validator client {}", i);
                     network_1
                         .add_validator_client_with_fallbacks(
@@ -194,7 +197,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             );
         }
 
-        let duration_to_genesis = network.duration_to_genesis().await;
+        let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 

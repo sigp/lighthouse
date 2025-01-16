@@ -105,7 +105,7 @@ impl<E: EthSpec> SplitAttestation<E> {
     }
 }
 
-impl<'a, E: EthSpec> CompactAttestationRef<'a, E> {
+impl<E: EthSpec> CompactAttestationRef<'_, E> {
     pub fn attestation_data(&self) -> AttestationData {
         AttestationData {
             slot: self.data.slot,

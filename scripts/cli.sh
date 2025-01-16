@@ -40,7 +40,7 @@ vm_import=./help_vm_import.md
 vm_move=./help_vm_move.md
 
 # create .md files
-write_to_file "$general_cli" "$general" "Lighthouse General Commands"
+write_to_file "$general_cli" "$general" "Lighthouse CLI Reference"
 write_to_file "$bn_cli" "$bn" "Beacon Node"
 write_to_file "$vc_cli" "$vc" "Validator Client"
 write_to_file "$vm_cli" "$vm" "Validator Manager"

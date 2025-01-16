@@ -3,12 +3,11 @@
 //! Each chain type is stored in it's own map. A variety of helper functions are given along with
 //! this struct to simplify the logic of the other layers of sync.
 
-use super::block_storage::BlockStorage;
 use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::BeaconChainTypes;
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
@@ -37,10 +36,13 @@ pub enum RangeSyncState {
     Idle,
 }
 
+pub type SyncChainStatus =
+    Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str>;
+
 /// A collection of finalized and head chains currently being processed.
-pub struct ChainCollection<T: BeaconChainTypes, C> {
+pub struct ChainCollection<T: BeaconChainTypes> {
     /// The beacon chain for processing.
-    beacon_chain: Arc<C>,
+    beacon_chain: Arc<BeaconChain<T>>,
     /// The set of finalized chains being synced.
     finalized_chains: FnvHashMap<ChainId, SyncingChain<T>>,
     /// The set of head chains being synced.
@@ -51,8 +53,8 @@ pub struct ChainCollection<T: BeaconChainTypes, C> {
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
-    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
+impl<T: BeaconChainTypes> ChainCollection<T> {
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: slog::Logger) -> Self {
         ChainCollection {
             beacon_chain,
             finalized_chains: FnvHashMap::default(),
@@ -213,9 +215,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         }
     }
 
-    pub fn state(
-        &self,
-    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
+    pub fn state(&self) -> SyncChainStatus {
         match self.state {
             RangeSyncState::Finalized(ref syncing_id) => {
                 let chain = self
@@ -409,7 +409,8 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         let log_ref = &self.log;
 
         let is_outdated = |target_slot: &Slot, target_root: &Hash256| {
-            target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root)
+            target_slot <= &local_finalized_slot
+                || beacon_chain.block_is_known_to_fork_choice(target_root)
         };
 
         // Retain only head peers that remain relevant

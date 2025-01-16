@@ -8,9 +8,9 @@ use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, Ba
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
-use lighthouse_metrics::set_int_gauge;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
+use metrics::set_int_gauge;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use slog::{crit, debug, o, warn};

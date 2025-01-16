@@ -755,20 +755,15 @@ where
             if let Some((parent_justified, parent_finalized)) = parent_checkpoints {
                 (parent_justified, parent_finalized)
             } else {
-                let justification_and_finalization_state = match block {
-                    BeaconBlockRef::Electra(_)
-                    | BeaconBlockRef::Deneb(_)
-                    | BeaconBlockRef::Capella(_)
-                    | BeaconBlockRef::Bellatrix(_)
-                    | BeaconBlockRef::Altair(_) => {
+                let justification_and_finalization_state =
+                    if block.fork_name_unchecked().altair_enabled() {
                         // NOTE: Processing justification & finalization requires the progressive
                         // balances cache, but we cannot initialize it here as we only have an
                         // immutable reference. The state *should* have come straight from block
                         // processing, which initialises the cache, but if we add other `on_block`
                         // calls in future it could be worth passing a mutable reference.
                         per_epoch_processing::altair::process_justification_and_finalization(state)?
-                    }
-                    BeaconBlockRef::Base(_) => {
+                    } else {
                         let mut validator_statuses =
                             per_epoch_processing::base::ValidatorStatuses::new(state, spec)
                                 .map_err(Error::ValidatorStatuses)?;
@@ -780,8 +775,7 @@ where
                             &validator_statuses.total_balances,
                             spec,
                         )?
-                    }
-                };
+                    };
 
                 (
                     justification_and_finalization_state.current_justified_checkpoint(),
@@ -1298,43 +1292,6 @@ where
         } else {
             Err(Error::MissingProtoArrayBlock(*block_root))
         }
-    }
-
-    /// Returns `Ok(false)` if a block is not viable to be imported optimistically.
-    ///
-    /// ## Notes
-    ///
-    /// Equivalent to the function with the same name in the optimistic sync specs:
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/dev/sync/optimistic.md#helpers
-    pub fn is_optimistic_candidate_block(
-        &self,
-        current_slot: Slot,
-        block_slot: Slot,
-        block_parent_root: &Hash256,
-        spec: &ChainSpec,
-    ) -> Result<bool, Error<T::Error>> {
-        // If the block is sufficiently old, import it.
-        if block_slot + spec.safe_slots_to_import_optimistically <= current_slot {
-            return Ok(true);
-        }
-
-        // If the parent block has execution enabled, always import the block.
-        //
-        // See:
-        //
-        // https://github.com/ethereum/consensus-specs/pull/2844
-        if self
-            .proto_array
-            .get_block(block_parent_root)
-            .map_or(false, |parent| {
-                parent.execution_status.is_execution_enabled()
-            })
-        {
-            return Ok(true);
-        }
-
-        Ok(false)
     }
 
     /// Return the current finalized checkpoint.

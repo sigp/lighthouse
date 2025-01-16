@@ -5,12 +5,13 @@ use account_utils::{
     STDIN_INPUTS_FLAG,
 };
 use clap::ArgMatches;
-use directory::{ensure_dir_exists, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
+use directory::{DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
 use environment::Environment;
 use eth2_wallet_manager::WalletManager;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::ffi::OsStr;
 use std::fs;
+use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
@@ -73,8 +74,10 @@ pub fn cli_run<E: EthSpec>(
         ));
     }
 
-    ensure_dir_exists(&validator_dir)?;
-    ensure_dir_exists(&secrets_dir)?;
+    create_dir_all(&validator_dir)
+        .map_err(|e| format!("Could not create validator dir at {validator_dir:?}: {e:?}"))?;
+    create_dir_all(&secrets_dir)
+        .map_err(|e| format!("Could not create secrets dir at {secrets_dir:?}: {e:?}"))?;
 
     eprintln!("secrets-dir path {:?}", secrets_dir);
     eprintln!("wallets-dir path {:?}", wallet_base_dir);
@@ -210,7 +213,7 @@ pub fn read_wallet_password_from_cli(
             eprintln!();
             eprintln!("{}", WALLET_PASSWORD_PROMPT);
             let password =
-                PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
+                PlainText::from(read_password_from_user(stdin_inputs)?.as_bytes().to_vec());
             Ok(password)
         }
     }

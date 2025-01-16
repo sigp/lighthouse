@@ -7,7 +7,7 @@ use state_processing::{
 };
 use std::sync::Arc;
 use types::{BeaconState, BeaconStateError, EthSpec, Hash256};
-use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
+use warp_utils::reject::{custom_bad_request, custom_server_error, unhandled_error};
 
 const MAX_REQUEST_RANGE_EPOCHS: usize = 100;
 const BLOCK_ROOT_CHUNK_SIZE: usize = 100;
@@ -50,7 +50,7 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     let end_slot = end_epoch.end_slot(T::EthSpec::slots_per_epoch());
 
     // Ensure end_epoch is smaller than the current epoch - 1.
-    let current_epoch = chain.epoch().map_err(beacon_chain_error)?;
+    let current_epoch = chain.epoch().map_err(unhandled_error)?;
     if query.end_epoch >= current_epoch - 1 {
         return Err(custom_bad_request(format!(
             "end_epoch must be less than the current epoch - 1. current: {}, end: {}",
@@ -83,7 +83,7 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     let index_range = if target.to_lowercase() == "global" {
         chain
             .with_head(|head| Ok((0..head.beacon_state.validators().len() as u64).collect()))
-            .map_err(beacon_chain_error)?
+            .map_err(unhandled_error::<BeaconChainError>)?
     } else {
         vec![target.parse::<u64>().map_err(|_| {
             custom_bad_request(format!(
@@ -96,10 +96,10 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     // Load block roots.
     let mut block_roots: Vec<Hash256> = chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
-        .map_err(beacon_chain_error)?
+        .map_err(unhandled_error)?
         .map(|res| res.map(|(root, _)| root))
         .collect::<Result<Vec<Hash256>, _>>()
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error)?;
     block_roots.dedup();
 
     // Load first block so we can get its parent.
@@ -113,7 +113,7 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
         .and_then(|maybe_block| {
             maybe_block.ok_or(BeaconChainError::MissingBeaconBlock(*first_block_root))
         })
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error)?;
 
     // Load the block of the prior slot which will be used to build the starting state.
     let prior_block = chain
@@ -122,14 +122,14 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
             maybe_block
                 .ok_or_else(|| BeaconChainError::MissingBeaconBlock(first_block.parent_root()))
         })
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error)?;
 
     // Load state for block replay.
     let state_root = prior_block.state_root();
     let state = chain
         .get_state(&state_root, Some(prior_slot))
         .and_then(|maybe_state| maybe_state.ok_or(BeaconChainError::MissingBeaconState(state_root)))
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error)?;
 
     // Allocate an AttestationPerformance vector for each validator in the range.
     let mut perfs: Vec<AttestationPerformance> =
@@ -198,7 +198,7 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
                     .and_then(|maybe_block| {
                         maybe_block.ok_or(BeaconChainError::MissingBeaconBlock(*root))
                     })
-                    .map_err(beacon_chain_error)
+                    .map_err(unhandled_error)
             })
             .collect::<Result<Vec<_>, _>>()?;
 

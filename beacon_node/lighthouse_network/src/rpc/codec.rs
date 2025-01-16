@@ -18,9 +18,9 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, ForkContext, ForkName, Hash256,
     LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockBellatrix, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
-    SignedBeaconBlockElectra,
+    LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -76,6 +76,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 RpcSuccessResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientOptimisticUpdate(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientFinalityUpdate(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::LightClientUpdatesByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RpcSuccessResponse::MetaData(res) =>
                 // Encode the correct version of the MetaData response based on the negotiated version.
@@ -185,6 +186,7 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
                 handle_rpc_request(
                     self.protocol.versioned_protocol,
                     &decoded_buffer,
+                    self.fork_context.current_fork(),
                     &self.fork_context.spec,
                 )
             }
@@ -342,6 +344,7 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
             RequestType::Ping(req) => req.as_ssz_bytes(),
             RequestType::LightClientBootstrap(req) => req.as_ssz_bytes(),
+            RequestType::LightClientUpdatesByRange(req) => req.as_ssz_bytes(),
             // no metadata to encode
             RequestType::MetaData(_)
             | RequestType::LightClientOptimisticUpdate
@@ -456,6 +459,9 @@ fn context_bytes<E: EthSpec>(
                     return match **ref_box_block {
                         // NOTE: If you are adding another fork type here, be sure to modify the
                         //       `fork_context.to_context_bytes()` function to support it as well!
+                        SignedBeaconBlock::Fulu { .. } => {
+                            fork_context.to_context_bytes(ForkName::Fulu)
+                        }
                         SignedBeaconBlock::Electra { .. } => {
                             fork_context.to_context_bytes(ForkName::Electra)
                         }
@@ -503,6 +509,10 @@ fn context_bytes<E: EthSpec>(
                     return lc_finality_update
                         .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
                 }
+                RpcSuccessResponse::LightClientUpdatesByRange(lc_update) => {
+                    return lc_update
+                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
+                }
                 // These will not pass the has_context_bytes() check
                 RpcSuccessResponse::Status(_)
                 | RpcSuccessResponse::Pong(_)
@@ -546,6 +556,7 @@ fn handle_length(
 fn handle_rpc_request<E: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
+    current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Result<Option<RequestType<E>>, RPCError> {
     match versioned_protocol {
@@ -577,9 +588,23 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             }),
         ))),
-        SupportedProtocol::BlobsByRangeV1 => Ok(Some(RequestType::BlobsByRange(
-            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::BlobsByRangeV1 => {
+            let req = BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?;
+            let max_requested_blobs = req
+                .count
+                .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
+            // TODO(pawan): change this to max_blobs_per_rpc_request in the alpha10 PR
+            if max_requested_blobs > spec.max_request_blob_sidecars {
+                return Err(RPCError::ErrorResponse(
+                    RpcErrorResponse::InvalidRequest,
+                    format!(
+                        "requested exceeded limit. allowed: {}, requested: {}",
+                        spec.max_request_blob_sidecars, max_requested_blobs
+                    ),
+                ));
+            }
+            Ok(Some(RequestType::BlobsByRange(req)))
+        }
         SupportedProtocol::BlobsByRootV1 => {
             Ok(Some(RequestType::BlobsByRoot(BlobsByRootRequest {
                 blob_ids: RuntimeVariableList::from_ssz_bytes(
@@ -612,6 +637,11 @@ fn handle_rpc_request<E: EthSpec>(
         }
         SupportedProtocol::LightClientFinalityUpdateV1 => {
             Ok(Some(RequestType::LightClientFinalityUpdate))
+        }
+        SupportedProtocol::LightClientUpdatesByRangeV1 => {
+            Ok(Some(RequestType::LightClientUpdatesByRange(
+                LightClientUpdatesByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            )))
         }
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
@@ -671,13 +701,18 @@ fn handle_rpc_response<E: EthSpec>(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::BlobsByRangeV1 => match fork_name {
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
-                BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-            )))),
-            Some(_) => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                "Invalid fork name for blobs by range".to_string(),
-            )),
+            Some(fork_name) => {
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
+                        BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for blobs by range".to_string(),
+                    ))
+                }
+            }
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 format!(
@@ -687,13 +722,18 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::BlobsByRootV1 => match fork_name {
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlobsByRoot(Arc::new(
-                BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-            )))),
-            Some(_) => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                "Invalid fork name for blobs by root".to_string(),
-            )),
+            Some(fork_name) => {
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RpcSuccessResponse::BlobsByRoot(Arc::new(
+                        BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for blobs by root".to_string(),
+                    ))
+                }
+            }
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 format!(
@@ -795,6 +835,21 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
+        SupportedProtocol::LightClientUpdatesByRangeV1 => match fork_name {
+            Some(fork_name) => Ok(Some(RpcSuccessResponse::LightClientUpdatesByRange(
+                Arc::new(LightClientUpdate::from_ssz_bytes(
+                    decoded_buffer,
+                    &fork_name,
+                )?),
+            ))),
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
         // MetaData V2/V3 responses have no context bytes, so behave similarly to V1 responses
         SupportedProtocol::MetaDataV3 => Ok(Some(RpcSuccessResponse::MetaData(MetaData::V3(
             MetaDataV3::from_ssz_bytes(decoded_buffer)?,
@@ -828,6 +883,9 @@ fn handle_rpc_response<E: EthSpec>(
                     decoded_buffer,
                 )?),
             )))),
+            Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
+            )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 format!(
@@ -860,6 +918,9 @@ fn handle_rpc_response<E: EthSpec>(
                 SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
                     decoded_buffer,
                 )?),
+            )))),
+            Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
             )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
@@ -912,12 +973,14 @@ mod tests {
         let capella_fork_epoch = Epoch::new(3);
         let deneb_fork_epoch = Epoch::new(4);
         let electra_fork_epoch = Epoch::new(5);
+        let fulu_fork_epoch = Epoch::new(6);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
         chain_spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
         chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
         chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
         chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
+        chain_spec.fulu_fork_epoch = Some(fulu_fork_epoch);
 
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
@@ -926,6 +989,7 @@ mod tests {
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Electra => electra_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Fulu => fulu_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }
@@ -1075,7 +1139,7 @@ mod tests {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
             syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
-            custody_subnet_count: 1,
+            custody_group_count: 1,
         })
     }
 
@@ -1214,6 +1278,12 @@ mod tests {
                 )
             }
             RequestType::LightClientOptimisticUpdate | RequestType::LightClientFinalityUpdate => {}
+            RequestType::LightClientUpdatesByRange(light_client_updates_by_range) => {
+                assert_eq!(
+                    decoded,
+                    RequestType::LightClientUpdatesByRange(light_client_updates_by_range)
+                )
+            }
         }
     }
 
@@ -1346,9 +1416,49 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
+                SupportedProtocol::BlobsByRangeV1,
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar())),
+                ForkName::Electra,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::BlobsByRangeV1,
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar())),
+                ForkName::Fulu,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
                 SupportedProtocol::BlobsByRootV1,
                 RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar())),
                 ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::BlobsByRootV1,
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar())),
+                ForkName::Electra,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::BlobsByRootV1,
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar())),
+                ForkName::Fulu,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar()))),
@@ -1370,11 +1480,67 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRangeV1,
+                RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Electra,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::DataColumnsByRange(
+                empty_data_column_sidecar()
+            ))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRangeV1,
+                RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Fulu,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::DataColumnsByRange(
+                empty_data_column_sidecar()
+            ))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
                 SupportedProtocol::DataColumnsByRootV1,
                 RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(
                     empty_data_column_sidecar()
                 )),
                 ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::DataColumnsByRoot(
+                empty_data_column_sidecar()
+            ))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRootV1,
+                RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Electra,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::DataColumnsByRoot(
+                empty_data_column_sidecar()
+            ))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRootV1,
+                RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Fulu,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::DataColumnsByRoot(

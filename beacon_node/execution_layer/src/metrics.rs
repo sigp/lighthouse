@@ -1,4 +1,4 @@
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use std::sync::LazyLock;
 
 pub const HIT: &str = "hit";

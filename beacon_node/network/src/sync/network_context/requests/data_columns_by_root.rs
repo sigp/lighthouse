@@ -1,9 +1,8 @@
-use lighthouse_network::service::api_types::DataColumnsByRootRequester;
-use lighthouse_network::{rpc::methods::DataColumnsByRootRequest, PeerId};
+use lighthouse_network::rpc::methods::DataColumnsByRootRequest;
 use std::sync::Arc;
 use types::{ChainSpec, DataColumnIdentifier, DataColumnSidecar, EthSpec, Hash256};
 
-use super::LookupVerifyError;
+use super::{ActiveRequestItems, LookupVerifyError};
 
 #[derive(Debug, Clone)]
 pub struct DataColumnsByRootSingleBlockRequest {
@@ -26,40 +25,27 @@ impl DataColumnsByRootSingleBlockRequest {
     }
 }
 
-pub struct ActiveDataColumnsByRootRequest<E: EthSpec> {
+pub struct DataColumnsByRootRequestItems<E: EthSpec> {
     request: DataColumnsByRootSingleBlockRequest,
     items: Vec<Arc<DataColumnSidecar<E>>>,
-    resolved: bool,
-    pub(crate) peer_id: PeerId,
-    pub(crate) requester: DataColumnsByRootRequester,
 }
 
-impl<E: EthSpec> ActiveDataColumnsByRootRequest<E> {
-    pub fn new(
-        request: DataColumnsByRootSingleBlockRequest,
-        peer_id: PeerId,
-        requester: DataColumnsByRootRequester,
-    ) -> Self {
+impl<E: EthSpec> DataColumnsByRootRequestItems<E> {
+    pub fn new(request: DataColumnsByRootSingleBlockRequest) -> Self {
         Self {
             request,
             items: vec![],
-            resolved: false,
-            peer_id,
-            requester,
         }
     }
+}
+
+impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
+    type Item = Arc<DataColumnSidecar<E>>;
 
     /// Appends a chunk to this multi-item request. If all expected chunks are received, this
     /// method returns `Some`, resolving the request before the stream terminator.
     /// The active request SHOULD be dropped after `add_response` returns an error
-    pub fn add_response(
-        &mut self,
-        data_column: Arc<DataColumnSidecar<E>>,
-    ) -> Result<Option<Vec<Arc<DataColumnSidecar<E>>>>, LookupVerifyError> {
-        if self.resolved {
-            return Err(LookupVerifyError::TooManyResponses);
-        }
-
+    fn add(&mut self, data_column: Self::Item) -> Result<bool, LookupVerifyError> {
         let block_root = data_column.block_root();
         if self.request.block_root != block_root {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
@@ -75,29 +61,11 @@ impl<E: EthSpec> ActiveDataColumnsByRootRequest<E> {
         }
 
         self.items.push(data_column);
-        if self.items.len() >= self.request.indices.len() {
-            // All expected chunks received, return result early
-            self.resolved = true;
-            Ok(Some(std::mem::take(&mut self.items)))
-        } else {
-            Ok(None)
-        }
+
+        Ok(self.items.len() >= self.request.indices.len())
     }
 
-    pub fn terminate(self) -> Result<(), LookupVerifyError> {
-        if self.resolved {
-            Ok(())
-        } else {
-            Err(LookupVerifyError::NotEnoughResponsesReturned {
-                expected: self.request.indices.len(),
-                actual: self.items.len(),
-            })
-        }
-    }
-
-    /// Mark request as resolved (= has returned something downstream) while marking this status as
-    /// true for future calls.
-    pub fn resolve(&mut self) -> bool {
-        std::mem::replace(&mut self.resolved, true)
+    fn consume(&mut self) -> Vec<Self::Item> {
+        std::mem::take(&mut self.items)
     }
 }

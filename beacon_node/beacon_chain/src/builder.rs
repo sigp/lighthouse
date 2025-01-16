@@ -363,6 +363,10 @@ where
         store
             .put_block(&beacon_block_root, beacon_block.clone())
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
+        store
+            .store_frozen_block_root_at_skip_slots(Slot::new(0), Slot::new(1), beacon_block_root)
+            .and_then(|ops| store.cold_db.do_atomically(ops))
+            .map_err(|e| format!("Failed to store genesis block root: {e:?}"))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
@@ -984,6 +988,7 @@ where
                     store,
                     self.import_all_data_columns,
                     self.spec,
+                    log.new(o!("service" => "data_availability_checker")),
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
@@ -1032,7 +1037,9 @@ where
         );
 
         // Check for states to reconstruct (in the background).
-        if beacon_chain.config.reconstruct_historic_states {
+        if beacon_chain.config.reconstruct_historic_states
+            && beacon_chain.store.get_oldest_block_slot() == 0
+        {
             beacon_chain.store_migrator.process_reconstruction();
         }
 

@@ -6,7 +6,7 @@ use account_utils::{
         recursively_find_voting_keystores, PasswordStorage, ValidatorDefinition,
         ValidatorDefinitions, CONFIG_FILENAME,
     },
-    ZeroizeString, STDIN_INPUTS_FLAG,
+    STDIN_INPUTS_FLAG,
 };
 use clap::ArgMatches;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
@@ -14,6 +14,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
+use zeroize::Zeroizing;
 
 use super::cli::Import;
 
@@ -93,7 +94,7 @@ pub fn cli_run(
     // Skip keystores that already exist, but exit early if any operation fails.
     // Reuses the same password for all keystores if the `REUSE_PASSWORD_FLAG` flag is set.
     let mut num_imported_keystores = 0;
-    let mut previous_password: Option<ZeroizeString> = None;
+    let mut previous_password: Option<Zeroizing<String>> = None;
 
     for src_keystore in &keystore_paths {
         let keystore = Keystore::from_json_file(src_keystore)
@@ -127,14 +128,17 @@ pub fn cli_run(
 
             let password = match keystore_password_path.as_ref() {
                 Some(path) => {
-                    let password_from_file: ZeroizeString = fs::read_to_string(path)
+                    let password_from_file: Zeroizing<String> = fs::read_to_string(path)
                         .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))?
                         .into();
-                    password_from_file.without_newlines()
+                    password_from_file
+                        .trim_end_matches(['\r', '\n'])
+                        .to_string()
+                        .into()
                 }
                 None => {
                     let password_from_user = read_password_from_user(stdin_inputs)?;
-                    if password_from_user.as_ref().is_empty() {
+                    if password_from_user.is_empty() {
                         eprintln!("Continuing without password.");
                         sleep(Duration::from_secs(1)); // Provides nicer UX.
                         break None;
@@ -259,7 +263,7 @@ pub fn cli_run(
 /// Otherwise, returns the keystore error.
 fn check_password_on_keystore(
     keystore: &Keystore,
-    password: &ZeroizeString,
+    password: &Zeroizing<String>,
 ) -> Result<bool, String> {
     match keystore.decrypt_keypair(password.as_ref()) {
         Ok(_) => {

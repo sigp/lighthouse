@@ -14,10 +14,12 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
+use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
+use types::ForkName;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
     Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
+    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 /// Maximum length of error message.
@@ -136,7 +138,7 @@ pub struct MetaData<E: EthSpec> {
     #[superstruct(only(V2, V3))]
     pub syncnets: EnrSyncCommitteeBitfield<E>,
     #[superstruct(only(V3))]
-    pub custody_subnet_count: u64,
+    pub custody_group_count: u64,
 }
 
 impl<E: EthSpec> MetaData<E> {
@@ -179,13 +181,13 @@ impl<E: EthSpec> MetaData<E> {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: Default::default(),
-                custody_subnet_count: spec.custody_requirement,
+                custody_group_count: spec.custody_requirement,
             }),
             MetaData::V2(metadata) => MetaData::V3(MetaDataV3 {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: metadata.syncnets.clone(),
-                custody_subnet_count: spec.custody_requirement,
+                custody_group_count: spec.custody_requirement,
             }),
             md @ MetaData::V3(_) => md.clone(),
         }
@@ -326,8 +328,9 @@ pub struct BlobsByRangeRequest {
 }
 
 impl BlobsByRangeRequest {
-    pub fn max_blobs_requested<E: EthSpec>(&self) -> u64 {
-        self.count.saturating_mul(E::max_blobs_per_block() as u64)
+    pub fn max_blobs_requested(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
+        let max_blobs_per_block = spec.max_blobs_per_block_by_fork(current_fork);
+        self.count.saturating_mul(max_blobs_per_block)
     }
 }
 
@@ -361,7 +364,7 @@ impl DataColumnsByRangeRequest {
         DataColumnsByRangeRequest {
             start_slot: 0,
             count: 0,
-            columns: vec![0; spec.number_of_columns],
+            columns: vec![0; spec.number_of_columns as usize],
         }
         .as_ssz_bytes()
         .len()
@@ -477,6 +480,34 @@ impl DataColumnsByRootRequest {
     }
 }
 
+/// Request a number of beacon data columns from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct LightClientUpdatesByRangeRequest {
+    /// The starting period to request light client updates.
+    pub start_period: u64,
+    /// The number of periods from `start_period`.
+    pub count: u64,
+}
+
+impl LightClientUpdatesByRangeRequest {
+    pub fn max_requested(&self) -> u64 {
+        MAX_REQUEST_LIGHT_CLIENT_UPDATES
+    }
+
+    pub fn ssz_min_len() -> usize {
+        LightClientUpdatesByRangeRequest {
+            start_period: 0,
+            count: 0,
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    pub fn ssz_max_len() -> usize {
+        Self::ssz_min_len()
+    }
+}
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
@@ -503,6 +534,9 @@ pub enum RpcSuccessResponse<E: EthSpec> {
 
     /// A response to a get LIGHT_CLIENT_FINALITY_UPDATE request.
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
+
+    /// A response to a get LIGHT_CLIENT_UPDATES_BY_RANGE request.
+    LightClientUpdatesByRange(Arc<LightClientUpdate<E>>),
 
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<E>>),
@@ -540,6 +574,9 @@ pub enum ResponseTermination {
 
     /// Data column sidecars by range stream termination.
     DataColumnsByRange,
+
+    /// Light client updates by range stream termination.
+    LightClientUpdatesByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -639,6 +676,7 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
                 Protocol::LightClientOptimisticUpdate
             }
             RpcSuccessResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
+            RpcSuccessResponse::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
 }
@@ -708,6 +746,13 @@ impl<E: EthSpec> std::fmt::Display for RpcSuccessResponse<E> {
                     f,
                     "LightClientFinalityUpdate Slot: {}",
                     update.signature_slot()
+                )
+            }
+            RpcSuccessResponse::LightClientUpdatesByRange(update) => {
+                write!(
+                    f,
+                    "LightClientUpdatesByRange Slot: {}",
+                    update.signature_slot(),
                 )
             }
         }

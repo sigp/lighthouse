@@ -9,6 +9,8 @@ mod network_context;
 mod peer_sampling;
 mod peer_sync_info;
 mod range_sync;
+#[cfg(test)]
+mod tests;
 
 pub use lighthouse_network::service::api_types::SamplingId;
 pub use manager::{BatchProcessResult, SyncMessage};

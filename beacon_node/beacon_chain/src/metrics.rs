@@ -2,7 +2,7 @@ use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::FixedBytesExtended;
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use slot_clock::SlotClock;
 use std::sync::LazyLock;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
@@ -111,6 +111,13 @@ pub static BLOCK_PROCESSING_POST_EXEC_PROCESSING: LazyLock<Result<Histogram>> =
             linear_buckets(5e-3, 5e-3, 10),
         )
     });
+pub static BLOCK_PROCESSING_DATA_COLUMNS_WAIT: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_block_processing_data_columns_wait_seconds",
+        "Time spent waiting for data columns to be computed before starting database write",
+        exponential_buckets(0.01, 2.0, 10),
+    )
+});
 pub static BLOCK_PROCESSING_DB_WRITE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_block_processing_db_write_seconds",
@@ -1649,7 +1656,7 @@ pub static BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: LazyLock<Result<Histogram>>
     });
 pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
     try_create_histogram_vec_with_buckets(
-        "data_column_sidecar_computation_seconds",
+        "beacon_data_column_sidecar_computation_seconds",
         "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
         Ok(vec![0.1, 0.15, 0.25, 0.35, 0.5, 0.7, 1.0, 2.5, 5.0, 10.0]),
         &["blob_count"],
@@ -1658,7 +1665,7 @@ pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<HistogramVec>> = Laz
 pub static DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
-            "data_column_sidecar_inclusion_proof_verification_seconds",
+            "beacon_data_column_sidecar_inclusion_proof_verification_seconds",
             "Time taken to verify data_column sidecar inclusion proof",
         )
     });
@@ -1686,10 +1693,38 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
 pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
-            "beacon_blobs_column_sidecar_processing_successes_total",
+            "beacon_data_column_sidecar_processing_successes_total",
             "Number of data column sidecars verified for gossip",
         )
     });
+
+pub static BLOBS_FROM_EL_HIT_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_hit_total",
+        "Number of blob batches fetched from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_MISS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_miss_total",
+        "Number of blob batches failed to fetch from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_EXPECTED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_expected_total",
+        "Number of blobs expected from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_RECEIVED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_received_total",
+        "Number of blobs fetched from the execution layer",
+    )
+});
 
 /*
  * Light server message verification
@@ -1812,7 +1847,7 @@ pub static KZG_VERIFICATION_BATCH_TIMES: LazyLock<Result<Histogram>> = LazyLock:
 pub static KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram_with_buckets(
-            "kzg_verification_data_column_single_seconds",
+            "beacon_kzg_verification_data_column_single_seconds",
             "Runtime of single data column kzg verification",
             Ok(vec![
                 0.0005, 0.001, 0.0015, 0.002, 0.003, 0.004, 0.005, 0.007, 0.01, 0.02, 0.05,
@@ -1822,7 +1857,7 @@ pub static KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: LazyLock<Result<Histogram>
 pub static KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram_with_buckets(
-            "kzg_verification_data_column_batch_seconds",
+            "beacon_kzg_verification_data_column_batch_seconds",
             "Runtime of batched data column kzg verification",
             Ok(vec![
                 0.002, 0.004, 0.006, 0.008, 0.01, 0.012, 0.015, 0.02, 0.03, 0.05, 0.07,
@@ -1875,15 +1910,40 @@ pub static DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE: LazyLock<Result<IntGauge
 pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
-            "data_availability_reconstruction_time_seconds",
+            "beacon_data_availability_reconstruction_time_seconds",
             "Time taken to reconstruct columns",
         )
     });
 pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
-            "data_availability_reconstructed_columns_total",
+            "beacon_data_availability_reconstructed_columns_total",
             "Total count of reconstructed columns",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_kzg_data_column_reconstruction_attempts",
+            "Count of times data column reconstruction has been attempted",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_kzg_data_column_reconstruction_failures",
+            "Count of times data column reconstruction has failed",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_kzg_data_column_reconstruction_incomplete_total",
+            "Count of times data column reconstruction attempts did not result in an import",
+            &["reason"],
         )
     });
 
@@ -1912,6 +1972,22 @@ pub static LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS: LazyLock<Result<IntC
         )
     });
 
+pub static LIGHT_CLIENT_SERVER_CACHE_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_light_client_server_cache_processing_requests",
+            "Count of all requests to recompute and cache updates",
+        )
+    });
+
+pub static LIGHT_CLIENT_SERVER_CACHE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_light_client_server_cache_processing_successes",
+            "Count of all successful requests to recompute and cache updates",
+        )
+    });
+
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
@@ -1928,6 +2004,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     let attestation_stats = beacon_chain.op_pool.attestation_stats();
     let chain_metrics = beacon_chain.metrics();
 
+    // Kept duplicated for backwards compatibility
     set_gauge_by_usize(
         &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
         beacon_chain.store.state_cache_len(),
@@ -1991,6 +2068,8 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         .canonical_head
         .fork_choice_read_lock()
         .scrape_for_metrics();
+
+    beacon_chain.store.register_metrics();
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.

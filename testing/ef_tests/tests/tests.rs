@@ -243,8 +243,7 @@ mod ssz_static {
     use types::historical_summary::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DepositRequest,
-        LightClientBootstrapAltair, PendingBalanceDeposit, PendingPartialWithdrawal,
-        WithdrawalRequest, *,
+        LightClientBootstrapAltair, PendingDeposit, PendingPartialWithdrawal, WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -396,11 +395,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientBootstrapDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-        // SszStaticHandler::<LightClientBootstrapElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
-        //     .run();
-        // SszStaticHandler::<LightClientBootstrapElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
-        //     .run();
+        SszStaticHandler::<LightClientBootstrapElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
+            .run();
+        SszStaticHandler::<LightClientBootstrapElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
+            .run();
     }
 
     // LightClientHeader has no internal indicator of which fork it is for, so we test it separately.
@@ -476,13 +474,12 @@ mod ssz_static {
         SszStaticHandler::<LightClientFinalityUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only(
         )
             .run();
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-        // SszStaticHandler::<LightClientFinalityUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
-        // )
-        //     .run();
-        // SszStaticHandler::<LightClientFinalityUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
-        // )
-        //     .run();
+        SszStaticHandler::<LightClientFinalityUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        )
+            .run();
     }
 
     // LightClientUpdate has no internal indicator of which fork it is for, so we test it separately.
@@ -506,13 +503,12 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-        // SszStaticHandler::<LightClientUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
-        // )
-        // .run();
-        // SszStaticHandler::<LightClientUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
-        // )
-        // .run();
+        SszStaticHandler::<LightClientUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        )
+        .run();
+        SszStaticHandler::<LightClientUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        )
+        .run();
     }
 
     #[test]
@@ -631,17 +627,17 @@ mod ssz_static {
     #[test]
     fn data_column_sidecar() {
         SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::deneb_only()
-            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+            .run_for_feature(FeatureName::Fulu);
         SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
-            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+            .run_for_feature(FeatureName::Fulu);
     }
 
     #[test]
     fn data_column_identifier() {
         SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::deneb_only()
-            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+            .run_for_feature(FeatureName::Fulu);
         SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::deneb_only()
-            .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+            .run_for_feature(FeatureName::Fulu);
     }
 
     #[test]
@@ -664,8 +660,8 @@ mod ssz_static {
 
     #[test]
     fn pending_balance_deposit() {
-        SszStaticHandler::<PendingBalanceDeposit, MinimalEthSpec>::electra_and_later().run();
-        SszStaticHandler::<PendingBalanceDeposit, MainnetEthSpec>::electra_and_later().run();
+        SszStaticHandler::<PendingDeposit, MinimalEthSpec>::electra_and_later().run();
+        SszStaticHandler::<PendingDeposit, MainnetEthSpec>::electra_and_later().run();
     }
 
     #[test]
@@ -827,12 +823,6 @@ fn fork_choice_on_block() {
 }
 
 #[test]
-fn fork_choice_on_merge_block() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("on_merge_block").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("on_merge_block").run();
-}
-
-#[test]
 fn fork_choice_ex_ante() {
     ForkChoiceHandler::<MinimalEthSpec>::new("ex_ante").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("ex_ante").run();
@@ -912,24 +902,29 @@ fn kzg_verify_kzg_proof() {
 #[test]
 fn kzg_compute_cells_and_proofs() {
     KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+        .run_for_feature(FeatureName::Fulu);
 }
 
 #[test]
 fn kzg_verify_cell_proof_batch() {
     KZGVerifyCellKZGProofBatchHandler::<MainnetEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+        .run_for_feature(FeatureName::Fulu);
 }
 
 #[test]
 fn kzg_recover_cells_and_proofs() {
     KZGRecoverCellsAndKZGProofHandler::<MainnetEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+        .run_for_feature(FeatureName::Fulu);
 }
 
 #[test]
-fn merkle_proof_validity() {
-    MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+fn beacon_state_merkle_proof_validity() {
+    BeaconStateMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+fn beacon_block_body_merkle_proof_validity() {
+    BeaconBlockBodyMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
@@ -953,9 +948,15 @@ fn rewards() {
 }
 
 #[test]
-fn get_custody_columns() {
-    GetCustodyColumnsHandler::<MainnetEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
-    GetCustodyColumnsHandler::<MinimalEthSpec>::default()
-        .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
+fn get_custody_groups() {
+    GetCustodyGroupsHandler::<MainnetEthSpec>::default().run_for_feature(FeatureName::Fulu);
+    GetCustodyGroupsHandler::<MinimalEthSpec>::default().run_for_feature(FeatureName::Fulu);
+}
+
+#[test]
+fn compute_columns_for_custody_group() {
+    ComputeColumnsForCustodyGroupHandler::<MainnetEthSpec>::default()
+        .run_for_feature(FeatureName::Fulu);
+    ComputeColumnsForCustodyGroupHandler::<MinimalEthSpec>::default()
+        .run_for_feature(FeatureName::Fulu);
 }

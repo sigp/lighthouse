@@ -1,4 +1,4 @@
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use std::sync::LazyLock;
 
 pub static SYNC_SLOTS_PER_SECOND: LazyLock<Result<IntGauge>> = LazyLock::new(|| {

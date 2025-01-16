@@ -96,6 +96,7 @@ pub struct RateLimiterConfig {
     pub(super) light_client_bootstrap_quota: Quota,
     pub(super) light_client_optimistic_update_quota: Quota,
     pub(super) light_client_finality_update_quota: Quota,
+    pub(super) light_client_updates_by_range_quota: Quota,
 }
 
 impl RateLimiterConfig {
@@ -103,15 +104,14 @@ impl RateLimiterConfig {
     pub const DEFAULT_META_DATA_QUOTA: Quota = Quota::n_every(2, 5);
     pub const DEFAULT_STATUS_QUOTA: Quota = Quota::n_every(5, 15);
     pub const DEFAULT_GOODBYE_QUOTA: Quota = Quota::one_every(10);
-    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota = Quota::n_every(1024, 10);
+    // The number is chosen to balance between upload bandwidth required to serve
+    // blocks and a decent syncing rate for honest nodes. Malicious nodes would need to
+    // spread out their requests over the time window to max out bandwidth on the server.
+    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota = Quota::n_every(128, 10);
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
-    // `BlocksByRange` and `BlobsByRange` are sent together during range sync.
-    // It makes sense for blocks and blobs quotas to be equivalent in terms of the number of blocks:
-    // 1024 blocks * 6 max blobs per block.
-    // This doesn't necessarily mean that we are sending this many blobs, because the quotas are
-    // measured against the maximum request size.
-    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(6144, 10);
-    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(768, 10);
+    // `DEFAULT_BLOCKS_BY_RANGE_QUOTA` * (target + 1) to account for high usage
+    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(896, 10);
+    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(896, 10);
     // 320 blocks worth of columns for regular node, or 40 blocks for supernode.
     // Range sync load balances when requesting blocks, and each batch is 32 blocks.
     pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota = Quota::n_every(5120, 10);
@@ -121,6 +121,7 @@ impl RateLimiterConfig {
     pub const DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA: Quota = Quota::one_every(10);
+    pub const DEFAULT_LIGHT_CLIENT_UPDATES_BY_RANGE_QUOTA: Quota = Quota::one_every(10);
 }
 
 impl Default for RateLimiterConfig {
@@ -140,6 +141,7 @@ impl Default for RateLimiterConfig {
             light_client_optimistic_update_quota:
                 Self::DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA,
             light_client_finality_update_quota: Self::DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA,
+            light_client_updates_by_range_quota: Self::DEFAULT_LIGHT_CLIENT_UPDATES_BY_RANGE_QUOTA,
         }
     }
 }
@@ -198,6 +200,7 @@ impl FromStr for RateLimiterConfig {
         let mut light_client_bootstrap_quota = None;
         let mut light_client_optimistic_update_quota = None;
         let mut light_client_finality_update_quota = None;
+        let mut light_client_updates_by_range_quota = None;
 
         for proto_def in s.split(';') {
             let ProtocolQuota { protocol, quota } = proto_def.parse()?;
@@ -228,6 +231,10 @@ impl FromStr for RateLimiterConfig {
                     light_client_finality_update_quota =
                         light_client_finality_update_quota.or(quota)
                 }
+                Protocol::LightClientUpdatesByRange => {
+                    light_client_updates_by_range_quota =
+                        light_client_updates_by_range_quota.or(quota)
+                }
             }
         }
         Ok(RateLimiterConfig {
@@ -252,6 +259,8 @@ impl FromStr for RateLimiterConfig {
                 .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA),
             light_client_finality_update_quota: light_client_finality_update_quota
                 .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA),
+            light_client_updates_by_range_quota: light_client_updates_by_range_quota
+                .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_UPDATES_BY_RANGE_QUOTA),
         })
     }
 }

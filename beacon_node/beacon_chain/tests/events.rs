@@ -35,7 +35,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
 
     let _ = harness
         .chain
-        .process_gossip_blob(gossip_verified_blob, || Ok(()))
+        .process_gossip_blob(gossip_verified_blob)
         .await
         .unwrap();
 
@@ -73,7 +73,7 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
     let blob_1 = Arc::new(blob_1);
     let blob_2 = Arc::new(blob_2);
 
-    let blobs = FixedBlobSidecarList::from(vec![Some(blob_1.clone()), Some(blob_2.clone())]);
+    let blobs = FixedBlobSidecarList::new(vec![Some(blob_1.clone()), Some(blob_2.clone())]);
     let expected_sse_blobs = vec![
         SseBlobSidecar::from_blob_sidecar(blob_1.as_ref()),
         SseBlobSidecar::from_blob_sidecar(blob_2.as_ref()),

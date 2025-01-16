@@ -154,6 +154,32 @@ impl Eth2NetworkConfig {
         }
     }
 
+    /// Get the genesis state root for this network.
+    ///
+    /// `Ok(None)` will be returned if the genesis state is not known. No network requests will be
+    /// made by this function. This function will not error unless the genesis state configuration
+    /// is corrupted.
+    pub fn genesis_state_root<E: EthSpec>(&self) -> Result<Option<Hash256>, String> {
+        match self.genesis_state_source {
+            GenesisStateSource::Unknown => Ok(None),
+            GenesisStateSource::Url {
+                genesis_state_root, ..
+            } => Hash256::from_str(genesis_state_root)
+                .map(Option::Some)
+                .map_err(|e| format!("Unable to parse genesis state root: {:?}", e)),
+            GenesisStateSource::IncludedBytes => {
+                self.get_genesis_state_from_bytes::<E>()
+                    .and_then(|mut state| {
+                        Ok(Some(
+                            state
+                                .canonical_root()
+                                .map_err(|e| format!("Hashing error: {e:?}"))?,
+                        ))
+                    })
+            }
+        }
+    }
+
     /// Construct a consolidated `ChainSpec` from the YAML config.
     pub fn chain_spec<E: EthSpec>(&self) -> Result<ChainSpec, String> {
         ChainSpec::from_config::<E>(&self.config).ok_or_else(|| {
@@ -185,6 +211,7 @@ impl Eth2NetworkConfig {
                 urls: built_in_urls,
                 checksum,
                 genesis_validators_root,
+                ..
             } => {
                 let checksum = Hash256::from_str(checksum).map_err(|e| {
                     format!("Unable to parse genesis state bytes checksum: {:?}", e)
@@ -507,6 +534,7 @@ mod tests {
                 urls,
                 checksum,
                 genesis_validators_root,
+                ..
             } = net.genesis_state_source
             {
                 Hash256::from_str(checksum).expect("the checksum must be a valid 32-byte value");

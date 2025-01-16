@@ -188,6 +188,12 @@ pub(crate) struct Metrics {
     /// The number of bytes we have received in every IDONTWANT control message.
     idontwant_bytes: Counter,
 
+    /// Number of IDONTWANT messages sent per topic.
+    idontwant_messages_sent_per_topic: Family<TopicHash, Counter>,
+
+    /// Number of full messages we received that we previously sent a IDONTWANT for.
+    idontwant_messages_ignored_per_topic: Family<TopicHash, Counter>,
+
     /// The size of the priority queue.
     priority_queue_size: Histogram,
     /// The size of the non-priority queue.
@@ -341,6 +347,18 @@ impl Metrics {
             metric
         };
 
+        // IDONTWANT messages sent per topic
+        let idontwant_messages_sent_per_topic = register_family!(
+            "idonttwant_messages_sent_per_topic",
+            "Number of IDONTWANT messages sent per topic"
+        );
+
+        // IDONTWANTs which were ignored, and we still received the message per topic
+        let idontwant_messages_ignored_per_topic = register_family!(
+            "idontwant_messages_ignored_per_topic",
+            "IDONTWANT messages that were sent but we received the full message regardless"
+        );
+
         let idontwant_bytes = {
             let metric = Counter::default();
             registry.register(
@@ -405,6 +423,8 @@ impl Metrics {
             idontwant_msgs,
             idontwant_bytes,
             idontwant_msgs_ids,
+            idontwant_messages_sent_per_topic,
+            idontwant_messages_ignored_per_topic,
             priority_queue_size,
             non_priority_queue_size,
         }
@@ -606,6 +626,20 @@ impl Metrics {
     /// Register receiving the total bytes of an IDONTWANT control message.
     pub(crate) fn register_idontwant_bytes(&mut self, bytes: usize) {
         self.idontwant_bytes.inc_by(bytes as u64);
+    }
+
+    /// Register receiving an IDONTWANT control message for a given topic.
+    pub(crate) fn register_idontwant_messages_sent_per_topic(&mut self, topic: &TopicHash) {
+        self.idontwant_messages_sent_per_topic
+            .get_or_create(topic)
+            .inc();
+    }
+
+    /// Register receiving a message for an already sent IDONTWANT.
+    pub(crate) fn register_idontwant_messages_ignored_per_topic(&mut self, topic: &TopicHash) {
+        self.idontwant_messages_ignored_per_topic
+            .get_or_create(topic)
+            .inc();
     }
 
     /// Register receiving an IDONTWANT msg for this topic.

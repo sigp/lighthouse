@@ -99,7 +99,7 @@ impl<'de> Deserialize<'de> for G1Point {
     {
         struct G1PointVisitor;
 
-        impl<'de> Visitor<'de> for G1PointVisitor {
+        impl Visitor<'_> for G1PointVisitor {
             type Value = G1Point;
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("A 48 byte hex encoded string")
@@ -135,7 +135,7 @@ impl<'de> Deserialize<'de> for G2Point {
     {
         struct G2PointVisitor;
 
-        impl<'de> Visitor<'de> for G2PointVisitor {
+        impl Visitor<'_> for G2PointVisitor {
             type Value = G2Point;
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter.write_str("A 96 byte hex encoded string")

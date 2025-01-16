@@ -46,24 +46,31 @@ You can track the reasons for re-orgs being attempted (or not) via Lighthouse's 
 
 A pair of messages at `INFO` level will be logged if a re-org opportunity is detected:
 
-> INFO Attempting re-org due to weak head      threshold_weight: 45455983852725, head_weight: 0, parent: 0x09d953b69041f280758400c671130d174113bbf57c2d26553a77fb514cad4890, weak_head: 0xf64f8e5ed617dc18c1e759dab5d008369767c3678416dac2fe1d389562842b49
-
-> INFO Proposing block to re-org current head  head_to_reorg: 0xf64f…2b49, slot: 1105320
+```text
+INFO Attempting re-org due to weak head      threshold_weight: 45455983852725, head_weight: 0, parent: 0x09d953b69041f280758400c671130d174113bbf57c2d26553a77fb514cad4890, weak_head: 0xf64f8e5ed617dc18c1e759dab5d008369767c3678416dac2fe1d389562842b49
+INFO Proposing block to re-org current head  head_to_reorg: 0xf64f…2b49, slot: 1105320
+```
 
 This should be followed shortly after by a `INFO` log indicating that a re-org occurred. This is
 expected and normal:
 
-> INFO Beacon chain re-org                     reorg_distance: 1, new_slot: 1105320, new_head: 0x72791549e4ca792f91053bc7cf1e55c6fbe745f78ce7a16fc3acb6f09161becd, previous_slot: 1105319, previous_head: 0xf64f8e5ed617dc18c1e759dab5d008369767c3678416dac2fe1d389562842b49
+```text
+INFO Beacon chain re-org                     reorg_distance: 1, new_slot: 1105320, new_head: 0x72791549e4ca792f91053bc7cf1e55c6fbe745f78ce7a16fc3acb6f09161becd, previous_slot: 1105319, previous_head: 0xf64f8e5ed617dc18c1e759dab5d008369767c3678416dac2fe1d389562842b49
+```
 
 In case a re-org is not viable (which should be most of the time), Lighthouse will just propose a
 block as normal and log the reason the re-org was not attempted at debug level:
 
-> DEBG Not attempting re-org                   reason: head not late
+```text
+DEBG Not attempting re-org                   reason: head not late
+```
 
 If you are interested in digging into the timing of `forkchoiceUpdated` messages sent to the
 execution layer, there is also a debug log for the suppression of `forkchoiceUpdated` messages
 when Lighthouse thinks that a re-org is likely:
 
-> DEBG Fork choice update overridden           slot: 1105320, override: 0x09d953b69041f280758400c671130d174113bbf57c2d26553a77fb514cad4890, canonical_head: 0xf64f8e5ed617dc18c1e759dab5d008369767c3678416dac2fe1d389562842b49
+```text
+DEBG Fork choice update overridden           slot: 1105320, override: 0x09d953b69041f280758400c671130d174113bbf57c2d26553a77fb514cad4890, canonical_head: 0xf64f8e5ed617dc18c1e759dab5d008369767c3678416dac2fe1d389562842b49
+```
 
 [the spec]: https://github.com/ethereum/consensus-specs/pull/3034

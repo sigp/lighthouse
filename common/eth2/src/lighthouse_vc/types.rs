@@ -1,13 +1,12 @@
-use account_utils::ZeroizeString;
+pub use crate::lighthouse::Health;
+pub use crate::lighthouse_vc::std_types::*;
+pub use crate::types::{GenericResponse, VersionData};
 use eth2_keystore::Keystore;
 use graffiti::GraffitiString;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-
-pub use crate::lighthouse::Health;
-pub use crate::lighthouse_vc::std_types::*;
-pub use crate::types::{GenericResponse, VersionData};
 pub use types::*;
+use zeroize::Zeroizing;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorData {
@@ -44,7 +43,7 @@ pub struct ValidatorRequest {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateValidatorsMnemonicRequest {
-    pub mnemonic: ZeroizeString,
+    pub mnemonic: Zeroizing<String>,
     #[serde(with = "serde_utils::quoted_u32")]
     pub key_derivation_path_offset: u32,
     pub validators: Vec<ValidatorRequest>,
@@ -74,7 +73,7 @@ pub struct CreatedValidator {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct PostValidatorsResponseData {
-    pub mnemonic: ZeroizeString,
+    pub mnemonic: Zeroizing<String>,
     pub validators: Vec<CreatedValidator>,
 }
 
@@ -102,7 +101,7 @@ pub struct ValidatorPatchRequest {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeystoreValidatorsPostRequest {
-    pub password: ZeroizeString,
+    pub password: Zeroizing<String>,
     pub enable: bool,
     pub keystore: Keystore,
     #[serde(default)]
@@ -191,7 +190,7 @@ pub struct SingleExportKeystoresResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub validating_keystore: Option<KeystoreJsonStr>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub validating_keystore_password: Option<ZeroizeString>,
+    pub validating_keystore_password: Option<Zeroizing<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

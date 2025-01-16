@@ -1,5 +1,4 @@
 /// This crate provides the network server for Lighthouse.
-pub mod error;
 pub mod service;
 
 mod metrics;

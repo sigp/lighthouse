@@ -6,19 +6,19 @@ edition = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }
-tokio = { workspace = true }
-slog = { workspace = true }
-sloggers = { workspace = true }
-types = { workspace = true }
 eth2_config = { workspace = true }
-task_executor = { workspace = true }
 eth2_network_config = { workspace = true }
-logging = { workspace = true }
-slog-term = { workspace = true }
-slog-async = { workspace = true }
 futures = { workspace = true }
-slog-json = "2.3.0"
+logging = { workspace = true }
 serde = { workspace = true }
+slog = { workspace = true }
+slog-async = { workspace = true }
+slog-json = "2.3.0"
+slog-term = { workspace = true }
+sloggers = { workspace = true }
+task_executor = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }
 
 [target.'cfg(not(target_family = "unix"))'.dependencies]
 ctrlc = { version = "3.1.6", features = ["termination"] }

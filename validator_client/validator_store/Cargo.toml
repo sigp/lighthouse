@@ -1,0 +1,23 @@
+[package]
+name = "validator_store"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[lib]
+name = "validator_store"
+path = "src/lib.rs"
+
+[dependencies]
+account_utils = { workspace = true }
+doppelganger_service = { workspace = true }
+initialized_validators = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+signing_method = { workspace = true }
+slashing_protection = { workspace = true }
+slog = { workspace = true }
+slot_clock = { workspace = true }
+task_executor = { workspace = true }
+types = { workspace = true }
+validator_metrics = { workspace = true }

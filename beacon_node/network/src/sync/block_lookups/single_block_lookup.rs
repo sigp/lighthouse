@@ -171,7 +171,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.awaiting_parent.is_some()
             || self.block_request_state.state.is_awaiting_event()
             || match &self.component_requests {
-                ComponentRequests::WaitingForBlock => true,
+                // If components are waiting for the block request to complete, here we should
+                // check if the`block_request_state.state.is_awaiting_event(). However we already
+                // checked that above, so `WaitingForBlock => false` is equivalent.
+                ComponentRequests::WaitingForBlock => false,
                 ComponentRequests::ActiveBlobRequest(request, _) => {
                     request.state.is_awaiting_event()
                 }
