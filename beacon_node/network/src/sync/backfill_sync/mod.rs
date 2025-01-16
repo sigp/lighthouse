@@ -174,6 +174,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         .epoch(T::EthSpec::slots_per_epoch()),
                 )
             };
+
         let bfs = BackFillSync {
             batches: BTreeMap::new(),
             active_requests: HashMap::new(),
@@ -270,7 +271,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     )));
                 }
 
-                debug!(start_epoch = %self.current_start,"Resuming a failed backfill sync");
+                debug!(start_epoch = %self.current_start, "Resuming a failed backfill sync");
 
                 // begin requesting blocks from the peer pool, until all peers are exhausted.
                 self.request_batches(network)?;
@@ -348,7 +349,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         );
                     }
                 } else {
-                    debug!(peer = %peer_id, batch = %id,"Batch not found while removing peer");
+                    debug!(peer = %peer_id, batch = %id, "Batch not found while removing peer");
                 }
             }
         }
@@ -384,7 +385,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             if !batch.is_expecting_block(&request_id) {
                 return Ok(());
             }
-            debug!(batch_epoch = %batch_id, error = "rpc_error","Batch failed");
+            debug!(batch_epoch = %batch_id, error = "rpc_error", "Batch failed");
             if let Some(active_requests) = self.active_requests.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
@@ -426,7 +427,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             None => {
                 if !matches!(self.state(), BackFillState::Failed) {
                     // A batch might get removed when the chain advances, so this is non fatal.
-                    debug!(epoch = %batch_id,"Received a block for unknown batch");
+                    debug!(epoch = %batch_id, "Received a block for unknown batch");
                 }
                 return Ok(ProcessResult::Successful);
             }
@@ -470,10 +471,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         }
                         Ok(v) => v,
                     };
-                    warn!(%expected_boundary,%received_boundary,%peer_id, %batch,"Batch received out of range blocks");
+                    warn!(%expected_boundary, %received_boundary, %peer_id, %batch, "Batch received out of range blocks");
 
                     if let BatchOperationOutcome::Failed { blacklist: _ } = outcome {
-                        error!(epoch = %batch_id,%received_boundary, %expected_boundary,"Backfill failed");
+                        error!(epoch = %batch_id, %received_boundary, %expected_boundary, "Backfill failed");
                         return self
                             .fail_sync(BackFillError::BatchDownloadFailed(batch_id))
                             .map(|_| ProcessResult::Successful);
@@ -572,7 +573,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             .beacon_processor()
             .send_chain_segment(process_id, blocks)
         {
-            crit!(msg = "process_batch",error = %e, batch = ?self.processing_target,"Failed to send backfill segment to processor.");
+            crit!(
+                msg = "process_batch",
+                error = %e,
+                batch = ?self.processing_target,
+                "Failed to send backfill segment to processor."
+            );
             // This is unlikely to happen but it would stall syncing since the batch now has no
             // blocks to continue, and the chain is expecting a processing result that won't
             // arrive. To mitigate this, (fake) fail this processing so that the batch is
@@ -604,7 +610,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // result
         let batch = match &self.current_processing_batch {
             Some(processing_id) if *processing_id != batch_id => {
-                debug!(batch_epoch = %batch_id.as_u64(), expected_batch_epoch = processing_id.as_u64(),"Unexpected batch result");
+                debug!(
+                    batch_epoch = %batch_id.as_u64(),
+                    expected_batch_epoch = processing_id.as_u64(),
+                    "Unexpected batch result"
+                );
                 return Ok(ProcessResult::Successful);
             }
             None => {
@@ -642,7 +652,14 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         };
 
-        debug!(?result, %batch,batch_epoch = %batch_id, %peer, client = %network.client_type(&peer),"Backfill batch processed");
+        debug!(
+            ?result,
+            %batch,
+            batch_epoch = %batch_id,
+            %peer,
+            client = %network.client_type(&peer),
+            "Backfill batch processed"
+        );
 
         match result {
             BatchProcessResult::Success {
@@ -776,7 +793,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 BatchState::AwaitingValidation(_) => {
                     // TODO: I don't think this state is possible, log a CRIT just in case.
                     // If this is not observed, add it to the failed state branch above.
-                    crit!(batch = ?self.processing_target,"Chain encountered a robust batch awaiting validation");
+                    crit!(
+                        batch = ?self.processing_target,
+                        "Chain encountered a robust batch awaiting validation"
+                    );
 
                     self.processing_target -= BACKFILL_EPOCHS_PER_BATCH;
                     if self.to_be_downloaded >= self.processing_target {
@@ -836,8 +856,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                 // A different peer sent the correct batch, the previous peer did not
                                 // We negatively score the original peer.
                                 let action = PeerAction::LowToleranceError;
-                                debug!(batch_epoch = ?id, score_adjustment = %action,
-                                    original_peer = %attempt.peer_id, new_peer = %processed_attempt.peer_id,"Re-processed batch validated. Scoring original peer"
+                                debug!(
+                                    batch_epoch = ?id,
+                                    score_adjustment = %action,
+                                    original_peer = %attempt.peer_id,
+                                    new_peer = %processed_attempt.peer_id,
+                                    "Re-processed batch validated. Scoring original peer"
                                 );
                                 network.report_peer(
                                     attempt.peer_id,
@@ -848,8 +872,13 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                 // The same peer corrected it's previous mistake. There was an error, so we
                                 // negative score the original peer.
                                 let action = PeerAction::MidToleranceError;
-                                debug!(batch_epoch = ?id, score_adjustment = %action,
-                                    original_peer = %attempt.peer_id, new_peer = %processed_attempt.peer_id,"Re-processed batch validated by the same peer");
+                                debug!(
+                                    batch_epoch = ?id,
+                                    score_adjustment = %action,
+                                    original_peer = %attempt.peer_id,
+                                    new_peer = %processed_attempt.peer_id,
+                                    "Re-processed batch validated by the same peer"
+                                );
                                 network.report_peer(
                                     attempt.peer_id,
                                     action,
@@ -888,7 +917,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // won't have this batch, so we need to request it.
             self.to_be_downloaded -= BACKFILL_EPOCHS_PER_BATCH;
         }
-        debug!(?validating_epoch, processing_target = ?self.processing_target,"Backfill advanced");
+        debug!(?validating_epoch, processing_target = ?self.processing_target, "Backfill advanced");
     }
 
     /// An invalid batch has been received that could not be processed, but that can be retried.
@@ -1025,7 +1054,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     if let Err(e) = batch.start_downloading_from_peer(peer, request_id) {
                         return self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0));
                     }
-                    debug!(epoch = %batch_id, %batch,"Requesting batch");
+                    debug!(epoch = %batch_id, %batch, "Requesting batch");
 
                     // register the batch for this peer
                     self.active_requests

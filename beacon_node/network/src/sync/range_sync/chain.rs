@@ -231,7 +231,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     }
                     self.retry_batch_download(network, id)?;
                 } else {
-                    debug!(%peer_id, batch = ?id,"Batch not found while removing peer")
+                    debug!(%peer_id, batch = ?id, "Batch not found while removing peer")
                 }
             }
         }
@@ -266,7 +266,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
             None => {
-                debug!( epoch = %batch_id,"Received a block for unknown batch");
+                debug!(epoch = %batch_id, "Received a block for unknown batch");
                 // A batch might get removed when the chain advances, so this is non fatal.
                 return Ok(KeepChain);
             }
@@ -296,7 +296,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     let awaiting_batches = batch_id
                         .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
                         / EPOCHS_PER_BATCH;
-                    debug!(epoch = %batch_id, blocks = received, batch_state = self.visualize_batch_state(), ?awaiting_batches,"Batch downloaded");
+                    debug!(
+                        epoch = %batch_id,
+                        blocks = received,
+                        batch_state = self.visualize_batch_state(),
+                        ?awaiting_batches,
+                        "Batch downloaded"
+                    );
 
                     // pre-emptively request more blocks from peers whilst we process current blocks,
                     self.request_batches(network)?;
@@ -304,7 +310,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
                 Err(result) => {
                     let (expected_boundary, received_boundary, outcome) = result?;
-                    warn!(?expected_boundary, ?received_boundary, %peer_id, ?batch,"Batch received out of range blocks");
+                    warn!(
+                        ?expected_boundary,
+                        ?received_boundary,
+                        %peer_id,
+                        ?batch,
+                        "Batch received out of range blocks"
+                    );
 
                     if let BatchOperationOutcome::Failed { blacklist } = outcome {
                         return Err(RemoveChain::ChainFailed {
@@ -417,7 +429,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // batch has been requested and processed we can land here. We drop the
                         // optimistic candidate since we can't conclude whether the batch included
                         // blocks or not at this point
-                        debug!(batch = %epoch,"Dropping optimistic candidate");
+                        debug!(batch = %epoch, "Dropping optimistic candidate");
                         self.optimistic_start = None;
                     }
                 }
@@ -451,7 +463,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // inside the download buffer (between `self.processing_target` and
                     // `self.to_be_downloaded`). In this case, eventually the chain advances to the
                     // batch (`self.processing_target` reaches this point).
-                    debug!(batch = %self.processing_target,"Chain encountered a robust batch awaiting validation");
+                    debug!(
+                        batch = %self.processing_target,
+                        "Chain encountered a robust batch awaiting validation"
+                    );
 
                     self.processing_target += EPOCHS_PER_BATCH;
                     if self.to_be_downloaded <= self.processing_target {
@@ -644,13 +659,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // it. NOTE: this is done to prevent non-sequential batches coming from optimistic
             // starts from filling up the buffer size
             if epoch < self.to_be_downloaded {
-                debug!(%epoch, reason,"Rejected optimistic batch left for future use");
+                debug!(%epoch, reason, "Rejected optimistic batch left for future use");
                 // this batch is now treated as any other batch, and re-requested for future use
                 if redownload {
                     return self.retry_batch_download(network, epoch);
                 }
             } else {
-                debug!(%epoch, reason,"Rejected optimistic batch");
+                debug!(%epoch, reason, "Rejected optimistic batch");
                 self.batches.remove(&epoch);
             }
         }
@@ -712,8 +727,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                 // negative score the original peer.
                                 let action = PeerAction::MidToleranceError;
                                 debug!(
-                                    batch_epoch = %id, score_adjustment = %action,
-                                    original_peer = %attempt.peer_id, new_peer = %processed_attempt.peer_id,
+                                    batch_epoch = %id,
+                                    score_adjustment = %action,
+                                    original_peer = %attempt.peer_id,
+                                    new_peer = %processed_attempt.peer_id,
                                     "Re-processed batch validated by the same peer"
                                 );
                                 network.report_peer(
@@ -736,7 +753,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
-                    debug!(batch = %id, %batch,"Advancing chain while processing a batch");
+                    debug!(batch = %id, %batch, "Advancing chain while processing a batch");
                     if let Some(processing_id) = self.current_processing_batch {
                         if id <= processing_id {
                             self.current_processing_batch = None;
@@ -919,8 +936,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             debug!(
                 batch_epoch = %batch_id,
                 batch_state = ?batch.state(),
-                ?peer_id,
-                ?request_id,
+                %peer_id,
+                %request_id,
                 "Batch failed. RPC Error"
             );
             if let Some(active_requests) = self.peers.get_mut(peer_id) {

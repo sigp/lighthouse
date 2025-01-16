@@ -688,7 +688,7 @@ fn run<E: EthSpec>(
     if let Ok(LighthouseSubcommands::DatabaseManager(db_manager_config)) =
         LighthouseSubcommands::from_arg_matches(matches)
     {
-        info!(network_name, "Running database manager network");
+        info!(network_name, "Running database manager");
         database_manager::run(matches, &db_manager_config, environment)?;
         return Ok(());
     };
@@ -714,7 +714,7 @@ fn run<E: EthSpec>(
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                        crit!(reason = ?e ,"Failed to start beacon node");
+                        crit!(reason = ?e, "Failed to start beacon node");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -745,7 +745,7 @@ fn run<E: EthSpec>(
                         .and_then(|mut vc| async move { vc.start_service().await })
                         .await
                     {
-                        crit!(reason = ?e,"Failed to start validator client");
+                        crit!(reason = ?e, "Failed to start validator client");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -764,7 +764,7 @@ fn run<E: EthSpec>(
 
     // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
     let shutdown_reason = environment.block_until_shutdown_requested()?;
-    info!(reason=?shutdown_reason,"Shutting down..");
+    info!(reason = ?shutdown_reason, "Shutting down..");
 
     environment.fire_signal();
 

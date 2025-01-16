@@ -58,12 +58,12 @@ pub async fn run<E: EthSpec>(
         "Configuration parameters"
     );
 
-    info!(peer_id = %local_enr.peer_id(), node_id = %local_enr.node_id(),"Identity established");
+    info!(peer_id = %local_enr.peer_id(), node_id = %local_enr.node_id(), "Identity established");
 
     // build the contactable multiaddr list, adding the p2p protocol
     info!(enr = local_enr.to_base64(), "Contact information");
-    info!(enr = ?local_enr,"Enr details");
-    info!(multiaddrs = ?local_enr.multiaddr_p2p(),"Contact information");
+    info!(enr = ?local_enr, "Enr details");
+    info!(multiaddrs = ?local_enr.multiaddr_p2p(), "Contact information");
 
     // construct the discv5 server
     let mut discv5: Discv5 = Discv5::new(local_enr.clone(), local_key, discv5_config).unwrap();
@@ -79,7 +79,7 @@ pub async fn run<E: EthSpec>(
         );
         if enr != local_enr {
             if let Err(e) = discv5.add_enr(enr) {
-                warn!(error = ?e,"Failed adding ENR");
+                warn!(error = ?e, "Failed adding ENR");
             }
         }
     }
@@ -135,7 +135,7 @@ pub async fn run<E: EthSpec>(
                     ipv4_nodes = ipv4_only_reachable,
                     ipv6_only_nodes = ipv6_only_reachable,
                     dual_stack_nodes = ipv4_ipv6_reachable,
-                    unreachable_nodes = unreachable_nodes,
+                    unreachable_nodes,
                     "Server metrics",
                 );
 
@@ -147,7 +147,7 @@ pub async fn run<E: EthSpec>(
                         // Ignore these events here
                     }
                     discv5::Event::SocketUpdated(socket_addr) => {
-                        info!(%socket_addr,"Advertised socket address updated");
+                        info!(%socket_addr, "Advertised socket address updated");
                     }
                     _ => {} // Ignore
                 }

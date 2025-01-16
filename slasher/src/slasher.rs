@@ -143,7 +143,9 @@ impl<E: EthSpec> Slasher<E> {
 
         debug!(
             %num_valid,
-            num_deferred, num_dropped, "Pre-processing attestations for slasher"
+            num_deferred,
+            num_dropped,
+            "Pre-processing attestations for slasher"
         );
         metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_VALID, num_valid as i64);
         metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_DEFERRED, num_deferred as i64);

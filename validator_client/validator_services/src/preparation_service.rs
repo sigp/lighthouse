@@ -221,7 +221,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             loop {
                 // Poll the endpoint immediately to ensure fee recipients are received.
                 if let Err(e) = self.register_validators().await {
-                    error!(error = ?e,"Error during validator registration");
+                    error!(error = ?e, "Error during validator registration");
                 }
 
                 // Wait one slot if the register validator request fails or if we should not publish at the current slot.

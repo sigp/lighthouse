@@ -244,7 +244,7 @@ where
                 }
             }
             Err(_) => {
-                trace!(%chain_id,"BlocksByRange response for removed chain")
+                trace!(%chain_id, "BlocksByRange response for removed chain")
             }
         }
     }
@@ -387,7 +387,11 @@ where
 
         if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason {
             if RangeSyncType::Finalized == sync_type && blacklist {
-                warn!(%chain,"Chain failed! Syncing to its head won't be retried for at least the next {} seconds", FAILED_CHAINS_EXPIRY_SECONDS);
+                warn!(
+                    %chain,
+                    "Chain failed! Syncing to its head won't be retried for at least the next {} seconds",
+                    FAILED_CHAINS_EXPIRY_SECONDS
+                );
                 self.failed_chains.insert(chain.target_head_root);
             }
         }

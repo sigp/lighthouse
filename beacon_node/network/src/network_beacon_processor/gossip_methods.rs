@@ -2532,8 +2532,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                  * The message is not necessarily invalid, but we choose to ignore it.
                  */
                 debug!(
-                    ?head_block_slot,
-                    ?attestation_slot,
+                    %head_block_slot,
+                    %attestation_slot,
                     "Rejected long skip slot attestation"
                 );
                 // In this case we wish to penalize gossipsub peers that do this to avoid future

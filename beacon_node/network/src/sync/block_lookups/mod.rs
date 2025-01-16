@@ -283,7 +283,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             if (block_would_extend_chain || trigger_is_chain_tip)
                 && parent_chain.len() >= PARENT_DEPTH_TOLERANCE
             {
-                debug!(block_root = ?block_root_to_search,"Parent lookup chain too long");
+                debug!(block_root = ?block_root_to_search, "Parent lookup chain too long");
 
                 // Searching for this parent would extend a parent chain over the max
                 // Insert the tip only to failed chains
@@ -404,7 +404,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
 
             if let Err(e) = self.add_peers_to_lookup_and_ancestors(lookup_id, peers, cx) {
-                warn!(error = ?e,"Error adding peers to ancestor lookup");
+                warn!(error = ?e, "Error adding peers to ancestor lookup");
             }
 
             return true;
@@ -417,7 +417,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 .iter()
                 .any(|(_, lookup)| lookup.is_for_block(awaiting_parent))
             {
-                warn!(block_root = ?awaiting_parent,"Ignoring child lookup parent lookup not found");
+                warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
                 return false;
             }
         }
@@ -677,7 +677,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 match e {
                     BlockError::BeaconChainError(e) => {
                         // Internal error
-                        error!(%block_root, error = ?e,"Beacon chain error processing lookup component");
+                        error!(%block_root, error = ?e, "Beacon chain error processing lookup component");
                         Action::Drop
                     }
                     BlockError::ParentUnknown { parent_root, .. } => {
@@ -703,7 +703,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         if e.category() == AvailabilityCheckErrorCategory::Internal =>
                     {
                         // There errors indicate internal problems and should not downscore the  peer
-                        warn!(?block_root, error = ?e,"Internal availability check failure");
+                        warn!(?block_root, error = ?e, "Internal availability check failure");
 
                         // Here we choose *not* to call `on_processing_failure` because this could result in a bad
                         // lookup state transition. This error invalidates both blob and block requests, and we don't know the
@@ -712,7 +712,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         Action::Drop
                     }
                     other => {
-                        debug!(?block_root, component = ?R::response_type(), error = ?other,"Invalid lookup component");
+                        debug!(
+                            ?block_root,
+                            component = ?R::response_type(),
+                            error = ?other,
+                            "Invalid lookup component"
+                        );
                         let peer_group = request_state.on_processing_failure()?;
                         let peers_to_penalize: Vec<_> = match other {
                             // Note: currenlty only InvalidColumn errors have index granularity,
@@ -815,7 +820,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         for (id, lookup) in self.single_block_lookups.iter_mut() {
             if lookup.awaiting_parent() == Some(block_root) {
                 lookup.resolve_awaiting_parent();
-                debug!(parent_root = ?block_root, id, block_root = ?lookup.block_root(),"Continuing child lookup");
+                debug!(
+                    parent_root = ?block_root,
+                    id,
+                    block_root = ?lookup.block_root(),
+                    "Continuing child lookup"
+                );
                 let result = lookup.continue_requests(cx);
                 lookup_results.push((*id, result));
             }
@@ -876,7 +886,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Ok(LookupResult::Pending) => true, // no action
             Ok(LookupResult::Completed) => {
                 if let Some(lookup) = self.single_block_lookups.remove(&id) {
-                    debug!(block = ?lookup.block_root(), id,"Dropping completed lookup");
+                    debug!(block = ?lookup.block_root(), id, "Dropping completed lookup");
                     metrics::inc_counter(&metrics::SYNC_LOOKUP_COMPLETED);
                     // Block imported, continue the requests of pending child blocks
                     self.continue_child_lookups(lookup.block_root(), cx);

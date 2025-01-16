@@ -927,7 +927,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             Err(reason) => {
-                debug!(%block_root,  %parent_root, reason, "Ignoring unknown parent request");
+                debug!(%block_root, %parent_root, reason, "Ignoring unknown parent request");
             }
         }
     }

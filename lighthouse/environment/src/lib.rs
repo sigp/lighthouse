@@ -22,6 +22,7 @@ use tracing::{error, info, warn};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::filter::LevelFilter;
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+
 #[cfg(target_family = "unix")]
 use {
     futures::Future,

@@ -293,7 +293,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
             match old_id {
                 Some(Some(old_id)) => debug!(old_id, %chain, "Switching finalized chains"),
-                None => debug!(%chain,"Syncing new finalized chain"),
+                None => debug!(%chain, "Syncing new finalized chain"),
                 Some(None) => {
                     // this is the same chain. We try to advance it.
                 }
@@ -420,7 +420,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             if is_outdated(&chain.target_head_slot, &chain.target_head_root)
                 || chain.available_peers() == 0
             {
-                debug!(%chain,"Purging out of finalized chain");
+                debug!(%chain, "Purging out of finalized chain");
                 Some((*id, chain.is_syncing(), RangeSyncType::Finalized))
             } else {
                 None

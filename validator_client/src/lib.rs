@@ -49,6 +49,7 @@ use validator_services::{
     sync_committee_service::SyncCommitteeService,
 };
 use validator_store::ValidatorStore;
+
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 

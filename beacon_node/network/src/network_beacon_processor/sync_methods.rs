@@ -164,7 +164,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         register_process_result_metrics(&result, metrics::BlockSource::Rpc, "block");
 
         // RPC block imported, regardless of process type
-
         match result.as_ref() {
             Ok(AvailabilityProcessingStatus::Imported(hash)) => {
                 info!(
@@ -451,7 +450,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             last_block_slot = end_slot,
                             imported_blocks,
                             error = %e.message,
-                            service = "sync", 
+                            service = "sync",
                             "Batch processing failed");
                         match e.peer_action {
                             Some(penalty) => BatchProcessResult::FaultyFailure {
@@ -496,8 +495,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     (_, Err(e)) => {
                         debug!(
                             batch_epoch = %epoch,
-                            first_block_slot = %start_slot.map_or("None".to_string(), |slot| slot.to_string()),
-                            last_block_slot = %end_slot.map_or("None".to_string(), |slot| slot.to_string()),
+                            first_block_slot = start_slot,
+                            last_block_slot = end_slot,
                             processed_blobs = n_blobs,
                             error = %e.message,
                             service = "sync",

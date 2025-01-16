@@ -572,7 +572,7 @@ impl<T: BeaconChainTypes> Router<T> {
         request_id: RequestId,
         status: StatusMessage,
     ) {
-        debug!( %peer_id, ?status, "Received Status Request");
+        debug!(%peer_id, ?status, "Received Status Request");
 
         // Say status back.
         self.network.send_response(
@@ -600,7 +600,7 @@ impl<T: BeaconChainTypes> Router<T> {
             AppRequestId::Sync(sync_id) => match sync_id {
                 id @ SyncRequestId::RangeBlockAndBlobs { .. } => id,
                 other => {
-                    crit!(request = ?other , "BlocksByRange response on incorrect request" );
+                    crit!(request = ?other, "BlocksByRange response on incorrect request");
                     return;
                 }
             },
@@ -804,7 +804,7 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
     fn inform_network(&mut self, msg: NetworkMessage<E>) {
         self.network_send
             .send(msg)
-            .unwrap_or_else(|e| warn!( error = %e,"Could not send message to the network service"))
+            .unwrap_or_else(|e| warn!(error = %e,"Could not send message to the network service"))
     }
 
     /// Sends a request to the network task.

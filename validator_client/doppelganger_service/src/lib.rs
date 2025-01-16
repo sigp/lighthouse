@@ -292,7 +292,6 @@ impl DoppelgangerService {
         let get_index = move |pubkey| validator_store.get_validator_index(&pubkey);
 
         // Define the `get_liveness` function as one that queries the beacon node API.
-
         let get_liveness = move |current_epoch, validator_indices| {
             beacon_node_liveness(beacon_nodes.clone(), current_epoch, validator_indices)
         };

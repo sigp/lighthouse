@@ -416,9 +416,9 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
             }
             Err(err) => {
                 debug!(
-                    error = ?err,
                     block_root = %self.block_root,
                     ?column_indexes,
+                    error = ?err,
                     "Sample download error"
                 );
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::FAILURE]);
@@ -493,7 +493,8 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
                         warn!(
-                            block_root = %self.block_root, column_index,
+                            block_root = %self.block_root,
+                            column_index,
                             "Active column sample request not found"
                         );
                         continue;
