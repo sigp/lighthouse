@@ -34,7 +34,7 @@ impl<E: EthSpec> Case for KZGVerifyCellKZGProofBatch<E> {
     }
 
     fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

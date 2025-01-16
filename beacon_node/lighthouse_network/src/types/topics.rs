@@ -41,8 +41,6 @@ pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
     GossipKind::LightClientOptimisticUpdate,
 ];
 
-pub const DENEB_CORE_TOPICS: [GossipKind; 0] = [];
-
 /// Returns the core topics associated with each fork that are new to the previous fork
 pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
     match fork_name {
@@ -56,11 +54,16 @@ pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
             for i in 0..spec.blob_sidecar_subnet_count {
                 deneb_blob_topics.push(GossipKind::BlobSidecar(i));
             }
-            let mut deneb_topics = DENEB_CORE_TOPICS.to_vec();
-            deneb_topics.append(&mut deneb_blob_topics);
-            deneb_topics
+            deneb_blob_topics
         }
-        ForkName::Electra => vec![],
+        ForkName::Electra => {
+            // All of electra blob topics are core topics
+            let mut electra_blob_topics = Vec::new();
+            for i in 0..spec.blob_sidecar_subnet_count_electra {
+                electra_blob_topics.push(GossipKind::BlobSidecar(i));
+            }
+            electra_blob_topics
+        }
         ForkName::Fulu => vec![],
     }
 }
@@ -88,7 +91,12 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         topics.extend(previous_fork_topics);
         current_fork = previous_fork;
     }
+    // Remove duplicates
     topics
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
@@ -467,16 +475,19 @@ mod tests {
         type E = MainnetEthSpec;
         let spec = E::default_spec();
         let mut all_topics = Vec::new();
+        let mut electra_core_topics = fork_core_topics::<E>(&ForkName::Electra, &spec);
         let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb, &spec);
+        all_topics.append(&mut electra_core_topics);
         all_topics.append(&mut deneb_core_topics);
         all_topics.extend(CAPELLA_CORE_TOPICS);
         all_topics.extend(ALTAIR_CORE_TOPICS);
         all_topics.extend(BASE_CORE_TOPICS);
 
         let latest_fork = *ForkName::list_all().last().unwrap();
-        assert_eq!(
-            core_topics_to_subscribe::<E>(latest_fork, &spec),
-            all_topics
-        );
+        let core_topics = core_topics_to_subscribe::<E>(latest_fork, &spec);
+        // Need to check all the topics exist in an order independent manner
+        for topic in all_topics {
+            assert!(core_topics.contains(&topic));
+        }
     }
 }

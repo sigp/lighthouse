@@ -128,58 +128,6 @@ impl<E: EthSpec> ExecutionPayload<E> {
             // Max size of variable length `transactions` field
             + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
     }
-
-    #[allow(clippy::arithmetic_side_effects)]
-    /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_capella_size() -> usize {
-        // Fixed part
-        ExecutionPayloadCapella::<E>::default().as_ssz_bytes().len()
-            // Max size of variable length `extra_data` field
-            + (E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
-            // Max size of variable length `transactions` field
-            + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
-            // Max size of variable length `withdrawals` field
-            + (E::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
-    }
-
-    #[allow(clippy::arithmetic_side_effects)]
-    /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_deneb_size() -> usize {
-        // Fixed part
-        ExecutionPayloadDeneb::<E>::default().as_ssz_bytes().len()
-            // Max size of variable length `extra_data` field
-            + (E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
-            // Max size of variable length `transactions` field
-            + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
-            // Max size of variable length `withdrawals` field
-            + (E::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
-    }
-
-    #[allow(clippy::arithmetic_side_effects)]
-    /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_electra_size() -> usize {
-        // Fixed part
-        ExecutionPayloadElectra::<E>::default().as_ssz_bytes().len()
-            // Max size of variable length `extra_data` field
-            + (E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
-            // Max size of variable length `transactions` field
-            + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
-            // Max size of variable length `withdrawals` field
-            + (E::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
-    }
-
-    #[allow(clippy::arithmetic_side_effects)]
-    /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_fulu_size() -> usize {
-        // Fixed part
-        ExecutionPayloadFulu::<E>::default().as_ssz_bytes().len()
-            // Max size of variable length `extra_data` field
-            + (E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
-            // Max size of variable length `transactions` field
-            + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
-            // Max size of variable length `withdrawals` field
-            + (E::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
-    }
 }
 
 impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayload<E> {

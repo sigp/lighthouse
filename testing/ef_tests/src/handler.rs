@@ -39,6 +39,10 @@ pub trait Handler {
             }
         }
 
+        // Run feature tests for future forks that are not yet added to `ForkName`.
+        // This runs tests in the directory named by the feature instead of the fork name.
+        // e.g. consensus-spec-tests/tests/general/[feature_name]/[runner_name]
+        // e.g. consensus-spec-tests/tests/general/peerdas/ssz_static
         for feature_name in FeatureName::list_all() {
             if self.is_enabled_for_feature(feature_name) {
                 self.run_for_feature(feature_name);
@@ -351,18 +355,18 @@ where
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        // This ensures we only run the tests **once** for `Eip7594`, using the types matching the
-        // correct fork, e.g. `Eip7594` uses SSZ types from `Deneb` as of spec test version
-        // `v1.5.0-alpha.8`, therefore the `Eip7594` tests should get included when testing Deneb types.
+        // This ensures we only run the tests **once** for the feature, using the types matching the
+        // correct fork, e.g. `Fulu` uses SSZ types from `Electra` fork as of spec test version
+        // `v1.5.0-beta.0`, therefore the `Fulu` tests should get included when testing Electra types.
         //
-        // e.g. Eip7594 test vectors are executed in the first line below, but excluded in the 2nd
+        // e.g. Fulu test vectors are executed in the first line below, but excluded in the 2nd
         // line when testing the type `AttestationElectra`:
         //
         // ```
         // SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
         // SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
         // ```
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
             && self.supported_forks.contains(&feature_name.fork_name())
     }
 }
@@ -386,7 +390,7 @@ where
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -411,7 +415,7 @@ where
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -870,10 +874,10 @@ impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct GetCustodyColumnsHandler<E>(PhantomData<E>);
+pub struct GetCustodyGroupsHandler<E>(PhantomData<E>);
 
-impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
-    type Case = cases::GetCustodyColumns<E>;
+impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
+    type Case = cases::GetCustodyGroups<E>;
 
     fn config_name() -> &'static str {
         E::name()
@@ -884,7 +888,27 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
     }
 
     fn handler_name(&self) -> String {
-        "get_custody_columns".into()
+        "get_custody_groups".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct ComputeColumnsForCustodyGroupHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> {
+    type Case = cases::ComputeColumnsForCustodyGroups<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "networking"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_columns_for_custody_group".into()
     }
 }
 
@@ -996,7 +1020,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Eip7594
+        feature_name == FeatureName::Fulu
     }
 }
 

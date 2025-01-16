@@ -13,12 +13,13 @@ mod bls_fast_aggregate_verify;
 mod bls_sign_msg;
 mod bls_verify_msg;
 mod common;
+mod compute_columns_for_custody_groups;
 mod epoch_processing;
 mod fork;
 mod fork_choice;
 mod genesis_initialization;
 mod genesis_validity;
-mod get_custody_columns;
+mod get_custody_groups;
 mod kzg_blob_to_kzg_commitment;
 mod kzg_compute_blob_kzg_proof;
 mod kzg_compute_cells_and_kzg_proofs;
@@ -49,11 +50,12 @@ pub use bls_fast_aggregate_verify::*;
 pub use bls_sign_msg::*;
 pub use bls_verify_msg::*;
 pub use common::SszStaticType;
+pub use compute_columns_for_custody_groups::*;
 pub use epoch_processing::*;
 pub use fork::ForkTest;
 pub use genesis_initialization::*;
 pub use genesis_validity::*;
-pub use get_custody_columns::*;
+pub use get_custody_groups::*;
 pub use kzg_blob_to_kzg_commitment::*;
 pub use kzg_compute_blob_kzg_proof::*;
 pub use kzg_compute_cells_and_kzg_proofs::*;
@@ -89,18 +91,18 @@ pub use transition::TransitionTest;
 ///     to return `true` for the feature in order for the feature test vector to be tested.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FeatureName {
-    Eip7594,
+    Fulu,
 }
 
 impl FeatureName {
     pub fn list_all() -> Vec<FeatureName> {
-        vec![FeatureName::Eip7594]
+        vec![FeatureName::Fulu]
     }
 
     /// `ForkName` to use when running the feature tests.
     pub fn fork_name(&self) -> ForkName {
         match self {
-            FeatureName::Eip7594 => ForkName::Deneb,
+            FeatureName::Fulu => ForkName::Electra,
         }
     }
 }
@@ -108,7 +110,7 @@ impl FeatureName {
 impl Display for FeatureName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FeatureName::Eip7594 => f.write_str("eip7594"),
+            FeatureName::Fulu => f.write_str("fulu"),
         }
     }
 }

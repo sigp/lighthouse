@@ -10,6 +10,7 @@ use beacon_chain::{
 use fork_choice::{
     ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
+use state_processing::state_advance::complete_state_advance;
 use std::fmt;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -172,6 +173,20 @@ impl ForkChoiceTest {
         let validators = self.harness.get_all_validators();
         loop {
             let slot = self.harness.get_current_slot();
+
+            // Skip slashed proposers, as we expect validators to get slashed in these tests.
+            // Presently `make_block` will panic if the proposer is slashed, so we just avoid
+            // calling it in this case.
+            complete_state_advance(&mut state, None, slot, &self.harness.spec).unwrap();
+            state.build_caches(&self.harness.spec).unwrap();
+            let proposer_index = state
+                .get_beacon_proposer_index(slot, &self.harness.chain.spec)
+                .unwrap();
+            if state.validators().get(proposer_index).unwrap().slashed {
+                self.harness.advance_slot();
+                continue;
+            }
+
             let (block_contents, state_) = self.harness.make_block(state, slot).await;
             state = state_;
             if !predicate(block_contents.0.message(), &state) {
@@ -196,17 +211,20 @@ impl ForkChoiceTest {
     }
 
     /// Apply `count` blocks to the chain (with attestations).
+    ///
+    /// Note that in the case of slashed validators, their proposals will be skipped and the chain
+    /// may be advanced by *more than* `count` slots.
     pub async fn apply_blocks(self, count: usize) -> Self {
-        self.harness.advance_slot();
-        self.harness
-            .extend_chain(
-                count,
-                BlockStrategy::OnCanonicalHead,
-                AttestationStrategy::AllValidators,
-            )
-            .await;
-
-        self
+        // Use `Self::apply_blocks_while` which gracefully handles slashed validators.
+        let mut blocks_applied = 0;
+        self.apply_blocks_while(|_, _| {
+            // Blocks are applied after the predicate is called, so continue applying the block if
+            // less than *or equal* to the count.
+            blocks_applied += 1;
+            blocks_applied <= count
+        })
+        .await
+        .unwrap()
     }
 
     /// Slash a validator from the previous epoch committee.
@@ -244,6 +262,7 @@ impl ForkChoiceTest {
 
     /// Apply `count` blocks to the chain (without attestations).
     pub async fn apply_blocks_without_new_attestations(self, count: usize) -> Self {
+        // This function does not gracefully handle slashed proposers, but may need to in future.
         self.harness.advance_slot();
         self.harness
             .extend_chain(
@@ -1226,14 +1245,6 @@ async fn progressive_balances_cache_attester_slashing() {
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
         .unwrap()
-        // Note: This test may fail if the shuffling used changes, right now it re-runs with
-        // deterministic shuffling. A shuffling change my cause the slashed proposer to propose
-        // again in the next epoch, which results in a block processing failure
-        // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
-        // the slot in this scenario rather than panic-ing. The same applies to
-        // `progressive_balances_cache_proposer_slashing`.
-        .apply_blocks(2)
-        .await
         .add_previous_epoch_attester_slashing()
         .await
         // expect fork choice to import blocks successfully after a previous epoch attester is
@@ -1244,7 +1255,7 @@ async fn progressive_balances_cache_attester_slashing() {
         // expect fork choice to import another epoch of blocks successfully - the slashed
         // attester's balance should be excluded from the current epoch total balance in
         // `ProgressiveBalancesCache` as well.
-        .apply_blocks(MainnetEthSpec::slots_per_epoch() as usize)
+        .apply_blocks(E::slots_per_epoch() as usize)
         .await;
 }
 
@@ -1257,15 +1268,7 @@ async fn progressive_balances_cache_proposer_slashing() {
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
         .await
         .unwrap()
-        // Note: This test may fail if the shuffling used changes, right now it re-runs with
-        // deterministic shuffling. A shuffling change may cause the slashed proposer to propose
-        // again in the next epoch, which results in a block processing failure
-        // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
-        // the slot in this scenario rather than panic-ing. The same applies to
-        // `progressive_balances_cache_attester_slashing`.
-        .apply_blocks(1)
-        .await
-        .add_previous_epoch_proposer_slashing(MainnetEthSpec::slots_per_epoch())
+        .add_previous_epoch_proposer_slashing(E::slots_per_epoch())
         .await
         // expect fork choice to import blocks successfully after a previous epoch proposer is
         // slashed, i.e. the slashed proposer's balance is correctly excluded from
@@ -1275,6 +1278,6 @@ async fn progressive_balances_cache_proposer_slashing() {
         // expect fork choice to import another epoch of blocks successfully - the slashed
         // proposer's balance should be excluded from the current epoch total balance in
         // `ProgressiveBalancesCache` as well.
-        .apply_blocks(MainnetEthSpec::slots_per_epoch() as usize)
+        .apply_blocks(E::slots_per_epoch() as usize)
         .await;
 }

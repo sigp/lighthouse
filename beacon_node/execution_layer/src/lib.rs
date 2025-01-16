@@ -157,6 +157,7 @@ pub enum Error {
         payload: ExecutionBlockHash,
         transactions_root: Hash256,
     },
+    ZeroLengthTransaction,
     PayloadBodiesByRangeNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
