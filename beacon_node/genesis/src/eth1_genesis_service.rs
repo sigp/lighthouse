@@ -270,7 +270,7 @@ impl Eth1GenesisService {
 
             // Ignore any block that has already been processed or update the highest processed
             // block.
-            if highest_processed_block.map_or(false, |highest| highest >= block.number) {
+            if highest_processed_block.is_some_and(|highest| highest >= block.number) {
                 continue;
             } else {
                 self.stats

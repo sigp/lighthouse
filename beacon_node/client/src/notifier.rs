@@ -4,6 +4,7 @@ use beacon_chain::{
     capella_readiness::CapellaReadiness,
     deneb_readiness::DenebReadiness,
     electra_readiness::ElectraReadiness,
+    fulu_readiness::FuluReadiness,
     BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
 use lighthouse_network::{types::SyncState, NetworkGlobals};
@@ -197,7 +198,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
 
                 let speed = speedo.slots_per_second();
-                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
 
                 if display_speed {
                     info!(
@@ -233,7 +234,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
 
                 let speed = speedo.slots_per_second();
-                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
 
                 if display_speed {
                     info!(
@@ -315,6 +316,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             capella_readiness_logging(current_slot, &beacon_chain, &log).await;
             deneb_readiness_logging(current_slot, &beacon_chain, &log).await;
             electra_readiness_logging(current_slot, &beacon_chain, &log).await;
+            fulu_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -339,9 +341,7 @@ async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
         .message()
         .body()
         .execution_payload()
-        .map_or(false, |payload| {
-            payload.parent_hash() != ExecutionBlockHash::zero()
-        });
+        .is_ok_and(|payload| payload.parent_hash() != ExecutionBlockHash::zero());
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -582,6 +582,62 @@ async fn electra_readiness_logging<T: BeaconChainTypes>(
         readiness => warn!(
             log,
             "Not ready for Electra";
+            "hint" => "try updating the execution endpoint",
+            "info" => %readiness,
+        ),
+    }
+}
+
+/// Provides some helpful logging to users to indicate if their node is ready for Fulu.
+async fn fulu_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    let fulu_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_state
+        .fork_name_unchecked()
+        .fulu_enabled();
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if fulu_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_fulu(current_slot)
+    {
+        return;
+    }
+
+    if fulu_completed && !has_execution_layer {
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need a Fulu enabled execution engine to validate blocks."
+        );
+        return;
+    }
+
+    match beacon_chain.check_fulu_readiness().await {
+        FuluReadiness::Ready => {
+            info!(
+                log,
+                "Ready for Fulu";
+                "info" => "ensure the execution endpoint is updated to the latest Fulu release"
+            )
+        }
+        readiness @ FuluReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                log,
+                "Not ready for Fulu";
+                "hint" => "the execution endpoint may be offline",
+                "info" => %readiness,
+            )
+        }
+        readiness => warn!(
+            log,
+            "Not ready for Fulu";
             "hint" => "try updating the execution endpoint",
             "info" => %readiness,
         ),

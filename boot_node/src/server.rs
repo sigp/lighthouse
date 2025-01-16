@@ -136,8 +136,8 @@ pub async fn run<E: EthSpec>(
                     "active_sessions" => metrics.active_sessions,
                     "requests/s" => format_args!("{:.2}", metrics.unsolicited_requests_per_second),
                     "ipv4_nodes" => ipv4_only_reachable,
-                    "ipv6_nodes" => ipv6_only_reachable,
-                    "ipv6_and_ipv4_nodes" => ipv4_ipv6_reachable,
+                    "ipv6_only_nodes" => ipv6_only_reachable,
+                    "dual_stack_nodes" => ipv4_ipv6_reachable,
                     "unreachable_nodes" => unreachable_nodes,
                 );
 

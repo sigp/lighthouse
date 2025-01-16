@@ -303,7 +303,7 @@ where
     }
 }
 
-impl<'a, E, Error> BlockReplayer<'a, E, Error, StateRootIterDefault<Error>>
+impl<E, Error> BlockReplayer<'_, E, Error, StateRootIterDefault<Error>>
 where
     E: EthSpec,
     Error: From<BlockReplayError>,

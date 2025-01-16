@@ -29,8 +29,7 @@ use std::{
     time::Duration,
 };
 
-use futures::StreamExt;
-use futures_ticker::Ticker;
+use futures::FutureExt;
 use hashlink::LinkedHashMap;
 use prometheus_client::registry::Registry;
 use rand::{seq::SliceRandom, thread_rng};
@@ -74,6 +73,7 @@ use super::{
     types::RpcOut,
 };
 use super::{PublishError, SubscriptionError, TopicScoreParams, ValidationError};
+use futures_timer::Delay;
 use quick_protobuf::{MessageWrite, Writer};
 use std::{cmp::Ordering::Equal, fmt::Debug};
 
@@ -301,7 +301,7 @@ pub struct Behaviour<D = IdentityTransform, F = AllowAllSubscriptionFilter> {
     mcache: MessageCache,
 
     /// Heartbeat interval stream.
-    heartbeat: Ticker,
+    heartbeat: Delay,
 
     /// Number of heartbeats since the beginning of time; this allows us to amortize some resource
     /// clean up -- eg backoff clean up.
@@ -318,7 +318,7 @@ pub struct Behaviour<D = IdentityTransform, F = AllowAllSubscriptionFilter> {
     outbound_peers: HashSet<PeerId>,
 
     /// Stores optional peer score data together with thresholds and decay interval.
-    peer_score: Option<(PeerScore, PeerScoreThresholds, Ticker)>,
+    peer_score: Option<(PeerScore, PeerScoreThresholds, Delay)>,
 
     /// Counts the number of `IHAVE` received from each peer since the last heartbeat.
     count_received_ihave: HashMap<PeerId, usize>,
@@ -466,10 +466,7 @@ where
                 config.backoff_slack(),
             ),
             mcache: MessageCache::new(config.history_gossip(), config.history_length()),
-            heartbeat: Ticker::new_with_next(
-                config.heartbeat_interval(),
-                config.heartbeat_initial_delay(),
-            ),
+            heartbeat: Delay::new(config.heartbeat_interval() + config.heartbeat_initial_delay()),
             heartbeat_ticks: 0,
             px_peers: HashSet::new(),
             outbound_peers: HashSet::new(),
@@ -682,9 +679,15 @@ where
                 // Gossipsub peers
                 None => {
                     tracing::debug!(topic=%topic_hash, "Topic not in the mesh");
+                    // `fanout_peers` is always non-empty if it's `Some`.
+                    let fanout_peers = self
+                        .fanout
+                        .get(&topic_hash)
+                        .map(|peers| if peers.is_empty() { None } else { Some(peers) })
+                        .unwrap_or(None);
                     // If we have fanout peers add them to the map.
-                    if self.fanout.contains_key(&topic_hash) {
-                        for peer in self.fanout.get(&topic_hash).expect("Topic must exist") {
+                    if let Some(peers) = fanout_peers {
+                        for peer in peers {
                             recipient_peers.insert(*peer);
                         }
                     } else {
@@ -938,7 +941,7 @@ where
             return Err("Peer score set twice".into());
         }
 
-        let interval = Ticker::new(params.decay_interval);
+        let interval = Delay::new(params.decay_interval);
         let peer_score = PeerScore::new_with_message_delivery_time_callback(params, callback);
         self.peer_score = Some((peer_score, threshold, interval));
         Ok(())
@@ -1208,7 +1211,7 @@ where
     }
 
     fn score_below_threshold_from_scores(
-        peer_score: &Option<(PeerScore, PeerScoreThresholds, Ticker)>,
+        peer_score: &Option<(PeerScore, PeerScoreThresholds, Delay)>,
         peer_id: &PeerId,
         threshold: impl Fn(&PeerScoreThresholds) -> f64,
     ) -> (bool, f64) {
@@ -1385,7 +1388,7 @@ where
                         "IWANT: Peer has asked for message too many times; ignoring request"
                     );
                 } else if let Some(peer) = &mut self.connected_peers.get_mut(peer_id) {
-                    if peer.dont_send.get(&id).is_some() {
+                    if peer.dont_send_received.get(&id).is_some() {
                         tracing::debug!(%peer_id, message=%id, "Peer already sent IDONTWANT for this message");
                         continue;
                     }
@@ -1767,8 +1770,7 @@ where
         // reject messages claiming to be from ourselves but not locally published
         let self_published = !self.config.allow_self_origin()
             && if let Some(own_id) = self.publish_config.get_own_id() {
-                own_id != propagation_source
-                    && raw_message.source.as_ref().map_or(false, |s| s == own_id)
+                own_id != propagation_source && raw_message.source.as_ref() == Some(own_id)
             } else {
                 self.published_message_ids.contains(msg_id)
             };
@@ -1816,6 +1818,15 @@ where
 
         // Calculate the message id on the transformed data.
         let msg_id = self.config.message_id(&message);
+
+        if let Some(metrics) = self.metrics.as_mut() {
+            if let Some(peer) = self.connected_peers.get_mut(propagation_source) {
+                // Record if we received a message that we already sent a IDONTWANT for to the peer
+                if peer.dont_send_sent.contains_key(&msg_id) {
+                    metrics.register_idontwant_messages_ignored_per_topic(&raw_message.topic);
+                }
+            }
+        }
 
         // Check the validity of the message
         // Peers get penalized if this message is invalid. We don't add it to the duplicate cache
@@ -2512,11 +2523,19 @@ where
 
         // Flush stale IDONTWANTs.
         for peer in self.connected_peers.values_mut() {
-            while let Some((_front, instant)) = peer.dont_send.front() {
+            while let Some((_front, instant)) = peer.dont_send_received.front() {
                 if (*instant + IDONTWANT_TIMEOUT) >= Instant::now() {
                     break;
                 } else {
-                    peer.dont_send.pop_front();
+                    peer.dont_send_received.pop_front();
+                }
+            }
+            // If metrics are not enabled, this queue would be empty.
+            while let Some((_front, instant)) = peer.dont_send_sent.front() {
+                if (*instant + IDONTWANT_TIMEOUT) >= Instant::now() {
+                    break;
+                } else {
+                    peer.dont_send_sent.pop_front();
                 }
             }
         }
@@ -2751,6 +2770,16 @@ where
                     .entry(*peer_id)
                     .or_default()
                     .non_priority += 1;
+                return;
+            }
+            // IDONTWANT sent successfully.
+            if let Some(metrics) = self.metrics.as_mut() {
+                peer.dont_send_sent.insert(msg_id.clone(), Instant::now());
+                // Don't exceed capacity.
+                if peer.dont_send_sent.len() > IDONTWANT_CAP {
+                    peer.dont_send_sent.pop_front();
+                }
+                metrics.register_idontwant_messages_sent_per_topic(&message.topic);
             }
         }
     }
@@ -2808,7 +2837,7 @@ where
         if !recipient_peers.is_empty() {
             for peer_id in recipient_peers.iter() {
                 if let Some(peer) = self.connected_peers.get_mut(peer_id) {
-                    if peer.dont_send.get(msg_id).is_some() {
+                    if peer.dont_send_received.get(msg_id).is_some() {
                         tracing::debug!(%peer_id, message=%msg_id, "Peer doesn't want message");
                         continue;
                     }
@@ -3162,7 +3191,8 @@ where
                 connections: vec![],
                 sender: RpcSender::new(self.config.connection_handler_queue_len()),
                 topics: Default::default(),
-                dont_send: LinkedHashMap::new(),
+                dont_send_received: LinkedHashMap::new(),
+                dont_send_sent: LinkedHashMap::new(),
             });
         // Add the new connection
         connected_peer.connections.push(connection_id);
@@ -3194,7 +3224,8 @@ where
                 connections: vec![],
                 sender: RpcSender::new(self.config.connection_handler_queue_len()),
                 topics: Default::default(),
-                dont_send: LinkedHashMap::new(),
+                dont_send_received: LinkedHashMap::new(),
+                dont_send_sent: LinkedHashMap::new(),
             });
         // Add the new connection
         connected_peer.connections.push(connection_id);
@@ -3366,10 +3397,10 @@ where
                                 metrics.register_idontwant_bytes(idontwant_size);
                             }
                             for message_id in message_ids {
-                                peer.dont_send.insert(message_id, Instant::now());
+                                peer.dont_send_received.insert(message_id, Instant::now());
                                 // Don't exceed capacity.
-                                if peer.dont_send.len() > IDONTWANT_CAP {
-                                    peer.dont_send.pop_front();
+                                if peer.dont_send_received.len() > IDONTWANT_CAP {
+                                    peer.dont_send_received.pop_front();
                                 }
                             }
                         }
@@ -3398,14 +3429,16 @@ where
         }
 
         // update scores
-        if let Some((peer_score, _, interval)) = &mut self.peer_score {
-            while let Poll::Ready(Some(_)) = interval.poll_next_unpin(cx) {
+        if let Some((peer_score, _, delay)) = &mut self.peer_score {
+            if delay.poll_unpin(cx).is_ready() {
                 peer_score.refresh_scores();
+                delay.reset(peer_score.params.decay_interval);
             }
         }
 
-        while let Poll::Ready(Some(_)) = self.heartbeat.poll_next_unpin(cx) {
+        if self.heartbeat.poll_unpin(cx).is_ready() {
             self.heartbeat();
+            self.heartbeat.reset(self.config.heartbeat_interval());
         }
 
         Poll::Pending

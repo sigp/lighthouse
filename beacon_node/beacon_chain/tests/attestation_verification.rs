@@ -431,10 +431,12 @@ impl GossipTester {
             .chain
             .verify_aggregated_attestation_for_gossip(&aggregate)
             .err()
-            .expect(&format!(
-                "{} should error during verify_aggregated_attestation_for_gossip",
-                desc
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} should error during verify_aggregated_attestation_for_gossip",
+                    desc
+                )
+            });
         inspect_err(&self, err);
 
         /*
@@ -449,10 +451,12 @@ impl GossipTester {
             .unwrap();
 
         assert_eq!(results.len(), 2);
-        let batch_err = results.pop().unwrap().err().expect(&format!(
-            "{} should error during batch_verify_aggregated_attestations_for_gossip",
-            desc
-        ));
+        let batch_err = results.pop().unwrap().err().unwrap_or_else(|| {
+            panic!(
+                "{} should error during batch_verify_aggregated_attestations_for_gossip",
+                desc
+            )
+        });
         inspect_err(&self, batch_err);
 
         self
@@ -475,10 +479,12 @@ impl GossipTester {
             .chain
             .verify_unaggregated_attestation_for_gossip(&attn, Some(subnet_id))
             .err()
-            .expect(&format!(
-                "{} should error during verify_unaggregated_attestation_for_gossip",
-                desc
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} should error during verify_unaggregated_attestation_for_gossip",
+                    desc
+                )
+            });
         inspect_err(&self, err);
 
         /*
@@ -496,10 +502,12 @@ impl GossipTester {
             )
             .unwrap();
         assert_eq!(results.len(), 2);
-        let batch_err = results.pop().unwrap().err().expect(&format!(
-            "{} should error during batch_verify_unaggregated_attestations_for_gossip",
-            desc
-        ));
+        let batch_err = results.pop().unwrap().err().unwrap_or_else(|| {
+            panic!(
+                "{} should error during batch_verify_unaggregated_attestations_for_gossip",
+                desc
+            )
+        });
         inspect_err(&self, batch_err);
 
         self
@@ -816,7 +824,7 @@ async fn aggregated_gossip_verification() {
                 let (index, sk) = tester.non_aggregator();
                 *a = SignedAggregateAndProof::from_aggregate(
                     index as u64,
-                    tester.valid_aggregate.message().aggregate().clone(),
+                    tester.valid_aggregate.message().aggregate(),
                     None,
                     &sk,
                     &chain.canonical_head.cached_head().head_fork(),

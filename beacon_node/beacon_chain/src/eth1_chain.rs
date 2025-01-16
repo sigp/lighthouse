@@ -107,8 +107,7 @@ fn get_sync_status<E: EthSpec>(
 
         // Determine how many voting periods are contained in distance between
         // now and genesis, rounding up.
-        let voting_periods_past =
-            (seconds_till_genesis + voting_period_duration - 1) / voting_period_duration;
+        let voting_periods_past = seconds_till_genesis.div_ceil(voting_period_duration);
 
         // Return the start time of the current voting period*.
         //
@@ -154,7 +153,7 @@ fn get_sync_status<E: EthSpec>(
     // Lighthouse is "cached and ready" when it has cached enough blocks to cover the start of the
     // current voting period.
     let lighthouse_is_cached_and_ready =
-        latest_cached_block_timestamp.map_or(false, |t| t >= voting_target_timestamp);
+        latest_cached_block_timestamp.is_some_and(|t| t >= voting_target_timestamp);
 
     Some(Eth1SyncStatusData {
         head_block_number,

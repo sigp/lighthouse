@@ -13,7 +13,7 @@ use types::{
     AttestationRef, BeaconCommittee, BeaconState, BeaconStateError, BlindedPayload, ChainSpec,
     Epoch, EthSpec, Hash256, OwnedBeaconCommittee, RelativeEpoch, SignedBeaconBlock, Slot,
 };
-use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
+use warp_utils::reject::{custom_bad_request, custom_server_error, unhandled_error};
 
 /// Load blocks from block roots in chunks to reduce load on memory.
 const BLOCK_ROOT_CHUNK_SIZE: usize = 100;
@@ -263,9 +263,9 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
     // Load block roots.
     let mut block_roots: Vec<Hash256> = chain
         .forwards_iter_block_roots_until(start_slot_of_prior_epoch, end_slot)
-        .map_err(beacon_chain_error)?
+        .map_err(unhandled_error)?
         .collect::<Result<Vec<(Hash256, Slot)>, _>>()
-        .map_err(beacon_chain_error)?
+        .map_err(unhandled_error)?
         .iter()
         .map(|(root, _)| *root)
         .collect();
@@ -280,7 +280,7 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
         .and_then(|maybe_block| {
             maybe_block.ok_or(BeaconChainError::MissingBeaconBlock(*first_block_root))
         })
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error)?;
 
     // Load state for block replay.
     let starting_state_root = first_block.state_root();
@@ -290,7 +290,7 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
         .and_then(|maybe_state| {
             maybe_state.ok_or(BeaconChainError::MissingBeaconState(starting_state_root))
         })
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error)?;
 
     // Initialize response vector.
     let mut response = Vec::new();
@@ -392,7 +392,7 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
                     .and_then(|maybe_block| {
                         maybe_block.ok_or(BeaconChainError::MissingBeaconBlock(*root))
                     })
-                    .map_err(beacon_chain_error)
+                    .map_err(unhandled_error)
             })
             .collect::<Result<Vec<_>, _>>()?;
 

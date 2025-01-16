@@ -57,18 +57,18 @@ async fn el_syncing_then_synced() {
     mock_el.el.upcheck().await;
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, false);
-    assert_eq!(api_response.is_optimistic, false);
-    assert_eq!(api_response.is_syncing, false);
+    assert!(!api_response.el_offline);
+    assert!(!api_response.is_optimistic);
+    assert!(!api_response.is_syncing);
 
     // EL synced
     mock_el.server.set_syncing_response(Ok(false));
     mock_el.el.upcheck().await;
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, false);
-    assert_eq!(api_response.is_optimistic, false);
-    assert_eq!(api_response.is_syncing, false);
+    assert!(!api_response.el_offline);
+    assert!(!api_response.is_optimistic);
+    assert!(!api_response.is_syncing);
 }
 
 /// Check `syncing` endpoint when the EL is offline (errors on upcheck).
@@ -85,9 +85,9 @@ async fn el_offline() {
     mock_el.el.upcheck().await;
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, true);
-    assert_eq!(api_response.is_optimistic, false);
-    assert_eq!(api_response.is_syncing, false);
+    assert!(api_response.el_offline);
+    assert!(!api_response.is_optimistic);
+    assert!(!api_response.is_syncing);
 }
 
 /// Check `syncing` endpoint when the EL errors on newPaylod but is not fully offline.
@@ -128,9 +128,9 @@ async fn el_error_on_new_payload() {
 
     // The EL should now be *offline* according to the API.
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, true);
-    assert_eq!(api_response.is_optimistic, false);
-    assert_eq!(api_response.is_syncing, false);
+    assert!(api_response.el_offline);
+    assert!(!api_response.is_optimistic);
+    assert!(!api_response.is_syncing);
 
     // Processing a block successfully should remove the status.
     mock_el.server.set_new_payload_status(
@@ -144,9 +144,9 @@ async fn el_error_on_new_payload() {
     harness.process_block_result((block, blobs)).await.unwrap();
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, false);
-    assert_eq!(api_response.is_optimistic, false);
-    assert_eq!(api_response.is_syncing, false);
+    assert!(!api_response.el_offline);
+    assert!(!api_response.is_optimistic);
+    assert!(!api_response.is_syncing);
 }
 
 /// Check `node health` endpoint when the EL is offline.

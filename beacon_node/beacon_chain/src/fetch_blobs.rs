@@ -18,11 +18,11 @@ use slog::{debug, error, o, Logger};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::oneshot;
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::{
-    BeaconStateError, BlobSidecar, DataColumnSidecar, DataColumnSidecarList, EthSpec, FullPayload,
-    Hash256, SignedBeaconBlock, SignedBeaconBlockHeader,
+    BeaconStateError, BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockHeader,
 };
 
 pub enum BlobsOrDataColumns<T: BeaconChainTypes> {
@@ -112,6 +112,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         response,
         signed_block_header,
         &kzg_commitments_proof,
+        &chain.spec,
     )?;
 
     let num_fetched_blobs = fixed_blob_sidecar_list
@@ -212,9 +213,9 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
     blobs: FixedBlobSidecarList<T::EthSpec>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
     log: Logger,
-) -> Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
+) -> oneshot::Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
     let chain_cloned = chain.clone();
-    let (data_columns_sender, data_columns_receiver) = tokio::sync::mpsc::channel(1);
+    let (data_columns_sender, data_columns_receiver) = oneshot::channel();
 
     chain.task_executor.spawn_blocking(
         move || {
@@ -247,7 +248,7 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
                 }
             };
 
-            if let Err(e) = data_columns_sender.try_send(all_data_columns.clone()) {
+            if let Err(e) = data_columns_sender.send(all_data_columns.clone()) {
                 error!(log, "Failed to send computed data columns"; "error" => ?e);
             };
 
@@ -275,8 +276,11 @@ fn build_blob_sidecars<E: EthSpec>(
     response: Vec<Option<BlobAndProofV1<E>>>,
     signed_block_header: SignedBeaconBlockHeader,
     kzg_commitments_inclusion_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+    spec: &ChainSpec,
 ) -> Result<FixedBlobSidecarList<E>, FetchEngineBlobError> {
-    let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
+    let epoch = block.epoch();
+    let mut fixed_blob_sidecar_list =
+        FixedBlobSidecarList::default(spec.max_blobs_per_block(epoch) as usize);
     for (index, blob_and_proof) in response
         .into_iter()
         .enumerate()

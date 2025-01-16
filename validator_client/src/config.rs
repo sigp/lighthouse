@@ -17,8 +17,8 @@ use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
-use types::GRAFFITI_BYTES_LEN;
-use validator_http_api;
+use types::{Address, GRAFFITI_BYTES_LEN};
+use validator_http_api::{self, PK_FILENAME};
 use validator_http_metrics;
 use validator_store::Config as ValidatorStoreConfig;
 
@@ -295,6 +295,14 @@ impl Config {
         config.http_api.allow_keystore_export = validator_client_config.http_allow_keystore_export;
         config.http_api.store_passwords_in_secrets_dir =
             validator_client_config.http_store_passwords_in_secrets_dir;
+
+        if let Some(http_token_path) = validator_client_config.http_token_path {
+            config.http_api.http_token_path = PathBuf::from(http_token_path);
+        } else {
+            // For backward compatibility, default to the path under the validator dir if not provided.
+            config.http_api.http_token_path = config.validator_dir.join(PK_FILENAME);
+        }
+
         /*
          * Prometheus metrics HTTP server
          */

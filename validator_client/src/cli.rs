@@ -239,6 +239,15 @@ pub struct ValidatorClient {
     )]
     pub http_store_passwords_in_secrets_dir: bool,
 
+    #[clap(
+        long,
+        requires = "http",
+        help = "Path to file containing the HTTP API token for validator client authentication. \
+                If not specified, defaults to {validators-dir}/api-token.txt.",
+        display_order = 0,
+    )]
+    pub http_token_path: Option<String>,
+
     /* Prometheus metrics HTTP server related arguments */
     #[clap(
         long,

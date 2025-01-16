@@ -1,7 +1,8 @@
 use crate::test_utils::TestRandom;
-use crate::{ConsolidationRequest, DepositRequest, EthSpec, WithdrawalRequest};
+use crate::{ConsolidationRequest, DepositRequest, EthSpec, Hash256, WithdrawalRequest};
 use alloy_primitives::Bytes;
 use derivative::Derivative;
+use ethereum_hashing::{DynamicContext, Sha256Context};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -42,10 +43,72 @@ impl<E: EthSpec> ExecutionRequests<E> {
     /// Returns the encoding according to EIP-7685 to send
     /// to the execution layer over the engine api.
     pub fn get_execution_requests_list(&self) -> Vec<Bytes> {
-        let deposit_bytes = Bytes::from(self.deposits.as_ssz_bytes());
-        let withdrawal_bytes = Bytes::from(self.withdrawals.as_ssz_bytes());
-        let consolidation_bytes = Bytes::from(self.consolidations.as_ssz_bytes());
-        vec![deposit_bytes, withdrawal_bytes, consolidation_bytes]
+        let mut requests_list = Vec::new();
+        if !self.deposits.is_empty() {
+            requests_list.push(Bytes::from_iter(
+                [RequestType::Deposit.to_u8()]
+                    .into_iter()
+                    .chain(self.deposits.as_ssz_bytes()),
+            ));
+        }
+        if !self.withdrawals.is_empty() {
+            requests_list.push(Bytes::from_iter(
+                [RequestType::Withdrawal.to_u8()]
+                    .into_iter()
+                    .chain(self.withdrawals.as_ssz_bytes()),
+            ));
+        }
+        if !self.consolidations.is_empty() {
+            requests_list.push(Bytes::from_iter(
+                [RequestType::Consolidation.to_u8()]
+                    .into_iter()
+                    .chain(self.consolidations.as_ssz_bytes()),
+            ));
+        }
+        requests_list
+    }
+
+    /// Generate the execution layer `requests_hash` based on EIP-7685.
+    ///
+    /// `sha256(sha256(requests_0) ++ sha256(requests_1) ++ ...)`
+    pub fn requests_hash(&self) -> Hash256 {
+        let mut hasher = DynamicContext::new();
+
+        for request in self.get_execution_requests_list().iter() {
+            let mut request_hasher = DynamicContext::new();
+            request_hasher.update(request);
+            let request_hash = request_hasher.finalize();
+
+            hasher.update(&request_hash);
+        }
+
+        hasher.finalize().into()
+    }
+}
+
+/// The prefix types for `ExecutionRequest` objects.
+#[derive(Debug, Copy, Clone)]
+pub enum RequestType {
+    Deposit,
+    Withdrawal,
+    Consolidation,
+}
+
+impl RequestType {
+    pub fn from_u8(prefix: u8) -> Option<Self> {
+        match prefix {
+            0 => Some(Self::Deposit),
+            1 => Some(Self::Withdrawal),
+            2 => Some(Self::Consolidation),
+            _ => None,
+        }
+    }
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Self::Deposit => 0,
+            Self::Withdrawal => 1,
+            Self::Consolidation => 2,
+        }
     }
 }
 

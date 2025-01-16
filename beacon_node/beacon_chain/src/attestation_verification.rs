@@ -306,7 +306,7 @@ pub struct VerifiedAggregatedAttestation<'a, T: BeaconChainTypes> {
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
-impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
+impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<'_, T> {
     pub fn into_indexed_attestation(self) -> IndexedAttestation<T::EthSpec> {
         self.indexed_attestation
     }
@@ -319,7 +319,7 @@ pub struct VerifiedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
     subnet_id: SubnetId,
 }
 
-impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
+impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'_, T> {
     pub fn into_indexed_attestation(self) -> IndexedAttestation<T::EthSpec> {
         self.indexed_attestation
     }
@@ -327,7 +327,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
 
 /// Custom `Clone` implementation is to avoid the restrictive trait bounds applied by the usual derive
 /// macro.
-impl<'a, T: BeaconChainTypes> Clone for IndexedUnaggregatedAttestation<'a, T> {
+impl<T: BeaconChainTypes> Clone for IndexedUnaggregatedAttestation<'_, T> {
     fn clone(&self) -> Self {
         Self {
             attestation: self.attestation,
@@ -353,7 +353,7 @@ pub trait VerifiedAttestation<T: BeaconChainTypes>: Sized {
     }
 }
 
-impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttestation<'a, T> {
+impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttestation<'_, T> {
     fn attestation(&self) -> AttestationRef<T::EthSpec> {
         self.attestation()
     }
@@ -363,7 +363,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttes
     }
 }
 
-impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregatedAttestation<'a, T> {
+impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregatedAttestation<'_, T> {
     fn attestation(&self) -> AttestationRef<T::EthSpec> {
         self.attestation
     }

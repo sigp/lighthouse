@@ -53,8 +53,8 @@ pub struct StateRootsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore
     inner: RootsIterator<'a, E, Hot, Cold>,
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Clone
-    for StateRootsIterator<'a, E, Hot, Cold>
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Clone
+    for StateRootsIterator<'_, E, Hot, Cold>
 {
     fn clone(&self) -> Self {
         Self {
@@ -77,8 +77,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> StateRootsIterator<'
     }
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for StateRootsIterator<'a, E, Hot, Cold>
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for StateRootsIterator<'_, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot), Error>;
 
@@ -101,8 +101,8 @@ pub struct BlockRootsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore
     inner: RootsIterator<'a, E, Hot, Cold>,
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Clone
-    for BlockRootsIterator<'a, E, Hot, Cold>
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Clone
+    for BlockRootsIterator<'_, E, Hot, Cold>
 {
     fn clone(&self) -> Self {
         Self {
@@ -136,8 +136,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BlockRootsIterator<'
     }
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for BlockRootsIterator<'a, E, Hot, Cold>
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for BlockRootsIterator<'_, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot), Error>;
 
@@ -155,9 +155,7 @@ pub struct RootsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> 
     slot: Slot,
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Clone
-    for RootsIterator<'a, E, Hot, Cold>
-{
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Clone for RootsIterator<'_, E, Hot, Cold> {
     fn clone(&self) -> Self {
         Self {
             store: self.store,
@@ -232,8 +230,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> RootsIterator<'a, E,
     }
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for RootsIterator<'a, E, Hot, Cold>
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for RootsIterator<'_, E, Hot, Cold>
 {
     /// (block_root, state_root, slot)
     type Item = Result<(Hash256, Hash256, Slot), Error>;
@@ -295,8 +293,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for ParentRootBlockIterator<'a, E, Hot, Cold>
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for ParentRootBlockIterator<'_, E, Hot, Cold>
 {
     type Item = Result<(Hash256, SignedBeaconBlock<E, BlindedPayload<E>>), Error>;
 
@@ -336,8 +334,8 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BlockIterator<'a, E,
     }
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for BlockIterator<'a, E, Hot, Cold>
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for BlockIterator<'_, E, Hot, Cold>
 {
     type Item = Result<SignedBeaconBlock<E, BlindedPayload<E>>, Error>;
 

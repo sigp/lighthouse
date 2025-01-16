@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, DepositData, Epoch,
-    EthSpec, FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec,
+    FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -38,14 +38,15 @@ pub struct Validator {
 impl Validator {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn from_deposit(
-        deposit_data: &DepositData,
+        pubkey: PublicKeyBytes,
+        withdrawal_credentials: Hash256,
         amount: u64,
         fork_name: ForkName,
         spec: &ChainSpec,
     ) -> Self {
         let mut validator = Validator {
-            pubkey: deposit_data.pubkey,
-            withdrawal_credentials: deposit_data.withdrawal_credentials,
+            pubkey,
+            withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,
             exit_epoch: spec.far_future_epoch,
@@ -290,16 +291,6 @@ impl Validator {
         } else {
             spec.max_effective_balance
         }
-    }
-
-    pub fn get_active_balance(
-        &self,
-        validator_balance: u64,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> u64 {
-        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
-        std::cmp::min(validator_balance, max_effective_balance)
     }
 }
 

@@ -4,7 +4,7 @@ use super::per_block_processing::{
 use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
 };
 use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
@@ -53,7 +53,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     // https://github.com/ethereum/eth2.0-specs/pull/2323
     if spec
         .altair_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
         upgrade_to_altair(&mut state, spec)?;
 
@@ -63,7 +63,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     // Similarly, perform an upgrade to the merge if configured from genesis.
     if spec
         .bellatrix_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
         // this will set state.latest_execution_payload_header = ExecutionPayloadHeaderBellatrix::default()
         upgrade_to_bellatrix(&mut state, spec)?;
@@ -81,7 +81,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     // Upgrade to capella if configured from genesis
     if spec
         .capella_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
         upgrade_to_capella(&mut state, spec)?;
 
@@ -98,7 +98,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     // Upgrade to deneb if configured from genesis
     if spec
         .deneb_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
         upgrade_to_deneb(&mut state, spec)?;
 
@@ -115,7 +115,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     // Upgrade to electra if configured from genesis.
     if spec
         .electra_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
         let post = upgrade_state_to_electra(&mut state, Epoch::new(0), Epoch::new(0), spec)?;
         state = post;
@@ -135,8 +135,24 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#testing
-        if let Some(ExecutionPayloadHeader::Electra(header)) = execution_payload_header {
+        if let Some(ExecutionPayloadHeader::Electra(ref header)) = execution_payload_header {
             *state.latest_execution_payload_header_electra_mut()? = header.clone();
+        }
+    }
+
+    // Upgrade to fulu if configured from genesis.
+    if spec
+        .fulu_fork_epoch
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_fulu(&mut state, spec)?;
+
+        // Remove intermediate Electra fork from `state.fork`.
+        state.fork_mut().previous_version = spec.fulu_fork_version;
+
+        // Override latest execution payload header.
+        if let Some(ExecutionPayloadHeader::Fulu(header)) = execution_payload_header {
+            *state.latest_execution_payload_header_fulu_mut()? = header.clone();
         }
     }
 
@@ -153,7 +169,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 pub fn is_valid_genesis_state<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSpec) -> bool {
     state
         .get_active_validator_indices(E::genesis_epoch(), spec)
-        .map_or(false, |active_validators| {
+        .is_ok_and(|active_validators| {
             state.genesis_time() >= spec.min_genesis_time
                 && active_validators.len() as u64 >= spec.min_genesis_active_validator_count
         })

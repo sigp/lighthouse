@@ -33,7 +33,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     } else {
         parse_path_or_default_with_flag(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
     };
-    ensure_dir_exists(&wallet_base_dir)?;
+    create_dir_all(&wallet_base_dir).map_err(|_| "Could not create wallet base dir")?;
 
     eprintln!("wallet-dir path: {:?}", wallet_base_dir);
 

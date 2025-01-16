@@ -3,8 +3,8 @@ use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_BLOBS_V1, ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
-    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V1,
+    ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -24,7 +24,7 @@ pub use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionRequests, KzgProofs,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionRequests, KzgProofs,
 };
 use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
@@ -35,7 +35,7 @@ mod new_payload_request;
 
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
-    NewPayloadRequestDeneb, NewPayloadRequestElectra,
+    NewPayloadRequestDeneb, NewPayloadRequestElectra, NewPayloadRequestFulu,
 };
 
 pub const LATEST_TAG: &str = "latest";
@@ -261,7 +261,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -281,12 +281,14 @@ pub struct GetPayloadResponse<E: EthSpec> {
     pub execution_payload: ExecutionPayloadDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     pub execution_payload: ExecutionPayloadElectra<E>,
+    #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
+    pub execution_payload: ExecutionPayloadFulu<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Deneb, Electra, Fulu))]
     pub blobs_bundle: BlobsBundle<E>,
-    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub requests: ExecutionRequests<E>,
 }
 
@@ -350,6 +352,12 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
             ),
             GetPayloadResponse::Electra(inner) => (
                 ExecutionPayload::Electra(inner.execution_payload),
+                inner.block_value,
+                Some(inner.blobs_bundle),
+                Some(inner.requests),
+            ),
+            GetPayloadResponse::Fulu(inner) => (
+                ExecutionPayload::Fulu(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
                 Some(inner.requests),
@@ -487,6 +495,34 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     ))
                 }
             }
+            ExecutionPayloadHeader::Fulu(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Fulu(ExecutionPayloadFulu {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
         }
     }
 }
@@ -497,6 +533,7 @@ pub struct EngineCapabilities {
     pub new_payload_v2: bool,
     pub new_payload_v3: bool,
     pub new_payload_v4: bool,
+    pub new_payload_v5: bool,
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
     pub forkchoice_updated_v3: bool,
@@ -506,6 +543,7 @@ pub struct EngineCapabilities {
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
     pub get_payload_v4: bool,
+    pub get_payload_v5: bool,
     pub get_client_version_v1: bool,
     pub get_blobs_v1: bool,
 }
@@ -524,6 +562,9 @@ impl EngineCapabilities {
         }
         if self.new_payload_v4 {
             response.push(ENGINE_NEW_PAYLOAD_V4);
+        }
+        if self.new_payload_v5 {
+            response.push(ENGINE_NEW_PAYLOAD_V5);
         }
         if self.forkchoice_updated_v1 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V1);
@@ -551,6 +592,9 @@ impl EngineCapabilities {
         }
         if self.get_payload_v4 {
             response.push(ENGINE_GET_PAYLOAD_V4);
+        }
+        if self.get_payload_v5 {
+            response.push(ENGINE_GET_PAYLOAD_V5);
         }
         if self.get_client_version_v1 {
             response.push(ENGINE_GET_CLIENT_VERSION_V1);

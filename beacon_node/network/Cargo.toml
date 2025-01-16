@@ -5,52 +5,51 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dev-dependencies]
-sloggers = { workspace = true }
+bls = { workspace = true }
+eth2 = { workspace = true }
+eth2_network_config = { workspace = true }
 genesis = { workspace = true }
+gossipsub = { workspace = true }
+kzg = { workspace = true }
 matches = "0.1.8"
 serde_json = { workspace = true }
-slog-term = { workspace = true }
 slog-async = { workspace = true }
-eth2 = { workspace = true }
-gossipsub = { workspace = true }
-eth2_network_config = { workspace = true }
-kzg = { workspace = true }
-bls = { workspace = true }
+slog-term = { workspace = true }
+sloggers = { workspace = true }
 
 [dependencies]
 alloy-primitives = { workspace = true }
-async-channel = { workspace = true }
-anyhow = { workspace = true }
-beacon_chain = { workspace = true }
-store = { workspace = true }
-lighthouse_network = { workspace = true }
-types = { workspace = true }
-slot_clock = { workspace = true }
-slog = { workspace = true }
-hex = { workspace = true }
-ethereum_ssz = { workspace = true }
-ssz_types = { workspace = true }
-futures = { workspace = true }
-error-chain = { workspace = true }
-tokio = { workspace = true }
-tokio-stream = { workspace = true }
-smallvec = { workspace = true }
-rand = { workspace = true }
-fnv = { workspace = true }
 alloy-rlp = { workspace = true }
-metrics = { workspace = true }
-logging = { workspace = true }
-task_executor = { workspace = true }
+anyhow = { workspace = true }
+async-channel = { workspace = true }
+beacon_chain = { workspace = true }
+beacon_processor = { workspace = true }
+delay_map = { workspace = true }
+derivative = { workspace = true }
+ethereum_ssz = { workspace = true }
+execution_layer = { workspace = true }
+fnv = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
 igd-next = "0.14"
 itertools = { workspace = true }
+lighthouse_network = { workspace = true }
+logging = { workspace = true }
 lru_cache = { workspace = true }
-strum = { workspace = true }
-derivative = { workspace = true }
-delay_map = { workspace = true }
+metrics = { workspace = true }
 operation_pool = { workspace = true }
-execution_layer = { workspace = true }
-beacon_processor = { workspace = true }
 parking_lot = { workspace = true }
+rand = { workspace = true }
+slog = { workspace = true }
+slot_clock = { workspace = true }
+smallvec = { workspace = true }
+ssz_types = { workspace = true }
+store = { workspace = true }
+strum = { workspace = true }
+task_executor = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+types = { workspace = true }
 
 [features]
 # NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill

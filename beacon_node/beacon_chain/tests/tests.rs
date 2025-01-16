@@ -170,7 +170,7 @@ async fn find_reorgs() {
 
     harness
         .extend_chain(
-            num_blocks_produced as usize,
+            num_blocks_produced,
             BlockStrategy::OnCanonicalHead,
             // No need to produce attestations for this test.
             AttestationStrategy::SomeValidators(vec![]),
@@ -203,7 +203,7 @@ async fn find_reorgs() {
     assert_eq!(
         find_reorg_slot(
             &harness.chain,
-            &head_state,
+            head_state,
             harness.chain.head_beacon_block().canonical_root()
         ),
         head_slot
@@ -503,7 +503,6 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
         .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
-        .into_iter()
         .map(|validator_index| {
             let slot = state
                 .get_attestation_duties(validator_index, RelativeEpoch::Current)

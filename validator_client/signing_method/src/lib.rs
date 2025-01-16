@@ -49,7 +49,7 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     VoluntaryExit(&'a VoluntaryExit),
 }
 
-impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'a, E, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
