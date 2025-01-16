@@ -16,9 +16,7 @@ pub fn attester_duties<T: BeaconChainTypes>(
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    let current_epoch = chain
-        .epoch()
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+    let current_epoch = chain.epoch().map_err(warp_utils::reject::unhandled_error)?;
 
     // Determine what the current epoch would be if we fast-forward our system clock by
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
@@ -57,7 +55,7 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
 
     let (duties, dependent_root, execution_status) = chain
         .validator_attestation_duties(request_indices, request_epoch, head_block_root)
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     convert_to_api_response(
         duties,
@@ -82,7 +80,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         let (cached_head, execution_status) = chain
             .canonical_head
             .head_and_execution_status()
-            .map_err(warp_utils::reject::beacon_chain_error)?;
+            .map_err(warp_utils::reject::unhandled_error)?;
         let head = &cached_head.snapshot;
 
         if head.beacon_state.current_epoch() <= request_epoch {
@@ -131,13 +129,13 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
     state
         .build_committee_cache(relative_epoch, &chain.spec)
         .map_err(BeaconChainError::from)
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     let dependent_root = state
         // The only block which decides its own shuffling is the genesis block.
         .attester_shuffling_decision_root(chain.genesis_block_root, relative_epoch)
         .map_err(BeaconChainError::from)
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     let duties = request_indices
         .iter()
@@ -147,7 +145,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
                 .map_err(BeaconChainError::from)
         })
         .collect::<Result<_, _>>()
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     convert_to_api_response(
         duties,
@@ -181,7 +179,7 @@ fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
         // A "partial" state advance is adequate since attester duties don't rely on state roots.
         partial_state_advance(state, Some(state_root), target_slot, spec)
             .map_err(BeaconChainError::from)
-            .map_err(warp_utils::reject::beacon_chain_error)?;
+            .map_err(warp_utils::reject::unhandled_error)?;
     }
 
     Ok(())
@@ -208,7 +206,7 @@ fn convert_to_api_response<T: BeaconChainTypes>(
     let usize_indices = indices.iter().map(|i| *i as usize).collect::<Vec<_>>();
     let index_to_pubkey_map = chain
         .validator_pubkey_bytes_many(&usize_indices)
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     let data = duties
         .into_iter()

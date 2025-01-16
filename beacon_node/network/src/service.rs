@@ -549,7 +549,23 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         // the attestation, else we just just propagate the Attestation.
                         let should_process = self.subnet_service.should_process_attestation(
                             Subnet::Attestation(subnet_id),
-                            attestation,
+                            attestation.data(),
+                        );
+                        self.send_to_router(RouterMessage::PubsubMessage(
+                            id,
+                            source,
+                            message,
+                            should_process,
+                        ));
+                    }
+                    PubsubMessage::SingleAttestation(ref subnet_and_attestation) => {
+                        let subnet_id = subnet_and_attestation.0;
+                        let single_attestation = &subnet_and_attestation.1;
+                        // checks if we have an aggregator for the slot. If so, we should process
+                        // the attestation, else we just just propagate the Attestation.
+                        let should_process = self.subnet_service.should_process_attestation(
+                            Subnet::Attestation(subnet_id),
+                            &single_attestation.data,
                         );
                         self.send_to_router(RouterMessage::PubsubMessage(
                             id,

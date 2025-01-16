@@ -5,7 +5,8 @@ pub mod recover;
 use crate::WALLETS_DIR_FLAG;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
-use directory::{ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
+use directory::{parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 pub const CMD: &str = "wallet";
@@ -44,7 +45,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     } else {
         parse_path_or_default_with_flag(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
     };
-    ensure_dir_exists(&wallet_base_dir)?;
+    create_dir_all(&wallet_base_dir).map_err(|_| "Could not create wallet base dir")?;
 
     eprintln!("wallet-dir path: {:?}", wallet_base_dir);
 

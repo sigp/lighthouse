@@ -191,7 +191,6 @@ pub struct ChainSpec {
     pub max_pending_partials_per_withdrawals_sweep: u64,
     pub min_per_epoch_churn_limit_electra: u64,
     pub max_per_epoch_activation_exit_churn_limit: u64,
-    pub max_blobs_per_block_electra: u64,
 
     /*
      * Fulu hard fork params
@@ -205,10 +204,11 @@ pub struct ChainSpec {
      * DAS params
      */
     pub eip7594_fork_epoch: Option<Epoch>,
-    pub custody_requirement: u64,
+    pub number_of_columns: u64,
+    pub number_of_custody_groups: u64,
     pub data_column_sidecar_subnet_count: u64,
-    pub number_of_columns: usize,
     pub samples_per_slot: u64,
+    pub custody_requirement: u64,
 
     /*
      * Networking
@@ -238,7 +238,14 @@ pub struct ChainSpec {
     pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
     pub blob_sidecar_subnet_count: u64,
-    max_blobs_per_block: u64,
+    pub max_blobs_per_block: u64,
+
+    /*
+     * Networking Electra
+     */
+    max_blobs_per_block_electra: u64,
+    pub blob_sidecar_subnet_count_electra: u64,
+    pub max_request_blob_sidecars_electra: u64,
 
     /*
      * Networking Derived
@@ -618,6 +625,14 @@ impl ChainSpec {
         }
     }
 
+    pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
+        if fork_name.electra_enabled() {
+            self.max_request_blob_sidecars_electra as usize
+        } else {
+            self.max_request_blob_sidecars as usize
+        }
+    }
+
     /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for the fork at `epoch`.
     pub fn max_blobs_per_block(&self, epoch: Epoch) -> u64 {
         self.max_blobs_per_block_by_fork(self.fork_name_at_epoch(epoch))
@@ -632,10 +647,33 @@ impl ChainSpec {
         }
     }
 
-    pub fn data_columns_per_subnet(&self) -> usize {
+    /// Returns the number of data columns per custody group.
+    pub fn data_columns_per_group(&self) -> u64 {
         self.number_of_columns
-            .safe_div(self.data_column_sidecar_subnet_count as usize)
-            .expect("Subnet count must be greater than 0")
+            .safe_div(self.number_of_custody_groups)
+            .expect("Custody group count must be greater than 0")
+    }
+
+    /// Returns the number of column sidecars to sample per slot.
+    pub fn sampling_size(&self, custody_group_count: u64) -> Result<u64, String> {
+        let columns_per_custody_group = self
+            .number_of_columns
+            .safe_div(self.number_of_custody_groups)
+            .map_err(|_| "number_of_custody_groups must be greater than 0")?;
+
+        let custody_column_count = columns_per_custody_group
+            .safe_mul(custody_group_count)
+            .map_err(|_| "Computing sampling size should not overflow")?;
+
+        Ok(std::cmp::max(custody_column_count, self.samples_per_slot))
+    }
+
+    pub fn custody_group_count(&self, is_supernode: bool) -> u64 {
+        if is_supernode {
+            self.number_of_custody_groups
+        } else {
+            self.custody_requirement
+        }
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -830,7 +868,6 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
-            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
 
             /*
              * Fulu hard fork params
@@ -843,10 +880,11 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
-            custody_requirement: 4,
-            data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
+            number_of_custody_groups: 128,
+            data_column_sidecar_subnet_count: 128,
             samples_per_slot: 8,
+            custody_requirement: 4,
 
             /*
              * Network specific
@@ -885,6 +923,13 @@ impl ChainSpec {
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
+
+            /*
+             * Networking Electra specific
+             */
+            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
+            blob_sidecar_subnet_count_electra: default_blob_sidecar_subnet_count_electra(),
+            max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
 
             /*
              * Application specific
@@ -1161,7 +1206,6 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
-            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
 
             /*
              * Fulu hard fork params
@@ -1174,10 +1218,12 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
-            custody_requirement: 4,
-            data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
+            number_of_custody_groups: 128,
+            data_column_sidecar_subnet_count: 128,
             samples_per_slot: 8,
+            custody_requirement: 4,
+
             /*
              * Network specific
              */
@@ -1215,6 +1261,13 @@ impl ChainSpec {
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
+
+            /*
+             * Networking Electra specific
+             */
+            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
+            blob_sidecar_subnet_count_electra: default_blob_sidecar_subnet_count_electra(),
+            max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
 
             /*
              * Application specific
@@ -1421,19 +1474,28 @@ pub struct Config {
     #[serde(default = "default_max_blobs_per_block_electra")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_blobs_per_block_electra: u64,
+    #[serde(default = "default_blob_sidecar_subnet_count_electra")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub blob_sidecar_subnet_count_electra: u64,
+    #[serde(default = "default_max_request_blob_sidecars_electra")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_blob_sidecars_electra: u64,
 
-    #[serde(default = "default_custody_requirement")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    custody_requirement: u64,
-    #[serde(default = "default_data_column_sidecar_subnet_count")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    data_column_sidecar_subnet_count: u64,
     #[serde(default = "default_number_of_columns")]
     #[serde(with = "serde_utils::quoted_u64")]
     number_of_columns: u64,
+    #[serde(default = "default_number_of_custody_groups")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    number_of_custody_groups: u64,
+    #[serde(default = "default_data_column_sidecar_subnet_count")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    data_column_sidecar_subnet_count: u64,
     #[serde(default = "default_samples_per_slot")]
     #[serde(with = "serde_utils::quoted_u64")]
     samples_per_slot: u64,
+    #[serde(default = "default_custody_requirement")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    custody_requirement: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1555,6 +1617,14 @@ const fn default_max_blobs_per_block() -> u64 {
     6
 }
 
+const fn default_blob_sidecar_subnet_count_electra() -> u64 {
+    9
+}
+
+const fn default_max_request_blob_sidecars_electra() -> u64 {
+    1152
+}
+
 const fn default_min_per_epoch_churn_limit_electra() -> u64 {
     128_000_000_000
 }
@@ -1584,6 +1654,10 @@ const fn default_data_column_sidecar_subnet_count() -> u64 {
 }
 
 const fn default_number_of_columns() -> u64 {
+    128
+}
+
+const fn default_number_of_custody_groups() -> u64 {
     128
 }
 
@@ -1787,11 +1861,14 @@ impl Config {
             max_per_epoch_activation_exit_churn_limit: spec
                 .max_per_epoch_activation_exit_churn_limit,
             max_blobs_per_block_electra: spec.max_blobs_per_block_electra,
+            blob_sidecar_subnet_count_electra: spec.blob_sidecar_subnet_count_electra,
+            max_request_blob_sidecars_electra: spec.max_request_blob_sidecars_electra,
 
-            custody_requirement: spec.custody_requirement,
+            number_of_columns: spec.number_of_columns,
+            number_of_custody_groups: spec.number_of_custody_groups,
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
-            number_of_columns: spec.number_of_columns as u64,
             samples_per_slot: spec.samples_per_slot,
+            custody_requirement: spec.custody_requirement,
         }
     }
 
@@ -1865,10 +1942,13 @@ impl Config {
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
             max_blobs_per_block_electra,
-            custody_requirement,
-            data_column_sidecar_subnet_count,
+            blob_sidecar_subnet_count_electra,
+            max_request_blob_sidecars_electra,
             number_of_columns,
+            number_of_custody_groups,
+            data_column_sidecar_subnet_count,
             samples_per_slot,
+            custody_requirement,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -1935,6 +2015,8 @@ impl Config {
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
             max_blobs_per_block_electra,
+            max_request_blob_sidecars_electra,
+            blob_sidecar_subnet_count_electra,
 
             // We need to re-derive any values that might have changed in the config.
             max_blocks_by_root_request: max_blocks_by_root_request_common(max_request_blocks),
@@ -1946,10 +2028,11 @@ impl Config {
                 max_request_data_column_sidecars,
             ),
 
-            custody_requirement,
+            number_of_columns,
+            number_of_custody_groups,
             data_column_sidecar_subnet_count,
-            number_of_columns: number_of_columns as usize,
             samples_per_slot,
+            custody_requirement,
 
             ..chain_spec.clone()
         })

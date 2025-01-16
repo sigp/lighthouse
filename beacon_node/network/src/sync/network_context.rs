@@ -36,7 +36,7 @@ use requests::{
 };
 use slog::{debug, error, warn};
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -458,7 +458,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let max_blobs_len = self.chain.spec.max_blobs_per_block(epoch);
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
-            expects_columns,
+            expects_columns.map(|c| c.into_iter().collect()),
             num_of_column_req,
             requested_peers,
             max_blobs_len as usize,
@@ -471,7 +471,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     fn make_columns_by_range_requests(
         &self,
         request: BlocksByRangeRequest,
-        custody_indexes: &Vec<ColumnIndex>,
+        custody_indexes: &HashSet<ColumnIndex>,
     ) -> Result<HashMap<PeerId, DataColumnsByRangeRequest>, RpcRequestSendError> {
         let mut peer_id_to_request_map = HashMap::new();
 

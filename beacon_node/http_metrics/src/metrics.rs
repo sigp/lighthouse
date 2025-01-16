@@ -39,7 +39,7 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
 
     lighthouse_network::scrape_discovery_metrics();
 
-    warp_utils::metrics::scrape_health_metrics();
+    health_metrics::metrics::scrape_health_metrics();
 
     // It's important to ensure these metrics are explicitly enabled in the case that users aren't
     // using glibc and this function causes panics.

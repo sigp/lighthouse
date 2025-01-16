@@ -17,12 +17,11 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
-    BeaconBlockFulu, BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, EthSpecId,
-    ForkContext, ForkName, LightClientBootstrap, LightClientBootstrapAltair,
-    LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
-    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
-    Signature, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecar,
+    EmptyBlock, EthSpec, EthSpecId, ForkContext, ForkName, LightClientBootstrap,
+    LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
+    LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, LightClientUpdate,
+    MainnetEthSpec, MinimalEthSpec, Signature, SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -55,73 +54,15 @@ pub static SIGNED_BEACON_BLOCK_ALTAIR_MAX: LazyLock<usize> = LazyLock::new(|| {
     .len()
 });
 
-pub static SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD: LazyLock<usize> = LazyLock::new(|| {
-    SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Capella(BeaconBlockCapella::full(&MainnetEthSpec::default_spec())),
-        Signature::empty(),
-    )
-    .as_ssz_bytes()
-    .len()
-});
-
-pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: LazyLock<usize> = LazyLock::new(|| {
-    SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Electra(BeaconBlockElectra::full(&MainnetEthSpec::default_spec())),
-        Signature::empty(),
-    )
-    .as_ssz_bytes()
-    .len()
-});
-
-pub static SIGNED_BEACON_BLOCK_FULU_MAX_WITHOUT_PAYLOAD: LazyLock<usize> = LazyLock::new(|| {
-    SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Fulu(BeaconBlockFulu::full(&MainnetEthSpec::default_spec())),
-        Signature::empty(),
-    )
-    .as_ssz_bytes()
-    .len()
-});
-
 /// The `BeaconBlockBellatrix` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
 /// We calculate the value from its fields instead of constructing the block and checking the length.
 /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
 /// with `max_chunk_size`.
-///
-/// FIXME: Given that these limits are useless we should probably delete them. See:
-///
-/// https://github.com/sigp/lighthouse/issues/6790
 pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
     LazyLock::new(||     // Size of a full altair block
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_bellatrix_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET); // Adding the additional ssz offset for the `ExecutionPayload` field
-
-pub static SIGNED_BEACON_BLOCK_CAPELLA_MAX: LazyLock<usize> = LazyLock::new(|| {
-    *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
-    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_capella_size() // adding max size of execution payload (~16gb)
-    + ssz::BYTES_PER_LENGTH_OFFSET
-}); // Adding the additional ssz offset for the `ExecutionPayload` field
-
-pub static SIGNED_BEACON_BLOCK_DENEB_MAX: LazyLock<usize> = LazyLock::new(|| {
-    *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
-    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
-    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
-    + ssz::BYTES_PER_LENGTH_OFFSET
-}); // Length offset for the blob commitments field.
-    //
-pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
-    *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
-    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
-    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
-    + ssz::BYTES_PER_LENGTH_OFFSET
-}); // Length offset for the blob commitments field.
-
-pub static SIGNED_BEACON_BLOCK_FULU_MAX: LazyLock<usize> = LazyLock::new(|| {
-    *SIGNED_BEACON_BLOCK_FULU_MAX_WITHOUT_PAYLOAD
-        + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_fulu_size()
-        + ssz::BYTES_PER_LENGTH_OFFSET
-        + ssz::BYTES_PER_LENGTH_OFFSET
-});
 
 pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
@@ -203,25 +144,11 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair blocks
             *SIGNED_BEACON_BLOCK_ALTAIR_MAX, // Altair block is larger than base blocks
         ),
-        ForkName::Bellatrix => RpcLimits::new(
+        // After the merge the max SSZ size of a block is absurdly big. The size is actually
+        // bound by other constants, so here we default to the bellatrix's max value
+        _ => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
             *SIGNED_BEACON_BLOCK_BELLATRIX_MAX, // Bellatrix block is larger than base and altair blocks
-        ),
-        ForkName::Capella => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
-            *SIGNED_BEACON_BLOCK_CAPELLA_MAX, // Capella block is larger than base, altair and merge blocks
-        ),
-        ForkName::Deneb => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
-            *SIGNED_BEACON_BLOCK_DENEB_MAX, // Deneb block is larger than all prior fork blocks
-        ),
-        ForkName::Electra => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
-            *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
-        ),
-        ForkName::Fulu => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than all other blocks
-            *SIGNED_BEACON_BLOCK_FULU_MAX, // Fulu block is largest
         ),
     }
 }

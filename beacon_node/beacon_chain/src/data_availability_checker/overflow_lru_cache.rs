@@ -12,28 +12,46 @@ use parking_lot::RwLock;
 use slog::{debug, Logger};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use tokio::sync::oneshot;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar, Epoch, EthSpec,
-    Hash256, RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeFixedVector, RuntimeVariableList,
+    SignedBeaconBlock,
 };
 
 /// This represents the components of a partially available block
 ///
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
-/// TODO(das): this struct can potentially be reafactored as blobs and data columns are mutually
-/// exclusive and this could simplify `is_importable`.
-#[derive(Clone)]
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
+    /// Receiver for data columns that are computed asynchronously;
+    ///
+    /// If `data_column_recv` is `Some`, it means data column computation or reconstruction has been
+    /// started. This can happen either via engine blobs fetching or data column reconstruction
+    /// (triggered when >= 50% columns are received via gossip).
+    pub data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<E>>>,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
+    /// Clones the `PendingComponent` without cloning `data_column_recv`, as `Receiver` is not cloneable.
+    /// This should only be used when the receiver is no longer needed.
+    pub fn clone_without_column_recv(&self) -> Self {
+        PendingComponents {
+            block_root: self.block_root,
+            verified_blobs: self.verified_blobs.clone(),
+            verified_data_columns: self.verified_data_columns.clone(),
+            executed_block: self.executed_block.clone(),
+            reconstruction_started: self.reconstruction_started,
+            data_column_recv: None,
+        }
+    }
+
     /// Returns an immutable reference to the cached block.
     pub fn get_cached_block(&self) -> &Option<DietAvailabilityPendingExecutedBlock<E>> {
         &self.executed_block
@@ -236,6 +254,7 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_data_columns: vec![],
             executed_block: None,
             reconstruction_started: false,
+            data_column_recv: None,
         }
     }
 
@@ -260,6 +279,7 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_blobs,
             verified_data_columns,
             executed_block,
+            data_column_recv,
             ..
         } = self;
 
@@ -302,9 +322,11 @@ impl<E: EthSpec> PendingComponents<E> {
 
         let AvailabilityPendingExecutedBlock {
             block,
-            import_data,
+            mut import_data,
             payload_verification_outcome,
         } = executed_block;
+
+        import_data.data_column_recv = data_column_recv;
 
         let available_block = AvailableBlock {
             block_root,
@@ -444,10 +466,17 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         f(self.critical.read().peek(block_root))
     }
 
+    /// Puts the KZG verified blobs into the availability cache as pending components.
+    ///
+    /// The `data_column_recv` parameter is an optional `Receiver` for data columns that are
+    /// computed asynchronously. This method remains **used** after PeerDAS activation, because
+    /// blocks can be made available if the EL already has the blobs and returns them via the
+    /// `getBlobsV1` engine method. More details in [fetch_blobs.rs](https://github.com/sigp/lighthouse/blob/44f8add41ea2252769bb967864af95b3c13af8ca/beacon_node/beacon_chain/src/fetch_blobs.rs).
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
         block_root: Hash256,
         kzg_verified_blobs: I,
+        data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
         log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_blobs = kzg_verified_blobs.into_iter().peekable();
@@ -482,9 +511,17 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
 
+        if data_column_recv.is_some() {
+            // If `data_column_recv` is `Some`, it means we have all the blobs from engine, and have
+            // started computing data columns. We store the receiver in `PendingComponents` for
+            // later use when importing the block.
+            pending_components.data_column_recv = data_column_recv;
+        }
+
         if pending_components.is_available(self.sampling_column_count, log) {
-            write_lock.put(block_root, pending_components.clone());
-            // No need to hold the write lock anymore
+            // We keep the pending components in the availability cache during block import (#5845).
+            // `data_column_recv` is returned as part of the available block and is no longer needed here.
+            write_lock.put(block_root, pending_components.clone_without_column_recv());
             drop(write_lock);
             pending_components.make_available(&self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
@@ -527,8 +564,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
 
         if pending_components.is_available(self.sampling_column_count, log) {
-            write_lock.put(block_root, pending_components.clone());
-            // No need to hold the write lock anymore
+            // We keep the pending components in the availability cache during block import (#5845).
+            // `data_column_recv` is returned as part of the available block and is no longer needed here.
+            write_lock.put(block_root, pending_components.clone_without_column_recv());
             drop(write_lock);
             pending_components.make_available(&self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
@@ -560,7 +598,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // If we're sampling all columns, it means we must be custodying all columns.
         let custody_column_count = self.sampling_column_count();
-        let total_column_count = self.spec.number_of_columns;
+        let total_column_count = self.spec.number_of_columns as usize;
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
@@ -569,7 +607,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if custody_column_count != total_column_count {
             return ReconstructColumnsDecision::No("not required for full node");
         }
-        if received_column_count == self.spec.number_of_columns {
+        if received_column_count >= total_column_count {
             return ReconstructColumnsDecision::No("all columns received");
         }
         if received_column_count < total_column_count / 2 {
@@ -577,7 +615,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
 
         pending_components.reconstruction_started = true;
-        ReconstructColumnsDecision::Yes(pending_components.clone())
+        ReconstructColumnsDecision::Yes(pending_components.clone_without_column_recv())
     }
 
     /// This could mean some invalid data columns made it through to the `DataAvailabilityChecker`.
@@ -619,8 +657,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // Check if we have all components and entire set is consistent.
         if pending_components.is_available(self.sampling_column_count, log) {
-            write_lock.put(block_root, pending_components.clone());
-            // No need to hold the write lock anymore
+            // We keep the pending components in the availability cache during block import (#5845).
+            // `data_column_recv` is returned as part of the available block and is no longer needed here.
+            write_lock.put(block_root, pending_components.clone_without_column_recv());
             drop(write_lock);
             pending_components.make_available(&self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
@@ -855,6 +894,7 @@ mod test {
             parent_eth1_finalization_data,
             confirmed_state_roots: vec![],
             consensus_context,
+            data_column_recv: None,
         };
 
         let payload_verification_outcome = PayloadVerificationOutcome {
@@ -957,7 +997,7 @@ mod test {
         for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
             kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), harness.logger())
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), None, harness.logger())
                 .expect("should put blob");
             if blob_index == blobs_expected - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
@@ -985,7 +1025,7 @@ mod test {
         for gossip_blob in blobs {
             kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), harness.logger())
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), None, harness.logger())
                 .expect("should put blob");
             assert_eq!(
                 availability,
@@ -1241,6 +1281,7 @@ mod pending_components_tests {
                 },
                 confirmed_state_roots: vec![],
                 consensus_context: ConsensusContext::new(Slot::new(0)),
+                data_column_recv: None,
             },
             payload_verification_outcome: PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
