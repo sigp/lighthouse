@@ -4,7 +4,8 @@ pub mod recover;
 
 use crate::WALLETS_DIR_FLAG;
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use directory::{ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
+use directory::{parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 pub const CMD: &str = "wallet";
