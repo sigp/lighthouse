@@ -128,6 +128,11 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
 
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_VERIFY_BLOCK_HASH);
 
+        // Check that no transactions in the payload are zero length
+        if payload.transactions().iter().any(|slice| slice.is_empty()) {
+            return Err(Error::ZeroLengthTransaction);
+        }
+
         let (header_hash, rlp_transactions_root) = calculate_execution_block_hash(
             payload,
             parent_beacon_block_root,

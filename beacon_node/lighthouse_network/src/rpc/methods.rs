@@ -138,7 +138,7 @@ pub struct MetaData<E: EthSpec> {
     #[superstruct(only(V2, V3))]
     pub syncnets: EnrSyncCommitteeBitfield<E>,
     #[superstruct(only(V3))]
-    pub custody_subnet_count: u64,
+    pub custody_group_count: u64,
 }
 
 impl<E: EthSpec> MetaData<E> {
@@ -181,13 +181,13 @@ impl<E: EthSpec> MetaData<E> {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: Default::default(),
-                custody_subnet_count: spec.custody_requirement,
+                custody_group_count: spec.custody_requirement,
             }),
             MetaData::V2(metadata) => MetaData::V3(MetaDataV3 {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: metadata.syncnets.clone(),
-                custody_subnet_count: spec.custody_requirement,
+                custody_group_count: spec.custody_requirement,
             }),
             md @ MetaData::V3(_) => md.clone(),
         }
@@ -364,7 +364,7 @@ impl DataColumnsByRangeRequest {
         DataColumnsByRangeRequest {
             start_slot: 0,
             count: 0,
-            columns: vec![0; spec.number_of_columns],
+            columns: vec![0; spec.number_of_columns as usize],
         }
         .as_ssz_bytes()
         .len()

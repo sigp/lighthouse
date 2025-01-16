@@ -14,6 +14,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
+use tokio::sync::oneshot;
 use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
@@ -114,21 +115,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         import_all_data_columns: bool,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
-        let custody_subnet_count = if import_all_data_columns {
-            spec.data_column_sidecar_subnet_count as usize
-        } else {
-            spec.custody_requirement as usize
-        };
-
-        let subnet_sampling_size =
-            std::cmp::max(custody_subnet_count, spec.samples_per_slot as usize);
-        let sampling_column_count =
-            subnet_sampling_size.saturating_mul(spec.data_columns_per_subnet());
+        let custody_group_count = spec.custody_group_count(import_all_data_columns);
+        // This should only panic if the chain spec contains invalid values.
+        let sampling_size = spec
+            .sampling_size(custody_group_count)
+            .expect("should compute node sampling size from valid chain spec");
 
         let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY,
             store,
-            sampling_column_count,
+            sampling_size as usize,
             spec.clone(),
         )?;
         Ok(Self {
@@ -144,7 +140,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     pub(crate) fn is_supernode(&self) -> bool {
-        self.get_sampling_column_count() == self.spec.number_of_columns
+        self.get_sampling_column_count() == self.spec.number_of_columns as usize
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -220,7 +216,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         .map_err(AvailabilityCheckError::InvalidBlobs)?;
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs)
+            .put_kzg_verified_blobs(block_root, verified_blobs, None)
     }
 
     /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
@@ -257,6 +253,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
+        data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let seen_timestamp = self
             .slot_clock
@@ -267,7 +264,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             KzgVerifiedBlobList::from_verified(blobs.iter().flatten().cloned(), seen_timestamp);
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs)
+            .put_kzg_verified_blobs(block_root, verified_blobs, data_column_recv)
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -279,8 +276,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
+        self.availability_cache.put_kzg_verified_blobs(
+            gossip_blob.block_root(),
+            vec![gossip_blob.into_inner()],
+            None,
+        )
     }
 
     /// Check if we've cached other data columns for this block. If it satisfies the custody requirement and we also
@@ -414,7 +414,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(CustodyDataColumn::into_inner)
             .collect::<Vec<_>>();
         let all_data_columns =
-            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns);
+            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns as usize);
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
@@ -792,7 +792,6 @@ impl<E: EthSpec> AvailableBlock<E> {
             block,
             blobs,
             data_columns,
-            blobs_available_timestamp: _,
             ..
         } = self;
         (block_root, block, blobs, data_columns)
