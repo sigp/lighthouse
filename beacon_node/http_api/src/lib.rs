@@ -50,6 +50,7 @@ use eth2::types::{
     ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
+use health_metrics::observe::Observe;
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use logging::{crit, SSELoggingComponents};
@@ -898,9 +899,9 @@ pub fn serve<T: BeaconChainTypes>(
                                                         )
                                                     }
                                                 }
-                                                _ => {
-                                                    warp_utils::reject::beacon_chain_error(e.into())
-                                                }
+                                                _ => warp_utils::reject::unhandled_error(
+                                                    BeaconChainError::from(e),
+                                                ),
                                             }
                                         })?;
 
@@ -1027,7 +1028,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let validators = chain
                         .validator_indices(sync_committee.pubkeys.iter())
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(warp_utils::reject::unhandled_error)?;
 
                     let validator_aggregates = validators
                         .chunks_exact(T::EthSpec::sync_subcommittee_size())
@@ -1107,7 +1108,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 let (cached_head, execution_status) = chain
                                     .canonical_head
                                     .head_and_execution_status()
-                                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                                    .map_err(warp_utils::reject::unhandled_error)?;
                                 (
                                     cached_head.head_block_root(),
                                     cached_head.snapshot.beacon_block.clone_as_blinded(),
@@ -1121,13 +1122,13 @@ pub fn serve<T: BeaconChainTypes>(
                                     BlockId::from_root(parent_root).blinded_block(&chain)?;
                                 let (root, _slot) = chain
                                     .forwards_iter_block_roots(parent.slot())
-                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    .map_err(warp_utils::reject::unhandled_error)?
                                     // Ignore any skip-slots immediately following the parent.
                                     .find(|res| {
                                         res.as_ref().is_ok_and(|(root, _)| *root != parent_root)
                                     })
                                     .transpose()
-                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    .map_err(warp_utils::reject::unhandled_error)?
                                     .ok_or_else(|| {
                                         warp_utils::reject::custom_not_found(format!(
                                             "child of block with root {}",
@@ -1208,7 +1209,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let canonical = chain
                         .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
-                        .map_err(warp_utils::reject::beacon_chain_error)?
+                        .map_err(warp_utils::reject::unhandled_error)?
                         .is_some_and(|canonical| root == canonical);
 
                     let data = api_types::BlockHeaderData {
@@ -2854,7 +2855,7 @@ pub fn serve<T: BeaconChainTypes>(
                             let (head, head_execution_status) = chain
                                 .canonical_head
                                 .head_and_execution_status()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                                .map_err(warp_utils::reject::unhandled_error)?;
                             let head_slot = head.head_slot();
                             let current_slot =
                                 chain.slot_clock.now_or_genesis().ok_or_else(|| {
@@ -2914,7 +2915,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .blocking_response_task(Priority::P0, move || {
                             let is_optimistic = chain
                                 .is_optimistic_or_invalid_head()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                                .map_err(warp_utils::reject::unhandled_error)?;
 
                             let is_syncing = !network_globals.sync_state.read().is_synced();
 
@@ -3216,9 +3217,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     not_synced_filter?;
 
-                    let current_slot = chain
-                        .slot()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_slot = chain.slot().map_err(warp_utils::reject::unhandled_error)?;
 
                     // allow a tolerance of one slot to account for clock skew
                     if query.slot > current_slot + 1 {
@@ -3232,7 +3231,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .produce_unaggregated_attestation(query.slot, query.committee_index)
                         .map(|attestation| attestation.data().clone())
                         .map(api_types::GenericResponse::from)
-                        .map_err(warp_utils::reject::beacon_chain_error)
+                        .map_err(warp_utils::reject::unhandled_error)
                 })
             },
         );
@@ -3594,11 +3593,9 @@ pub fn serve<T: BeaconChainTypes>(
                         .execution_layer
                         .as_ref()
                         .ok_or(BeaconChainError::ExecutionLayerMissing)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(warp_utils::reject::unhandled_error)?;
 
-                    let current_slot = chain
-                        .slot()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_slot = chain.slot().map_err(warp_utils::reject::unhandled_error)?;
                     let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
                     debug!(
@@ -3648,12 +3645,12 @@ pub fn serve<T: BeaconChainTypes>(
                             .execution_layer
                             .as_ref()
                             .ok_or(BeaconChainError::ExecutionLayerMissing)
-                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                            .map_err(warp_utils::reject::unhandled_error)?;
                         let current_slot = chain
                             .slot_clock
                             .now_or_genesis()
                             .ok_or(BeaconChainError::UnableToReadSlot)
-                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                            .map_err(warp_utils::reject::unhandled_error)?;
                         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
                         debug!(
@@ -3747,12 +3744,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 .execution_layer
                                 .as_ref()
                                 .ok_or(BeaconChainError::ExecutionLayerMissing)
-                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                .map_err(warp_utils::reject::unhandled_error)?
                                 .builder();
                             let builder = arc_builder
                                 .as_ref()
                                 .ok_or(BeaconChainError::BuilderMissing)
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                                .map_err(warp_utils::reject::unhandled_error)?;
                             builder
                                 .post_builder_validators(&filtered_registration_data)
                                 .await
@@ -3864,9 +3861,8 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     // Ensure the request is for either the current, previous or next epoch.
-                    let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_epoch =
+                        chain.epoch().map_err(warp_utils::reject::unhandled_error)?;
                     let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
                     let next_epoch = current_epoch.saturating_add(Epoch::new(1));
 
@@ -3905,9 +3901,8 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     // Ensure the request is for either the current, previous or next epoch.
-                    let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_epoch =
+                        chain.epoch().map_err(warp_utils::reject::unhandled_error)?;
                     let prev_epoch = current_epoch.saturating_sub(Epoch::new(1));
                     let next_epoch = current_epoch.saturating_add(Epoch::new(1));
 

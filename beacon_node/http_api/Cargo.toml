@@ -17,6 +17,7 @@ ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
 futures = { workspace = true }
+health_metrics = { workspace = true }
 hex = { workspace = true }
 lighthouse_network = { workspace = true }
 lighthouse_version = { workspace = true }
