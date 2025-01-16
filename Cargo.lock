@@ -3951,6 +3951,7 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
+ "either",
  "eth1",
  "eth2",
  "ethereum_serde_utils",
