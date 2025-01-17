@@ -163,6 +163,20 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             return Ok(None);
         }
 
+        if chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            // Avoid computing columns if block has already been imported.
+            debug!(
+                log,
+                "Ignoring EL blobs response";
+                "info" => "block has already been imported",
+            );
+            return Ok(None);
+        }
+
         let data_columns_receiver = spawn_compute_and_publish_data_columns_task(
             &chain,
             block.clone(),
