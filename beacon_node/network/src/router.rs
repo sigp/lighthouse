@@ -398,6 +398,17 @@ impl<T: BeaconChainTypes> Router<T> {
                         timestamp_now(),
                     ),
                 ),
+            PubsubMessage::SingleAttestation(subnet_attestation) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_single_attestation(
+                        message_id,
+                        peer_id,
+                        subnet_attestation.1,
+                        subnet_attestation.0,
+                        should_process,
+                        timestamp_now(),
+                    ),
+                ),
             PubsubMessage::BeaconBlock(block) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_gossip_beacon_block(
                     message_id,

@@ -32,6 +32,7 @@ use eth2::lighthouse_vc::{
         PublicKeyBytes, SetGraffitiRequest,
     },
 };
+use health_metrics::observe::Observe;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;

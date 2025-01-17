@@ -84,6 +84,58 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map_err(Into::into)
     }
 
+    /// Create a new `Work` event for some `SingleAttestation`.
+    pub fn send_single_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        single_attestation: SingleAttestation,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let result = self.chain.with_committee_cache(
+            single_attestation.data.target.root,
+            single_attestation
+                .data
+                .slot
+                .epoch(T::EthSpec::slots_per_epoch()),
+            |committee_cache, _| {
+                let Some(committee) = committee_cache.get_beacon_committee(
+                    single_attestation.data.slot,
+                    single_attestation.committee_index as u64,
+                ) else {
+                    warn!(
+                        self.log,
+                        "No beacon committee for slot and index";
+                        "slot" => single_attestation.data.slot,
+                        "index" => single_attestation.committee_index
+                    );
+                    return Ok(Ok(()));
+                };
+
+                let attestation = single_attestation.to_attestation(committee.committee)?;
+
+                Ok(self.send_unaggregated_attestation(
+                    message_id.clone(),
+                    peer_id,
+                    attestation,
+                    subnet_id,
+                    should_import,
+                    seen_timestamp,
+                ))
+            },
+        );
+
+        match result {
+            Ok(result) => result,
+            Err(e) => {
+                warn!(self.log, "Failed to send SingleAttestation"; "error" => ?e);
+                Ok(())
+            }
+        }
+    }
+
     /// Create a new `Work` event for some unaggregated attestation.
     pub fn send_unaggregated_attestation(
         self: &Arc<Self>,

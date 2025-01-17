@@ -1,6 +1,6 @@
 use clap::ArgMatches;
 pub use eth2_network_config::DEFAULT_HARDCODED_NETWORK;
-use std::fs::{self, create_dir_all};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Names for the default directories.
@@ -28,17 +28,6 @@ pub fn get_network_dir(matches: &ArgMatches) -> String {
     } else {
         eth2_network_config::DEFAULT_HARDCODED_NETWORK.to_string()
     }
-}
-
-/// Checks if a directory exists in the given path and creates a directory if it does not exist.
-pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
-    let path = path.as_ref();
-
-    if !path.exists() {
-        create_dir_all(path).map_err(|e| format!("Unable to create {:?}: {:?}", path, e))?;
-    }
-
-    Ok(())
 }
 
 /// If `arg` is in `matches`, parses the value as a path.
