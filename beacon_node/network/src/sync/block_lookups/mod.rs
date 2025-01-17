@@ -283,7 +283,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         .find(|(_, l)| l.block_root() == parent_chain_tip)
                     {
                         cx.send_sync_message(SyncMessage::AddPeersForceRangeSync {
-                            peers: lookup.all_peers().copied().collect(),
+                            peers: lookup.all_peers(),
                             head_slot: tip_lookup.peek_downloaded_block_slot(),
                             head_root: parent_chain_tip,
                         });
@@ -682,7 +682,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 lookup.continue_requests(cx)
             }
             Action::ParentUnknown { parent_root } => {
-                let peers = lookup.all_peers().copied().collect::<Vec<_>>();
+                let peers = lookup.all_peers();
                 lookup.set_awaiting_parent(parent_root);
                 debug!(self.log, "Marking lookup as awaiting parent"; "id" => lookup.id, "block_root" => ?block_root, "parent_root" => ?parent_root);
                 self.search_parent_of_child(parent_root, block_root, &peers, cx);
