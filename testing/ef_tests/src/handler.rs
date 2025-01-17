@@ -353,6 +353,25 @@ where
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        // TODO(fulu): to be removed once Fulu types start differing from Electra. We currently run Fulu tests as a
+        // "feature" - this means we use Electra types for Fulu SSZ tests (except for PeerDAS types, e.g. `DataColumnSidecar`).
+        //
+        // This ensures we only run the tests **once** for `Fulu`, using the types matching the
+        // correct fork, e.g. `Fulu` uses SSZ types from `Electra` as of spec test version
+        // `v1.5.0-beta.0`, therefore the `Fulu` tests should get included when testing Deneb types.
+        //
+        // e.g. Fulu test vectors are executed in the 2nd line below, but excluded in the 1st
+        // line when testing the type `AttestationElectra`:
+        //
+        // ```
+        // SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
+        // SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
+        // ```
+        feature_name == FeatureName::Fulu
+            && self.supported_forks.contains(&feature_name.fork_name())
+    }
 }
 
 impl<E> Handler for SszStaticTHCHandler<BeaconState<E>, E>
@@ -371,6 +390,10 @@ where
 
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -392,6 +415,10 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -866,6 +893,10 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
     fn handler_name(&self) -> String {
         "get_custody_groups".into()
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
+    }
 }
 
 #[derive(Derivative)]
@@ -885,6 +916,10 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 
     fn handler_name(&self) -> String {
         "compute_columns_for_custody_group".into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -906,6 +941,10 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
     fn handler_name(&self) -> String {
         "compute_cells_and_kzg_proofs".into()
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
+    }
 }
 
 #[derive(Derivative)]
@@ -926,6 +965,10 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
     fn handler_name(&self) -> String {
         "verify_cell_kzg_proof_batch".into()
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
+    }
 }
 
 #[derive(Derivative)]
@@ -945,6 +988,10 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
     fn handler_name(&self) -> String {
         "recover_cells_and_kzg_proofs".into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -993,6 +1040,10 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.deneb_enabled()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 

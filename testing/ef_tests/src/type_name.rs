@@ -54,6 +54,7 @@ type_name_generic!(BeaconBlockBodyBellatrix, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyCapella, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyDeneb, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyElectra, "BeaconBlockBody");
+type_name_generic!(BeaconBlockBodyFulu, "BeaconBlockBody");
 type_name!(BeaconBlockHeader);
 type_name_generic!(BeaconState);
 type_name!(BlobIdentifier);
@@ -74,12 +75,14 @@ type_name_generic!(ExecutionPayloadBellatrix, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadCapella, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadDeneb, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadElectra, "ExecutionPayload");
+type_name_generic!(ExecutionPayloadFulu, "ExecutionPayload");
 type_name_generic!(FullPayload, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadHeader);
 type_name_generic!(ExecutionPayloadHeaderBellatrix, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderCapella, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderDeneb, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderElectra, "ExecutionPayloadHeader");
+type_name_generic!(ExecutionPayloadHeaderFulu, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionRequests);
 type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
 type_name!(Fork);
@@ -93,6 +96,7 @@ type_name_generic!(LightClientBootstrapAltair, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapCapella, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapDeneb, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapElectra, "LightClientBootstrap");
+type_name_generic!(LightClientBootstrapFulu, "LightClientBootstrap");
 type_name_generic!(LightClientFinalityUpdate);
 type_name_generic!(LightClientFinalityUpdateAltair, "LightClientFinalityUpdate");
 type_name_generic!(
@@ -104,11 +108,13 @@ type_name_generic!(
     LightClientFinalityUpdateElectra,
     "LightClientFinalityUpdate"
 );
+type_name_generic!(LightClientFinalityUpdateFulu, "LightClientFinalityUpdate");
 type_name_generic!(LightClientHeader);
 type_name_generic!(LightClientHeaderAltair, "LightClientHeader");
 type_name_generic!(LightClientHeaderCapella, "LightClientHeader");
 type_name_generic!(LightClientHeaderDeneb, "LightClientHeader");
 type_name_generic!(LightClientHeaderElectra, "LightClientHeader");
+type_name_generic!(LightClientHeaderFulu, "LightClientHeader");
 type_name_generic!(LightClientOptimisticUpdate);
 type_name_generic!(
     LightClientOptimisticUpdateAltair,
@@ -126,11 +132,16 @@ type_name_generic!(
     LightClientOptimisticUpdateElectra,
     "LightClientOptimisticUpdate"
 );
+type_name_generic!(
+    LightClientOptimisticUpdateFulu,
+    "LightClientOptimisticUpdate"
+);
 type_name_generic!(LightClientUpdate);
 type_name_generic!(LightClientUpdateAltair, "LightClientUpdate");
 type_name_generic!(LightClientUpdateCapella, "LightClientUpdate");
 type_name_generic!(LightClientUpdateDeneb, "LightClientUpdate");
 type_name_generic!(LightClientUpdateElectra, "LightClientUpdate");
+type_name_generic!(LightClientUpdateFulu, "LightClientUpdate");
 type_name_generic!(PendingAttestation);
 type_name!(PendingConsolidation);
 type_name!(PendingPartialWithdrawal);

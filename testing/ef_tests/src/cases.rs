@@ -91,18 +91,21 @@ pub use transition::TransitionTest;
 ///     to return `true` for the feature in order for the feature test vector to be tested.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FeatureName {
-    Placeholder,
+    // TODO(fulu): to be removed once we start using Fulu types for test vectors.
+    // Existing SSZ types for PeerDAS (Fulu) are the same as Electra, so the test vectors get
+    // loaded as Electra types (default serde behaviour for untagged enums).
+    Fulu,
 }
 
 impl FeatureName {
     pub fn list_all() -> Vec<FeatureName> {
-        vec![FeatureName::Placeholder]
+        vec![FeatureName::Fulu]
     }
 
     /// `ForkName` to use when running the feature tests.
     pub fn fork_name(&self) -> ForkName {
         match self {
-            FeatureName::Placeholder => ForkName::Fulu,
+            FeatureName::Fulu => ForkName::Electra,
         }
     }
 }
@@ -110,7 +113,7 @@ impl FeatureName {
 impl Display for FeatureName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FeatureName::Placeholder => f.write_str("placeholder"),
+            FeatureName::Fulu => f.write_str("fulu"),
         }
     }
 }
