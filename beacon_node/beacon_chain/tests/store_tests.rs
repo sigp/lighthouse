@@ -2471,6 +2471,17 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .map(|s| s.beacon_block.clone())
         .collect::<Vec<_>>();
 
+    // If prune_payloads is false, the execution payload should exist in historical blocks
+    if !beacon_chain.store.get_config().prune_payloads {
+        for block in &historical_blocks {
+            let block_root = block.canonical_root();
+            assert!(beacon_chain
+                .store
+                .execution_payload_exists(&block_root)
+                .unwrap());
+        }
+    }
+
     let mut available_blocks = vec![];
     for blinded in historical_blocks {
         let block_root = blinded.canonical_root();
