@@ -174,9 +174,13 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
         id: Id,
         // TODO(das): consider selecting peers that have custody but are in this set
         _peer_id: PeerId,
-        _: usize,
+        expected_blobs: usize,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
+        if expected_blobs == 0 {
+            return Ok(LookupRequestResult::NoRequestNeeded("no columns to fetch"));
+        }
+
         cx.custody_lookup_request(id, self.block_root)
             .map_err(LookupRequestError::SendFailedNetwork)
     }
