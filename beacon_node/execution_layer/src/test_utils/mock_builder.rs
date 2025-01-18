@@ -10,7 +10,6 @@ use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slog::{debug, error, info, warn, Logger};
-use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -28,7 +27,7 @@ use types::builder_bid::{
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
     ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionedResponse, Hash256,
-    ProposerPreparationData, PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
+    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
     SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
@@ -283,7 +282,7 @@ pub struct PayloadParametersCloned {
 }
 
 #[derive(Clone)]
-pub struct MockBuilder<E: EthSpec, S: SlotClock> {
+pub struct MockBuilder<E: EthSpec> {
     el: ExecutionLayer<E>,
     beacon_client: BeaconNodeHttpClient,
     spec: Arc<ChainSpec>,
@@ -291,6 +290,7 @@ pub struct MockBuilder<E: EthSpec, S: SlotClock> {
     builder_sk: SecretKey,
     operations: Arc<RwLock<Vec<Operation>>>,
     invalidate_signatures: Arc<RwLock<bool>>,
+    genesis_time: Option<u64>,
     /// Only returns bids for registered validators if set to true. `true` by default.
     validate_pubkey: bool,
     /// Do not apply any operations if set to `false`.
@@ -303,17 +303,14 @@ pub struct MockBuilder<E: EthSpec, S: SlotClock> {
     max_bid: bool,
     /// A cache that stores the proposers index for a given epoch
     proposers_cache: Arc<RwLock<HashMap<Epoch, Vec<ProposerData>>>>,
-    pubkey_cache: Arc<RwLock<HashMap<PublicKeyBytes, u64>>>,
-    slot_clock: S,
     log: Logger,
 }
 
-impl<E: EthSpec, S: SlotClock + 'static> MockBuilder<E, S> {
+impl<E: EthSpec> MockBuilder<E> {
     pub fn new_for_testing(
         mock_el_url: SensitiveUrl,
         beacon_url: SensitiveUrl,
         spec: Arc<ChainSpec>,
-        slot_clock: S,
         executor: TaskExecutor,
     ) -> (Self, (SocketAddr, impl Future<Output = ()>)) {
         let file = NamedTempFile::new().unwrap();
@@ -339,7 +336,6 @@ impl<E: EthSpec, S: SlotClock + 'static> MockBuilder<E, S> {
             false,
             spec,
             None,
-            slot_clock,
             executor.log().clone(),
         );
         let host: Ipv4Addr = Ipv4Addr::LOCALHOST;
@@ -357,7 +353,6 @@ impl<E: EthSpec, S: SlotClock + 'static> MockBuilder<E, S> {
         max_bid: bool,
         spec: Arc<ChainSpec>,
         sk: Option<&[u8]>,
-        slot_clock: S,
         log: Logger,
     ) -> Self {
         let builder_sk = if let Some(sk_bytes) = sk {
@@ -386,10 +381,9 @@ impl<E: EthSpec, S: SlotClock + 'static> MockBuilder<E, S> {
             invalidate_signatures: Arc::new(RwLock::new(false)),
             payload_id_cache: Arc::new(RwLock::new(HashMap::new())),
             proposers_cache: Arc::new(RwLock::new(HashMap::new())),
-            pubkey_cache: Arc::new(RwLock::new(HashMap::new())),
             apply_operations,
             max_bid,
-            slot_clock,
+            genesis_time: None,
             log,
         }
     }
@@ -430,13 +424,6 @@ impl<E: EthSpec, S: SlotClock + 'static> MockBuilder<E, S> {
             "Registering validators";
             "count" => registrations.len(),
         );
-
-        let mut preparation_data = Vec::with_capacity(registrations.len());
-        let current_epoch = self
-            .slot_clock
-            .now()
-            .ok_or("Failed to get current epoch".to_string())?
-            .epoch(E::slots_per_epoch());
         for registration in registrations {
             if !registration.verify_signature(&self.spec) {
                 error!(
@@ -445,77 +432,12 @@ impl<E: EthSpec, S: SlotClock + 'static> MockBuilder<E, S> {
                     "error" => "invalid signature",
                     "validator" => %registration.message.pubkey
                 );
-                continue;
+                return Err("invalid signature".to_string());
             }
-            let pubkey = registration.message.pubkey.clone();
-
-            // First try to get the validator index from cache
-            let validator_index = {
-                let pubkey_cache = self.pubkey_cache.write();
-                pubkey_cache.get(&pubkey).copied()
-            };
-
-            // Get or fetch the validator index
-            let validator_index = if let Some(validator_index) = validator_index {
-                validator_index
-            } else {
-                // Do the async fetch without holding any locks
-                let validator_index = self
-                    .beacon_client
-                    .get_beacon_states_validator_id(
-                        StateId::Head,
-                        &ValidatorId::PublicKey(pubkey.clone()),
-                    )
-                    .await
-                    .map_err(|e| format!("Failed to get validator index: {:?}", e))?
-                    .ok_or("Beacon node returned 404".to_string())?
-                    .data
-                    .index;
-
-                // Update cache after the fetch
-                // Note: Doing this to avoid locking between await points
-                {
-                    let mut pubkey_cache = self.pubkey_cache.write();
-                    pubkey_cache.insert(pubkey.clone(), validator_index);
-                }
-
-                validator_index
-            };
-            let prep_data = (
-                ProposerPreparationData {
-                    validator_index,
-                    fee_recipient: registration.message.fee_recipient,
-                },
-                Some(registration.message.gas_limit),
-            );
-            info!(
-                self.log,
-                "Proposer prep data for {} {:?}", pubkey, prep_data,
-            );
-            preparation_data.push((
-                ProposerPreparationData {
-                    validator_index,
-                    fee_recipient: registration.message.fee_recipient,
-                },
-                Some(registration.message.gas_limit),
-            ));
             self.val_registration_cache
                 .write()
                 .insert(registration.message.pubkey, registration);
         }
-        info!(
-            self.log,
-            "Updating proposer preparation for {} validators",
-            preparation_data.len(),
-        );
-        self.el
-            .update_proposer_preparation(
-                current_epoch,
-                preparation_data
-                    .iter()
-                    .map(|(data, gas_limit)| (data, gas_limit)),
-            )
-            .await;
         Ok(())
     }
 
@@ -893,7 +815,16 @@ impl<E: EthSpec, S: SlotClock + 'static> MockBuilder<E, S> {
             };
         let slots_since_genesis = slot.as_u64() - self.spec.genesis_slot.as_u64();
 
-        let genesis_time = self.slot_clock.genesis_duration().as_secs();
+        let genesis_time = if let Some(genesis_time) = self.genesis_time {
+            genesis_time
+        } else {
+            self.beacon_client
+                .get_beacon_genesis()
+                .await
+                .map_err(|_| "couldn't get beacon genesis".to_string())?
+                .data
+                .genesis_time
+        };
         let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
 
         let head_state: BeaconState<E> = self
@@ -995,10 +926,10 @@ impl<E: EthSpec, S: SlotClock + 'static> MockBuilder<E, S> {
 /// the requests.
 ///
 /// We should eventually move this to axum when we move everything else.
-pub fn serve<E: EthSpec, S: SlotClock + 'static>(
+pub fn serve<E: EthSpec>(
     listen_addr: Ipv4Addr,
     listen_port: u16,
-    builder: MockBuilder<E, S>,
+    builder: MockBuilder<E>,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), crate::test_utils::Error> {
     let inner_ctx = builder.clone();
     let ctx_filter = warp::any().map(move || inner_ctx.clone());
@@ -1007,57 +938,57 @@ pub fn serve<E: EthSpec, S: SlotClock + 'static>(
         .and(warp::path("v1"))
         .and(warp::path("builder"));
 
-    let validators =
-        prefix
-            .and(warp::path("validators"))
-            .and(warp::body::json())
-            .and(warp::path::end())
-            .and(ctx_filter.clone())
-            .and_then(
-                |registrations: Vec<SignedValidatorRegistrationData>,
-                 builder: MockBuilder<E, S>| async move {
-                    builder
-                        .register_validators(registrations)
-                        .await
-                        .map_err(|e| warp::reject::custom(Custom(e)))?;
-                    Ok::<_, Rejection>(warp::reply())
-                },
-            )
-            .boxed();
-
-    let blinded_block = prefix
-        .and(warp::path("blinded_blocks"))
+    let validators = prefix
+        .and(warp::path("validators"))
         .and(warp::body::json())
-        .and(warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER))
         .and(warp::path::end())
         .and(ctx_filter.clone())
         .and_then(
-            |block: SignedBlindedBeaconBlock<E>,
-             fork_name: ForkName,
-             builder: MockBuilder<E, S>| async move {
-                let payload = builder
-                    .submit_blinded_block(block)
+            |registrations: Vec<SignedValidatorRegistrationData>,
+             builder: MockBuilder<E>| async move {
+                builder
+                    .register_validators(registrations)
                     .await
                     .map_err(|e| warp::reject::custom(Custom(e)))?;
-                let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                    version: Some(fork_name),
-                    metadata: Default::default(),
-                    data: payload,
-                };
-
-                let json_payload = serde_json::to_string(&resp)
-                    .map_err(|_| reject("coudn't serialize response"))?;
-                Ok::<_, warp::reject::Rejection>(
-                    warp::http::Response::builder()
-                        .status(200)
-                        .body(
-                            serde_json::to_string(&json_payload)
-                                .map_err(|_| reject("invalid JSON"))?,
-                        )
-                        .unwrap(),
-                )
+                Ok::<_, Rejection>(warp::reply())
             },
-        );
+        )
+        .boxed();
+
+    let blinded_block =
+        prefix
+            .and(warp::path("blinded_blocks"))
+            .and(warp::body::json())
+            .and(warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+            .and(warp::path::end())
+            .and(ctx_filter.clone())
+            .and_then(
+                |block: SignedBlindedBeaconBlock<E>,
+                 fork_name: ForkName,
+                 builder: MockBuilder<E>| async move {
+                    let payload = builder
+                        .submit_blinded_block(block)
+                        .await
+                        .map_err(|e| warp::reject::custom(Custom(e)))?;
+                    let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
+                        version: Some(fork_name),
+                        metadata: Default::default(),
+                        data: payload,
+                    };
+
+                    let json_payload = serde_json::to_string(&resp)
+                        .map_err(|_| reject("coudn't serialize response"))?;
+                    Ok::<_, warp::reject::Rejection>(
+                        warp::http::Response::builder()
+                            .status(200)
+                            .body(
+                                serde_json::to_string(&json_payload)
+                                    .map_err(|_| reject("invalid JSON"))?,
+                            )
+                            .unwrap(),
+                    )
+                },
+            );
 
     let status = prefix
         .and(warp::path("status"))
@@ -1080,7 +1011,7 @@ pub fn serve<E: EthSpec, S: SlotClock + 'static>(
             |slot: Slot,
              parent_hash: ExecutionBlockHash,
              pubkey: PublicKeyBytes,
-             builder: MockBuilder<E, S>| async move {
+             builder: MockBuilder<E>| async move {
                 let fork_name = builder.fork_name_at_slot(slot);
                 let signed_bid = builder
                     .get_header(slot, parent_hash, pubkey)

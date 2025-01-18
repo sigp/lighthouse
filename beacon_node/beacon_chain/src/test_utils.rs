@@ -664,7 +664,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub runtime: TestRuntime,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
-    pub mock_builder: Option<Arc<MockBuilder<T::EthSpec, T::SlotClock>>>,
+    pub mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
 
     pub rng: Mutex<StdRng>,
 }
@@ -722,7 +722,6 @@ where
             mock_el_url,
             beacon_url,
             self.spec.clone(),
-            self.chain.slot_clock.clone(),
             self.runtime.task_executor.clone(),
         );
 
