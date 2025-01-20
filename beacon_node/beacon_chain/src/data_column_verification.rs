@@ -239,6 +239,18 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_data_column(data_column, kzg)
     }
+
+    pub fn from_batch(
+        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+        kzg: &Kzg,
+    ) -> Result<Vec<Self>, (u64, KzgError)> {
+        verify_kzg_for_data_column_list_with_scoring(data_columns.iter(), kzg)?;
+        Ok(data_columns
+            .into_iter()
+            .map(|column| Self { data: column })
+            .collect())
+    }
+
     pub fn to_data_column(self) -> Arc<DataColumnSidecar<E>> {
         self.data
     }
@@ -376,6 +388,38 @@ where
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
     validate_data_columns(kzg, data_column_iter)?;
     Ok(())
+}
+
+/// Complete kzg verification for a list of `DataColumnSidecar`s.
+///
+/// If there's at least one invalid column, it re-verifies all columns individually to identify the
+/// first column that is invalid. This is necessary to attribute fault to the specific peer that
+/// sent bad data. The re-verification cost should not be significant. If a peer sends invalid data it
+/// will be quickly banned.
+pub fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
+    data_column_iter: I,
+    kzg: &'a Kzg,
+) -> Result<(), (u64, KzgError)>
+where
+    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
+{
+    let Err(batch_err) = verify_kzg_for_data_column_list(data_column_iter.clone(), kzg) else {
+        return Ok(());
+    };
+
+    let data_columns = data_column_iter.collect::<Vec<_>>();
+    // Find which column is invalid. If len is 1 or 0 continue to default case below.
+    // If len > 1 at least one column MUST fail.
+    if data_columns.len() > 1 {
+        for data_column in data_columns {
+            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
+                return Err((data_column.index, e));
+            }
+        }
+    }
+
+    // len 0 should never happen
+    Err((0, batch_err))
 }
 
 pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
