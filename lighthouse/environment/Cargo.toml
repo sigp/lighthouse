@@ -17,7 +17,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-log = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["json"] }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }
 
 [target.'cfg(not(target_family = "unix"))'.dependencies]

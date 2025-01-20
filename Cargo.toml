@@ -207,7 +207,7 @@ tracing = "0.1.40"
 tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tree_hash = "0.8"
 tree_hash_derive = "0.8"
 url = "2"

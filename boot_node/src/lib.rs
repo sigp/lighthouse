@@ -7,10 +7,10 @@ pub mod config;
 mod server;
 pub use cli::cli_app;
 use config::BootNodeConfig;
+use tracing_subscriber::EnvFilter;
 use types::{EthSpec, EthSpecId};
 
 /// Run the bootnode given the CLI configuration.
-#[allow(unused_variables)]
 pub fn run(
     lh_matches: &ArgMatches,
     bn_matches: &ArgMatches,
@@ -18,15 +18,13 @@ pub fn run(
     eth2_network_config: &Eth2NetworkConfig,
     debug_level: String,
 ) {
-    let debug_level = match debug_level.as_str() {
-        "trace" => log::Level::Trace,
-        "debug" => log::Level::Debug,
-        "info" => log::Level::Info,
-        "warn" => log::Level::Warn,
-        "error" => log::Level::Error,
-        "crit" => log::Level::Error,
-        _ => unreachable!(),
-    };
+    let filter_layer = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new(debug_level.to_string().to_lowercase()))
+        .unwrap();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter_layer)
+        .init();
 
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {

@@ -204,15 +204,6 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         peers
     }
 
-    /// Return the number of times this batch has failed downloading and failed processing, in this
-    /// order.
-    pub fn _failed_attempts(&self) -> (usize, usize) {
-        (
-            self.failed_download_attempts.len(),
-            self.failed_processing_attempts.len(),
-        )
-    }
-
     /// Verifies if an incoming block belongs to this batch.
     pub fn is_expecting_block(&self, request_id: &Id) -> bool {
         if let BatchState::Downloading(_, expected_id) = &self.state {
