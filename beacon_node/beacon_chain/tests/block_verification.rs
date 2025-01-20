@@ -100,48 +100,6 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars
     (segment, segment_sidecars)
 }
 
-async fn get_chain_segment_with_blob_sidecars(
-) -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarList<E>>>) {
-    let harness = get_harness(VALIDATOR_COUNT);
-
-    harness
-        .extend_chain(
-            CHAIN_SEGMENT_LENGTH,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
-    let mut segment = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
-    let mut segment_blobs = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
-    for snapshot in harness
-        .chain
-        .chain_dump()
-        .expect("should dump chain")
-        .into_iter()
-        .skip(1)
-    {
-        let full_block = harness
-            .chain
-            .get_block(&snapshot.beacon_block_root)
-            .await
-            .unwrap()
-            .unwrap();
-        segment.push(BeaconSnapshot {
-            beacon_block_root: snapshot.beacon_block_root,
-            beacon_block: Arc::new(full_block),
-            beacon_state: snapshot.beacon_state,
-        });
-        let blob_sidecars = harness
-            .chain
-            .get_blobs(&snapshot.beacon_block_root)
-            .unwrap()
-            .blobs();
-        segment_blobs.push(blob_sidecars)
-    }
-    (segment, segment_blobs)
-}
-
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
@@ -1019,7 +977,7 @@ fn unwrap_err<T, U>(result: Result<T, U>) -> U {
 #[tokio::test]
 async fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
-    let (chain_segment, chain_segment_blobs) = get_chain_segment_with_blob_sidecars().await;
+    let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
 
@@ -1031,7 +989,7 @@ async fn block_gossip_verification() {
     // Import the ancestors prior to the block we're testing.
     for (snapshot, blobs_opt) in chain_segment[0..block_index]
         .iter()
-        .zip(chain_segment_blobs.iter())
+        .zip(chain_segment_blobs.into_iter())
     {
         let gossip_verified = harness
             .chain
@@ -1050,20 +1008,8 @@ async fn block_gossip_verification() {
             )
             .await
             .expect("should import valid gossip verified block");
-        if let Some(blob_sidecars) = blobs_opt {
-            for blob_sidecar in blob_sidecars {
-                let blob_index = blob_sidecar.index;
-                let gossip_verified = harness
-                    .chain
-                    .verify_blob_sidecar_for_gossip(blob_sidecar.clone(), blob_index)
-                    .expect("should obtain gossip verified blob");
-
-                harness
-                    .chain
-                    .process_gossip_blob(gossip_verified)
-                    .await
-                    .expect("should import valid gossip verified blob");
-            }
+        if let Some(data_sidecars) = blobs_opt {
+            verify_and_process_gossip_data_sidecars(&harness, data_sidecars).await;
         }
     }
 
@@ -1289,6 +1235,51 @@ async fn block_gossip_verification() {
         ),
         "the second proposal by this validator should be rejected"
     );
+}
+
+async fn verify_and_process_gossip_data_sidecars(
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    data_sidecars: DataSidecars<E>,
+) {
+    match data_sidecars {
+        DataSidecars::Blobs(blob_sidecars) => {
+            for blob_sidecar in blob_sidecars {
+                let blob_index = blob_sidecar.index;
+                let gossip_verified = harness
+                    .chain
+                    .verify_blob_sidecar_for_gossip(blob_sidecar.clone(), blob_index)
+                    .expect("should obtain gossip verified blob");
+
+                harness
+                    .chain
+                    .process_gossip_blob(gossip_verified)
+                    .await
+                    .expect("should import valid gossip verified blob");
+            }
+        }
+        DataSidecars::DataColumns(column_sidecars) => {
+            let gossip_verified = column_sidecars
+                .into_iter()
+                .map(|column_sidecar| {
+                    let subnet_id = DataColumnSubnetId::from_column_index(
+                        column_sidecar.index(),
+                        &harness.spec,
+                    );
+                    harness.chain.verify_data_column_sidecar_for_gossip(
+                        column_sidecar.into_inner(),
+                        *subnet_id,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .expect("should obtain gossip verified columns");
+
+            harness
+                .chain
+                .process_gossip_data_columns(gossip_verified, || Ok(()))
+                .await
+                .expect("should import valid gossip verified columns");
+        }
+    }
 }
 
 #[tokio::test]

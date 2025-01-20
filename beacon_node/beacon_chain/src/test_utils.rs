@@ -3099,8 +3099,12 @@ where
             for (i, (kzg_proof, blob)) in proofs.into_iter().zip(blobs).enumerate() {
                 let sidecar =
                     Arc::new(BlobSidecar::new(i, blob.clone(), block, *kzg_proof).unwrap());
-                let gossip_blob = GossipVerifiedBlob::new(sidecar, i as u64, &self.chain).unwrap();
-                self.chain.process_gossip_blob(gossip_blob).await.unwrap();
+                let gossip_blob = GossipVerifiedBlob::new(sidecar, i as u64, &self.chain)
+                    .expect("should obtain gossip verified blob");
+                self.chain
+                    .process_gossip_blob(gossip_blob)
+                    .await
+                    .expect("should import valid gossip verified blob");
             }
         }
     }
