@@ -174,10 +174,10 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
         id: Id,
         // TODO(das): consider selecting peers that have custody but are in this set
         _peer_id: PeerId,
-        expected_blobs: usize,
+        _: usize,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
-        cx.custody_lookup_request(id, self.block_root, expected_blobs)
+        cx.custody_lookup_request(id, self.block_root)
             .map_err(LookupRequestError::SendFailedNetwork)
     }
 

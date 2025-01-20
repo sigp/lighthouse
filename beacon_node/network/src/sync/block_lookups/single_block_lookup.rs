@@ -215,8 +215,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
                 if expected_blobs == 0 {
                     self.component_requests = ComponentRequests::NotNeeded("no data");
-                }
-                if cx.chain.should_fetch_blobs(block_epoch) {
+                } else if cx.chain.should_fetch_blobs(block_epoch) {
                     self.component_requests = ComponentRequests::ActiveBlobRequest(
                         BlobRequestState::new(self.block_root),
                         expected_blobs,
