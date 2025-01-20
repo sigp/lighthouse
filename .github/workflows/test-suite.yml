@@ -392,6 +392,10 @@ jobs:
           cache: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Fetch libssl1.1
+      run: wget https://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb
+    - name: Install libssl1.1
+      run: sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2_amd64.deb
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config

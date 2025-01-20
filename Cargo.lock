@@ -43,7 +43,6 @@ dependencies = [
 name = "account_utils"
 version = "0.1.0"
 dependencies = [
- "directory",
  "eth2_keystore",
  "eth2_wallet",
  "filesystem",
@@ -2572,9 +2571,7 @@ dependencies = [
  "lighthouse_network",
  "mediatype",
  "pretty_reqwest_error",
- "procfs",
  "proto_array",
- "psutil",
  "reqwest",
  "reqwest-eventsource",
  "sensitive_url",
@@ -3711,6 +3708,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "health_metrics"
+version = "0.1.0"
+dependencies = [
+ "eth2",
+ "metrics",
+ "procfs",
+ "psutil",
+]
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3944,6 +3951,7 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
+ "either",
  "eth1",
  "eth2",
  "ethereum_serde_utils",
@@ -3951,6 +3959,7 @@ dependencies = [
  "execution_layer",
  "futures",
  "genesis",
+ "health_metrics",
  "hex",
  "lighthouse_network",
  "lighthouse_version",
@@ -3986,6 +3995,7 @@ name = "http_metrics"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
+ "health_metrics",
  "lighthouse_network",
  "lighthouse_version",
  "logging",
@@ -5717,6 +5727,7 @@ name = "monitoring_api"
 version = "0.1.0"
 dependencies = [
  "eth2",
+ "health_metrics",
  "lighthouse_version",
  "metrics",
  "regex",
@@ -9563,7 +9574,6 @@ dependencies = [
  "bls",
  "deposit_contract",
  "derivative",
- "directory",
  "eth2_keystore",
  "filesystem",
  "hex",
@@ -9591,6 +9601,7 @@ dependencies = [
  "filesystem",
  "futures",
  "graffiti_file",
+ "health_metrics",
  "initialized_validators",
  "itertools 0.10.5",
  "lighthouse_version",
@@ -9623,6 +9634,7 @@ dependencies = [
 name = "validator_http_metrics"
 version = "0.1.0"
 dependencies = [
+ "health_metrics",
  "lighthouse_version",
  "malloc_utils",
  "metrics",
@@ -9801,7 +9813,6 @@ dependencies = [
 name = "warp_utils"
 version = "0.1.0"
 dependencies = [
- "beacon_chain",
  "bytes",
  "eth2",
  "headers",
@@ -9810,7 +9821,6 @@ dependencies = [
  "serde",
  "serde_array_query",
  "serde_json",
- "state_processing",
  "tokio",
  "types",
  "warp",

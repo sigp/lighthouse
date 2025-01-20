@@ -13,11 +13,11 @@ use crate::metadata::{
     PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN,
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
-use crate::{get_data_column_key, metrics, parse_data_column_key, KeyValueStore};
-use crate::{DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp, StoreItem, StoreOp};
-use db_key::Key;
-use itertools::process_results;
-use itertools::Itertools;
+use crate::{
+    get_data_column_key, metrics, parse_data_column_key, BlobSidecarListFromRoot, DBColumn,
+    DatabaseBlock, Error, ItemStore, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+};
+use itertools::{process_results, Itertools};
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
@@ -1307,9 +1307,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::PutBlobs(_, _) | StoreOp::PutDataColumns(_, _) => true,
                 StoreOp::DeleteBlobs(block_root) => {
                     match self.get_blobs(block_root) {
-                        Ok(Some(blob_sidecar_list)) => {
+                        Ok(BlobSidecarListFromRoot::Blobs(blob_sidecar_list)) => {
                             blobs_to_delete.push((*block_root, blob_sidecar_list));
                         }
+                        Ok(BlobSidecarListFromRoot::NoBlobs | BlobSidecarListFromRoot::NoRoot) => {}
                         Err(e) => {
                             error!(
                                 self.log, "Error getting blobs";
@@ -1317,7 +1318,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                                 "error" => ?e
                             );
                         }
-                        _ => (),
                     }
                     true
                 }
@@ -2067,11 +2067,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch blobs for a given block from the store.
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobSidecarList<E>>, Error> {
+    pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobSidecarListFromRoot<E>, Error> {
         // Check the cache.
         if let Some(blobs) = self.block_cache.lock().get_blobs(block_root) {
             metrics::inc_counter(&metrics::BEACON_BLOBS_CACHE_HIT_COUNT);
-            return Ok(Some(blobs.clone()));
+            return Ok(blobs.clone().into());
         }
 
         match self
@@ -2079,13 +2079,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .get_bytes(DBColumn::BeaconBlob, block_root.as_slice())?
         {
             Some(ref blobs_bytes) => {
-                let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
-                self.block_cache
-                    .lock()
-                    .put_blobs(*block_root, blobs.clone());
-                Ok(Some(blobs))
+                // We insert a VariableList of BlobSidecars into the db, but retrieve
+                // a plain vec since we don't know the length limit of the list without
+                // knowing the slot.
+                // The encoding of a VariableList is the same as a regular vec.
+                let blobs: Vec<Arc<BlobSidecar<E>>> = Vec::<_>::from_ssz_bytes(blobs_bytes)?;
+                if let Some(max_blobs_per_block) = blobs
+                    .first()
+                    .map(|blob| self.spec.max_blobs_per_block(blob.epoch()))
+                {
+                    let blobs = BlobSidecarList::from_vec(blobs, max_blobs_per_block as usize);
+                    self.block_cache
+                        .lock()
+                        .put_blobs(*block_root, blobs.clone());
+
+                    Ok(BlobSidecarListFromRoot::Blobs(blobs))
+                } else {
+                    // This always implies that there were no blobs for this block_root
+                    Ok(BlobSidecarListFromRoot::NoBlobs)
+                }
             }
-            None => Ok(None),
+            None => Ok(BlobSidecarListFromRoot::NoRoot),
         }
     }
 
@@ -2658,7 +2672,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "Pruning finalized payloads";
             "info" => "you may notice degraded I/O performance while this runs"
         );
-        let anchor_slot = self.get_anchor_info().anchor_slot;
+        let anchor_info = self.get_anchor_info();
 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
@@ -2699,10 +2713,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 ops.push(StoreOp::DeleteExecutionPayload(block_root));
             }
 
-            if slot == anchor_slot {
+            if slot <= anchor_info.oldest_block_slot {
                 info!(
                     self.log,
-                    "Payload pruning reached anchor state";
+                    "Payload pruning reached anchor oldest block slot";
                     "slot" => slot
                 );
                 break;
@@ -2829,7 +2843,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut guard = self.block_cache.lock();
 
         let remove_blob_if = |blobs_bytes: &[u8]| {
-            let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
+            let blobs = Vec::from_ssz_bytes(blobs_bytes)?;
             let Some(blob): Option<&Arc<BlobSidecar<E>>> = blobs.first() else {
                 return Ok(false);
             };
@@ -3333,7 +3347,7 @@ pub struct BytesKey {
     pub key: Vec<u8>,
 }
 
-impl Key for BytesKey {
+impl db_key::Key for BytesKey {
     fn from_u8(key: &[u8]) -> Self {
         Self { key: key.to_vec() }
     }
