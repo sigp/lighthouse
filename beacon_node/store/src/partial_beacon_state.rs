@@ -6,6 +6,7 @@ use crate::{Error, KeyValueStore};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
+use types::beacon_state::{Balances, Validators};
 use types::historical_summary::HistoricalSummary;
 use types::superstruct;
 use types::*;
@@ -49,8 +50,8 @@ where
     pub eth1_deposit_index: u64,
 
     // Registry
-    pub validators: List<Validator, E::ValidatorRegistryLimit>,
-    pub balances: List<u64, E::ValidatorRegistryLimit>,
+    pub validators: Validators<E>,
+    pub balances: Balances<E>,
 
     // Shuffling
     /// Randao value from the current slot, for patching into the per-epoch randao vector.

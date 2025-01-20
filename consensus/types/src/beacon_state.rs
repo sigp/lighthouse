@@ -14,6 +14,7 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
+use std::collections::BTreeMap;
 use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -48,8 +49,9 @@ pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
 
-pub type Validators<E> = List<Validator, <E as EthSpec>::ValidatorRegistryLimit>;
-pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type Validators<E> =
+    List<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
+pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, u64>>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -398,11 +400,11 @@ where
     // Registry
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    pub validators: List<Validator, E::ValidatorRegistryLimit>,
+    pub validators: Validators<E>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    pub balances: List<u64, E::ValidatorRegistryLimit>,
+    pub balances: Balances<E>,
 
     // Randomness
     #[test_random(default)]
