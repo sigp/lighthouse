@@ -300,7 +300,7 @@ impl<E: EthSpec> Redb<E> {
         Ok(())
     }
 
-    pub fn delete_while(
+    pub fn delete_if(
         &self,
         column: DBColumn,
         mut f: impl FnMut(&[u8]) -> Result<bool, Error>,

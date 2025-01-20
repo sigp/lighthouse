@@ -181,16 +181,16 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
-    fn delete_while(
+    fn delete_if(
         &self,
         column: DBColumn,
         f: impl FnMut(&[u8]) -> Result<bool, Error>,
     ) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_while(txn, column, f),
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_if(txn, column, f),
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_while(txn, column, f),
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_if(txn, column, f),
         }
     }
 }

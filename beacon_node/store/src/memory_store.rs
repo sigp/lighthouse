@@ -148,7 +148,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         Ok(())
     }
 
-    fn delete_while(
+    fn delete_if(
         &self,
         column: DBColumn,
         mut f: impl FnMut(&[u8]) -> Result<bool, Error>,

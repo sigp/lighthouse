@@ -1288,12 +1288,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.delete_batch(col, new_ops)
     }
 
-    pub fn delete_while(
+    pub fn delete_if(
         &self,
         column: DBColumn,
         f: impl Fn(&[u8]) -> Result<bool, Error>,
     ) -> Result<(), Error> {
-        self.hot_db.delete_while(column, f)
+        self.hot_db.delete_if(column, f)
     }
 
     pub fn do_atomically_with_block_and_blobs_cache(
@@ -2844,7 +2844,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
 
         self.blobs_db
-            .delete_while(DBColumn::BeaconBlob, remove_blob_if)?;
+            .delete_if(DBColumn::BeaconBlob, remove_blob_if)?;
 
         drop(guard);
 
@@ -2861,7 +2861,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             };
 
             self.blobs_db
-                .delete_while(DBColumn::BeaconDataColumn, remove_data_column_if)?;
+                .delete_if(DBColumn::BeaconDataColumn, remove_data_column_if)?;
         }
 
         let new_blob_info = BlobInfo {
