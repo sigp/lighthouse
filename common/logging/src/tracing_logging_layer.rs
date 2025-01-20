@@ -14,6 +14,7 @@ pub struct LoggingLayer {
     pub non_blocking_writer: NonBlocking,
     pub guard: WorkerGuard,
     pub disable_log_timestamp: bool,
+    pub ansi: bool,
     span_fields: Arc<Mutex<HashMap<Id, SpanData>>>,
 }
 
@@ -22,11 +23,13 @@ impl LoggingLayer {
         non_blocking_writer: NonBlocking,
         guard: WorkerGuard,
         disable_log_timestamp: bool,
+        ansi: bool,
     ) -> Self {
         Self {
             non_blocking_writer,
             guard,
             disable_log_timestamp,
+            ansi,
             span_fields: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -94,39 +97,68 @@ where
                 if i > 0 {
                     formatted_spans.push(' ');
                 }
-                formatted_spans.push_str(&format!(
-                    "{}{}{}={}",
-                    bold_start, field_name, bold_end, field_value
-                ));
+                if self.ansi {
+                    formatted_spans.push_str(&format!(
+                        "{}{}{}={}",
+                        bold_start, field_name, bold_end, field_value
+                    ));
+                } else {
+                    formatted_spans.push_str(&format!("{}={}", field_name, field_value));
+                }
             }
         }
+        let level_str;
 
-        let level_str = if visitor.is_crit {
-            "\x1b[35mCRIT\x1b[0m"
+        if self.ansi {
+            level_str = if visitor.is_crit {
+                "\x1b[35mCRIT\x1b[0m"
+            } else {
+                match *log_level {
+                    tracing::Level::ERROR => "\x1b[31mERROR\x1b[0m",
+                    tracing::Level::WARN => "\x1b[33mWARN\x1b[0m",
+                    tracing::Level::INFO => "\x1b[32mINFO\x1b[0m",
+                    tracing::Level::DEBUG => "\x1b[34mDEBUG\x1b[0m",
+                    tracing::Level::TRACE => "\x1b[35mTRACE\x1b[0m",
+                }
+            };
         } else {
-            match *log_level {
-                tracing::Level::ERROR => "\x1b[31mERROR\x1b[0m",
-                tracing::Level::WARN => "\x1b[33mWARN\x1b[0m",
-                tracing::Level::INFO => "\x1b[32mINFO\x1b[0m",
-                tracing::Level::DEBUG => "\x1b[34mDEBUG\x1b[0m",
-                tracing::Level::TRACE => "\x1b[35mTRACE\x1b[0m",
-            }
-        };
+            level_str = if visitor.is_crit {
+                "CRIT"
+            } else {
+                match *log_level {
+                    tracing::Level::ERROR => "ERROR",
+                    tracing::Level::WARN => "WARN",
+                    tracing::Level::INFO => "INFO",
+                    tracing::Level::DEBUG => "DEBUG",
+                    tracing::Level::TRACE => "TRACE",
+                }
+            };
+        }
 
         let fixed_message_width = 44;
 
-        let bold_message = format!("{}{}{}", bold_start, visitor.message, bold_end);
-
         let message_len = visitor.message.len();
 
+        let message_content = if self.ansi {
+            format!("{}{}{}", bold_start, visitor.message, bold_end)
+        } else {
+            visitor.message.clone()
+        };
+
         let padded_message = if message_len < fixed_message_width {
+            let extra_color_len = if self.ansi {
+                bold_start.len() + bold_end.len()
+            } else {
+                0
+            };
+
             format!(
                 "{:<width$}",
-                bold_message,
-                width = fixed_message_width + (bold_message.len() - message_len)
+                message_content,
+                width = fixed_message_width + extra_color_len
             )
         } else {
-            bold_message.clone()
+            message_content.clone()
         };
 
         let mut formatted_fields = String::new();
@@ -134,9 +166,15 @@ where
             if i > 0 {
                 formatted_fields.push(' ');
             }
-            let formatted_field =
-                format!("{}{}{}={}", bold_start, field_name, bold_end, field_value);
-            formatted_fields.push_str(&formatted_field);
+
+            if self.ansi {
+                formatted_fields.push_str(&format!(
+                    "{}{}{}={}",
+                    bold_start, field_name, bold_end, field_value
+                ));
+            } else {
+                formatted_fields.push_str(&format!("{}={}", field_name, field_value));
+            }
         }
 
         let mut full_message = padded_message.clone();
