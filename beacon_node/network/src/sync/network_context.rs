@@ -27,7 +27,8 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
-use rand::seq::SliceRandom;
+use parking_lot::RwLock;
+use rand::prelude::IteratorRandom;
 use rand::thread_rng;
 pub use requests::LookupVerifyError;
 use requests::{
@@ -308,8 +309,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn get_random_custodial_peer(&self, column_index: ColumnIndex) -> Option<PeerId> {
         self.get_custodial_peers(column_index)
+            .into_iter()
             .choose(&mut thread_rng())
-            .cloned()
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -562,9 +563,24 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn block_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
-        peer_id: PeerId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let Some(peer_id) = lookup_peers
+            .read()
+            .iter()
+            .choose(&mut rand::thread_rng())
+            .copied()
+        else {
+            // Allow lookup to not have any peers and do nothing. This is an optimization to not
+            // lose progress of lookups created from a block with unknown parent before we receive
+            // attestations for said block.
+            // Lookup sync event safety: If a lookup requires peers to make progress, and does
+            // not receive any new peers for some time it will be dropped. If it receives a new
+            // peer it must attempt to make progress.
+            return Ok(LookupRequestResult::Pending("no peers"));
+        };
+
         match self.chain.get_block_process_status(&block_root) {
             // Unknown block, continue request to download
             BlockProcessStatus::Unknown => {}
@@ -634,10 +650,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn blob_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
-        peer_id: PeerId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
         expected_blobs: usize,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let Some(peer_id) = lookup_peers
+            .read()
+            .iter()
+            .choose(&mut rand::thread_rng())
+            .copied()
+        else {
+            // Allow lookup to not have any peers and do nothing. This is an optimization to not
+            // lose progress of lookups created from a block with unknown parent before we receive
+            // attestations for said block.
+            // Lookup sync event safety: If a lookup requires peers to make progress, and does
+            // not receive any new peers for some time it will be dropped. If it receives a new
+            // peer it must attempt to make progress.
+            return Ok(LookupRequestResult::Pending("no peers"));
+        };
+
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
@@ -740,6 +771,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         lookup_id: SingleLookupId,
         block_root: Hash256,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
         let custody_indexes_imported = self
             .chain
@@ -777,6 +809,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             block_root,
             CustodyId { requester },
             &custody_indexes_to_fetch,
+            lookup_peers,
             self.log.clone(),
         );
 
