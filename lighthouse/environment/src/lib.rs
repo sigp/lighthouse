@@ -219,19 +219,18 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         file_non_blocking_writer,
                         file_guard,
                         config.disable_log_timestamp,
-                        false,
                     )
                 }
                 Err(e) => {
                     eprintln!("Failed to initialize rolling file appender: {}", e);
                     let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-                    LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp, false)
+                    LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp)
                 }
             }
         } else {
             eprintln!("No path provided. File logging is disabled.");
             let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-            LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp, true)
+            LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp)
         };
 
         let (stdout_non_blocking_writer, stdout_guard) =
@@ -241,7 +240,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             stdout_non_blocking_writer,
             stdout_guard,
             config.disable_log_timestamp,
-            true,
         );
 
         let sse_logging_layer_opt = if config.sse_logging {
