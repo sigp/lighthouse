@@ -193,10 +193,12 @@ fn build_data_column_sidecars<E: EthSpec>(
     blob_cells_and_proofs_vec: Vec<CellsAndKzgProofs>,
     spec: &ChainSpec,
 ) -> Result<DataColumnSidecarList<E>, String> {
-    let number_of_columns = spec.number_of_columns;
-    let mut columns = vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
-    let mut column_kzg_proofs =
-        vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
+    let number_of_columns = spec.number_of_columns as usize;
+    let max_blobs_per_block = spec
+        .max_blobs_per_block(signed_block_header.message.slot.epoch(E::slots_per_epoch()))
+        as usize;
+    let mut columns = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
+    let mut column_kzg_proofs = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
 
     for (blob_cells, blob_cell_proofs) in blob_cells_and_proofs_vec {
         // we iterate over each column, and we construct the column from "top to bottom",
@@ -253,6 +255,7 @@ pub fn reconstruct_blobs<E: EthSpec>(
     data_columns: &[Arc<DataColumnSidecar<E>>],
     blob_indices_opt: Option<Vec<u64>>,
     signed_block: &SignedBlindedBeaconBlock<E>,
+    spec: &ChainSpec,
 ) -> Result<BlobSidecarList<E>, String> {
     // The data columns are from the database, so we assume their correctness.
     let first_data_column = data_columns
@@ -315,10 +318,11 @@ pub fn reconstruct_blobs<E: EthSpec>(
             .map(Arc::new)
             .map_err(|e| format!("{e:?}"))
         })
-        .collect::<Result<Vec<_>, _>>()?
-        .into();
+        .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(blob_sidecars)
+    let max_blobs = spec.max_blobs_per_block(signed_block.epoch()) as usize;
+
+    BlobSidecarList::new(blob_sidecars, max_blobs).map_err(|e| format!("{e:?}"))
 }
 
 /// Reconstruct all data columns from a subset of data column sidecars (requires at least 50%).
@@ -424,7 +428,7 @@ mod test {
             .kzg_commitments_merkle_proof()
             .unwrap();
 
-        assert_eq!(column_sidecars.len(), spec.number_of_columns);
+        assert_eq!(column_sidecars.len(), spec.number_of_columns as usize);
         for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
             assert_eq!(col_sidecar.index, idx as u64);
 
@@ -457,7 +461,7 @@ mod test {
         )
         .unwrap();
 
-        for i in 0..spec.number_of_columns {
+        for i in 0..spec.number_of_columns as usize {
             assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");
         }
     }
@@ -478,6 +482,7 @@ mod test {
             &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
             Some(blob_indices.clone()),
             &signed_blinded_block,
+            spec,
         )
         .unwrap();
 

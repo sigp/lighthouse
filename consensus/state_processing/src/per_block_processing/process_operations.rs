@@ -284,29 +284,22 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    match block_body {
-        BeaconBlockBodyRef::Base(_) => {
-            base::process_attestations(
-                state,
-                block_body.attestations(),
-                verify_signatures,
-                ctxt,
-                spec,
-            )?;
-        }
-        BeaconBlockBodyRef::Altair(_)
-        | BeaconBlockBodyRef::Bellatrix(_)
-        | BeaconBlockBodyRef::Capella(_)
-        | BeaconBlockBodyRef::Deneb(_)
-        | BeaconBlockBodyRef::Electra(_) => {
-            altair_deneb::process_attestations(
-                state,
-                block_body.attestations(),
-                verify_signatures,
-                ctxt,
-                spec,
-            )?;
-        }
+    if state.fork_name_unchecked().altair_enabled() {
+        altair_deneb::process_attestations(
+            state,
+            block_body.attestations(),
+            verify_signatures,
+            ctxt,
+            spec,
+        )?;
+    } else {
+        base::process_attestations(
+            state,
+            block_body.attestations(),
+            verify_signatures,
+            ctxt,
+            spec,
+        )?;
     }
     Ok(())
 }
@@ -514,11 +507,11 @@ pub fn process_withdrawal_requests<E: EthSpec>(
         }
 
         // Verify pubkey exists
-        let Some(index) = state.pubkey_cache().get(&request.validator_pubkey) else {
+        let Some(validator_index) = state.pubkey_cache().get(&request.validator_pubkey) else {
             continue;
         };
 
-        let validator = state.get_validator(index)?;
+        let validator = state.get_validator(validator_index)?;
         // Verify withdrawal credentials
         let has_correct_credential = validator.has_execution_withdrawal_credential(spec);
         let is_correct_source_address = validator
@@ -549,16 +542,16 @@ pub fn process_withdrawal_requests<E: EthSpec>(
             continue;
         }
 
-        let pending_balance_to_withdraw = state.get_pending_balance_to_withdraw(index)?;
+        let pending_balance_to_withdraw = state.get_pending_balance_to_withdraw(validator_index)?;
         if is_full_exit_request {
             // Only exit validator if it has no pending withdrawals in the queue
             if pending_balance_to_withdraw == 0 {
-                initiate_validator_exit(state, index, spec)?
+                initiate_validator_exit(state, validator_index, spec)?
             }
             continue;
         }
 
-        let balance = state.get_balance(index)?;
+        let balance = state.get_balance(validator_index)?;
         let has_sufficient_effective_balance =
             validator.effective_balance >= spec.min_activation_balance;
         let has_excess_balance = balance
@@ -583,7 +576,7 @@ pub fn process_withdrawal_requests<E: EthSpec>(
             state
                 .pending_partial_withdrawals_mut()?
                 .push(PendingPartialWithdrawal {
-                    index: index as u64,
+                    validator_index: validator_index as u64,
                     amount: to_withdraw,
                     withdrawable_epoch,
                 })?;
@@ -746,8 +739,8 @@ pub fn process_consolidation_request<E: EthSpec>(
     }
 
     let target_validator = state.get_validator(target_index)?;
-    // Verify the target has execution withdrawal credentials
-    if !target_validator.has_execution_withdrawal_credential(spec) {
+    // Verify the target has compounding withdrawal credentials
+    if !target_validator.has_compounding_withdrawal_credential(spec) {
         return Ok(());
     }
 
@@ -762,6 +755,18 @@ pub fn process_consolidation_request<E: EthSpec>(
     if source_validator.exit_epoch != spec.far_future_epoch
         || target_validator.exit_epoch != spec.far_future_epoch
     {
+        return Ok(());
+    }
+    // Verify the source has been active long enough
+    if current_epoch
+        < source_validator
+            .activation_epoch
+            .safe_add(spec.shard_committee_period)?
+    {
+        return Ok(());
+    }
+    // Verify the source has no pending withdrawals in the queue
+    if state.get_pending_balance_to_withdraw(source_index)? > 0 {
         return Ok(());
     }
 
@@ -779,10 +784,5 @@ pub fn process_consolidation_request<E: EthSpec>(
             target_index: target_index as u64,
         })?;
 
-    let target_validator = state.get_validator(target_index)?;
-    // Churn any target excess active balance of target and raise its max
-    if target_validator.has_eth1_withdrawal_credential(spec) {
-        state.switch_to_compounding_validator(target_index, spec)?;
-    }
     Ok(())
 }

@@ -41,7 +41,7 @@ pub fn process_payload_status(
             PayloadStatusV1Status::Valid => {
                 if response
                     .latest_valid_hash
-                    .map_or(false, |h| h == head_block_hash)
+                    .is_some_and(|h| h == head_block_hash)
                 {
                     // The response is only valid if `latest_valid_hash` is not `null` and
                     // equal to the provided `block_hash`.

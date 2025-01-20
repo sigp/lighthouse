@@ -41,13 +41,10 @@ pub fn process_epoch<E: EthSpec>(
         .fork_name(spec)
         .map_err(Error::InconsistentStateFork)?;
 
-    match state {
-        BeaconState::Base(_) => base::process_epoch(state, spec),
-        BeaconState::Altair(_)
-        | BeaconState::Bellatrix(_)
-        | BeaconState::Capella(_)
-        | BeaconState::Deneb(_)
-        | BeaconState::Electra(_) => altair::process_epoch(state, spec),
+    if state.fork_name_unchecked().altair_enabled() {
+        altair::process_epoch(state, spec)
+    } else {
+        base::process_epoch(state, spec)
     }
 }
 

@@ -89,7 +89,7 @@ impl<E: EthSpec> PeerInfo<E> {
     }
 
     /// Returns if the peer is subscribed to a given `Subnet` from the metadata attnets/syncnets field.
-    /// Also returns true if the peer is assigned to custody a given data column `Subnet` computed from the metadata `custody_column_count` field or ENR `csc` field.
+    /// Also returns true if the peer is assigned to custody a given data column `Subnet` computed from the metadata `custody_group_count` field or ENR `cgc` field.
     pub fn on_subnet_metadata(&self, subnet: &Subnet) -> bool {
         if let Some(meta_data) = &self.meta_data {
             match subnet {
@@ -99,9 +99,11 @@ impl<E: EthSpec> PeerInfo<E> {
                 Subnet::SyncCommittee(id) => {
                     return meta_data
                         .syncnets()
-                        .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
+                        .is_ok_and(|s| s.get(**id as usize).unwrap_or(false))
                 }
-                Subnet::DataColumn(column) => return self.custody_subnets.contains(column),
+                Subnet::DataColumn(subnet_id) => {
+                    return self.is_assigned_to_custody_subnet(subnet_id)
+                }
             }
         }
         false
@@ -120,6 +122,24 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Returns the connection direction for the peer.
     pub fn connection_direction(&self) -> Option<&ConnectionDirection> {
         self.connection_direction.as_ref()
+    }
+
+    /// Returns true if this is an incoming ipv4 connection.
+    pub fn is_incoming_ipv4_connection(&self) -> bool {
+        self.seen_multiaddrs.iter().any(|multiaddr| {
+            multiaddr
+                .iter()
+                .any(|protocol| matches!(protocol, libp2p::core::multiaddr::Protocol::Ip4(_)))
+        })
+    }
+
+    /// Returns true if this is an incoming ipv6 connection.
+    pub fn is_incoming_ipv6_connection(&self) -> bool {
+        self.seen_multiaddrs.iter().any(|multiaddr| {
+            multiaddr
+                .iter()
+                .any(|protocol| matches!(protocol, libp2p::core::multiaddr::Protocol::Ip6(_)))
+        })
     }
 
     /// Returns the sync status of the peer.
@@ -264,7 +284,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Reports if this peer has some future validator duty in which case it is valuable to keep it.
     pub fn has_future_duty(&self) -> bool {
-        self.min_ttl.map_or(false, |i| i >= Instant::now())
+        self.min_ttl.is_some_and(|i| i >= Instant::now())
     }
 
     /// Returns score of the peer.

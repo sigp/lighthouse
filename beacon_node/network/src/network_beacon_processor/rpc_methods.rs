@@ -890,14 +890,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "start_slot" => req.start_slot,
         );
 
-        // Should not send more than max request blocks
-        if req.max_blobs_requested::<T::EthSpec>() > self.chain.spec.max_request_blob_sidecars {
-            return Err((
-                RpcErrorResponse::InvalidRequest,
-                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
-            ));
-        }
-
         let request_start_slot = Slot::from(req.start_slot);
 
         let data_availability_boundary_slot = match self.chain.data_availability_boundary() {

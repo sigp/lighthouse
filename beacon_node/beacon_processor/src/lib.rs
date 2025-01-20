@@ -1022,7 +1022,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 let can_spawn = self.current_workers < self.config.max_workers;
                 let drop_during_sync = work_event
                     .as_ref()
-                    .map_or(false, |event| event.drop_during_sync);
+                    .is_some_and(|event| event.drop_during_sync);
 
                 let idle_tx = idle_tx.clone();
                 let modified_queue_id = match work_event {

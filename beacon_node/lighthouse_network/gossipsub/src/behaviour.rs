@@ -1770,8 +1770,7 @@ where
         // reject messages claiming to be from ourselves but not locally published
         let self_published = !self.config.allow_self_origin()
             && if let Some(own_id) = self.publish_config.get_own_id() {
-                own_id != propagation_source
-                    && raw_message.source.as_ref().map_or(false, |s| s == own_id)
+                own_id != propagation_source && raw_message.source.as_ref() == Some(own_id)
             } else {
                 self.published_message_ids.contains(msg_id)
             };

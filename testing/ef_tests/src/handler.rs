@@ -7,9 +7,6 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec, ForkName};
 
-const EIP7594_FORK: ForkName = ForkName::Deneb;
-const EIP7594_TESTS: [&str; 4] = ["ssz_static", "merkle_proof", "networking", "kzg"];
-
 pub trait Handler {
     type Case: Case + LoadCase;
 
@@ -24,7 +21,7 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![]
+        vec![ForkName::Fulu]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -39,13 +36,16 @@ pub trait Handler {
         for fork_name in ForkName::list_all() {
             if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name);
+            }
+        }
 
-                if fork_name == EIP7594_FORK
-                    && EIP7594_TESTS.contains(&Self::runner_name())
-                    && self.is_enabled_for_feature(FeatureName::Eip7594)
-                {
-                    self.run_for_feature(EIP7594_FORK, FeatureName::Eip7594);
-                }
+        // Run feature tests for future forks that are not yet added to `ForkName`.
+        // This runs tests in the directory named by the feature instead of the fork name.
+        // e.g. consensus-spec-tests/tests/general/[feature_name]/[runner_name]
+        // e.g. consensus-spec-tests/tests/general/peerdas/ssz_static
+        for feature_name in FeatureName::list_all() {
+            if self.is_enabled_for_feature(feature_name) {
+                self.run_for_feature(feature_name);
             }
         }
     }
@@ -96,8 +96,9 @@ pub trait Handler {
         crate::results::assert_tests_pass(&name, &handler_path, &results);
     }
 
-    fn run_for_feature(&self, fork_name: ForkName, feature_name: FeatureName) {
+    fn run_for_feature(&self, feature_name: FeatureName) {
         let feature_name_str = feature_name.to_string();
+        let fork_name = feature_name.fork_name();
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("consensus-spec-tests")
@@ -287,6 +288,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Electra])
     }
 
+    pub fn fulu_only() -> Self {
+        Self::for_forks(vec![ForkName::Fulu])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -305,6 +310,10 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn electra_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[5..].to_vec())
+    }
+
+    pub fn fulu_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[6..].to_vec())
     }
 
     pub fn pre_electra() -> Self {
@@ -344,6 +353,22 @@ where
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        // This ensures we only run the tests **once** for the feature, using the types matching the
+        // correct fork, e.g. `Fulu` uses SSZ types from `Electra` fork as of spec test version
+        // `v1.5.0-beta.0`, therefore the `Fulu` tests should get included when testing Electra types.
+        //
+        // e.g. Fulu test vectors are executed in the first line below, but excluded in the 2nd
+        // line when testing the type `AttestationElectra`:
+        //
+        // ```
+        // SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
+        // SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
+        // ```
+        feature_name == FeatureName::Fulu
+            && self.supported_forks.contains(&feature_name.fork_name())
+    }
 }
 
 impl<E> Handler for SszStaticTHCHandler<BeaconState<E>, E>
@@ -362,6 +387,10 @@ where
 
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -383,6 +412,10 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -841,10 +874,10 @@ impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct GetCustodyColumnsHandler<E>(PhantomData<E>);
+pub struct GetCustodyGroupsHandler<E>(PhantomData<E>);
 
-impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
-    type Case = cases::GetCustodyColumns<E>;
+impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
+    type Case = cases::GetCustodyGroups<E>;
 
     fn config_name() -> &'static str {
         E::name()
@@ -855,7 +888,27 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
     }
 
     fn handler_name(&self) -> String {
-        "get_custody_columns".into()
+        "get_custody_groups".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct ComputeColumnsForCustodyGroupHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> {
+    type Case = cases::ComputeColumnsForCustodyGroups<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "networking"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_columns_for_custody_group".into()
     }
 }
 
@@ -963,8 +1016,11 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Enabled in Deneb
         fork_name.deneb_enabled()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 

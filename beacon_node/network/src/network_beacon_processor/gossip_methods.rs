@@ -3129,7 +3129,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .slot_clock
             .now()
-            .map_or(false, |current_slot| sync_message_slot == current_slot);
+            .is_some_and(|current_slot| sync_message_slot == current_slot);
 
         self.propagate_if_timely(is_timely, message_id, peer_id)
     }

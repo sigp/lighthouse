@@ -1,7 +1,7 @@
 use crate::consensus_context::ConsensusContext;
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
 use rayon::prelude::*;
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::{ArithError, SafeArith, SafeArithIter};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
@@ -391,10 +391,12 @@ pub fn partially_verify_execution_payload<E: EthSpec, Payload: AbstractExecPaylo
 
     if let Ok(blob_commitments) = body.blob_kzg_commitments() {
         // Verify commitments are under the limit.
+        let max_blobs_per_block =
+            spec.max_blobs_per_block(block_slot.epoch(E::slots_per_epoch())) as usize;
         block_verify!(
-            blob_commitments.len() <= E::max_blobs_per_block(),
+            blob_commitments.len() <= max_blobs_per_block,
             BlockProcessingError::ExecutionInvalidBlobsLen {
-                max: E::max_blobs_per_block(),
+                max: max_blobs_per_block,
                 actual: blob_commitments.len(),
             }
         );
@@ -442,6 +444,12 @@ pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }
+        ExecutionPayloadHeaderRefMut::Fulu(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Fulu(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
     }
 
     Ok(())
@@ -453,15 +461,17 @@ pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
 /// repeatedly write code to treat these errors as false.
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_complete
 pub fn is_merge_transition_complete<E: EthSpec>(state: &BeaconState<E>) -> bool {
-    match state {
+    if state.fork_name_unchecked().capella_enabled() {
+        true
+    } else if state.fork_name_unchecked().bellatrix_enabled() {
         // We must check defaultness against the payload header with 0x0 roots, as that's what's meant
         // by `ExecutionPayloadHeader()` in the spec.
-        BeaconState::Bellatrix(_) => state
+        state
             .latest_execution_payload_header()
             .map(|header| !header.is_default_with_zero_roots())
-            .unwrap_or(false),
-        BeaconState::Electra(_) | BeaconState::Deneb(_) | BeaconState::Capella(_) => true,
-        BeaconState::Base(_) | BeaconState::Altair(_) => false,
+            .unwrap_or(false)
+    } else {
+        false
     }
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_block
@@ -499,7 +509,7 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
 
 /// Compute the next batch of withdrawals which should be included in a block.
 ///
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#new-get_expected_withdrawals
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/electra/beacon-chain.md#new-get_expected_withdrawals
 pub fn get_expected_withdrawals<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
@@ -512,9 +522,9 @@ pub fn get_expected_withdrawals<E: EthSpec>(
 
     // [New in Electra:EIP7251]
     // Consume pending partial withdrawals
-    let partial_withdrawals_count =
+    let processed_partial_withdrawals_count =
         if let Ok(partial_withdrawals) = state.pending_partial_withdrawals() {
-            let mut partial_withdrawals_count = 0;
+            let mut processed_partial_withdrawals_count = 0;
             for withdrawal in partial_withdrawals {
                 if withdrawal.withdrawable_epoch > epoch
                     || withdrawals.len() == spec.max_pending_partials_per_withdrawals_sweep as usize
@@ -522,8 +532,8 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     break;
                 }
 
-                let withdrawal_balance = state.get_balance(withdrawal.index as usize)?;
-                let validator = state.get_validator(withdrawal.index as usize)?;
+                let withdrawal_balance = state.get_balance(withdrawal.validator_index as usize)?;
+                let validator = state.get_validator(withdrawal.validator_index as usize)?;
 
                 let has_sufficient_effective_balance =
                     validator.effective_balance >= spec.min_activation_balance;
@@ -539,7 +549,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     );
                     withdrawals.push(Withdrawal {
                         index: withdrawal_index,
-                        validator_index: withdrawal.index,
+                        validator_index: withdrawal.validator_index,
                         address: validator
                             .get_execution_withdrawal_address(spec)
                             .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?,
@@ -547,9 +557,9 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     });
                     withdrawal_index.safe_add_assign(1)?;
                 }
-                partial_withdrawals_count.safe_add_assign(1)?;
+                processed_partial_withdrawals_count.safe_add_assign(1)?;
             }
-            Some(partial_withdrawals_count)
+            Some(processed_partial_withdrawals_count)
         } else {
             None
         };
@@ -560,9 +570,19 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     );
     for _ in 0..bound {
         let validator = state.get_validator(validator_index as usize)?;
-        let balance = *state.balances().get(validator_index as usize).ok_or(
-            BeaconStateError::BalancesOutOfBounds(validator_index as usize),
-        )?;
+        let partially_withdrawn_balance = withdrawals
+            .iter()
+            .filter_map(|withdrawal| {
+                (withdrawal.validator_index == validator_index).then_some(withdrawal.amount)
+            })
+            .safe_sum()?;
+        let balance = state
+            .balances()
+            .get(validator_index as usize)
+            .ok_or(BeaconStateError::BalancesOutOfBounds(
+                validator_index as usize,
+            ))?
+            .safe_sub(partially_withdrawn_balance)?;
         if validator.is_fully_withdrawable_at(balance, epoch, spec, fork_name) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
@@ -594,7 +614,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
             .safe_rem(state.validators().len() as u64)?;
     }
 
-    Ok((withdrawals.into(), partial_withdrawals_count))
+    Ok((withdrawals.into(), processed_partial_withdrawals_count))
 }
 
 /// Apply withdrawals to the state.
@@ -603,66 +623,65 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
     payload: Payload::Ref<'_>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    match state {
-        BeaconState::Capella(_) | BeaconState::Deneb(_) | BeaconState::Electra(_) => {
-            let (expected_withdrawals, partial_withdrawals_count) =
-                get_expected_withdrawals(state, spec)?;
-            let expected_root = expected_withdrawals.tree_hash_root();
-            let withdrawals_root = payload.withdrawals_root()?;
+    if state.fork_name_unchecked().capella_enabled() {
+        let (expected_withdrawals, partial_withdrawals_count) =
+            get_expected_withdrawals(state, spec)?;
+        let expected_root = expected_withdrawals.tree_hash_root();
+        let withdrawals_root = payload.withdrawals_root()?;
 
-            if expected_root != withdrawals_root {
-                return Err(BlockProcessingError::WithdrawalsRootMismatch {
-                    expected: expected_root,
-                    found: withdrawals_root,
-                });
-            }
+        if expected_root != withdrawals_root {
+            return Err(BlockProcessingError::WithdrawalsRootMismatch {
+                expected: expected_root,
+                found: withdrawals_root,
+            });
+        }
 
-            for withdrawal in expected_withdrawals.iter() {
-                decrease_balance(
-                    state,
-                    withdrawal.validator_index as usize,
-                    withdrawal.amount,
-                )?;
-            }
+        for withdrawal in expected_withdrawals.iter() {
+            decrease_balance(
+                state,
+                withdrawal.validator_index as usize,
+                withdrawal.amount,
+            )?;
+        }
 
-            // Update pending partial withdrawals [New in Electra:EIP7251]
-            if let Some(partial_withdrawals_count) = partial_withdrawals_count {
-                // TODO(electra): Use efficient pop_front after milhouse release https://github.com/sigp/milhouse/pull/38
-                let new_partial_withdrawals = state
-                    .pending_partial_withdrawals()?
-                    .iter_from(partial_withdrawals_count)?
-                    .cloned()
-                    .collect::<Vec<_>>();
-                *state.pending_partial_withdrawals_mut()? = List::new(new_partial_withdrawals)?;
-            }
+        // Update pending partial withdrawals [New in Electra:EIP7251]
+        if let Some(partial_withdrawals_count) = partial_withdrawals_count {
+            // TODO(electra): Use efficient pop_front after milhouse release https://github.com/sigp/milhouse/pull/38
+            let new_partial_withdrawals = state
+                .pending_partial_withdrawals()?
+                .iter_from(partial_withdrawals_count)?
+                .cloned()
+                .collect::<Vec<_>>();
+            *state.pending_partial_withdrawals_mut()? = List::new(new_partial_withdrawals)?;
+        }
 
-            // Update the next withdrawal index if this block contained withdrawals
-            if let Some(latest_withdrawal) = expected_withdrawals.last() {
-                *state.next_withdrawal_index_mut()? = latest_withdrawal.index.safe_add(1)?;
+        // Update the next withdrawal index if this block contained withdrawals
+        if let Some(latest_withdrawal) = expected_withdrawals.last() {
+            *state.next_withdrawal_index_mut()? = latest_withdrawal.index.safe_add(1)?;
 
-                // Update the next validator index to start the next withdrawal sweep
-                if expected_withdrawals.len() == E::max_withdrawals_per_payload() {
-                    // Next sweep starts after the latest withdrawal's validator index
-                    let next_validator_index = latest_withdrawal
-                        .validator_index
-                        .safe_add(1)?
-                        .safe_rem(state.validators().len() as u64)?;
-                    *state.next_withdrawal_validator_index_mut()? = next_validator_index;
-                }
-            }
-
-            // Advance sweep by the max length of the sweep if there was not a full set of withdrawals
-            if expected_withdrawals.len() != E::max_withdrawals_per_payload() {
-                let next_validator_index = state
-                    .next_withdrawal_validator_index()?
-                    .safe_add(spec.max_validators_per_withdrawals_sweep)?
+            // Update the next validator index to start the next withdrawal sweep
+            if expected_withdrawals.len() == E::max_withdrawals_per_payload() {
+                // Next sweep starts after the latest withdrawal's validator index
+                let next_validator_index = latest_withdrawal
+                    .validator_index
+                    .safe_add(1)?
                     .safe_rem(state.validators().len() as u64)?;
                 *state.next_withdrawal_validator_index_mut()? = next_validator_index;
             }
-
-            Ok(())
         }
+
+        // Advance sweep by the max length of the sweep if there was not a full set of withdrawals
+        if expected_withdrawals.len() != E::max_withdrawals_per_payload() {
+            let next_validator_index = state
+                .next_withdrawal_validator_index()?
+                .safe_add(spec.max_validators_per_withdrawals_sweep)?
+                .safe_rem(state.validators().len() as u64)?;
+            *state.next_withdrawal_validator_index_mut()? = next_validator_index;
+        }
+
+        Ok(())
+    } else {
         // these shouldn't even be encountered but they're here for completeness
-        BeaconState::Base(_) | BeaconState::Altair(_) | BeaconState::Bellatrix(_) => Ok(()),
+        Ok(())
     }
 }

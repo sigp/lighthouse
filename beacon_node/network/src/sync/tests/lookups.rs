@@ -119,6 +119,8 @@ impl TestRig {
             .network_globals
             .set_sync_state(SyncState::Synced);
 
+        let spec = chain.spec.clone();
+
         let rng = XorShiftRng::from_seed([42; 16]);
         TestRig {
             beacon_processor_rx,
@@ -142,6 +144,7 @@ impl TestRig {
             harness,
             fork_name,
             log,
+            spec,
         }
     }
 
@@ -174,7 +177,7 @@ impl TestRig {
     }
 
     pub fn after_deneb(&self) -> bool {
-        matches!(self.fork_name, ForkName::Deneb | ForkName::Electra)
+        self.fork_name.deneb_enabled()
     }
 
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
@@ -213,7 +216,7 @@ impl TestRig {
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let fork_name = self.fork_name;
         let rng = &mut self.rng;
-        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng, &self.spec)
     }
 
     fn rand_block_and_data_columns(
@@ -1328,8 +1331,10 @@ impl TestRig {
 
 #[test]
 fn stable_rng() {
+    let spec = types::MainnetEthSpec::default_spec();
     let mut rng = XorShiftRng::from_seed([42; 16]);
-    let (block, _) = generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng);
+    let (block, _) =
+        generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng, &spec);
     assert_eq!(
         block.canonical_root(),
         Hash256::from_slice(
@@ -2165,7 +2170,7 @@ fn custody_lookup_happy_path() {
     let id = r.expect_block_lookup_request(block.canonical_root());
     r.complete_valid_block_request(id, block.into(), true);
     // for each slot we download `samples_per_slot` columns
-    let sample_column_count = spec.samples_per_slot * spec.data_columns_per_subnet() as u64;
+    let sample_column_count = spec.samples_per_slot * spec.data_columns_per_group();
     let custody_ids =
         r.expect_only_data_columns_by_root_requests(block_root, sample_column_count as usize);
     r.complete_valid_custody_request(custody_ids, data_columns, false);
@@ -2187,8 +2192,8 @@ mod deneb_only {
         block_verification_types::{AsBlock, RpcBlock},
         data_availability_checker::AvailabilityCheckError,
     };
-    use ssz_types::VariableList;
     use std::collections::VecDeque;
+    use types::RuntimeVariableList;
 
     struct DenebTester {
         rig: TestRig,
@@ -2546,12 +2551,15 @@ mod deneb_only {
         fn parent_block_unknown_parent(mut self) -> Self {
             self.rig.log("parent_block_unknown_parent");
             let block = self.unknown_parent_block.take().unwrap();
+            let max_len = self.rig.spec.max_blobs_per_block(block.epoch()) as usize;
             // Now this block is the one we expect requests from
             self.block = block.clone();
             let block = RpcBlock::new(
                 Some(block.canonical_root()),
                 block,
-                self.unknown_parent_blobs.take().map(VariableList::from),
+                self.unknown_parent_blobs
+                    .take()
+                    .map(|vec| RuntimeVariableList::from_vec(vec, max_len)),
             )
             .unwrap();
             self.rig.parent_block_processed(

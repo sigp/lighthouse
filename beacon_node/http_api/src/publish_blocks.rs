@@ -395,9 +395,8 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
     let gossip_verified_data_columns = data_column_sidecars
         .into_iter()
         .map(|data_column_sidecar| {
-            let column_index = data_column_sidecar.index as usize;
-            let subnet =
-                DataColumnSubnetId::from_column_index::<T::EthSpec>(column_index, &chain.spec);
+            let column_index = data_column_sidecar.index;
+            let subnet = DataColumnSubnetId::from_column_index(column_index, &chain.spec);
             let gossip_verified_column =
                 GossipVerifiedDataColumn::new(data_column_sidecar, subnet.into(), chain);
 
@@ -520,10 +519,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
     let pubsub_messages = data_column_sidecars
         .into_iter()
         .map(|data_col| {
-            let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                data_col.index as usize,
-                &chain.spec,
-            );
+            let subnet = DataColumnSubnetId::from_column_index(data_col.index, &chain.spec);
             PubsubMessage::DataColumnSidecar(Box::new((subnet, data_col)))
         })
         .collect::<Vec<_>>();

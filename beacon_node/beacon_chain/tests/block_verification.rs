@@ -65,12 +65,13 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarL
             beacon_block: Arc::new(full_block),
             beacon_state: snapshot.beacon_state,
         });
-        segment_blobs.push(Some(
+        segment_blobs.push(
             harness
                 .chain
                 .get_blobs(&snapshot.beacon_block_root)
-                .unwrap(),
-        ))
+                .unwrap()
+                .blobs(),
+        );
     }
     (segment, segment_blobs)
 }
@@ -110,8 +111,9 @@ async fn get_chain_segment_with_blob_sidecars(
         let blob_sidecars = harness
             .chain
             .get_blobs(&snapshot.beacon_block_root)
-            .unwrap();
-        segment_blobs.push(Some(blob_sidecars))
+            .unwrap()
+            .blobs();
+        segment_blobs.push(blob_sidecars)
     }
     (segment, segment_blobs)
 }
@@ -206,7 +208,7 @@ fn update_blob_signed_header<E: EthSpec>(
     signed_block: &SignedBeaconBlock<E>,
     blobs: &mut BlobSidecarList<E>,
 ) {
-    for old_blob_sidecar in blobs.iter_mut() {
+    for old_blob_sidecar in blobs.as_mut_slice() {
         let new_blob = Arc::new(BlobSidecar::<E> {
             index: old_blob_sidecar.index,
             blob: old_blob_sidecar.blob.clone(),
@@ -754,6 +756,11 @@ async fn invalid_signature_attester_slashing() {
                     .push(attester_slashing.as_electra().unwrap().clone())
                     .expect("should update attester slashing");
             }
+            BeaconBlockBodyRefMut::Fulu(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_electra().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
         }
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
@@ -806,6 +813,10 @@ async fn invalid_signature_attestation() {
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
             BeaconBlockBodyRefMut::Electra(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Fulu(ref mut blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
@@ -1214,7 +1225,7 @@ async fn verify_block_for_gossip_slashing_detection() {
     let slasher = Arc::new(
         Slasher::open(
             SlasherConfig::new(slasher_dir.path().into()),
-            spec,
+            spec.clone(),
             test_logger(),
         )
         .unwrap(),
@@ -1238,7 +1249,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     if let Some((kzg_proofs, blobs)) = blobs1 {
         let sidecars =
-            BlobSidecar::build_sidecars(blobs, verified_block.block(), kzg_proofs).unwrap();
+            BlobSidecar::build_sidecars(blobs, verified_block.block(), kzg_proofs, &spec).unwrap();
         for sidecar in sidecars {
             let blob_index = sidecar.index;
             let verified_blob = harness
@@ -1726,7 +1737,7 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
         .unwrap()
     {
         ExecutedBlock::Available(block) => chain
-            .import_available_block(Box::from(block), None)
+            .import_available_block(Box::from(block))
             .await
             .map_err(|e| format!("{e:?}")),
         ExecutedBlock::AvailabilityPending(_) => {

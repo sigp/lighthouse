@@ -12,7 +12,6 @@ insecure_keys = []
 bls = { workspace = true }
 deposit_contract = { workspace = true }
 derivative = { workspace = true }
-directory = { workspace = true }
 eth2_keystore = { workspace = true }
 filesystem = { workspace = true }
 hex = { workspace = true }

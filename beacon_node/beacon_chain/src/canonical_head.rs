@@ -1254,11 +1254,7 @@ pub fn find_reorg_slot<E: EthSpec>(
         ($state: ident, $block_root: ident) => {
             std::iter::once(Ok(($state.slot(), $block_root)))
                 .chain($state.rev_iter_block_roots(spec))
-                .skip_while(|result| {
-                    result
-                        .as_ref()
-                        .map_or(false, |(slot, _)| *slot > lowest_slot)
-                })
+                .skip_while(|result| result.as_ref().is_ok_and(|(slot, _)| *slot > lowest_slot))
         };
     }
 
