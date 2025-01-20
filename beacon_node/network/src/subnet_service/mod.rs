@@ -17,7 +17,7 @@ use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDisco
 use slog::{debug, error, o, warn};
 use slot_clock::SlotClock;
 use types::{
-    Attestation, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
+    AttestationData, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
 };
 
@@ -363,7 +363,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     pub fn should_process_attestation(
         &self,
         subnet: Subnet,
-        attestation: &Attestation<T::EthSpec>,
+        attestation_data: &AttestationData,
     ) -> bool {
         // Proposer-only mode does not need to process attestations
         if self.proposer_only {
@@ -374,7 +374,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             .map(|tracked_vals| {
                 tracked_vals.contains_key(&ExactSubnet {
                     subnet,
-                    slot: attestation.data().slot,
+                    slot: attestation_data.slot,
                 })
             })
             .unwrap_or(true)

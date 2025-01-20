@@ -669,9 +669,15 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub rng: Mutex<StdRng>,
 }
 
+pub type CommitteeSingleAttestations = Vec<(SingleAttestation, SubnetId)>;
 pub type CommitteeAttestations<E> = Vec<(Attestation<E>, SubnetId)>;
 pub type HarnessAttestations<E> =
     Vec<(CommitteeAttestations<E>, Option<SignedAggregateAndProof<E>>)>;
+
+pub type HarnessSingleAttestations<E> = Vec<(
+    CommitteeSingleAttestations,
+    Option<SignedAggregateAndProof<E>>,
+)>;
 
 pub type HarnessSyncContributions<E> = Vec<(
     Vec<(SyncCommitteeMessage, usize)>,
@@ -1024,6 +1030,99 @@ where
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn produce_single_attestation_for_block(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+        beacon_block_root: Hash256,
+        mut state: Cow<BeaconState<E>>,
+        state_root: Hash256,
+        aggregation_bit_index: usize,
+        validator_index: usize,
+    ) -> Result<SingleAttestation, BeaconChainError> {
+        let epoch = slot.epoch(E::slots_per_epoch());
+
+        if state.slot() > slot {
+            return Err(BeaconChainError::CannotAttestToFutureState);
+        } else if state.current_epoch() < epoch {
+            let mut_state = state.to_mut();
+            complete_state_advance(
+                mut_state,
+                Some(state_root),
+                epoch.start_slot(E::slots_per_epoch()),
+                &self.spec,
+            )?;
+            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        }
+
+        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+
+        let target_slot = epoch.start_slot(E::slots_per_epoch());
+        let target_root = if state.slot() <= target_slot {
+            beacon_block_root
+        } else {
+            *state.get_block_root(target_slot)?
+        };
+
+        let attestation: Attestation<E> = Attestation::empty_for_signing(
+            index,
+            committee_len,
+            slot,
+            beacon_block_root,
+            state.current_justified_checkpoint(),
+            Checkpoint {
+                epoch,
+                root: target_root,
+            },
+            &self.spec,
+        )?;
+
+        let attestation = match attestation {
+            Attestation::Electra(mut attn) => {
+                attn.aggregation_bits
+                    .set(aggregation_bit_index, true)
+                    .unwrap();
+                attn
+            }
+            Attestation::Base(_) => panic!("Must be an Electra attestation"),
+        };
+
+        let aggregation_bits = attestation.get_aggregation_bits();
+
+        if aggregation_bits.len() != 1 {
+            panic!("Must be an unaggregated attestation")
+        }
+
+        let aggregation_bit = *aggregation_bits.first().unwrap();
+
+        let committee = state.get_beacon_committee(slot, index).unwrap();
+
+        let attester_index = committee
+            .committee
+            .iter()
+            .enumerate()
+            .find_map(|(i, &index)| {
+                if aggregation_bit as usize == i {
+                    return Some(index);
+                }
+                None
+            })
+            .unwrap();
+
+        let single_attestation =
+            attestation.to_single_attestation_with_attester_index(attester_index)?;
+
+        let attestation: Attestation<E> = single_attestation.to_attestation(committee.committee)?;
+
+        assert_eq!(
+            single_attestation.committee_index,
+            attestation.committee_index().unwrap() as usize
+        );
+        assert_eq!(single_attestation.attester_index, validator_index);
+        Ok(single_attestation)
+    }
+
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
     /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
     /// `block` identified by `beacon_block_root`.
@@ -1086,6 +1185,33 @@ where
     /// The first layer of the Vec is organised per committee. For example, if the return value is
     /// called `all_attestations`, then all attestations in `all_attestations[0]` will be for
     /// committee 0, whilst all in `all_attestations[1]` will be for committee 1.
+    pub fn make_single_attestations(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        head_block_root: SignedBeaconBlockHash,
+        attestation_slot: Slot,
+    ) -> Vec<CommitteeSingleAttestations> {
+        let fork = self
+            .spec
+            .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
+        self.make_single_attestations_with_opts(
+            attesting_validators,
+            state,
+            state_root,
+            head_block_root,
+            attestation_slot,
+            MakeAttestationOptions { limit: None, fork },
+        )
+        .0
+    }
+
+    /// A list of attestations for each committee for the given slot.
+    ///
+    /// The first layer of the Vec is organised per committee. For example, if the return value is
+    /// called `all_attestations`, then all attestations in `all_attestations[0]` will be for
+    /// committee 0, whilst all in `all_attestations[1]` will be for committee 1.
     pub fn make_unaggregated_attestations(
         &self,
         attesting_validators: &[usize],
@@ -1106,6 +1232,99 @@ where
             MakeAttestationOptions { limit: None, fork },
         )
         .0
+    }
+
+    pub fn make_single_attestations_with_opts(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        head_block_root: SignedBeaconBlockHash,
+        attestation_slot: Slot,
+        opts: MakeAttestationOptions,
+    ) -> (Vec<CommitteeSingleAttestations>, Vec<usize>) {
+        let MakeAttestationOptions { limit, fork } = opts;
+        let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
+        let num_attesters = AtomicUsize::new(0);
+
+        let (attestations, split_attesters) = state
+            .get_beacon_committees_at_slot(attestation_slot)
+            .expect("should get committees")
+            .iter()
+            .map(|bc| {
+                bc.committee
+                    .par_iter()
+                    .enumerate()
+                    .filter_map(|(i, validator_index)| {
+                        if !attesting_validators.contains(validator_index) {
+                            return None;
+                        }
+
+                        if let Some(limit) = limit {
+                            // This atomics stuff is necessary because we're under a par_iter,
+                            // and Rayon will deadlock if we use a mutex.
+                            if num_attesters.fetch_add(1, Ordering::Relaxed) >= limit {
+                                num_attesters.fetch_sub(1, Ordering::Relaxed);
+                                return None;
+                            }
+                        }
+
+                        let mut attestation = self
+                            .produce_single_attestation_for_block(
+                                attestation_slot,
+                                bc.index,
+                                head_block_root.into(),
+                                Cow::Borrowed(state),
+                                state_root,
+                                i,
+                                *validator_index,
+                            )
+                            .unwrap();
+
+                        attestation.signature = {
+                            let domain = self.spec.get_domain(
+                                attestation.data.target.epoch,
+                                Domain::BeaconAttester,
+                                &fork,
+                                state.genesis_validators_root(),
+                            );
+
+                            let message = attestation.data.signing_root(domain);
+
+                            let mut agg_sig = AggregateSignature::infinity();
+
+                            agg_sig.add_assign(
+                                &self.validator_keypairs[*validator_index].sk.sign(message),
+                            );
+
+                            agg_sig
+                        };
+
+                        let subnet_id = SubnetId::compute_subnet_for_single_attestation::<E>(
+                            &attestation,
+                            committee_count,
+                            &self.chain.spec,
+                        )
+                        .unwrap();
+
+                        Some(((attestation, subnet_id), validator_index))
+                    })
+                    .unzip::<_, _, Vec<_>, Vec<_>>()
+            })
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+
+        // Flatten attesters.
+        let attesters = split_attesters.into_iter().flatten().collect::<Vec<_>>();
+
+        if let Some(limit) = limit {
+            assert_eq!(limit, num_attesters.load(Ordering::Relaxed));
+            assert_eq!(
+                limit,
+                attesters.len(),
+                "failed to generate `limit` attestations"
+            );
+        }
+        (attestations, attesters)
     }
 
     pub fn make_unaggregated_attestations_with_opts(
@@ -1280,6 +1499,32 @@ where
             AttestationStrategy::SomeValidators(vals) => vals.clone(),
         };
         self.make_unaggregated_attestations(
+            &validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            attestation_slot,
+        )
+    }
+
+    /// A list of attestations for each committee for the given slot.
+    ///
+    /// The first layer of the Vec is organised per committee. For example, if the return value is
+    /// called `all_attestations`, then all attestations in `all_attestations[0]` will be for
+    /// committee 0, whilst all in `all_attestations[1]` will be for committee 1.
+    pub fn get_single_attestations(
+        &self,
+        attestation_strategy: &AttestationStrategy,
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        head_block_root: Hash256,
+        attestation_slot: Slot,
+    ) -> Vec<Vec<(SingleAttestation, SubnetId)>> {
+        let validators: Vec<usize> = match attestation_strategy {
+            AttestationStrategy::AllValidators => self.get_all_validators(),
+            AttestationStrategy::SomeValidators(vals) => vals.clone(),
+        };
+        self.make_single_attestations(
             &validators,
             state,
             state_root,
