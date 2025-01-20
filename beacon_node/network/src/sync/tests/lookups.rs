@@ -138,9 +138,9 @@ impl TestRig {
         }
     }
 
-    fn test_setup_after_deneb() -> Option<Self> {
+    fn test_setup_after_deneb_before_fulu() -> Option<Self> {
         let r = Self::test_setup();
-        if r.after_deneb() {
+        if r.after_deneb() && !r.fork_name.fulu_enabled() {
             Some(r)
         } else {
             None
@@ -1922,7 +1922,7 @@ fn test_same_chain_race_condition() {
 
 #[test]
 fn block_in_da_checker_skips_download() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -1940,7 +1940,7 @@ fn block_in_da_checker_skips_download() {
 
 #[test]
 fn block_in_processing_cache_becomes_invalid() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -1966,7 +1966,7 @@ fn block_in_processing_cache_becomes_invalid() {
 
 #[test]
 fn block_in_processing_cache_becomes_valid_imported() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -1991,7 +1991,7 @@ fn block_in_processing_cache_becomes_valid_imported() {
 #[ignore]
 #[test]
 fn blobs_in_da_checker_skip_download() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -2215,7 +2215,7 @@ mod deneb_only {
 
     impl DenebTester {
         fn new(request_trigger: RequestTrigger) -> Option<Self> {
-            let Some(mut rig) = TestRig::test_setup_after_deneb() else {
+            let Some(mut rig) = TestRig::test_setup_after_deneb_before_fulu() else {
                 return None;
             };
             let (block, blobs) = rig.rand_block_and_blobs(NumBlobs::Random);
@@ -2940,7 +2940,7 @@ mod deneb_only {
     #[ignore]
     #[test]
     fn no_peer_penalty_when_rpc_response_already_known_from_gossip() {
-        let Some(mut r) = TestRig::test_setup_after_deneb() else {
+        let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
             return;
         };
         let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(2));

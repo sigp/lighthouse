@@ -1,9 +1,9 @@
+use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::data_column_verification::CustodyDataColumn;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::BeaconBlockResponseWrapper;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
@@ -17,6 +17,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
     StateSkipConfig,
 };
+use crate::{get_block_root, BeaconBlockResponseWrapper};
 use bls::get_withdrawal_credentials;
 use eth2::types::SignedBlockContentsTuple;
 use execution_layer::test_utils::generate_genesis_header;
@@ -756,15 +757,13 @@ where
     pub fn get_head_block(&self) -> RpcBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
-        let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
-        RpcBlock::new(Some(block_root), block, blobs).unwrap()
+        self.build_rpc_block_from_store_blobs(Some(block_root), block)
     }
 
     pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
         let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
-        let blobs = self.chain.get_blobs(block_root).unwrap().blobs();
-        RpcBlock::new(Some(*block_root), Arc::new(full_block), blobs).unwrap()
+        self.build_rpc_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -2265,7 +2264,7 @@ where
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
 
-        let rpc_block = self.build_rpc_block(block_root, block, blob_items)?;
+        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
@@ -2289,7 +2288,7 @@ where
         let (block, blob_items) = block_contents;
 
         let block_root = block.canonical_root();
-        let rpc_block = self.build_rpc_block(block_root, block, blob_items)?;
+        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
@@ -2306,13 +2305,51 @@ where
         Ok(block_hash)
     }
 
-    fn build_rpc_block(
+    /// Builds an `Rpc` block from a `SignedBeaconBlock` and blobs or data columns retrieved from
+    /// the database.
+    pub fn build_rpc_block_from_store_blobs(
+        &self,
+        block_root: Option<Hash256>,
+        block: Arc<SignedBeaconBlock<E>>,
+    ) -> RpcBlock<E> {
+        let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
+        let has_blobs = block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .is_ok_and(|c| !c.is_empty());
+        if !has_blobs {
+            return RpcBlock::new_without_blobs(Some(block_root), block);
+        }
+
+        // Blobs are stored as data columns from Fulu (PeerDAS)
+        if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+            let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
+            let custody_columns = columns
+                .into_iter()
+                .map(CustodyDataColumn::from_asserted_custody)
+                .collect::<Vec<_>>();
+            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
+                .unwrap()
+        } else {
+            let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
+            RpcBlock::new(Some(block_root), block, blobs).unwrap()
+        }
+    }
+
+    /// Builds an `RpcBlock` from a `SignedBeaconBlock` and `BlobsList`.
+    fn build_rpc_block_from_blobs(
         &self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RpcBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+            let sampling_column_count = self
+                .chain
+                .data_availability_checker
+                .get_sampling_column_count();
+
             let columns = blob_items
                 .map(|(_proofs, blobs)| {
                     blobs_to_data_column_sidecars(
@@ -2324,6 +2361,7 @@ where
                     .map(|column_sidecars| {
                         column_sidecars
                             .into_iter()
+                            .take(sampling_column_count)
                             .map(CustodyDataColumn::from_asserted_custody)
                             .collect::<Vec<_>>()
                     })
@@ -3015,6 +3053,56 @@ where
         }
 
         Ok(())
+    }
+
+    /// Simulate some of the blobs / data columns being seen on gossip.
+    /// Converts the blobs to data columns if the slot is Fulu or later.
+    pub async fn process_gossip_blobs_or_columns<'a>(
+        &self,
+        block: &SignedBeaconBlock<E>,
+        blobs: impl Iterator<Item = &'a Blob<E>>,
+        proofs: impl Iterator<Item = &'a KzgProof>,
+        custody_columns_opt: Option<HashSet<ColumnIndex>>,
+    ) {
+        let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
+        if is_peerdas_enabled {
+            let sidecars = blobs_to_data_column_sidecars(
+                &blobs.collect::<Vec<_>>(),
+                block,
+                &self.chain.kzg,
+                &self.spec,
+            )
+            .unwrap();
+
+            let custody_columns = custody_columns_opt.unwrap_or_else(|| {
+                let spec = &self.chain.spec;
+                let sampling_size = spec.sampling_size(spec.custody_requirement).unwrap();
+                (0..sampling_size).collect()
+            });
+
+            let verified_columns = sidecars
+                .into_iter()
+                .filter(|c| custody_columns.contains(&c.index))
+                .map(|sidecar| {
+                    let column_index = sidecar.index;
+                    self.chain
+                        .verify_data_column_sidecar_for_gossip(sidecar, column_index)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+
+            self.chain
+                .process_gossip_data_columns(verified_columns, || Ok(()))
+                .await
+                .unwrap();
+        } else {
+            for (i, (kzg_proof, blob)) in proofs.into_iter().zip(blobs).enumerate() {
+                let sidecar =
+                    Arc::new(BlobSidecar::new(i, blob.clone(), block, *kzg_proof).unwrap());
+                let gossip_blob = GossipVerifiedBlob::new(sidecar, i as u64, &self.chain).unwrap();
+                self.chain.process_gossip_blob(gossip_blob).await.unwrap();
+            }
+        }
     }
 }
 

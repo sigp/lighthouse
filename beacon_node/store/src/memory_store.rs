@@ -1,6 +1,6 @@
 use crate::{
     get_key_for_col, leveldb_store::BytesKey, ColumnIter, ColumnKeyIter, DBColumn, Error,
-    ItemStore, Key, KeyValueStore, KeyValueStoreOp, RawKeyIter,
+    ItemStore, Key, KeyValueStore, KeyValueStoreOp, RawEntryIter, RawKeyIter,
 };
 use parking_lot::{Mutex, MutexGuard, RwLock};
 use std::collections::BTreeMap;
@@ -110,6 +110,21 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
             .collect::<Vec<_>>();
         Box::new(keys.into_iter().map(Ok))
+    }
+
+    fn iter_raw_entries(&self, column: DBColumn, prefix: &[u8]) -> RawEntryIter {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.as_str(), prefix));
+        let keys_and_vals = self
+            .db
+            .read()
+            .range(start_key.clone()..)
+            .take_while(|(k, _)| k.starts_with(&start_key))
+            .filter_map(|(k, v)| {
+                k.remove_column_variable(column)
+                    .map(|k| (k.to_vec(), v.clone()))
+            })
+            .collect::<Vec<_>>();
+        Box::new(keys_and_vals.into_iter().map(Ok))
     }
 
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {

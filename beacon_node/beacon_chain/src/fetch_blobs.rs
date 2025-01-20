@@ -14,7 +14,7 @@ use crate::{metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes
 use execution_layer::json_structures::BlobAndProofV1;
 use execution_layer::Error as ExecutionLayerError;
 use metrics::{inc_counter, inc_counter_by, TryExt};
-use slog::{debug, error, o, Logger};
+use slog::{debug, error, o, warn, Logger};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
@@ -248,8 +248,14 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
                 }
             };
 
-            if let Err(e) = data_columns_sender.send(all_data_columns.clone()) {
-                error!(log, "Failed to send computed data columns"; "error" => ?e);
+            if data_columns_sender.send(all_data_columns.clone()).is_err() {
+                // Data column receiver have been dropped - this may not be an issue if the block is
+                // already fully imported. This should not happen after the race condition
+                // described in #6816 is fixed.
+                warn!(
+                    log,
+                    "Failed to send computed data columns";
+                );
             };
 
             // Check indices from cache before sending the columns, to make sure we don't

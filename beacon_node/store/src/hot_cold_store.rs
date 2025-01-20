@@ -121,6 +121,11 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn get_blobs<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a BlobSidecarList<E>> {
         self.blob_cache.get(block_root)
     }
+    pub fn get_data_columns(&mut self, block_root: &Hash256) -> Option<DataColumnSidecarList<E>> {
+        self.data_column_cache
+            .get(block_root)
+            .map(|map| map.values().cloned().collect::<Vec<_>>())
+    }
     pub fn get_data_column<'a>(
         &'a mut self,
         block_root: &Hash256,
@@ -2041,6 +2046,36 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
                 block_replayer.into_state()
             })
+    }
+
+    /// Fetch columns for a given block from the store.
+    pub fn get_data_columns(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<DataColumnSidecarList<E>>, Error> {
+        if let Some(columns) = self.block_cache.lock().get_data_columns(block_root) {
+            metrics::inc_counter(&metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT);
+            return Ok(Some(columns));
+        }
+
+        let columns = self
+            .blobs_db
+            .iter_raw_entries(DBColumn::BeaconDataColumn, block_root.as_slice())
+            .map(|result| {
+                let (_key, value) = result?;
+                let column = DataColumnSidecar::<E>::from_ssz_bytes(&value).map(Arc::new)?;
+                self.block_cache
+                    .lock()
+                    .put_data_column(*block_root, column.clone());
+                Ok(column)
+            })
+            .collect::<Result<DataColumnSidecarList<E>, Error>>()?;
+
+        if columns.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(columns))
+        }
     }
 
     /// Fetch blobs for a given block from the store.

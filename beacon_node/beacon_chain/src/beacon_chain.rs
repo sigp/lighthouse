@@ -1253,6 +1253,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Errors
     /// May return a database error.
+    pub fn get_data_columns(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
+        self.store.get_data_columns(block_root).map_err(Error::from)
+    }
+
+    /// Returns the data columns at the given root, if any.
+    ///
+    /// ## Errors
+    /// May return a database error.
     pub fn get_data_column(
         &self,
         block_root: &Hash256,
@@ -5850,6 +5861,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let kzg = self.kzg.as_ref();
 
+                // TODO(fulu): we no longer need blob proofs from PeerDAS and could avoid computing.
                 kzg_utils::validate_blobs::<T::EthSpec>(
                     kzg,
                     expected_kzg_commitments,

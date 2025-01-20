@@ -1717,7 +1717,7 @@ mod tests {
     #[test]
     fn min_queue_len() {
         // State with no validators.
-        let spec = ForkName::latest().make_genesis_spec(ChainSpec::mainnet());
+        let spec = ForkName::latest_stable().make_genesis_spec(ChainSpec::mainnet());
         let genesis_time = 0;
         let state = BeaconState::<MainnetEthSpec>::new(genesis_time, Eth1Data::default(), &spec);
         assert_eq!(state.validators().len(), 0);
