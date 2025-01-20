@@ -177,11 +177,7 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
         expected_blobs: usize,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
-        if expected_blobs == 0 {
-            return Ok(LookupRequestResult::NoRequestNeeded("no columns to fetch"));
-        }
-
-        cx.custody_lookup_request(id, self.block_root)
+        cx.custody_lookup_request(id, self.block_root, expected_blobs)
             .map_err(LookupRequestError::SendFailedNetwork)
     }
 

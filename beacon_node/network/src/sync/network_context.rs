@@ -740,7 +740,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         lookup_id: SingleLookupId,
         block_root: Hash256,
+        expected_blobs: usize,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        if expected_blobs == 0 {
+            return Ok(LookupRequestResult::NoRequestNeeded("no columns to fetch"));
+        }
+
         let custody_indexes_imported = self
             .chain
             .data_availability_checker
