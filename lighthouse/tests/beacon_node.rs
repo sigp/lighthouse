@@ -2391,7 +2391,7 @@ fn default_log_color_flag() {
 #[test]
 fn enabled_log_color_flag() {
     CommandLineTest::new()
-        .flag("log-color", None)
+        .flag("logfile-color", None)
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.logger_config.log_color);

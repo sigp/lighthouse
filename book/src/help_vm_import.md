@@ -100,8 +100,8 @@ Flags:
           directly cause slashable conditions, it might be an indicator that
           something is amiss. Users should also be careful to avoid submitting
           duplicate deposits for validators that already exist on the VC.
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.

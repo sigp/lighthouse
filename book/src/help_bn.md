@@ -506,8 +506,8 @@ Flags:
       --light-client-server
           Act as a full node supporting light clients on the p2p network
           [experimental]
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.

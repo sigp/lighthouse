@@ -210,10 +210,10 @@ fn main() {
                 .display_order(0)
         )
         .arg(
-            Arg::new("log-color")
-                .long("log-color")
-                .alias("log-colour")
-                .help("Force outputting colors when emitting logs to the terminal.")
+            Arg::new("logfile-color")
+                .long("logfile-color")
+                .alias("logfile-colour")
+                .help("Enables colors in logfile.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .global(true)
@@ -496,7 +496,7 @@ fn run<E: EthSpec>(
 
     let log_format = matches.get_one::<String>("log-format");
 
-    let log_color = matches.get_flag("log-color");
+    let log_color = matches.get_flag("logfile-color");
 
     let disable_log_timestamp = matches.get_flag("disable-log-timestamp");
 

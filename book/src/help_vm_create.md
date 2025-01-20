@@ -114,8 +114,8 @@ Flags:
           address. This is not recommended.
   -h, --help
           Prints help information
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.
