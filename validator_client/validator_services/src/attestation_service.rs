@@ -457,8 +457,30 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     &[validator_metrics::ATTESTATIONS_HTTP_POST],
                 );
                 if fork_name.electra_enabled() {
+                    let single_attestations = attestations
+                        .iter()
+                        .zip(validator_indices)
+                        .filter_map(|(a, i)| {
+                            match a.to_single_attestation_with_attester_index(*i as usize) {
+                                Ok(a) => Some(a),
+                                Err(e) => {
+                                    // This shouldn't happen unless BN and VC are out of sync with
+                                    // respect to the Electra fork.
+                                    error!(
+                                        log,
+                                        "Unable to convert to SingleAttestation";
+                                        "error" => ?e,
+                                        "committee_index" => attestation_data.index,
+                                        "slot" => slot.as_u64(),
+                                        "type" => "unaggregated",
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect::<Vec<_>>();
                     beacon_node
-                        .post_beacon_pool_attestations_v2(attestations, fork_name)
+                        .post_beacon_pool_attestations_v2(&single_attestations, fork_name)
                         .await
                 } else {
                     beacon_node
