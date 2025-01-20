@@ -7,7 +7,7 @@ use crate::sync::network_context::{
 use beacon_chain::{BeaconChainTypes, BlockProcessStatus};
 use derivative::Derivative;
 use lighthouse_network::service::api_types::Id;
-use rand::seq::IteratorRandom;
+use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -33,8 +33,6 @@ pub enum LookupRequestError {
         /// The failed attempts were primarily due to processing failures.
         cannot_process: bool,
     },
-    /// No peers left to serve this lookup
-    NoPeers,
     /// Error sending event to network
     SendFailedNetwork(RpcRequestSendError),
     /// Error sending event to processor
@@ -63,9 +61,12 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     pub block_request_state: BlockRequestState<T::EthSpec>,
     pub component_requests: ComponentRequests<T::EthSpec>,
-    /// Peers that claim to have imported this set of block components
+    /// Peers that claim to have imported this set of block components. This state is shared with
+    /// the custody request to have an updated view of the peers that claim to have imported the
+    /// block associated with this lookup. The peer set of a lookup can change rapidly, and faster
+    /// than the lifetime of a custody request.
     #[derivative(Debug(format_with = "fmt_peer_set_as_len"))]
-    peers: HashSet<PeerId>,
+    peers: Arc<RwLock<HashSet<PeerId>>>,
     block_root: Hash256,
     awaiting_parent: Option<Hash256>,
     created: Instant,
@@ -92,7 +93,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             id,
             block_request_state: BlockRequestState::new(requested_block_root),
             component_requests: ComponentRequests::WaitingForBlock,
-            peers: HashSet::from_iter(peers.iter().copied()),
+            peers: Arc::new(RwLock::new(HashSet::from_iter(peers.iter().copied()))),
             block_root: requested_block_root,
             awaiting_parent,
             created: Instant::now(),
@@ -215,8 +216,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
                 if expected_blobs == 0 {
                     self.component_requests = ComponentRequests::NotNeeded("no data");
-                }
-                if cx.chain.should_fetch_blobs(block_epoch) {
+                } else if cx.chain.should_fetch_blobs(block_epoch) {
                     self.component_requests = ComponentRequests::ActiveBlobRequest(
                         BlobRequestState::new(self.block_root),
                         expected_blobs,
@@ -283,24 +283,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 return Err(LookupRequestError::TooManyAttempts { cannot_process });
             }
 
-            let Some(peer_id) = self.use_rand_available_peer() else {
-                // Allow lookup to not have any peers and do nothing. This is an optimization to not
-                // lose progress of lookups created from a block with unknown parent before we receive
-                // attestations for said block.
-                // Lookup sync event safety: If a lookup requires peers to make progress, and does
-                // not receive any new peers for some time it will be dropped. If it receives a new
-                // peer it must attempt to make progress.
-                R::request_state_mut(self)
-                    .map_err(|e| LookupRequestError::BadState(e.to_owned()))?
-                    .get_state_mut()
-                    .update_awaiting_download_status("no peers");
-                return Ok(());
-            };
-
+            let peers = self.peers.clone();
             let request = R::request_state_mut(self)
                 .map_err(|e| LookupRequestError::BadState(e.to_owned()))?;
 
-            match request.make_request(id, peer_id, expected_blobs, cx)? {
+            match request.make_request(id, peers, expected_blobs, cx)? {
                 LookupRequestResult::RequestSent(req_id) => {
                     // Lookup sync event safety: If make_request returns `RequestSent`, we are
                     // guaranteed that `BlockLookups::on_download_response` will be called exactly
@@ -348,29 +335,24 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 
     /// Get all unique peers that claim to have imported this set of block components
-    pub fn all_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
-        self.peers.iter()
+    pub fn all_peers(&self) -> Vec<PeerId> {
+        self.peers.read().iter().copied().collect()
     }
 
     /// Add peer to all request states. The peer must be able to serve this request.
     /// Returns true if the peer was newly inserted into some request state.
     pub fn add_peer(&mut self, peer_id: PeerId) -> bool {
-        self.peers.insert(peer_id)
+        self.peers.write().insert(peer_id)
     }
 
     /// Remove peer from available peers.
     pub fn remove_peer(&mut self, peer_id: &PeerId) {
-        self.peers.remove(peer_id);
+        self.peers.write().remove(peer_id);
     }
 
     /// Returns true if this lookup has zero peers
     pub fn has_no_peers(&self) -> bool {
-        self.peers.is_empty()
-    }
-
-    /// Selects a random peer from available peers if any
-    fn use_rand_available_peer(&mut self) -> Option<PeerId> {
-        self.peers.iter().choose(&mut rand::thread_rng()).copied()
+        self.peers.read().is_empty()
     }
 }
 
@@ -689,8 +671,8 @@ impl<T: Clone> std::fmt::Debug for State<T> {
 }
 
 fn fmt_peer_set_as_len(
-    peer_set: &HashSet<PeerId>,
+    peer_set: &Arc<RwLock<HashSet<PeerId>>>,
     f: &mut std::fmt::Formatter,
 ) -> Result<(), std::fmt::Error> {
-    write!(f, "{}", peer_set.len())
+    write!(f, "{}", peer_set.read().len())
 }

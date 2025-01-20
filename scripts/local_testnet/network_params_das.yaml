@@ -3,6 +3,7 @@ participants:
     cl_image: lighthouse:local
     cl_extra_params:
       - --subscribe-all-data-column-subnets
+      - --subscribe-all-subnets
       - --target-peers=3
     count: 2
   - cl_type: lighthouse
@@ -20,3 +21,5 @@ additional_services:
   - dora
   - spamoor_blob
   - prometheus_grafana
+dora_params:
+  image: ethpandaops/dora:fulu-support

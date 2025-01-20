@@ -228,10 +228,7 @@ fn update_proposal_signatures(
     }
 }
 
-fn update_parent_roots(
-    snapshots: &mut [BeaconSnapshot<E>],
-    blobs: &mut Vec<Option<DataSidecars<E>>>,
-) {
+fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>], blobs: &mut [Option<DataSidecars<E>>]) {
     for i in 0..snapshots.len() {
         let root = snapshots[i].beacon_block.canonical_root();
         if let (Some(child), Some(child_blobs)) = (snapshots.get_mut(i + 1), blobs.get_mut(i + 1)) {
