@@ -8,6 +8,7 @@ use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use alloy_rlp::bytes::Bytes;
 use libp2p::identity::Keypair;
+use lighthouse_version::{client_name, version};
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
@@ -186,6 +187,11 @@ pub fn build_enr<E: EthSpec>(
 
     if let Some(udp6_port) = config.enr_udp6_port {
         builder.udp6(udp6_port.get());
+    }
+
+    // Add EIP 7636 client information
+    if !config.private {
+        builder.client_info(client_name().to_string(), version().to_string(), None);
     }
 
     // Add QUIC fields to the ENR.
