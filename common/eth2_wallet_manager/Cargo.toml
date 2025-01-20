@@ -6,10 +6,10 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+clap = { workspace = true, features = ["derive"] }
 eth2_wallet = { workspace = true }
 lockfile = { workspace = true }
 serde = { workspace = true }
-clap = { workspace = true, features = ["derive"]}
 
 [dev-dependencies]
 tempfile = { workspace = true }
