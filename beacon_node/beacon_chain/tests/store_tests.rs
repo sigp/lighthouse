@@ -3075,6 +3075,10 @@ async fn deneb_prune_blobs_happy_case() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
+    if store.get_chain_spec().is_peer_das_scheduled() {
+        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
+        return;
+    }
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3122,6 +3126,10 @@ async fn deneb_prune_blobs_no_finalization() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
+    if store.get_chain_spec().is_peer_das_scheduled() {
+        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
+        return;
+    }
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3266,6 +3274,10 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, config, test_spec::<E>());
 
+    if store.get_chain_spec().is_peer_das_scheduled() {
+        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
+        return;
+    }
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
