@@ -1119,6 +1119,7 @@ name = "builder_client"
 version = "0.1.0"
 dependencies = [
  "eth2",
+ "ethereum_ssz",
  "lighthouse_version",
  "reqwest",
  "sensitive_url",

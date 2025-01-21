@@ -1929,7 +1929,7 @@ impl<E: EthSpec> ForkVersionDeserialize for BlockContents<E> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
@@ -1997,7 +1997,7 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub execution_payload: ExecutionPayload<E>,

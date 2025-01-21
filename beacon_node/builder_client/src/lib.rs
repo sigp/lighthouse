@@ -11,6 +11,7 @@ use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use ssz::{Decode, Encode};
 use std::time::Duration;
 
 pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
@@ -112,6 +113,32 @@ impl BuilderHttpClient {
         ok_or_error(response).await
     }
 
+    async fn post_ssz_with_raw_response<U: IntoUrl>(
+        &self,
+        url: U,
+        ssz_body: Vec<u8>,
+        mut headers: HeaderMap,
+        timeout: Option<Duration>,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+
+        headers.insert(
+            "Content-Type",
+            HeaderValue::from_static("application/octet-stream"),
+        );
+
+        let response = builder
+            .headers(headers)
+            .body(ssz_body)
+            .send()
+            .await
+            .map_err(Error::from)?;
+        ok_or_error(response).await
+    }
+
     async fn post_with_raw_response<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
@@ -150,6 +177,41 @@ impl BuilderHttpClient {
         self.post_generic(path, &validator, Some(self.timeouts.post_validators))
             .await?;
         Ok(())
+    }
+
+    /// `POST /eth/v1/builder/blinded_blocks` with SSZ serialized request body
+    pub async fn post_builder_blinded_blocks_ssz<E: EthSpec>(
+        &self,
+        blinded_block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<FullPayloadContents<E>, Error> {
+        let mut path = self.server.full.clone();
+
+        let body = blinded_block.as_ssz_bytes();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("builder")
+            .push("blinded_blocks");
+
+        let mut headers = HeaderMap::new();
+        if let Ok(value) = HeaderValue::from_str(&blinded_block.fork_name_unchecked().to_string()) {
+            headers.insert(CONSENSUS_VERSION_HEADER, value);
+        }
+
+        let result = self
+            .post_ssz_with_raw_response(
+                path,
+                body,
+                headers,
+                Some(self.timeouts.post_blinded_blocks),
+            )
+            .await?
+            .bytes()
+            .await?;
+
+        FullPayloadContents::from_ssz_bytes(&result).map_err(Error::InvalidSsz)
     }
 
     /// `POST /eth/v1/builder/blinded_blocks`
