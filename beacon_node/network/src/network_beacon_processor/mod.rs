@@ -9,13 +9,11 @@ use beacon_chain::fetch_blobs::{
 };
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
-    builder::Witness, eth1_chain::CachingEth1Backend, AvailabilityProcessingStatus, BeaconChain,
-    BeaconChainTypes, BlockError, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
 };
 use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorChannels, BeaconProcessorSend,
-    DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
-    WorkEvent as BeaconWorkEvent,
+    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
+    GossipAggregatePackage, GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
 };
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::{
@@ -28,13 +26,10 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
 };
 use rand::prelude::SliceRandom;
-use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use store::MemoryStore;
 use task_executor::TaskExecutor;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, trace, warn, Instrument};
 use types::*;
@@ -1223,16 +1218,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
+use {
+    beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend},
+    beacon_processor::work_reprocessing_queue::BeaconProcessorChannels,
+    slot_clock::ManualSlotClock,
+    store::MemoryStore,
+    tokio::sync::mpsc::UnboundedSender,
+};
+
+#[cfg(test)]
 type TestBeaconChainType<E> =
     Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
+#[cfg(test)]
 impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     // Instantiates a mostly non-functional version of `Self` and returns the
     // event receiver that would normally go to the beacon processor. This is
     // useful for testing that messages are actually being sent to the beacon
     // processor (but not much else).
-    #[allow(dead_code)]
     pub fn null_for_testing(
         network_globals: Arc<NetworkGlobals<E>>,
         sync_tx: UnboundedSender<SyncMessage<E>>,
