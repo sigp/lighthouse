@@ -20,7 +20,7 @@ use beacon_chain::{
     data_availability_checker::Availability,
     test_utils::{
         generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
-        BeaconChainHarness, EphemeralHarnessType, LoggerType, NumBlobs,
+        BeaconChainHarness, EphemeralHarnessType, NumBlobs,
     },
     validator_monitor::timestamp_now,
     AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
@@ -59,15 +59,6 @@ struct TestRigConfig {
 
 impl TestRig {
     fn test_setup_with_config(config: Option<TestRigConfig>) -> Self {
-        // TODO(tracing)
-        let _logger_type = if cfg!(feature = "test_logger") {
-            LoggerType::Test
-        } else if cfg!(feature = "ci_logger") {
-            LoggerType::CI
-        } else {
-            LoggerType::Null
-        };
-
         // Use `fork_from_env` logic to set correct fork epochs
         let mut spec = test_spec::<E>();
 
@@ -465,7 +456,7 @@ impl TestRig {
         peer_id: PeerId,
         beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
     ) {
-        // self.log("parent_lookup_block_response");
+        self.log("parent_lookup_block_response");
         self.send_sync_message(SyncMessage::RpcBlock {
             request_id: SyncRequestId::SingleBlock { id },
             peer_id,
@@ -480,7 +471,7 @@ impl TestRig {
         peer_id: PeerId,
         beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
     ) {
-        // self.log("single_lookup_block_response");
+        self.log("single_lookup_block_response");
         self.send_sync_message(SyncMessage::RpcBlock {
             request_id: SyncRequestId::SingleBlock { id },
             peer_id,
@@ -495,10 +486,10 @@ impl TestRig {
         peer_id: PeerId,
         blob_sidecar: Option<Arc<BlobSidecar<E>>>,
     ) {
-        // self.log(&format!(
-        //     "parent_lookup_blob_response {:?}",
-        //     blob_sidecar.as_ref().map(|b| b.index)
-        // ));
+        self.log(&format!(
+            "parent_lookup_blob_response {:?}",
+            blob_sidecar.as_ref().map(|b| b.index)
+        ));
         self.send_sync_message(SyncMessage::RpcBlob {
             request_id: SyncRequestId::SingleBlob { id },
             peer_id,
@@ -616,7 +607,7 @@ impl TestRig {
 
     fn return_empty_sampling_requests(&mut self, ids: DCByRootIds) {
         for id in ids {
-            // self.log(&format!("return empty data column for {id:?}"));
+            self.log(&format!("return empty data column for {id:?}"));
             self.return_empty_sampling_request(id)
         }
     }
@@ -679,7 +670,7 @@ impl TestRig {
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
     ) {
         for id in ids {
-            // self.log(&format!("return valid data column for {id:?}"));
+            self.log(&format!("return valid data column for {id:?}"));
             let indices = &id.1;
             let columns_to_send = indices
                 .iter()
@@ -738,7 +729,7 @@ impl TestRig {
         let first_column = data_columns.first().cloned().unwrap();
 
         for id in ids {
-            // self.log(&format!("return valid data column for {id:?}"));
+            self.log(&format!("return valid data column for {id:?}"));
             let indices = &id.1;
             let columns_to_send = indices
                 .iter()
@@ -1185,18 +1176,18 @@ impl TestRig {
             *block.message_mut().slot_mut() = slot.into();
             blocks.push(block.into());
         }
-        // self.log(&format!(
-        //     "Blockchain dump {:#?}",
-        //     blocks
-        //         .iter()
-        //         .map(|b| format!(
-        //             "block {} {} parent {}",
-        //             b.slot(),
-        //             b.canonical_root(),
-        //             b.parent_root()
-        //         ))
-        //         .collect::<Vec<_>>()
-        // ));
+        self.log(&format!(
+            "Blockchain dump {:#?}",
+            blocks
+                .iter()
+                .map(|b| format!(
+                    "block {} {} parent {}",
+                    b.slot(),
+                    b.canonical_root(),
+                    b.parent_root()
+                ))
+                .collect::<Vec<_>>()
+        ));
         blocks
     }
 
@@ -1658,14 +1649,14 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
 
-    // rig.log("Fail downloading the block");
+    rig.log("Fail downloading the block");
     for _ in 0..(PARENT_FAIL_TOLERANCE - PROCESSING_FAILURES) {
         let id = rig.expect_block_parent_request(parent_root);
         // The request fails. It should be tried again.
         rig.parent_lookup_failed_unavailable(id, peer_id);
     }
 
-    // rig.log("Now fail processing a block in the parent request");
+    rig.log("Now fail processing a block in the parent request");
     for _ in 0..PROCESSING_FAILURES {
         let id = rig.expect_block_parent_request(parent_root);
         // Blobs are only requested in the previous first iteration as this test only retries blocks
@@ -1899,13 +1890,13 @@ fn test_same_chain_race_condition() {
         rig.expect_block_process(ResponseType::Block);
         // the processing result
         if i + 2 == depth {
-            // rig.log(&format!("Block {i} was removed and is already known"));
+            rig.log(&format!("Block {i} was removed and is already known"));
             rig.parent_block_processed(
                 chain_hash,
                 BlockError::DuplicateFullyImported(block.canonical_root()).into(),
             )
         } else {
-            // rig.log(&format!("Block {i} ParentUnknown"));
+            rig.log(&format!("Block {i} ParentUnknown"));
             rig.parent_block_processed(
                 chain_hash,
                 BlockProcessingResult::Err(BlockError::ParentUnknown {
@@ -1923,7 +1914,7 @@ fn test_same_chain_race_condition() {
     // Add a peer to the tip child lookup which has zero peers
     rig.trigger_unknown_block_from_attestation(trigger_block.canonical_root(), peer_id);
 
-    // rig.log("Processing succeeds, now the rest of the chain should be sent for processing.");
+    rig.log("Processing succeeds, now the rest of the chain should be sent for processing.");
     for block in blocks.iter().skip(1).chain(&[trigger_block]) {
         rig.expect_parent_chain_process();
         rig.single_block_component_processed_imported(block.canonical_root());
@@ -2399,8 +2390,8 @@ mod deneb_only {
         }
 
         fn blobs_response(mut self) -> Self {
-            // self.rig
-            //     .log(&format!("blobs response {}", self.blobs.len()));
+            self.rig
+                .log(&format!("blobs response {}", self.blobs.len()));
             for blob in &self.blobs {
                 self.rig.single_lookup_blob_response(
                     self.blob_req_id.expect("blob request id"),
@@ -2498,8 +2489,8 @@ mod deneb_only {
 
         fn parent_block_imported(mut self) -> Self {
             let parent_root = *self.parent_block_roots.first().unwrap();
-            // self.rig
-            //     .log(&format!("parent_block_imported {parent_root:?}"));
+            self.rig
+                .log(&format!("parent_block_imported {parent_root:?}"));
             self.rig.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(parent_root)),
@@ -2511,8 +2502,8 @@ mod deneb_only {
 
         fn parent_block_missing_components(mut self) -> Self {
             let parent_root = *self.parent_block_roots.first().unwrap();
-            // self.rig
-            //     .log(&format!("parent_block_missing_components {parent_root:?}"));
+            self.rig
+                .log(&format!("parent_block_missing_components {parent_root:?}"));
             self.rig.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
@@ -2526,8 +2517,8 @@ mod deneb_only {
 
         fn parent_blob_imported(mut self) -> Self {
             let parent_root = *self.parent_block_roots.first().unwrap();
-            // self.rig
-            //     .log(&format!("parent_blob_imported {parent_root:?}"));
+            self.rig
+                .log(&format!("parent_blob_imported {parent_root:?}"));
             self.rig.parent_blob_processed(
                 self.block_root,
                 BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(parent_root)),
@@ -2539,7 +2530,7 @@ mod deneb_only {
         }
 
         fn parent_block_unknown_parent(mut self) -> Self {
-            // self.rig.log("parent_block_unknown_parent");
+            self.rig.log("parent_block_unknown_parent");
             let block = self.unknown_parent_block.take().unwrap();
             let max_len = self.rig.spec.max_blobs_per_block(block.epoch()) as usize;
             // Now this block is the one we expect requests from
@@ -2581,7 +2572,7 @@ mod deneb_only {
         }
 
         fn invalid_blob_processed(mut self) -> Self {
-            // self.rig.log("invalid_blob_processed");
+            self.rig.log("invalid_blob_processed");
             self.rig.single_blob_component_processed(
                 self.blob_req_id.expect("blob request id").lookup_id,
                 BlockProcessingResult::Err(BlockError::AvailabilityCheck(
@@ -2616,22 +2607,27 @@ mod deneb_only {
                 .block_imported()
         }
 
+        fn log(self, msg: &str) -> Self {
+            self.rig.log(msg);
+            self
+        }
+
         fn parent_block_then_empty_parent_blobs(self) -> Self {
-            // self.log(
-            //     " Return empty blobs for parent, block errors with missing components, downscore",
-            // )
-            self.parent_block_response()
-                .expect_parent_blobs_request()
-                .empty_parent_blobs_response()
-                .expect_penalty("NotEnoughResponsesReturned")
-                // .log("Re-request parent blobs, succeed and import parent")
-                .expect_parent_blobs_request()
-                .parent_blob_response()
-                .expect_block_process()
-                .parent_block_missing_components()
-                // Insert new peer into child request before completing parent
-                .trigger_unknown_block_from_attestation()
-                .parent_blob_imported()
+            self.log(
+                " Return empty blobs for parent, block errors with missing components, downscore",
+            )
+            .parent_block_response()
+            .expect_parent_blobs_request()
+            .empty_parent_blobs_response()
+            .expect_penalty("NotEnoughResponsesReturned")
+            .log("Re-request parent blobs, succeed and import parent")
+            .expect_parent_blobs_request()
+            .parent_blob_response()
+            .expect_block_process()
+            .parent_block_missing_components()
+            // Insert new peer into child request before completing parent
+            .trigger_unknown_block_from_attestation()
+            .parent_blob_imported()
         }
 
         fn expect_penalty(mut self, expect_penalty_msg: &'static str) -> Self {
@@ -2830,7 +2826,7 @@ mod deneb_only {
         };
         tester
             .parent_block_then_empty_parent_blobs()
-            // .log("resolve original block trigger blobs request and import")
+            .log("resolve original block trigger blobs request and import")
             // Should not have block request, it is cached
             .expect_blobs_request()
             // TODO: Should send blobs for processing
@@ -2893,7 +2889,7 @@ mod deneb_only {
         };
         tester
             .parent_block_then_empty_parent_blobs()
-            // .log("resolve original block trigger blobs request and import")
+            .log("resolve original block trigger blobs request and import")
             .complete_current_block_and_blobs_lookup()
             .expect_no_active_lookups();
     }

@@ -1221,7 +1221,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 #[cfg(test)]
 use {
     beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend},
-    beacon_processor::work_reprocessing_queue::BeaconProcessorChannels,
+    beacon_processor::BeaconProcessorChannels,
     slot_clock::ManualSlotClock,
     store::MemoryStore,
     tokio::sync::mpsc::UnboundedSender,

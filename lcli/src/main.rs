@@ -663,7 +663,7 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
                     is_restricted: true,
                     sse_logging: false, // No SSE Logging in LCLI
                 },
-                "", // TODO(tracing)
+                "",
             );
 
     let env = env_builder

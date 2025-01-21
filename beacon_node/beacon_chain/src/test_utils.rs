@@ -2965,14 +2965,6 @@ pub struct MakeAttestationOptions {
     pub fork: Fork,
 }
 
-pub enum LoggerType {
-    Test,
-    // The logs are output to files for each test.
-    CI,
-    // No logs will be printed.
-    Null,
-}
-
 pub enum NumBlobs {
     Random,
     Number(usize),
