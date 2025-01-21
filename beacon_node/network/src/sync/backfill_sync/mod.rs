@@ -941,11 +941,18 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, is_blob_batch) = batch.to_blocks_by_range_request();
+
+            let synced_peers = {
+                let peers = self.network_globals.peers.read();
+                peers.synced_peers().copied().collect::<Vec<_>>()
+            };
+
             match network.block_components_by_range_request(
                 peer,
                 is_blob_batch,
                 request,
                 RangeRequestId::BackfillSync { batch_id },
+                synced_peers.into_iter(),
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request

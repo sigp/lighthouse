@@ -164,6 +164,10 @@ impl TestRig {
         self.fork_name.deneb_enabled()
     }
 
+    pub fn after_fulu(&self) -> bool {
+        self.fork_name.fulu_enabled()
+    }
+
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
         let block_root = block.canonical_root();
         self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root))
@@ -364,7 +368,7 @@ impl TestRig {
             .__add_connected_peer_testing_only(false, &self.harness.spec)
     }
 
-    fn new_connected_supernode_peer(&mut self) -> PeerId {
+    pub fn new_connected_supernode_peer(&mut self) -> PeerId {
         self.network_globals
             .peers
             .write()

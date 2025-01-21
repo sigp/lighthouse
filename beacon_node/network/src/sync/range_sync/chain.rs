@@ -963,8 +963,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         peer: PeerId,
     ) -> ProcessingResult {
         let batch_state = self.visualize_batch_state();
+        let syncing_peers = self.peers().collect::<Vec<_>>();
+
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
+
             match network.block_components_by_range_request(
                 peer,
                 batch_type,
@@ -973,6 +976,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     chain_id: self.id,
                     batch_id,
                 },
+                syncing_peers.into_iter(),
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request

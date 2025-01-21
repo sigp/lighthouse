@@ -3,6 +3,7 @@ use crate::status::ToStatusMessage;
 use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
 use crate::sync::range_sync::RangeSyncType;
 use crate::sync::SyncMessage;
+use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use beacon_chain::{block_verification_types::RpcBlock, EngineState, NotifyExecutionLayer};
 use lighthouse_network::rpc::{RequestType, StatusMessage};
@@ -15,6 +16,11 @@ use types::{
 };
 
 const D: Duration = Duration::new(0, 0);
+
+pub(crate) enum DataSidecars<E: EthSpec> {
+    Blobs(BlobSidecarList<E>),
+    DataColumns(Vec<CustodyDataColumn<E>>),
+}
 
 impl TestRig {
     /// Produce a head peer with an advanced head
@@ -67,7 +73,9 @@ impl TestRig {
 
     fn add_peer(&mut self, remote_info: SyncInfo) -> PeerId {
         // Create valid peer known to network globals
-        let peer_id = self.new_connected_peer();
+        // TODO(fulu): Using supernode peers to ensure we have peer across all column
+        // subnets for syncing. Should add tests connecting to full node peers.
+        let peer_id = self.new_connected_supernode_peer();
         // Send peer to sync
         self.send_sync_message(SyncMessage::AddPeer(peer_id, remote_info.clone()));
         peer_id
@@ -110,7 +118,19 @@ impl TestRig {
             })
             .expect("Should have a blocks by range request");
 
-        let blob_req_id = if self.after_deneb() {
+        let blob_req_id = if self.after_fulu() {
+            Some(
+                self.pop_received_network_event(|ev| match ev {
+                    NetworkMessage::SendRequest {
+                        peer_id,
+                        request: RequestType::DataColumnsByRange(_),
+                        request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                    } if peer_id == target_peer_id => Some(*id),
+                    _ => None,
+                })
+                .expect("Should have a data columns by range request"),
+            )
+        } else if self.after_deneb() {
             Some(
                 self.pop_received_network_event(|ev| match ev {
                     NetworkMessage::SendRequest {
@@ -144,22 +164,33 @@ impl TestRig {
         });
 
         if let Some(blobs_req_id) = blobs_req_id {
-            // Complete the request with a single stream termination
-            self.log(&format!(
-                "Completing BlobsByRange request {blobs_req_id} with empty stream"
-            ));
-            self.send_sync_message(SyncMessage::RpcBlob {
-                request_id: SyncRequestId::RangeBlockAndBlobs { id: blobs_req_id },
-                peer_id: target_peer_id,
-                blob_sidecar: None,
-                seen_timestamp: D,
-            });
+            if self.after_fulu() {
+                // Complete the request with a single stream termination
+                self.log(&format!(
+                    "Completing DataColumnsByRange request {blobs_req_id} with empty stream"
+                ));
+                self.send_sync_message(SyncMessage::RpcDataColumn {
+                    request_id: SyncRequestId::RangeBlockAndBlobs { id: blobs_req_id },
+                    peer_id: target_peer_id,
+                    data_column: None,
+                    seen_timestamp: D,
+                });
+            } else {
+                // Complete the request with a single stream termination
+                self.log(&format!(
+                    "Completing BlobsByRange request {blobs_req_id} with empty stream"
+                ));
+                self.send_sync_message(SyncMessage::RpcBlob {
+                    request_id: SyncRequestId::RangeBlockAndBlobs { id: blobs_req_id },
+                    peer_id: target_peer_id,
+                    blob_sidecar: None,
+                    seen_timestamp: D,
+                });
+            }
         }
     }
 
-    async fn create_canonical_block(
-        &mut self,
-    ) -> (SignedBeaconBlock<E>, Option<BlobSidecarList<E>>) {
+    async fn create_canonical_block(&mut self) -> (SignedBeaconBlock<E>, Option<DataSidecars<E>>) {
         self.harness.advance_slot();
 
         let block_root = self
@@ -170,20 +201,38 @@ impl TestRig {
                 AttestationStrategy::AllValidators,
             )
             .await;
-        // TODO(das): this does not handle data columns yet
+
         let store = &self.harness.chain.store;
         let block = store.get_full_block(&block_root).unwrap().unwrap();
-        let blobs = if block.fork_name_unchecked().deneb_enabled() {
-            store.get_blobs(&block_root).unwrap().blobs()
+        let fork = block.fork_name_unchecked();
+
+        let data_sidecars = if fork.fulu_enabled() {
+            store
+                .get_data_columns(&block_root)
+                .unwrap()
+                .map(|columns| {
+                    columns
+                        .into_iter()
+                        .map(CustodyDataColumn::from_asserted_custody)
+                        .collect()
+                })
+                .map(DataSidecars::DataColumns)
+        } else if fork.deneb_enabled() {
+            store
+                .get_blobs(&block_root)
+                .unwrap()
+                .blobs()
+                .map(DataSidecars::Blobs)
         } else {
             None
         };
-        (block, blobs)
+
+        (block, data_sidecars)
     }
 
     async fn remember_block(
         &mut self,
-        (block, blob_sidecars): (SignedBeaconBlock<E>, Option<BlobSidecarList<E>>),
+        (block, data_sidecars): (SignedBeaconBlock<E>, Option<DataSidecars<E>>),
     ) {
         // This code is kind of duplicated from Harness::process_block, but takes sidecars directly.
         let block_root = block.canonical_root();
@@ -193,7 +242,7 @@ impl TestRig {
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), block.into(), blob_sidecars).unwrap(),
+                build_rpc_block(block.into(), &data_sidecars, &self.spec),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
@@ -203,6 +252,22 @@ impl TestRig {
             .try_into()
             .unwrap();
         self.harness.chain.recompute_head_at_current_slot().await;
+    }
+}
+
+fn build_rpc_block(
+    block: Arc<SignedBeaconBlock<E>>,
+    data_sidecars: &Option<DataSidecars<E>>,
+    spec: &ChainSpec,
+) -> RpcBlock<E> {
+    match data_sidecars {
+        Some(DataSidecars::Blobs(blobs)) => {
+            RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
+        }
+        Some(DataSidecars::DataColumns(columns)) => {
+            RpcBlock::new_with_custody_columns(None, block, columns.clone(), spec).unwrap()
+        }
+        None => RpcBlock::new_without_blobs(None, block),
     }
 }
 

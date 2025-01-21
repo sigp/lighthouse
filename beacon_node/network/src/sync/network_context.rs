@@ -43,8 +43,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, DataColumnSubnetId,
+    EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -307,10 +307,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .custody_peers_for_column(column_index)
     }
 
-    pub fn get_random_custodial_peer(&self, column_index: ColumnIndex) -> Option<PeerId> {
-        self.get_custodial_peers(column_index)
-            .into_iter()
+    /// Chooses a random peer assigned to custody `column_index` from the provided `syncing_peers`.
+    pub fn choose_random_custodial_peer<'a>(
+        &self,
+        column_index: ColumnIndex,
+        syncing_peers: impl Iterator<Item = &'a PeerId>,
+    ) -> Option<PeerId> {
+        let peer_db_read_lock = self.network_globals().peers.read();
+        let subnet_id = DataColumnSubnetId::from_column_index(column_index, &self.chain.spec);
+
+        syncing_peers
+            .filter(|peer_id| {
+                peer_db_read_lock
+                    .peer_info(peer_id)
+                    .is_some_and(|peer_info| peer_info.is_assigned_to_custody_subnet(&subnet_id))
+            })
             .choose(&mut thread_rng())
+            .copied()
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -358,6 +371,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         batch_type: ByRangeRequestType,
         request: BlocksByRangeRequest,
         sender_id: RangeRequestId,
+        syncing_peers: impl Iterator<Item = PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
         let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
         let id = self.next_id();
@@ -426,7 +440,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let mut num_of_custody_column_req = 0;
 
                 for (peer_id, columns_by_range_request) in
-                    self.make_columns_by_range_requests(request, &column_indexes)?
+                    self.make_columns_by_range_requests(request, &column_indexes, syncing_peers)?
                 {
                     requested_peers.push(peer_id);
 
@@ -473,14 +487,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         request: BlocksByRangeRequest,
         custody_indexes: &HashSet<ColumnIndex>,
+        syncing_peers: impl Iterator<Item = PeerId>,
     ) -> Result<HashMap<PeerId, DataColumnsByRangeRequest>, RpcRequestSendError> {
         let mut peer_id_to_request_map = HashMap::new();
+        let syncing_peers = syncing_peers.collect::<Vec<_>>();
 
         for column_index in custody_indexes {
             // TODO(das): The peer selection logic here needs to be improved - we should probably
             // avoid retrying from failed peers, however `BatchState` currently only tracks the peer
             // serving the blocks.
-            let Some(custody_peer) = self.get_random_custodial_peer(*column_index) else {
+            let Some(custody_peer) =
+                self.choose_random_custodial_peer(*column_index, syncing_peers.iter())
+            else {
                 // TODO(das): this will be pretty bad UX. To improve we should:
                 // - Attempt to fetch custody requests first, before requesting blocks
                 // - Handle the no peers case gracefully, maybe add some timeout and give a few
