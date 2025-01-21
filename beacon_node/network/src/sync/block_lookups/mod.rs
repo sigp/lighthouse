@@ -168,14 +168,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub(crate) fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.single_block_lookups
             .iter()
-            .map(|(id, l)| {
-                (
-                    *id,
-                    l.block_root(),
-                    l.awaiting_parent(),
-                    l.all_peers().copied().collect(),
-                )
-            })
+            .map(|(id, l)| (*id, l.block_root(), l.awaiting_parent(), l.all_peers()))
             .collect()
     }
 
@@ -322,7 +315,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         .find(|(_, l)| l.block_root() == parent_chain_tip)
                     {
                         cx.send_sync_message(SyncMessage::AddPeersForceRangeSync {
-                            peers: lookup.all_peers().copied().collect(),
+                            peers: lookup.all_peers(),
                             head_slot: tip_lookup.peek_downloaded_block_slot(),
                             head_root: parent_chain_tip,
                         });
@@ -755,7 +748,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 lookup.continue_requests(cx)
             }
             Action::ParentUnknown { parent_root } => {
-                let peers = lookup.all_peers().copied().collect::<Vec<_>>();
+                let peers = lookup.all_peers();
                 lookup.set_awaiting_parent(parent_root);
                 debug!(
                     id = lookup.id,
