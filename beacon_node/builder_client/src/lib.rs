@@ -11,7 +11,7 @@ use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use std::time::Duration;
 
 pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
@@ -211,7 +211,7 @@ impl BuilderHttpClient {
             .bytes()
             .await?;
 
-        FullPayloadContents::from_ssz_bytes(&result).map_err(Error::InvalidSsz)
+        FullPayloadContents::from_ssz_bytes(&result, blinded_block.fork_name_unchecked()).map_err(Error::InvalidSsz)
     }
 
     /// `POST /eth/v1/builder/blinded_blocks`

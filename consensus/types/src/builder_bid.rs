@@ -63,7 +63,6 @@ impl<E: EthSpec> BuilderBid<E> {
             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu::from_ssz_bytes(bytes)?),
         };
-
         Ok(builder_bid)
     }
 }

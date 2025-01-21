@@ -1929,7 +1929,7 @@ impl<E: EthSpec> ForkVersionDeserialize for BlockContents<E> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
@@ -1950,6 +1950,10 @@ impl<E: EthSpec> FullPayloadContents<E> {
                 blobs_bundle,
             }),
         }
+    }
+
+    pub fn from_ssz_bytes(_bytes: &[u8], _fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        todo!()
     }
 
     pub fn payload_ref(&self) -> &ExecutionPayload<E> {
@@ -1997,7 +2001,7 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
 #[serde(bound = "E: EthSpec")]
 pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub execution_payload: ExecutionPayload<E>,
