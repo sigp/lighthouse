@@ -15,7 +15,8 @@ use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
-use libp2p::swarm::Stream;
+use libp2p::swarm::{ConnectionId, Stream};
+use libp2p::PeerId;
 use logging::crit;
 use smallvec::SmallVec;
 use std::{
@@ -138,6 +139,9 @@ where
 
     /// Timeout that will me used for inbound and outbound responses.
     resp_timeout: Duration,
+
+    /// Information about this handler for logging purposes.
+    log_info: (PeerId, ConnectionId),
 }
 
 enum HandlerState {
@@ -220,6 +224,8 @@ where
         listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
         fork_context: Arc<ForkContext>,
         resp_timeout: Duration,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -238,6 +244,7 @@ where
             fork_context,
             waker: None,
             resp_timeout,
+            log_info: (peer_id, connection_id),
         }
     }
 
@@ -248,6 +255,8 @@ where
             if !self.dial_queue.is_empty() {
                 debug!(
                     unsent_queued_requests = self.dial_queue.len(),
+                    peer_id = %self.log_info.0,
+                    connection_id = %self.log_info.1,
                     "Starting handler shutdown"
                 );
             }
@@ -296,7 +305,10 @@ where
         let Some(inbound_info) = self.inbound_substreams.get_mut(&inbound_id) else {
             if !matches!(response, RpcResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
-                trace!(%response, id = ?inbound_id, "Inbound stream has expired. Response not sent");
+                trace!(%response, id = ?inbound_id,
+                    peer_id = %self.log_info.0,
+                    connection_id = %self.log_info.1,
+                    "Inbound stream has expired. Response not sent");
             }
             return;
         };
@@ -311,7 +323,10 @@ where
 
         if matches!(self.state, HandlerState::Deactivated) {
             // we no longer send responses after the handler is deactivated
-            debug!(%response, id = ?inbound_id, "Response not sent. Deactivated handler");
+            debug!(%response, id = ?inbound_id,
+                    peer_id = %self.log_info.0,
+                    connection_id = %self.log_info.1,
+                    "Response not sent. Deactivated handler");
             return;
         }
         inbound_info.pending_items.push_back(response);
@@ -377,7 +392,11 @@ where
             match delay.as_mut().poll(cx) {
                 Poll::Ready(_) => {
                     self.state = HandlerState::Deactivated;
-                    debug!("Shutdown timeout elapsed, Handler deactivated");
+                    debug!(
+                        peer_id = %self.log_info.0,
+                        connection_id = %self.log_info.1,
+                        "Shutdown timeout elapsed, Handler deactivated"
+                    );
                     return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                         HandlerEvent::Close(RPCError::Disconnected),
                     ));
@@ -424,7 +443,10 @@ where
                     outbound_err,
                 )));
             } else {
-                crit!(stream_id = ?outbound_id.get_ref(), "timed out substream not in the books");
+                crit!(
+                    peer_id = %self.log_info.0,
+                    connection_id = %self.log_info.1,
+                    stream_id = ?outbound_id.get_ref(), "timed out substream not in the books");
             }
         }
 
@@ -554,6 +576,8 @@ where
                                 // Its useful to log when the request was completed.
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
                                     debug!(
+                                        peer_id = %self.log_info.0,
+                                        connection_id = %self.log_info.1,
                                         duration = Instant::now()
                                             .duration_since(info.request_start_time)
                                             .as_secs(),
@@ -562,6 +586,8 @@ where
                                 }
                                 if matches!(info.protocol, Protocol::BlobsByRange) {
                                     debug!(
+                                        peer_id = %self.log_info.0,
+                                        connection_id = %self.log_info.1,
                                         duration = Instant::now()
                                             .duration_since(info.request_start_time)
                                             .as_secs(),
@@ -590,12 +616,16 @@ where
 
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
                                     debug!(
+                                        peer_id = %self.log_info.0,
+                                        connection_id = %self.log_info.1,
                                         duration = info.request_start_time.elapsed().as_secs(),
                                         "BlocksByRange Response failed"
                                     );
                                 }
                                 if matches!(info.protocol, Protocol::BlobsByRange) {
                                     debug!(
+                                        peer_id = %self.log_info.0,
+                                        connection_id = %self.log_info.1,
                                         duration = info.request_start_time.elapsed().as_secs(),
                                         "BlobsByRange Response failed"
                                     );
@@ -707,7 +737,7 @@ where
                         // stream closed
                         // if we expected multiple streams send a stream termination,
                         // else report the stream terminating only.
-                        //trace!("RPC Response - stream closed by remote");
+                        //"RPC Response - stream closed by remote");
                         // drop the stream
                         let delay_key = &entry.get().delay_key;
                         let request_id = entry.get().req_id;
@@ -784,7 +814,11 @@ where
                     }
                 }
                 OutboundSubstreamState::Poisoned => {
-                    crit!("Poisoned outbound substream");
+                    crit!(
+                        peer_id = %self.log_info.0,
+                        connection_id = %self.log_info.1,
+                        "Poisoned outbound substream"
+                    );
                     unreachable!("Coding Error: Outbound substream is poisoned")
                 }
             }
@@ -816,7 +850,11 @@ where
                 && self.events_out.is_empty()
                 && self.dial_negotiated == 0
             {
-                debug!("Goodbye sent, Handler deactivated");
+                debug!(
+                    peer_id = %self.log_info.0,
+                    connection_id = %self.log_info.1,
+                    "Goodbye sent, Handler deactivated"
+                );
                 self.state = HandlerState::Deactivated;
                 return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
                     HandlerEvent::Close(RPCError::Disconnected),
@@ -969,7 +1007,11 @@ where
                 )
                 .is_some()
             {
-                crit!(id = ?self.current_outbound_substream_id, "Duplicate outbound substream id");
+                crit!(
+                    peer_id = %self.log_info.0,
+                    connection_id = %self.log_info.1,
+
+                    id = ?self.current_outbound_substream_id, "Duplicate outbound substream id");
             }
             self.current_outbound_substream_id.0 += 1;
         }

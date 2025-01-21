@@ -307,8 +307,8 @@ where
 
     fn handle_established_inbound_connection(
         &mut self,
-        _connection_id: ConnectionId,
-        _peer_id: PeerId,
+        connection_id: ConnectionId,
+        peer_id: PeerId,
         _local_addr: &libp2p::Multiaddr,
         _remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
@@ -327,6 +327,8 @@ where
             protocol,
             self.fork_context.clone(),
             self.network_params.resp_timeout,
+            peer_id,
+            connection_id,
         );
 
         Ok(handler)
@@ -334,8 +336,8 @@ where
 
     fn handle_established_outbound_connection(
         &mut self,
-        _connection_id: ConnectionId,
-        _peer_id: PeerId,
+        connection_id: ConnectionId,
+        peer_id: PeerId,
         _addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
         _port_use: PortUse,
@@ -355,6 +357,8 @@ where
             protocol,
             self.fork_context.clone(),
             self.network_params.resp_timeout,
+            peer_id,
+            connection_id,
         );
 
         Ok(handler)
