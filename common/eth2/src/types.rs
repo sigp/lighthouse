@@ -1952,8 +1952,20 @@ impl<E: EthSpec> FullPayloadContents<E> {
         }
     }
 
-    pub fn from_ssz_bytes(_bytes: &[u8], _fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        todo!()
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        if fork_name.deneb_enabled() {
+            Ok(Self::PayloadAndBlobs(
+                ExecutionPayloadAndBlobs::from_ssz_bytes(bytes, fork_name)?,
+            ))
+        } else if fork_name.bellatrix_enabled() {
+            Ok(Self::Payload(ExecutionPayload::from_ssz_bytes(
+                bytes, fork_name,
+            )?))
+        } else {
+            Err(ssz::DecodeError::BytesInvalid(format!(
+                "FullPayloadContents decoding for {fork_name} not implemented"
+            )))
+        }
     }
 
     pub fn payload_ref(&self) -> &ExecutionPayload<E> {
@@ -2006,6 +2018,29 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
 pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub execution_payload: ExecutionPayload<E>,
     pub blobs_bundle: BlobsBundle<E>,
+}
+
+impl<E: EthSpec> ExecutionPayloadAndBlobs<E> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<BlobsBundle<E>>()?;
+        let mut decoder = builder.build()?;
+
+        if fork_name.deneb_enabled() {
+            let execution_payload = decoder
+                .decode_next_with(|bytes| ExecutionPayload::from_ssz_bytes(bytes, fork_name))?;
+            let blobs_bundle = decoder.decode_next()?;
+            Ok(Self {
+                execution_payload,
+                blobs_bundle,
+            })
+        } else {
+            Err(ssz::DecodeError::BytesInvalid(format!(
+                "ExecutionPayloadAndBlobs decoding for {fork_name} not implemented"
+            )))
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]

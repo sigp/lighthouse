@@ -211,7 +211,8 @@ impl BuilderHttpClient {
             .bytes()
             .await?;
 
-        FullPayloadContents::from_ssz_bytes(&result, blinded_block.fork_name_unchecked()).map_err(Error::InvalidSsz)
+        FullPayloadContents::from_ssz_bytes(&result, blinded_block.fork_name_unchecked())
+            .map_err(Error::InvalidSsz)
     }
 
     /// `POST /eth/v1/builder/blinded_blocks`
