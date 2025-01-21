@@ -8,13 +8,15 @@ use crate::{
 use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize, Deserializer, Serialize};
+use ssz::Decode;
+use ssz_derive::Decode;
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
+        derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Decode, Clone),
         serde(bound = "E: EthSpec", deny_unknown_fields)
     ),
     map_ref_into(ExecutionPayloadHeaderRef),
@@ -44,6 +46,25 @@ pub struct BuilderBid<E: EthSpec> {
 impl<E: EthSpec> BuilderBid<E> {
     pub fn header(&self) -> ExecutionPayloadHeaderRef<'_, E> {
         self.to_ref().header()
+    }
+
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let builder_bid = match fork_name {
+            ForkName::Altair | ForkName::Base => {
+                return Err(ssz::DecodeError::BytesInvalid(format!(
+                    "unsupported fork for ExecutionPayloadHeader: {fork_name}",
+                )))
+            }
+            ForkName::Bellatrix => {
+                BuilderBid::Bellatrix(BuilderBidBellatrix::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella::from_ssz_bytes(bytes)?),
+            ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb::from_ssz_bytes(bytes)?),
+            ForkName::Electra => BuilderBid::Electra(BuilderBidElectra::from_ssz_bytes(bytes)?),
+            ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu::from_ssz_bytes(bytes)?),
+        };
+
+        Ok(builder_bid)
     }
 }
 
@@ -119,6 +140,17 @@ impl<E: EthSpec> ForkVersionDeserialize for SignedBuilderBid<E> {
 }
 
 impl<E: EthSpec> SignedBuilderBid<E> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<Signature>()?;
+        let mut decoder = builder.build()?;
+        let message =
+            decoder.decode_next_with(|bytes| BuilderBid::from_ssz_bytes(bytes, fork_name))?;
+        let signature = decoder.decode_next()?;
+        Ok(Self { message, signature })
+    }
+
     pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
         self.message
             .pubkey()
