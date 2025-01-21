@@ -48,6 +48,22 @@ pub fn version_with_platform() -> String {
     format!("{}/{}-{}", VERSION, Target::arch(), Target::os())
 }
 
+/// Returns semantic versioning information only.
+///
+/// ## Example
+///
+/// `1.5.1`
+pub fn version() -> &'static str {
+    "6.0.1"
+}
+
+/// Returns the name of the current client running.
+///
+/// This will usually be "Lighthouse"
+pub fn client_name() -> &'static str {
+    "Lighthouse"
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -62,6 +78,16 @@ mod test {
             re.is_match(VERSION),
             "version doesn't match regex: {}",
             VERSION
+        );
+    }
+
+    #[test]
+    fn semantic_version_formatting() {
+        let re = Regex::new(r"^[0-9]+\.[0-9]+\.[0-9]+").unwrap();
+        assert!(
+            re.is_match(version()),
+            "semantic version doesn't match regex: {}",
+            version()
         );
     }
 }
