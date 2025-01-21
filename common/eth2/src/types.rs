@@ -584,12 +584,20 @@ pub struct IdentityData {
     pub metadata: MetaData,
 }
 
+#[superstruct(
+    variants(V2, V3),
+    variant_attributes(derive(Clone, Debug, PartialEq, Serialize, Deserialize))
+)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub struct MetaData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub seq_number: u64,
     pub attnets: String,
     pub syncnets: String,
+    #[superstruct(only(V3))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub custody_group_count: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
