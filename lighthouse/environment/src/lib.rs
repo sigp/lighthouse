@@ -33,8 +33,6 @@ use {
 #[cfg(not(target_family = "unix"))]
 use {futures::channel::oneshot, std::cell::RefCell};
 
-// TODO(tracing) do we need this
-// const LOG_CHANNEL_SIZE: usize = 16384;
 pub mod tracing_common;
 
 pub const SSE_LOG_CHANNEL_SIZE: usize = 2048;
