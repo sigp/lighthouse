@@ -4361,7 +4361,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba6a270039626615617f3f36d15fc827041df3b78c439da2cadfa47455a77f2f"
 dependencies = [
- "parity-scale-codec 3.7.0",
+ "parity-scale-codec 3.6.12",
 ]
 
 [[package]]
@@ -6278,16 +6278,15 @@ dependencies = [
 
 [[package]]
 name = "parity-scale-codec"
-version = "3.7.0"
+version = "3.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8be4817d39f3272f69c59fe05d0535ae6456c2dc2fa1ba02910296c7e0a5c590"
+checksum = "306800abfa29c7f16596b5970a588435e3d5b3149683d00c12b699cc19f895ee"
 dependencies = [
  "arrayvec",
  "bitvec 1.0.1",
  "byte-slice-cast",
  "impl-trait-for-tuples",
- "parity-scale-codec-derive 3.7.0",
- "rustversion",
+ "parity-scale-codec-derive 3.6.12",
  "serde",
 ]
 
@@ -6305,14 +6304,14 @@ dependencies = [
 
 [[package]]
 name = "parity-scale-codec-derive"
-version = "3.7.0"
+version = "3.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8781a75c6205af67215f382092b6e0a4ff3734798523e69073d4bcd294ec767b"
+checksum = "d830939c76d294956402033aee57a6da7b438f2294eb94864c37b0569053a42c"
 dependencies = [
  "proc-macro-crate 3.2.0",
  "proc-macro2",
  "quote",
- "syn 2.0.89",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -7357,7 +7356,7 @@ dependencies = [
  "fastrlp",
  "num-bigint",
  "num-traits",
- "parity-scale-codec 3.7.0",
+ "parity-scale-codec 3.6.12",
  "primitive-types 0.12.2",
  "proptest",
  "rand",
@@ -7633,7 +7632,7 @@ checksum = "346a3b32eba2640d17a9cb5927056b08f3de90f65b72fe09402c2ad07d684d0b"
 dependencies = [
  "cfg-if",
  "derive_more 1.0.0",
- "parity-scale-codec 3.7.0",
+ "parity-scale-codec 3.6.12",
  "scale-info-derive",
 ]
 
