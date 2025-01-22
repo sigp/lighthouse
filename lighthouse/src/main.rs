@@ -496,7 +496,7 @@ fn run<E: EthSpec>(
 
     let log_format = matches.get_one::<String>("log-format");
 
-    let log_color = matches.get_flag("logfile-color");
+    let logfile_color = matches.get_flag("logfile-color");
 
     let disable_log_timestamp = matches.get_flag("disable-log-timestamp");
 
@@ -574,7 +574,7 @@ fn run<E: EthSpec>(
             logfile_debug_level: tracing_common::parse_level(logfile_debug_level),
             log_format: log_format.map(String::from),
             logfile_format: logfile_format.map(String::from),
-            log_color,
+            logfile_color,
             disable_log_timestamp,
             max_log_size: logfile_max_size * 1_024 * 1_024,
             max_log_number: logfile_max_number,

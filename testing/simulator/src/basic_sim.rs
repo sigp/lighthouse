@@ -103,7 +103,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             logfile_debug_level: tracing_common::parse_level(&log_level.clone()),
             log_format: None,
             logfile_format: None,
-            log_color: false,
+            logfile_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,

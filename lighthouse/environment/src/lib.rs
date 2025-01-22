@@ -57,7 +57,7 @@ pub struct LoggerConfig {
     pub logfile_debug_level: LevelFilter,
     pub log_format: Option<String>,
     pub logfile_format: Option<String>,
-    pub log_color: bool,
+    pub logfile_color: bool,
     pub disable_log_timestamp: bool,
     pub max_log_size: u64,
     pub max_log_number: usize,
@@ -73,7 +73,7 @@ impl Default for LoggerConfig {
             logfile_debug_level: LevelFilter::DEBUG,
             log_format: None,
             logfile_format: None,
-            log_color: false,
+            logfile_color: false,
             disable_log_timestamp: false,
             max_log_size: 200,
             max_log_number: 5,
@@ -217,13 +217,13 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         file_non_blocking_writer,
                         file_guard,
                         config.disable_log_timestamp,
-                        config.log_color,
+                        config.logfile_color,
                     )
                 }
                 Err(e) => {
                     eprintln!("Failed to initialize rolling file appender: {}", e);
                     let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-                    LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp, config.log_color)
+                    LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp, config.logfile_color)
                 }
             }
         } else {
