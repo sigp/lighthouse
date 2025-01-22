@@ -2362,11 +2362,11 @@ impl ApiTester {
             enr: self.local_enr.clone(),
             p2p_addresses: self.local_enr.multiaddr_p2p_tcp(),
             discovery_addresses: self.local_enr.multiaddr_p2p_udp(),
-            metadata: eth2::types::MetaData {
+            metadata: MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: "0x0000000000000000".to_string(),
                 syncnets: "0x00".to_string(),
-            },
+            }),
         };
 
         assert_eq!(result, expected);
