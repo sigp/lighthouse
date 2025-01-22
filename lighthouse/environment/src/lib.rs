@@ -223,7 +223,12 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 Err(e) => {
                     eprintln!("Failed to initialize rolling file appender: {}", e);
                     let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-                    LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp, config.logfile_color)
+                    LoggingLayer::new(
+                        sink_writer,
+                        sink_guard,
+                        config.disable_log_timestamp,
+                        config.logfile_color,
+                    )
                 }
             }
         } else {

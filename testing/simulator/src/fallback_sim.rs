@@ -99,7 +99,9 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         file_logging_layer,
         stdout_logging_layer,
         _sse_logging_layer_opt,
-        logger_config,
+        _logger_config,
+        discv5_logs_off,
+        discv5_file_logs_off,
     ) = tracing_common::construct_logger(
         LoggerConfig {
             path: None,
@@ -122,8 +124,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     if let Err(e) = tracing_subscriber::registry()
         .with(filter_layer)
         .with(libp2p_discv5_layer)
-        .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
-        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
+        .with(file_logging_layer.with_filter(discv5_file_logs_off))
+        .with(stdout_logging_layer.with_filter(discv5_logs_off))
         .with(MetricsLayer)
         .try_init()
     {
