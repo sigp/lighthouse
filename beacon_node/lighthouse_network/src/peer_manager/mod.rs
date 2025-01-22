@@ -37,9 +37,11 @@ use strum::IntoEnumIterator;
 use types::data_column_custody_group::{
     compute_subnets_from_custody_group, get_custody_groups, CustodyIndex,
 };
+use crate::peer_manager::connectivity::{Connectivity, LHNetworkGlobalsConnectivity};
 
 pub mod config;
 mod network_behaviour;
+mod connectivity;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
 /// requests. This defines the interval in seconds.
@@ -108,14 +110,14 @@ pub struct PeerManager<E: EthSpec> {
     subnets_by_custody_group: HashMap<u64, Vec<DataColumnSubnetId>>,
     /// The heartbeat interval to perform routine maintenance.
     heartbeat: tokio::time::Interval,
-    /// Keeps track of whether the discovery service is enabled or not.
-    discovery_enabled: bool,
     /// Keeps track if the current instance is reporting metrics or not.
     metrics_enabled: bool,
     /// Keeps track of whether the QUIC protocol is enabled or not.
     quic_enabled: bool,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
+
+    connectivity: Connectivity<LHNetworkGlobalsConnectivity<E>>,
 }
 
 /// The events that the `PeerManager` outputs (requests).
@@ -181,7 +183,7 @@ impl<E: EthSpec> PeerManager<E> {
         };
 
         Ok(PeerManager {
-            network_globals,
+            network_globals: network_globals.clone(),
             events: SmallVec::new(),
             peers_to_dial: Default::default(),
             inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
@@ -192,10 +194,18 @@ impl<E: EthSpec> PeerManager<E> {
             sync_committee_subnets: Default::default(),
             subnets_by_custody_group,
             heartbeat,
-            discovery_enabled,
             metrics_enabled,
             quic_enabled,
             log: log.clone(),
+            connectivity: Connectivity::new(
+                target_peer_count,
+                PEER_EXCESS_FACTOR,
+                PRIORITY_PEER_EXCESS,
+                MIN_OUTBOUND_ONLY_FACTOR,
+                TARGET_OUTBOUND_ONLY_FACTOR,
+                discovery_enabled,
+                LHNetworkGlobalsConnectivity::new(network_globals)
+            ),
         })
     }
 
@@ -342,51 +352,16 @@ impl<E: EthSpec> PeerManager<E> {
     ///
     /// This function decides whether or not to dial these peers.
     pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) {
-        let mut to_dial_peers = 0;
-        let results_count = results.len();
-        let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
-        for (enr, min_ttl) in results {
-            // There are two conditions in deciding whether to dial this peer.
-            // 1. If we are less than our max connections. Discovery queries are executed to reach
-            //    our target peers, so its fine to dial up to our max peers (which will get pruned
-            //    in the next heartbeat down to our target).
-            // 2. If the peer is one our validators require for a specific subnet, then it is
-            //    considered a priority. We have pre-allocated some extra priority slots for these
-            //    peers as specified by PRIORITY_PEER_EXCESS. Therefore we dial these peers, even
-            //    if we are already at our max_peer limit.
-            if !self.peers_to_dial.contains(&enr)
-                && ((min_ttl.is_some()
-                    && connected_or_dialing + to_dial_peers < self.max_priority_peers())
-                    || connected_or_dialing + to_dial_peers < self.max_peers())
-            {
-                // This should be updated with the peer dialing. In fact created once the peer is
-                // dialed
-                let peer_id = enr.peer_id();
-                if let Some(min_ttl) = min_ttl {
-                    self.network_globals
-                        .peers
-                        .write()
-                        .update_min_ttl(&peer_id, min_ttl);
-                }
-                if self.dial_peer(enr) {
-                    debug!(self.log, "Added discovered ENR peer to dial queue"; "peer_id" => %peer_id);
-                    to_dial_peers += 1;
-                }
-            }
-        }
-
-        // The heartbeat will attempt new discovery queries every N seconds if the node needs more
-        // peers. As an optimization, this function can recursively trigger new discovery queries
-        // immediatelly if we don't fulfill our peers needs after completing a query. This
-        // recursiveness results in an infinite loop in networks where there not enough peers to
-        // reach out target. To prevent the infinite loop, if a query returns no useful peers, we
-        // will cancel the recursiveness and wait for the heartbeat to trigger another query latter.
-        if results_count > 0 && to_dial_peers == 0 {
-            debug!(self.log, "Skipping recursive discovery query after finding no useful results"; "results" => results_count);
-            metrics::inc_counter(&metrics::DISCOVERY_NO_USEFUL_ENRS);
-        } else {
-            // Queue another discovery if we need to
-            self.maintain_peer_count(to_dial_peers);
+        let wanted_peers = self.connectivity.peers_discovered(&results);
+        if wanted_peers > 0 {
+            self.events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
+            // debug!(self.log,
+            //     "Starting a new peer discovery query";
+            //     "connected" => peer_count,
+            //     "target" => self.target_peers,
+            //     "outbound" => outbound_only_peer_count,
+            //     "wanted" => wanted_peers
+            // );
         }
     }
 
@@ -408,37 +383,6 @@ impl<E: EthSpec> PeerManager<E> {
                 }
             }
         }
-    }
-
-    /// The maximum number of peers we allow to connect to us. This is `target_peers` * (1 +
-    /// PEER_EXCESS_FACTOR)
-    fn max_peers(&self) -> usize {
-        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as usize
-    }
-
-    /// The maximum number of peers we allow when dialing a priority peer (i.e a peer that is
-    /// subscribed to subnets that our validator requires. This is `target_peers` * (1 +
-    /// PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)
-    fn max_priority_peers(&self) -> usize {
-        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)).ceil()
-            as usize
-    }
-
-    /// The minimum number of outbound peers that we reach before we start another discovery query.
-    fn min_outbound_only_peers(&self) -> usize {
-        (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize
-    }
-
-    /// The minimum number of outbound peers that we reach before we start another discovery query.
-    fn target_outbound_peers(&self) -> usize {
-        (self.target_peers as f32 * TARGET_OUTBOUND_ONLY_FACTOR).ceil() as usize
-    }
-
-    /// The maximum number of peers that are connected or dialing before we refuse to do another
-    /// discovery search for more outbound peers. We can use up to half the priority peer excess allocation.
-    fn max_outbound_dialing_peers(&self) -> usize {
-        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS / 2.0)).ceil()
-            as usize
     }
 
     /* Notifications from the Swarm */
@@ -943,35 +887,6 @@ impl<E: EthSpec> PeerManager<E> {
         }
     }
 
-    /// This function checks the status of our current peers and optionally requests a discovery
-    /// query if we need to find more peers to maintain the current number of peers
-    fn maintain_peer_count(&mut self, dialing_peers: usize) {
-        // Check if we need to do a discovery lookup
-        if self.discovery_enabled {
-            let peer_count = self.network_globals.connected_or_dialing_peers();
-            let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
-            let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
-                // We need more peers in general.
-                self.max_peers().saturating_sub(dialing_peers) - peer_count
-            } else if outbound_only_peer_count < self.min_outbound_only_peers()
-                && peer_count < self.max_outbound_dialing_peers()
-            {
-                self.max_outbound_dialing_peers()
-                    .saturating_sub(dialing_peers)
-                    .saturating_sub(peer_count)
-            } else {
-                0
-            };
-
-            if wanted_peers != 0 {
-                // We need more peers, re-queue a discovery lookup.
-                debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.target_peers, "outbound" => outbound_only_peer_count, "wanted" => wanted_peers);
-                self.events
-                    .push(PeerManagerEvent::DiscoverPeers(wanted_peers));
-            }
-        }
-    }
-
     /// Remove excess peers back down to our target values.
     /// This prioritises peers with a good score and uniform distribution of peers across
     /// subnets.
@@ -1046,7 +961,7 @@ impl<E: EthSpec> PeerManager<E> {
                     }
                     // Only remove up to the target outbound peer count.
                     if info.is_outbound_only() {
-                        if self.target_outbound_peers() + outbound_peers_pruned
+                        if self.connectivity.target_outbound_peers() + outbound_peers_pruned
                             < connected_outbound_peer_count
                         {
                             outbound_peers_pruned += 1;
@@ -1136,7 +1051,7 @@ impl<E: EthSpec> PeerManager<E> {
                         for (index, (candidate_peer, info)) in peers_on_subnet.iter().enumerate() {
                             // Ensure we don't remove too many outbound peers
                             if info.is_outbound_only()
-                                && self.target_outbound_peers()
+                                && self.connectivity.target_outbound_peers()
                                     >= connected_outbound_peer_count
                                         .saturating_sub(outbound_peers_pruned)
                             {
@@ -1233,7 +1148,19 @@ impl<E: EthSpec> PeerManager<E> {
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
         // Optionally run a discovery query if we need more peers.
-        self.maintain_peer_count(0);
+        let peer_count = self.network_globals.connected_or_dialing_peers();
+        let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+        let wanted_peers = self.connectivity.maintain_peer_count(0);
+        if wanted_peers > 0 {
+            self.events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
+            debug!(self.log,
+                "Starting a new peer discovery query";
+                "connected" => peer_count,
+                "target" => self.target_peers,
+                "outbound" => outbound_only_peer_count,
+                "wanted" => wanted_peers
+            );
+        }
 
         // Cleans up the connection state of dialing peers.
         // Libp2p dials peer-ids, but sometimes the response is from another peer-id or libp2p
@@ -2499,7 +2426,7 @@ mod tests {
                 // It could be that we reach our target outbound limit and are unable to prune any
                 // extra, which violates the target_peer_condition.
                 let outbound_peers = peer_manager.network_globals.connected_outbound_only_peers();
-                let hit_outbound_limit = outbound_peers == peer_manager.target_outbound_peers();
+                let hit_outbound_limit = outbound_peers == peer_manager.connectivity.target_outbound_peers();
 
                 // No trusted peers should be disconnected
                 let trusted_peer_disconnected = peer_conditions.iter().any(|condition| {
