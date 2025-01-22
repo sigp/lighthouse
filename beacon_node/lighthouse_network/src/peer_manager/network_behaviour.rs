@@ -192,7 +192,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         }
 
         // Check the connection limits
-        if self.network_globals.connected_or_dialing_peers() >= self.max_peers()
+        if self.network_globals.connected_or_dialing_peers() >= self.connectivity.max_peers()
             && self
                 .network_globals
                 .peers
@@ -231,7 +231,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         }
 
         // Check the connection limits
-        if self.network_globals.connected_peers() >= self.max_outbound_dialing_peers()
+        if self.network_globals.connected_peers() >= self.connectivity.max_outbound_dialing_peers()
             && self
                 .network_globals
                 .peers
