@@ -565,6 +565,8 @@ fn run<E: EthSpec>(
         stdout_logging_layer,
         sse_logging_layer_opt,
         logger_config,
+        discv5_logs_off,
+        discv5_file_logs_off,
     ) = tracing_common::construct_logger(
         LoggerConfig {
             path: log_path.clone(),
@@ -586,8 +588,8 @@ fn run<E: EthSpec>(
 
     let logging = tracing_subscriber::registry()
         .with(filter_layer)
-        .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
-        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
+        .with(file_logging_layer.with_filter(discv5_file_logs_off))
+        .with(stdout_logging_layer.with_filter(discv5_logs_off))
         .with(MetricsLayer)
         .with(libp2p_discv5_layer);
 
