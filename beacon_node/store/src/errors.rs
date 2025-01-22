@@ -51,10 +51,8 @@ pub enum Error {
     MissingSnapshot(Slot),
     BlockReplayError(BlockReplayError),
     AddPayloadLogicError,
-    SlotClockUnavailableForMigration,
     InvalidKey,
     InvalidBytes,
-    UnableToDowngrade,
     InconsistentFork(InconsistentFork),
     #[cfg(feature = "leveldb")]
     LevelDbError(LevelDBError),

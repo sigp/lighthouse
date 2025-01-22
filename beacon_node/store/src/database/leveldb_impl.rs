@@ -30,7 +30,6 @@ pub struct LevelDB<E: EthSpec> {
 
 impl From<WriteOptions> for leveldb::options::WriteOptions {
     fn from(options: WriteOptions) -> Self {
-        // Assuming LevelDBWriteOptions has a new method that accepts a bool parameter for sync.
         let mut opts = leveldb::options::WriteOptions::new();
         opts.sync = options.sync;
         opts
@@ -307,16 +306,14 @@ impl<E: EthSpec> LevelDB<E> {
         let mut leveldb_batch = Writebatch::new();
         let iter = self.db.iter(self.read_options());
 
-        let _ = iter
-            .take_while(move |(key, _)| key.matches_column(column))
-            .map(|(key, value)| {
+        iter.take_while(move |(key, _)| key.matches_column(column))
+            .for_each(|(key, value)| {
                 if f(&value).unwrap_or(false) {
                     let _timer = metrics::start_timer(&metrics::DISK_DB_DELETE_TIMES);
                     metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[column.into()]);
                     leveldb_batch.delete(key);
                 }
-            })
-            .collect::<Vec<_>>();
+            });
 
         self.db.write(self.write_options().into(), &leveldb_batch)?;
         Ok(())
