@@ -1,4 +1,4 @@
-FROM rust:1.80.0-bullseye AS builder
+FROM rust:1.81.0-bullseye AS builder
 RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
 COPY . lighthouse
 ARG FEATURES
@@ -11,8 +11,8 @@ RUN cd lighthouse && make
 
 FROM ubuntu:22.04
 RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \
-  libssl-dev \
-  ca-certificates \
-  && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+    libssl-dev \
+    ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/cargo/bin/lighthouse /usr/local/bin/lighthouse
