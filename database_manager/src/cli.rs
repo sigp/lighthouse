@@ -60,7 +60,7 @@ pub struct DatabaseManager {
     #[clap(
         long,
         value_name = "DATABASE",
-        help = "Set the database backend to be used by the beacon node backend.",
+        help = "Set the database backend to be used by the beacon node.",
         display_order = 0,
         default_value_t = store::config::DatabaseBackend::LevelDb
     )]

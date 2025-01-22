@@ -29,12 +29,8 @@ impl From<WriteOptions> for redb::Durability {
 
 impl<E: EthSpec> Redb<E> {
     pub fn open(path: &Path) -> Result<Self, Error> {
-        let path = if path.is_dir() {
-            path.join(DB_FILE_NAME)
-        } else {
-            path.to_path_buf()
-        };
-        let db = redb::Database::create(path)?;
+        let db_file = path.join(DB_FILE_NAME);
+        let db = redb::Database::create(db_file)?;
         let transaction_mutex = Mutex::new(());
 
         for column in DBColumn::iter() {

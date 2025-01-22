@@ -2816,7 +2816,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "data_availability_boundary" => data_availability_boundary,
         );
 
-        let mut guard = self.block_cache.lock();
+        // We collect block roots of deleted blobs in memory. Even for 10y of blob history this
+        // vec won't go beyond 1GB. We can probably optimise this out eventually.
+        let mut removed_block_roots = vec![];
 
         let remove_blob_if = |blobs_bytes: &[u8]| {
             let blobs = Vec::from_ssz_bytes(blobs_bytes)?;
@@ -2825,8 +2827,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             };
 
             if blob.slot() <= end_slot {
-                // Delete from the cache
-                guard.delete_blobs(&blob.block_root());
+                // Store the block root so we can delete from the blob cache
+                removed_block_roots.push(blob.block_root());
                 // Delete from the on-disk db
                 return Ok(true);
             };
@@ -2835,8 +2837,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         self.blobs_db
             .delete_if(DBColumn::BeaconBlob, remove_blob_if)?;
-
-        drop(guard);
 
         if self.spec.is_peer_das_enabled_for_epoch(start_epoch) {
             let remove_data_column_if = |blobs_bytes: &[u8]| {
@@ -2853,6 +2853,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self.blobs_db
                 .delete_if(DBColumn::BeaconDataColumn, remove_data_column_if)?;
         }
+
+        // Remove deleted blobs from the cache.
+        let mut block_cache = self.block_cache.lock();
+        for block_root in removed_block_roots {
+            block_cache.delete_blobs(&block_root);
+        }
+        drop(block_cache);
 
         let new_blob_info = BlobInfo {
             oldest_blob_slot: Some(end_slot + 1),
