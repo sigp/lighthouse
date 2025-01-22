@@ -600,9 +600,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 address: validator
                     .get_execution_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
-                amount: balance.safe_sub(
-                    validator.get_max_effective_balance(spec, state.fork_name_unchecked()),
-                )?,
+                amount: balance.safe_sub(validator.get_max_effective_balance(spec, fork_name))?,
             });
             withdrawal_index.safe_add_assign(1)?;
         }
