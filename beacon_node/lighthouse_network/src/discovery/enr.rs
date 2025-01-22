@@ -8,6 +8,7 @@ use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use alloy_rlp::bytes::Bytes;
 use libp2p::identity::Keypair;
+use lighthouse_version::{client_name, version};
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
@@ -25,8 +26,8 @@ pub const ETH2_ENR_KEY: &str = "eth2";
 pub const ATTESTATION_BITFIELD_ENR_KEY: &str = "attnets";
 /// The ENR field specifying the sync committee subnet bitfield.
 pub const SYNC_COMMITTEE_BITFIELD_ENR_KEY: &str = "syncnets";
-/// The ENR field specifying the peerdas custody subnet count.
-pub const PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY: &str = "csc";
+/// The ENR field specifying the peerdas custody group count.
+pub const PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY: &str = "cgc";
 
 /// Extension trait for ENR's within Eth2.
 pub trait Eth2Enr {
@@ -38,8 +39,8 @@ pub trait Eth2Enr {
         &self,
     ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str>;
 
-    /// The peerdas custody subnet count associated with the ENR.
-    fn custody_subnet_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str>;
+    /// The peerdas custody group count associated with the ENR.
+    fn custody_group_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str>;
 
     fn eth2(&self) -> Result<EnrForkId, &'static str>;
 }
@@ -67,16 +68,16 @@ impl Eth2Enr for Enr {
             .map_err(|_| "Could not decode the ENR syncnets bitfield")
     }
 
-    fn custody_subnet_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str> {
-        let csc = self
-            .get_decodable::<u64>(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
-            .ok_or("ENR custody subnet count non-existent")?
-            .map_err(|_| "Could not decode the ENR custody subnet count")?;
+    fn custody_group_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str> {
+        let cgc = self
+            .get_decodable::<u64>(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY)
+            .ok_or("ENR custody group count non-existent")?
+            .map_err(|_| "Could not decode the ENR custody group count")?;
 
-        if csc >= spec.custody_requirement && csc <= spec.data_column_sidecar_subnet_count {
-            Ok(csc)
+        if (spec.custody_requirement..=spec.number_of_custody_groups).contains(&cgc) {
+            Ok(cgc)
         } else {
-            Err("Invalid custody subnet count in ENR")
+            Err("Invalid custody group count in ENR")
         }
     }
 
@@ -188,6 +189,11 @@ pub fn build_enr<E: EthSpec>(
         builder.udp6(udp6_port.get());
     }
 
+    // Add EIP 7636 client information
+    if !config.private {
+        builder.client_info(client_name().to_string(), version().to_string(), None);
+    }
+
     // Add QUIC fields to the ENR.
     // Since QUIC is used as an alternative transport for the libp2p protocols,
     // the related fields should only be added when both QUIC and libp2p are enabled
@@ -253,14 +259,14 @@ pub fn build_enr<E: EthSpec>(
         &bitfield.as_ssz_bytes().into(),
     );
 
-    // only set `csc` if PeerDAS fork epoch has been scheduled
+    // only set `cgc` if PeerDAS fork epoch has been scheduled
     if spec.is_peer_das_scheduled() {
-        let custody_subnet_count = if config.subscribe_all_data_column_subnets {
-            spec.data_column_sidecar_subnet_count
+        let custody_group_count = if config.subscribe_all_data_column_subnets {
+            spec.number_of_custody_groups
         } else {
             spec.custody_requirement
         };
-        builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &custody_subnet_count);
+        builder.add_value(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY, &custody_group_count);
     }
 
     builder
@@ -287,11 +293,11 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
         && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
         && (local_enr.udp6().is_none() || local_enr.udp6() == disk_enr.udp6())
         // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY and
-        // PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY key to match, otherwise we use a new ENR. This will
+        // PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY key to match, otherwise we use a new ENR. This will
         // likely only be true for non-validating nodes.
         && local_enr.get_decodable::<Bytes>(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get_decodable(ATTESTATION_BITFIELD_ENR_KEY)
         && local_enr.get_decodable::<Bytes>(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get_decodable(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
-        && local_enr.get_decodable::<Bytes>(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY) == disk_enr.get_decodable(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
+        && local_enr.get_decodable::<Bytes>(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY) == disk_enr.get_decodable(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY)
 }
 
 /// Loads enr from the given directory
@@ -348,7 +354,7 @@ mod test {
     }
 
     #[test]
-    fn custody_subnet_count_default() {
+    fn custody_group_count_default() {
         let config = NetworkConfig {
             subscribe_all_data_column_subnets: false,
             ..NetworkConfig::default()
@@ -358,13 +364,13 @@ mod test {
         let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(
-            enr.custody_subnet_count::<E>(&spec).unwrap(),
+            enr.custody_group_count::<E>(&spec).unwrap(),
             spec.custody_requirement,
         );
     }
 
     #[test]
-    fn custody_subnet_count_all() {
+    fn custody_group_count_all() {
         let config = NetworkConfig {
             subscribe_all_data_column_subnets: true,
             ..NetworkConfig::default()
@@ -373,8 +379,8 @@ mod test {
         let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(
-            enr.custody_subnet_count::<E>(&spec).unwrap(),
-            spec.data_column_sidecar_subnet_count,
+            enr.custody_group_count::<E>(&spec).unwrap(),
+            spec.number_of_custody_groups,
         );
     }
 

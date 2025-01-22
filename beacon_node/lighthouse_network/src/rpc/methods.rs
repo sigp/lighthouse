@@ -15,6 +15,7 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
+use types::ForkName;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
     Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
@@ -137,7 +138,7 @@ pub struct MetaData<E: EthSpec> {
     #[superstruct(only(V2, V3))]
     pub syncnets: EnrSyncCommitteeBitfield<E>,
     #[superstruct(only(V3))]
-    pub custody_subnet_count: u64,
+    pub custody_group_count: u64,
 }
 
 impl<E: EthSpec> MetaData<E> {
@@ -180,13 +181,13 @@ impl<E: EthSpec> MetaData<E> {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: Default::default(),
-                custody_subnet_count: spec.custody_requirement,
+                custody_group_count: spec.custody_requirement,
             }),
             MetaData::V2(metadata) => MetaData::V3(MetaDataV3 {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: metadata.syncnets.clone(),
-                custody_subnet_count: spec.custody_requirement,
+                custody_group_count: spec.custody_requirement,
             }),
             md @ MetaData::V3(_) => md.clone(),
         }
@@ -327,8 +328,9 @@ pub struct BlobsByRangeRequest {
 }
 
 impl BlobsByRangeRequest {
-    pub fn max_blobs_requested<E: EthSpec>(&self) -> u64 {
-        self.count.saturating_mul(E::max_blobs_per_block() as u64)
+    pub fn max_blobs_requested(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
+        let max_blobs_per_block = spec.max_blobs_per_block_by_fork(current_fork);
+        self.count.saturating_mul(max_blobs_per_block)
     }
 }
 
@@ -362,7 +364,7 @@ impl DataColumnsByRangeRequest {
         DataColumnsByRangeRequest {
             start_slot: 0,
             count: 0,
-            columns: vec![0; spec.number_of_columns],
+            columns: vec![0; spec.number_of_columns as usize],
         }
         .as_ssz_bytes()
         .len()

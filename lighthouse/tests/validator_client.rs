@@ -345,7 +345,7 @@ fn http_store_keystore_passwords_in_secrets_dir_present() {
 }
 
 #[test]
-fn http_token_path_flag() {
+fn http_token_path_flag_present() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("http", None)
@@ -355,6 +355,19 @@ fn http_token_path_flag() {
             assert_eq!(
                 config.http_api.http_token_path,
                 dir.path().join("api-token.txt")
+            );
+        });
+}
+
+#[test]
+fn http_token_path_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.http_api.http_token_path,
+                config.validator_dir.join("api-token.txt")
             );
         });
 }

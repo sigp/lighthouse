@@ -27,7 +27,8 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
-use rand::seq::SliceRandom;
+use parking_lot::RwLock;
+use rand::prelude::IteratorRandom;
 use rand::thread_rng;
 pub use requests::LookupVerifyError;
 use requests::{
@@ -36,7 +37,7 @@ use requests::{
 };
 use slog::{debug, error, warn};
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -65,6 +66,15 @@ pub enum RangeRequestId {
     BackfillSync {
         batch_id: BatchId,
     },
+}
+
+impl RangeRequestId {
+    pub fn batch_id(&self) -> BatchId {
+        match self {
+            RangeRequestId::RangeSync { batch_id, .. } => *batch_id,
+            RangeRequestId::BackfillSync { batch_id, .. } => *batch_id,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -299,8 +309,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn get_random_custodial_peer(&self, column_index: ColumnIndex) -> Option<PeerId> {
         self.get_custodial_peers(column_index)
+            .into_iter()
             .choose(&mut thread_rng())
-            .cloned()
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -445,11 +455,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (None, None)
             };
 
+        // TODO(pawan): this would break if a batch contains multiple epochs
+        let max_blobs_len = self.chain.spec.max_blobs_per_block(epoch);
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
-            expects_columns,
+            expects_columns.map(|c| c.into_iter().collect()),
             num_of_column_req,
             requested_peers,
+            max_blobs_len as usize,
         );
         self.range_block_components_requests
             .insert(id, (sender_id, info));
@@ -459,7 +472,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     fn make_columns_by_range_requests(
         &self,
         request: BlocksByRangeRequest,
-        custody_indexes: &Vec<ColumnIndex>,
+        custody_indexes: &HashSet<ColumnIndex>,
     ) -> Result<HashMap<PeerId, DataColumnsByRangeRequest>, RpcRequestSendError> {
         let mut peer_id_to_request_map = HashMap::new();
 
@@ -550,9 +563,24 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn block_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
-        peer_id: PeerId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let Some(peer_id) = lookup_peers
+            .read()
+            .iter()
+            .choose(&mut rand::thread_rng())
+            .copied()
+        else {
+            // Allow lookup to not have any peers and do nothing. This is an optimization to not
+            // lose progress of lookups created from a block with unknown parent before we receive
+            // attestations for said block.
+            // Lookup sync event safety: If a lookup requires peers to make progress, and does
+            // not receive any new peers for some time it will be dropped. If it receives a new
+            // peer it must attempt to make progress.
+            return Ok(LookupRequestResult::Pending("no peers"));
+        };
+
         match self.chain.get_block_process_status(&block_root) {
             // Unknown block, continue request to download
             BlockProcessStatus::Unknown => {}
@@ -622,10 +650,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn blob_lookup_request(
         &mut self,
         lookup_id: SingleLookupId,
-        peer_id: PeerId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
         expected_blobs: usize,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let Some(peer_id) = lookup_peers
+            .read()
+            .iter()
+            .choose(&mut rand::thread_rng())
+            .copied()
+        else {
+            // Allow lookup to not have any peers and do nothing. This is an optimization to not
+            // lose progress of lookups created from a block with unknown parent before we receive
+            // attestations for said block.
+            // Lookup sync event safety: If a lookup requires peers to make progress, and does
+            // not receive any new peers for some time it will be dropped. If it receives a new
+            // peer it must attempt to make progress.
+            return Ok(LookupRequestResult::Pending("no peers"));
+        };
+
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
@@ -728,6 +771,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         lookup_id: SingleLookupId,
         block_root: Hash256,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
         let custody_indexes_imported = self
             .chain
@@ -765,6 +809,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             block_root,
             CustodyId { requester },
             &custody_indexes_to_fetch,
+            lookup_peers,
             self.log.clone(),
         );
 
@@ -950,12 +995,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
         let response = self.blobs_by_root_requests.on_response(id, rpc_event);
         let response = response.map(|res| {
-            res.and_then(
-                |(blobs, seen_timestamp)| match to_fixed_blob_sidecar_list(blobs) {
-                    Ok(blobs) => Ok((blobs, seen_timestamp)),
-                    Err(e) => Err(e.into()),
-                },
-            )
+            res.and_then(|(blobs, seen_timestamp)| {
+                if let Some(max_len) = blobs
+                    .first()
+                    .map(|blob| self.chain.spec.max_blobs_per_block(blob.epoch()) as usize)
+                {
+                    match to_fixed_blob_sidecar_list(blobs, max_len) {
+                        Ok(blobs) => Ok((blobs, seen_timestamp)),
+                        Err(e) => Err(e.into()),
+                    }
+                } else {
+                    Err(RpcResponseError::VerifyError(
+                        LookupVerifyError::InternalError(
+                            "Requested blobs for a block that has no blobs".to_string(),
+                        ),
+                    ))
+                }
+            })
         });
         if let Some(Err(RpcResponseError::VerifyError(e))) = &response {
             self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
@@ -1150,8 +1206,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
 fn to_fixed_blob_sidecar_list<E: EthSpec>(
     blobs: Vec<Arc<BlobSidecar<E>>>,
+    max_len: usize,
 ) -> Result<FixedBlobSidecarList<E>, LookupVerifyError> {
-    let mut fixed_list = FixedBlobSidecarList::default();
+    let mut fixed_list = FixedBlobSidecarList::new(vec![None; max_len]);
     for blob in blobs.into_iter() {
         let index = blob.index as usize;
         *fixed_list

@@ -10,56 +10,56 @@ harness = false
 
 [dependencies]
 alloy-primitives = { workspace = true }
-merkle_proof = { workspace = true }
-bls = { workspace = true, features = ["arbitrary"] }
-kzg = { workspace = true }
-compare_fields = { workspace = true }
-compare_fields_derive = { workspace = true }
-eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
-ethereum_hashing = { workspace = true }
-hex = { workspace = true }
-int_to_bytes = { workspace = true }
-log = { workspace = true }
-rayon = { workspace = true }
-rand = { workspace = true }
-safe_arith = { workspace = true }
-serde = { workspace = true, features = ["rc"] }
-slog = { workspace = true }
-ethereum_ssz = { workspace = true, features = ["arbitrary"] }
-ethereum_ssz_derive = { workspace = true }
-ssz_types = { workspace = true, features = ["arbitrary"] }
-swap_or_not_shuffle = { workspace = true, features = ["arbitrary"] }
-test_random_derive = { path = "../../common/test_random_derive" }
-tree_hash = { workspace = true }
-tree_hash_derive = { workspace = true }
-rand_xorshift = "0.3.0"
-serde_yaml = { workspace = true }
-tempfile = { workspace = true }
-derivative = { workspace = true }
-rusqlite = { workspace = true }
+alloy-rlp = { version = "0.3.4", features = ["derive"] }
 # The arbitrary dependency is enabled by default since Capella to avoid complexity introduced by
 # `AbstractExecPayload`
 arbitrary = { workspace = true, features = ["derive"] }
+bls = { workspace = true, features = ["arbitrary"] }
+compare_fields = { workspace = true }
+compare_fields_derive = { workspace = true }
+derivative = { workspace = true }
+eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
+ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
-regex = { workspace = true }
-parking_lot = { workspace = true }
-itertools = { workspace = true }
-superstruct = { workspace = true }
-metastruct = "0.1.0"
-serde_json = { workspace = true }
-smallvec = { workspace = true }
-maplit = { workspace = true }
-alloy-rlp = { version = "0.3.4", features = ["derive"] }
-milhouse = { workspace = true }
-rpds = { workspace = true }
+ethereum_ssz = { workspace = true, features = ["arbitrary"] }
+ethereum_ssz_derive = { workspace = true }
 fixed_bytes = { workspace = true }
+hex = { workspace = true }
+int_to_bytes = { workspace = true }
+itertools = { workspace = true }
+kzg = { workspace = true }
+log = { workspace = true }
+maplit = { workspace = true }
+merkle_proof = { workspace = true }
+metastruct = "0.1.0"
+milhouse = { workspace = true }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+rand_xorshift = "0.3.0"
+rayon = { workspace = true }
+regex = { workspace = true }
+rpds = { workspace = true }
+rusqlite = { workspace = true }
+safe_arith = { workspace = true }
+serde = { workspace = true, features = ["rc"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+slog = { workspace = true }
+smallvec = { workspace = true }
+ssz_types = { workspace = true, features = ["arbitrary"] }
+superstruct = { workspace = true }
+swap_or_not_shuffle = { workspace = true, features = ["arbitrary"] }
+tempfile = { workspace = true }
+test_random_derive = { path = "../../common/test_random_derive" }
+tree_hash = { workspace = true }
+tree_hash_derive = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
 beacon_chain = { workspace = true }
+criterion = { workspace = true }
+paste = { workspace = true }
 state_processing = { workspace = true }
 tokio = { workspace = true }
-paste = { workspace = true }
 
 [features]
 default = ["sqlite", "legacy-arith"]

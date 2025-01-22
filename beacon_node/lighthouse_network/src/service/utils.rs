@@ -164,8 +164,8 @@ pub fn strip_peer_id(addr: &mut Multiaddr) {
 
 /// Load metadata from persisted file. Return default metadata if loading fails.
 pub fn load_or_build_metadata<E: EthSpec>(
-    network_dir: &std::path::Path,
-    custody_subnet_count: Option<u64>,
+    network_dir: &Path,
+    custody_group_count_opt: Option<u64>,
     log: &slog::Logger,
 ) -> MetaData<E> {
     // We load a V2 metadata version by default (regardless of current fork)
@@ -216,12 +216,12 @@ pub fn load_or_build_metadata<E: EthSpec>(
     };
 
     // Wrap the MetaData
-    let meta_data = if let Some(custody_count) = custody_subnet_count {
+    let meta_data = if let Some(custody_group_count) = custody_group_count_opt {
         MetaData::V3(MetaDataV3 {
             attnets: meta_data.attnets,
             seq_number: meta_data.seq_number,
             syncnets: meta_data.syncnets,
-            custody_subnet_count: custody_count,
+            custody_group_count,
         })
     } else {
         MetaData::V2(meta_data)
@@ -236,10 +236,8 @@ pub fn load_or_build_metadata<E: EthSpec>(
 /// possible fork digests.
 pub(crate) fn create_whitelist_filter(
     possible_fork_digests: Vec<[u8; 4]>,
-    attestation_subnet_count: u64,
+    spec: &ChainSpec,
     sync_committee_subnet_count: u64,
-    blob_sidecar_subnet_count: u64,
-    data_column_sidecar_subnet_count: u64,
 ) -> gossipsub::WhitelistSubscriptionFilter {
     let mut possible_hashes = HashSet::new();
     for fork_digest in possible_fork_digests {
@@ -259,16 +257,21 @@ pub(crate) fn create_whitelist_filter(
         add(BlsToExecutionChange);
         add(LightClientFinalityUpdate);
         add(LightClientOptimisticUpdate);
-        for id in 0..attestation_subnet_count {
+        for id in 0..spec.attestation_subnet_count {
             add(Attestation(SubnetId::new(id)));
         }
         for id in 0..sync_committee_subnet_count {
             add(SyncCommitteeMessage(SyncSubnetId::new(id)));
         }
-        for id in 0..blob_sidecar_subnet_count {
+        let blob_subnet_count = if spec.electra_fork_epoch.is_some() {
+            spec.blob_sidecar_subnet_count_electra
+        } else {
+            spec.blob_sidecar_subnet_count
+        };
+        for id in 0..blob_subnet_count {
             add(BlobSidecar(id));
         }
-        for id in 0..data_column_sidecar_subnet_count {
+        for id in 0..spec.data_column_sidecar_subnet_count {
             add(DataColumnSidecar(DataColumnSubnetId::new(id)));
         }
     }
@@ -283,8 +286,8 @@ pub(crate) fn save_metadata_to_disk<E: EthSpec>(
 ) {
     let _ = std::fs::create_dir_all(dir);
     // We always store the metadata v2 to disk because
-    // custody_subnet_count parameter doesn't need to be persisted across runs.
-    // custody_subnet_count is what the user sets it for the current run.
+    // custody_group_count parameter doesn't need to be persisted across runs.
+    // custody_group_count is what the user sets it for the current run.
     // This is to prevent ugly branching logic when reading the metadata from disk.
     let metadata_bytes = metadata.metadata_v2().as_ssz_bytes();
     match File::create(dir.join(METADATA_FILENAME)).and_then(|mut f| f.write_all(&metadata_bytes)) {

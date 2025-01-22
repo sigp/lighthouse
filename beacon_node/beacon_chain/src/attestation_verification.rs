@@ -62,7 +62,7 @@ use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationRef, BeaconCommittee, BeaconStateError::NoCommitteeFound, ChainSpec,
     CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, SelectionProof,
-    SignedAggregateAndProof, Slot, SubnetId,
+    SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -317,11 +317,21 @@ pub struct VerifiedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
     attestation: AttestationRef<'a, T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     subnet_id: SubnetId,
+    validator_index: usize,
 }
 
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'_, T> {
     pub fn into_indexed_attestation(self) -> IndexedAttestation<T::EthSpec> {
         self.indexed_attestation
+    }
+
+    pub fn single_attestation(&self) -> Option<SingleAttestation> {
+        Some(SingleAttestation {
+            committee_index: self.attestation.committee_index()? as usize,
+            attester_index: self.validator_index,
+            data: self.attestation.data().clone(),
+            signature: self.attestation.signature().clone(),
+        })
     }
 }
 
@@ -1035,6 +1045,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             attestation,
             indexed_attestation,
             subnet_id,
+            validator_index: validator_index as usize,
         })
     }
 

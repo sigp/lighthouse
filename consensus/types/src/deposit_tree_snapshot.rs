@@ -72,8 +72,7 @@ impl DepositTreeSnapshot {
         Some(Hash256::from_slice(&deposit_root))
     }
     pub fn is_valid(&self) -> bool {
-        self.calculate_root()
-            .map_or(false, |calculated| self.deposit_root == calculated)
+        self.calculate_root() == Some(self.deposit_root)
     }
 }
 

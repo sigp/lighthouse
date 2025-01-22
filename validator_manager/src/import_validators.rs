@@ -209,7 +209,7 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     }
 }
 
-async fn run<'a>(config: ImportConfig) -> Result<(), String> {
+async fn run(config: ImportConfig) -> Result<(), String> {
     let ImportConfig {
         validators_file_path,
         keystore_file_path,

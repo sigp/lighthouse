@@ -151,7 +151,7 @@ impl<E: EthSpec> EpochProcessingSummary<E> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_active_in_current_epoch && !s.is_slashed),
+                .is_some_and(|s| s.is_active_in_current_epoch && !s.is_slashed),
             EpochProcessingSummary::Altair { participation, .. } => {
                 participation.is_active_and_unslashed(val_index, participation.current_epoch)
             }
@@ -176,7 +176,7 @@ impl<E: EthSpec> EpochProcessingSummary<E> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_current_epoch_target_attester)),
+                .is_some_and(|s| s.is_current_epoch_target_attester)),
             EpochProcessingSummary::Altair { participation, .. } => participation
                 .is_current_epoch_unslashed_participating_index(
                     val_index,
@@ -247,7 +247,7 @@ impl<E: EthSpec> EpochProcessingSummary<E> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_active_in_previous_epoch && !s.is_slashed),
+                .is_some_and(|s| s.is_active_in_previous_epoch && !s.is_slashed),
             EpochProcessingSummary::Altair { participation, .. } => {
                 participation.is_active_and_unslashed(val_index, participation.previous_epoch)
             }
@@ -267,7 +267,7 @@ impl<E: EthSpec> EpochProcessingSummary<E> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_previous_epoch_target_attester)),
+                .is_some_and(|s| s.is_previous_epoch_target_attester)),
             EpochProcessingSummary::Altair { participation, .. } => participation
                 .is_previous_epoch_unslashed_participating_index(
                     val_index,
@@ -294,7 +294,7 @@ impl<E: EthSpec> EpochProcessingSummary<E> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_previous_epoch_head_attester)),
+                .is_some_and(|s| s.is_previous_epoch_head_attester)),
             EpochProcessingSummary::Altair { participation, .. } => participation
                 .is_previous_epoch_unslashed_participating_index(val_index, TIMELY_HEAD_FLAG_INDEX),
         }
@@ -318,7 +318,7 @@ impl<E: EthSpec> EpochProcessingSummary<E> {
         match self {
             EpochProcessingSummary::Base { statuses, .. } => Ok(statuses
                 .get(val_index)
-                .map_or(false, |s| s.is_previous_epoch_attester)),
+                .is_some_and(|s| s.is_previous_epoch_attester)),
             EpochProcessingSummary::Altair { participation, .. } => participation
                 .is_previous_epoch_unslashed_participating_index(
                     val_index,

@@ -54,8 +54,8 @@ use types::{
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, FullPayload, ProposerPreparationData,
-    PublicKeyBytes, Signature, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
+    ProposerPreparationData, PublicKeyBytes, Signature, Slot,
 };
 
 mod block_hash;
@@ -121,7 +121,14 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                // TODO(electra): update this with builder api returning the requests
+                requests: Some(builder_bid.execution_requests),
+            },
+            BuilderBid::Fulu(builder_bid) => BlockProposalContents::PayloadAndBlobs {
+                payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
+                block_value: builder_bid.value,
+                kzg_commitments: builder_bid.blob_kzg_commitments,
+                blobs_and_proofs: None,
+                // TODO(fulu): update this with builder api returning the requests
                 requests: None,
             },
         };
@@ -149,6 +156,7 @@ pub enum Error {
         payload: ExecutionBlockHash,
         transactions_root: Hash256,
     },
+    ZeroLengthTransaction,
     PayloadBodiesByRangeNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
@@ -321,7 +329,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
 
 // This just groups together a bunch of parameters that commonly
 // get passed around together in calls to get_payload.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PayloadParameters<'a> {
     pub parent_hash: ExecutionBlockHash,
     pub parent_gas_limit: u64,
@@ -1821,6 +1829,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
                 ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
                 ForkName::Electra => ExecutionPayloadElectra::default().into(),
+                ForkName::Fulu => ExecutionPayloadFulu::default().into(),
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
                 }
@@ -2095,7 +2104,7 @@ fn verify_builder_bid<E: EthSpec>(
             payload: header.timestamp(),
             expected: payload_attributes.timestamp(),
         }))
-    } else if block_number.map_or(false, |n| n != header.block_number()) {
+    } else if block_number.is_some_and(|n| n != header.block_number()) {
         Err(Box::new(InvalidBuilderPayload::BlockNumber {
             payload: header.block_number(),
             expected: block_number,
