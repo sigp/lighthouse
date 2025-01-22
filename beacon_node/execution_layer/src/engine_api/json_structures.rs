@@ -1006,7 +1006,7 @@ mod tests {
         format!(
             "0x{:02x}{}",
             prefix,
-            hex::encode(&request_bytes.as_ssz_bytes())
+            hex::encode(request_bytes.as_ssz_bytes())
         )
     }
 
