@@ -161,7 +161,7 @@ pub enum Error {
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
-    NonExecutionAddresWithdrawalCredential,
+    NonExecutionAddressWithdrawalCredential,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
     InvalidSelectionProof {
@@ -2214,7 +2214,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     // ******* Electra accessors *******
 
-    /// Return the churn limit for the current epoch.
+    /// Return the churn limit for the current epoch.
     pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         let total_active_balance = self.get_total_active_balance()?;
         let churn = std::cmp::max(
