@@ -20,7 +20,6 @@ pub const VALIDATOR_FLAG: &str = "validators";
 pub const EXIT_EPOCH_FLAG: &str = "exit-epoch";
 pub const SIGNATURE_FLAG: &str = "signature";
 pub const EXIT_STATUS_FLAG: &str = "status";
-pub const MERGE_FLAG: &str = "merge";
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
@@ -91,19 +90,6 @@ pub fn cli_app() -> Command {
                 .display_order(0),
         )
         .arg(
-            Arg::new(MERGE_FLAG)
-                .long(MERGE_FLAG)
-                .help(
-                    "Merge the generated voluntary exit signatures into a single file named \
-                    `all_validators.json`. This flag is required to be used together with \
-                the `--signature` flag.",
-                )
-                .help_heading(FLAG_HEADER)
-                .action(ArgAction::SetTrue)
-                .requires(SIGNATURE_FLAG)
-                .display_order(0),
-        )
-        .arg(
             Arg::new(EXIT_STATUS_FLAG)
                 .long(EXIT_STATUS_FLAG)
                 .help("Display the voluntary exit status.")
@@ -122,7 +108,6 @@ pub struct ExitConfig {
     pub beacon_url: Option<SensitiveUrl>,
     pub exit_epoch: Option<Epoch>,
     pub signature: bool,
-    pub merge: bool,
     pub exit_status: bool,
 }
 
@@ -147,7 +132,6 @@ impl ExitConfig {
             beacon_url: clap_utils::parse_optional(matches, BEACON_URL_FLAG)?,
             exit_epoch: clap_utils::parse_optional(matches, EXIT_EPOCH_FLAG)?,
             signature: matches.get_flag(SIGNATURE_FLAG),
-            merge: matches.get_flag(MERGE_FLAG),
             exit_status: matches.get_flag(EXIT_STATUS_FLAG),
         })
     }
@@ -174,7 +158,6 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         beacon_url,
         exit_epoch,
         signature,
-        merge,
         exit_status,
     } = config;
 
@@ -183,8 +166,6 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
     if validators_to_exit.is_empty() {
         validators_to_exit = validators.iter().map(|v| v.validating_pubkey).collect();
     }
-
-    let mut exit_message_all = Vec::new();
 
     for validator_to_exit in validators_to_exit {
         // Check that the validators_to_exit is in the validator client
@@ -206,15 +187,11 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
             match exit_message_json {
                 Ok(json) => {
                     // Save the exit message to JSON file(s)
-                    if merge {
-                        exit_message_all.push(json.clone());
-                    } else {
-                        let file_path = format!("{}.json", validator_to_exit);
-                        write(&file_path, json).map_err(|e| {
-                            format!("Failed to write voluntary exit message to file: {}", e)
-                        })?;
-                        println!("Voluntary exit message saved to {}", file_path);
-                    }
+                    let file_path = format!("{}.json", validator_to_exit);
+                    write(&file_path, json).map_err(|e| {
+                        format!("Failed to write voluntary exit message to file: {}", e)
+                    })?;
+                    println!("Voluntary exit message saved to {}", file_path);
                 }
                 Err(e) => eprintln!("Failed to serialize voluntary exit message: {}", e),
             }
@@ -359,13 +336,6 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         }
     }
 
-    if merge {
-        let all_json = serde_json::to_string(&exit_message_all)
-            .map_err(|e| format!("Failed to serialize voluntary exit message: {}", e))?;
-        write("all_validators.json", all_json)
-            .map_err(|e| format!("Failed to write all voluntary exit messages to file: {}", e))?;
-        println!("All voluntary exit messages save to all_validators.json.")
-    }
     Ok(())
 }
 
@@ -526,7 +496,6 @@ mod test {
                 beacon_url: Some(beacon_url),
                 exit_epoch: None,
                 signature: false,
-                merge: false,
                 exit_status: false,
             });
 
