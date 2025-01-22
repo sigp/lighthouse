@@ -114,10 +114,6 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
         predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
     ) -> ColumnIter<K>;
 
-    fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
-        Ok(Box::new(std::iter::empty()))
-    }
-
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
 
     /// Iterate through all keys in a particular column.
