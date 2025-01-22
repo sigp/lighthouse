@@ -1,4 +1,4 @@
-use crate::data_availability_checker::AvailableBlock;
+use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{
     attester_cache::{CommitteeLengths, Error},
     metrics,
@@ -21,8 +21,7 @@ pub struct CacheItem<E: EthSpec> {
      * Values used to make the block available.
      */
     block: Arc<SignedBeaconBlock<E>>,
-    blobs: Option<BlobSidecarList<E>>,
-    data_columns: Option<DataColumnSidecarList<E>>,
+    data: AvailableBlockData<E>,
     proto_block: ProtoBlock,
 }
 
@@ -70,7 +69,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
-        let (_, block, blobs, data_columns) = block.deconstruct();
+        let (_, block, data) = block.deconstruct();
         let item = CacheItem {
             epoch,
             committee_lengths,
@@ -78,8 +77,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             source,
             target,
             block,
-            blobs,
-            data_columns,
+            data,
             proto_block,
         };
 
@@ -163,7 +161,8 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .read()
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
-            .and_then(|item| item.blobs.clone())
+            .and_then(|item| item.data.blobs())
+            .cloned()
     }
 
     /// Returns the data columns, if `block_root` matches the cached item.
@@ -172,7 +171,8 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .read()
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
-            .and_then(|item| item.data_columns.clone())
+            .and_then(|item| item.data.data_columns())
+            .cloned()
     }
 
     /// Returns the proto-array block, if `block_root` matches the cached item.
