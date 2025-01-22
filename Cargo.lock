@@ -2192,9 +2192,9 @@ dependencies = [
 
 [[package]]
 name = "discv5"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "898d136ecb64116ec68aecf14d889bd30f8b1fe0c19e262953f7388dbe77052e"
+checksum = "c4b4e7798d2ff74e29cee344dc490af947ae657d6ab5273dde35d58ce06a4d71"
 dependencies = [
  "aes 0.8.4",
  "aes-gcm",
@@ -4793,7 +4793,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
