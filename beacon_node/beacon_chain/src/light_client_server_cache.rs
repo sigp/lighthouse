@@ -2,7 +2,7 @@ use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
-use slog::{debug, error, Logger};
+use slog::{debug, Logger};
 use ssz::Decode;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -272,32 +272,13 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         start_period: u64,
         count: u64,
         chain_spec: &ChainSpec,
-        log: Logger,
     ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
+        let column = DBColumn::LightClientUpdate;
         let mut light_client_updates = vec![];
-
-        let results = store.hot_db.iter_column_from::<Vec<u8>>(
-            DBColumn::LightClientUpdate,
-            &start_period.to_le_bytes(),
-            move |sync_committee_bytes, _| match u64::from_ssz_bytes(sync_committee_bytes) {
-                Ok(sync_committee_period) => {
-                    if sync_committee_period >= start_period + count {
-                        return false;
-                    }
-                    true
-                }
-                Err(e) => {
-                    error!(
-                        log,
-                        "Error decoding sync committee bytes from the db";
-                        "error" => ?e
-                    );
-                    false
-                }
-            },
-        );
-
-        for res in results? {
+        for res in store
+            .hot_db
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+        {
             let (sync_committee_bytes, light_client_update_bytes) = res?;
             let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)
                 .map_err(store::errors::Error::SszDecodeError)?;
@@ -317,7 +298,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
             light_client_updates.push(light_client_update);
         }
-
         Ok(light_client_updates)
     }
 

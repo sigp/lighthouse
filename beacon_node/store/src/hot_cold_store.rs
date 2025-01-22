@@ -405,9 +405,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     }
 
     /// Return an iterator over the state roots of all temporary states.
-    pub fn iter_temporary_state_roots(
-        &self,
-    ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
+    pub fn iter_temporary_state_roots(&self) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
         self.hot_db
             .iter_column_keys::<Hash256>(DBColumn::BeaconStateTemporary)
     }
@@ -776,55 +774,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         start_period: u64,
         count: u64,
     ) -> Result<Vec<LightClientUpdate<E>>, Error> {
+        let column = DBColumn::LightClientUpdate;
         let mut light_client_updates = vec![];
-        // TODO(modularize-backend) we are calculating sync committee period from ssz twice
-        self.hot_db
-            .iter_column_from::<Vec<u8>>(
-                DBColumn::LightClientUpdate,
-                &start_period.to_le_bytes(),
-                move |sync_committee_bytes, _| {
-                    let Ok(sync_committee_period) = u64::from_ssz_bytes(sync_committee_bytes)
-                    else {
-                        // TODO(modularize-backend) logging
-                        return false;
-                    };
+        for res in self
+            .hot_db
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+        {
+            let (sync_committee_bytes, light_client_update_bytes) = res?;
+            let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)?;
+            let epoch = sync_committee_period
+                .safe_mul(self.spec.epochs_per_sync_committee_period.into())?;
 
-                    if sync_committee_period >= start_period + count {
-                        // TODO(modularize-backend) logging
-                        return false;
-                    }
+            let fork_name = self.spec.fork_name_at_epoch(epoch.into());
 
-                    true
-                },
-            )?
-            .for_each(|res| {
-                let Ok((sync_committee_bytes, light_client_update_bytes)) = res else {
-                    // TODO(modularize-backend) logging
-                    return;
-                };
+            let light_client_update =
+                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
 
-                let Ok(sync_committee_period) = u64::from_ssz_bytes(&sync_committee_bytes) else {
-                    // TODO(modularize-backend) logging
-                    return;
-                };
+            light_client_updates.push(light_client_update);
 
-                let Ok(epoch) = sync_committee_period
-                    .safe_mul(self.spec.epochs_per_sync_committee_period.into())
-                else {
-                    // TODO(modularize-backend) logging
-                    return;
-                };
-
-                let fork_name = self.spec.fork_name_at_epoch(epoch.into());
-
-                let Ok(light_client_update) =
-                    LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
-                else {
-                    // TODO(modularize-backend) logging
-                    return;
-                };
-                light_client_updates.push(light_client_update);
-            });
+            if sync_committee_period >= start_period + count {
+                break;
+            }
+        }
         Ok(light_client_updates)
     }
 
@@ -2106,12 +2077,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Fetch all keys in the data_column column with prefix `block_root`
     pub fn get_data_column_keys(&self, block_root: Hash256) -> Result<Vec<ColumnIndex>, Error> {
         self.blobs_db
-            .iter_column_from::<Vec<u8>>(
-                DBColumn::BeaconDataColumn,
-                block_root.as_slice(),
-                move |key, _| key.starts_with(block_root.as_slice()),
-            )?
-            .map(|result| result.and_then(|(key, _)| parse_data_column_key(key).map(|key| key.1)))
+            .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())
+            .take_while(|res| {
+                let Ok((key, _)) = res else { return false };
+
+                if !key.starts_with(block_root.as_slice()) {
+                    return false;
+                }
+
+                true
+            })
+            .map(|key| key.and_then(|(key, _)| parse_data_column_key(key).map(|key| key.1)))
             .collect()
     }
 
@@ -2949,7 +2925,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         columns.extend(previous_schema_columns);
 
         for column in columns {
-            for res in self.cold_db.iter_column_keys::<Vec<u8>>(column)? {
+            for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {
                 let key = res?;
                 cold_ops.push(KeyValueStoreOp::DeleteKey(column, key));
             }
@@ -2993,7 +2969,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut state_delete_batch = vec![];
         for res in self
             .hot_db
-            .iter_column::<Hash256>(DBColumn::BeaconStateSummary)?
+            .iter_column::<Hash256>(DBColumn::BeaconStateSummary)
         {
             let (state_root, summary_bytes) = res?;
             let summary = HotStateSummary::from_ssz_bytes(&summary_bytes)?;

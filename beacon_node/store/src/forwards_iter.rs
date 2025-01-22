@@ -139,7 +139,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         }
         let start = start_slot.as_u64().to_be_bytes();
         Ok(Self {
-            inner: store.cold_db.iter_column_from(column, &start, |_, _| true),
+            inner: store.cold_db.iter_column_from(column, &start),
             column,
             next_slot: start_slot,
             end_slot,
@@ -157,11 +157,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
         if self.next_slot == self.end_slot {
             return None;
         }
-        let Ok(inner) = self.inner.as_mut() else {
-            return None;
-        };
-
-        inner
+        self.inner
             .next()?
             .and_then(|(slot_bytes, root_bytes)| {
                 let slot = slot_bytes

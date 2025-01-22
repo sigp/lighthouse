@@ -235,7 +235,7 @@ impl<E: EthSpec> Redb<E> {
             })
         };
 
-        Ok(Box::new(iter))
+        Box::new(iter)
     }
 
     /// Iterate through all keys and values in a particular column.
@@ -243,12 +243,7 @@ impl<E: EthSpec> Redb<E> {
         self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
-    pub fn iter_column_from<K: Key>(
-        &self,
-        column: DBColumn,
-        from: &[u8],
-        predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
-    ) -> ColumnIter<K> {
+    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
@@ -262,7 +257,7 @@ impl<E: EthSpec> Redb<E> {
             table
                 .range(from..)?
                 .take_while(move |res| match res.as_ref() {
-                    Ok((key, _)) => predicate(key.value(), prefix.as_slice()),
+                    Ok((_, _)) => true,
                     Err(_) => false,
                 })
                 .map(move |res| {

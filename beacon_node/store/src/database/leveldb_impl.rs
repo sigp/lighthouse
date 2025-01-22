@@ -218,42 +218,28 @@ impl<E: EthSpec> LevelDB<E> {
         Ok(())
     }
 
-    pub fn iter_column_from<K: Key>(
-        &self,
-        column: DBColumn,
-        from: &[u8],
-        predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
-    ) -> ColumnIter<K> {
+    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column, from));
-
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
-        Ok(Box::new(
-            iter.take_while(move |(key, _)| {
-                let Some(trimmed_key) = key.remove_column_variable(column) else {
-                    return false;
-                };
-                let Some(trimmed_start_key) = start_key.remove_column_variable(column) else {
-                    return false;
-                };
-                key.matches_column(column) && predicate(trimmed_key, trimmed_start_key)
-            })
-            .map(move |(bytes_key, value)| {
-                metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
-                metrics::inc_counter_vec_by(
-                    &metrics::DISK_DB_READ_BYTES,
-                    &[column.into()],
-                    value.len() as u64,
-                );
-                let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
-                    HotColdDBError::IterationError {
-                        unexpected_key: bytes_key.clone(),
-                    }
-                })?;
-                Ok((K::from_bytes(key)?, value))
-            }),
-        ))
+        Box::new(
+            iter.take_while(move |(key, _)| key.matches_column(column))
+                .map(move |(bytes_key, value)| {
+                    metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
+                    metrics::inc_counter_vec_by(
+                        &metrics::DISK_DB_READ_BYTES,
+                        &[column.into()],
+                        value.len() as u64,
+                    );
+                    let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
+                        HotColdDBError::IterationError {
+                            unexpected_key: bytes_key.clone(),
+                        }
+                    })?;
+                    Ok((K::from_bytes(key)?, value))
+                }),
+        )
     }
 
     pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
@@ -262,7 +248,7 @@ impl<E: EthSpec> LevelDB<E> {
         let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
 
-        Ok(Box::new(
+        Box::new(
             iter.take_while(move |key| key.matches_column(column))
                 .map(move |bytes_key| {
                     metrics::inc_counter_vec(&metrics::DISK_DB_KEY_READ_COUNT, &[column.into()]);
@@ -274,7 +260,7 @@ impl<E: EthSpec> LevelDB<E> {
                     let key = &bytes_key.key[column.as_bytes().len()..];
                     K::from_bytes(key)
                 }),
-        ))
+        )
     }
 
     /// Iterate through all keys and values in a particular column.
@@ -283,10 +269,7 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        self.iter_column_from(column, &vec![0; column.key_size()], move |key, _| {
-            metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
-            BytesKey::from_vec(key.to_vec()).matches_column(column)
-        })
+        self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
     pub fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {

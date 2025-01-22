@@ -82,12 +82,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         Ok(())
     }
 
-    fn iter_column_from<K: Key>(
-        &self,
-        column: DBColumn,
-        from: &[u8],
-        predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
-    ) -> ColumnIter<K> {
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         // We use this awkward pattern because we can't lock the `self.db` field *and* maintain a
         // reference to the lock guard across calls to `.next()`. This would be require a
         // struct with a field (the iterator) which references another field (the lock guard).
@@ -97,22 +92,19 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             .read()
             .range(start_key..)
             .take_while(|(k, _)| k.remove_column_variable(column).is_some())
-            .take_while(|(k, _)| predicate(k.key.as_slice(), vec![0].as_slice()))
             .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
             .collect::<Vec<_>>();
-        Ok(Box::new(keys.into_iter().filter_map(move |key| {
+        Box::new(keys.into_iter().filter_map(move |key| {
             self.get_bytes(column, &key).transpose().map(|res| {
                 let k = K::from_bytes(&key)?;
                 let v = res?;
                 Ok((k, v))
             })
-        })))
+        }))
     }
 
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
-        Ok(Box::new(
-            self.iter_column(column)?.map(|res| res.map(|(k, _)| k)),
-        ))
+        Box::new(self.iter_column(column).map(|res| res.map(|(k, _)| k)))
     }
 
     fn begin_rw_transaction(&self) -> MutexGuard<()> {
@@ -135,9 +127,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             .take_while(|(k, _)| k.remove_column_variable(column).is_some())
             .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
             .collect::<Vec<_>>();
-        Ok(Box::new(
-            keys.into_iter().map(move |key| K::from_bytes(&key)),
-        ))
+        Box::new(keys.into_iter().map(move |key| K::from_bytes(&key)))
     }
 
     fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), DBError> {

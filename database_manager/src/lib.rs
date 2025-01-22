@@ -172,7 +172,6 @@ pub fn inspect_db<E: EthSpec>(
 
     for res in sub_db
         .iter_column::<Vec<u8>>(inspect_config.column)
-        .map_err(|e| format!("Unable to iterate columns: {:?}", e))?
         .skip(skip)
         .take(limit)
     {

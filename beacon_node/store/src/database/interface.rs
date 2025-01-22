@@ -145,21 +145,14 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
-    fn iter_column_from<K: Key>(
-        &self,
-        column: DBColumn,
-        from: &[u8],
-        predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
-    ) -> ColumnIter<K> {
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::iter_column_from(txn, column, from, predicate)
+                leveldb_impl::LevelDB::iter_column_from(txn, column, from)
             }
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => {
-                redb_impl::Redb::iter_column_from(txn, column, from, predicate)
-            }
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_from(txn, column, from),
         }
     }
 

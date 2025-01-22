@@ -47,9 +47,8 @@ pub use types::*;
 
 const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
 
-pub type ColumnIter<'a, K> =
-    Result<Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>, Error>;
-pub type ColumnKeyIter<'a, K> = Result<Box<dyn Iterator<Item = Result<K, Error>> + 'a>, Error>;
+pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
+pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 
 pub type RawEntryIter<'a> =
     Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
@@ -103,16 +102,11 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Iterate through all keys and values in a particular column.
     fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        self.iter_column_from(column, &vec![0; column.key_size()], |_, _| true)
+        self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
     /// Iterate through all keys and values in a column from a given starting point that fulfill the given predicate.
-    fn iter_column_from<K: Key>(
-        &self,
-        column: DBColumn,
-        from: &[u8],
-        predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
-    ) -> ColumnIter<K>;
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
 
     fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
         Ok(Box::new(std::iter::empty()))
