@@ -18,7 +18,7 @@ pub const VC_URL_FLAG: &str = "vc-url";
 pub const VC_TOKEN_FLAG: &str = "vc-token";
 pub const VALIDATOR_FLAG: &str = "validators";
 pub const EXIT_EPOCH_FLAG: &str = "exit-epoch";
-pub const SIGNATURE_FLAG: &str = "signature";
+pub const PRESIGN_FLAG: &str = "presign";
 pub const EXIT_STATUS_FLAG: &str = "status";
 
 pub fn cli_app() -> Command {
@@ -33,7 +33,8 @@ pub fn cli_app() -> Command {
                 .value_name("NETWORK_ADDRESS")
                 .help("Address to a beacon node HTTP API")
                 .action(ArgAction::Set)
-                .display_order(0),
+                .display_order(0)
+                .conflicts_with(PRESIGN_FLAG),
         )
         .arg(
             Arg::new(VC_URL_FLAG)
@@ -71,23 +72,24 @@ pub fn cli_app() -> Command {
                 .value_name("EPOCH")
                 .help(
                     "Provide the minimum epoch for processing voluntary exit. \
-                This flag is typically used in combination with `--signature` to \
-                save the voluntary exit signature to a file for future use.",
+                This flag is typically used in combination with `--presign` to \
+                save the voluntary exit presign to a file for future use.",
                 )
                 .action(ArgAction::Set)
                 .display_order(0),
         )
         .arg(
-            Arg::new(SIGNATURE_FLAG)
-                .long(SIGNATURE_FLAG)
+            Arg::new(PRESIGN_FLAG)
+                .long(PRESIGN_FLAG)
                 .help(
-                    "Generate the voluntary exit signature and save it to a file \
+                    "Generate the voluntary exit presign and save it to a file \
                 named {validator_pubkey}.json. Note: Using this without the \
                 `--beacon-node` flag will not publish the voluntary exit to the network.",
                 )
                 .help_heading(FLAG_HEADER)
                 .action(ArgAction::SetTrue)
-                .display_order(0),
+                .display_order(0)
+                .conflicts_with(BEACON_URL_FLAG),
         )
         .arg(
             Arg::new(EXIT_STATUS_FLAG)
@@ -107,7 +109,7 @@ pub struct ExitConfig {
     pub validators_to_exit: Vec<PublicKeyBytes>,
     pub beacon_url: Option<SensitiveUrl>,
     pub exit_epoch: Option<Epoch>,
-    pub signature: bool,
+    pub presign: bool,
     pub exit_status: bool,
 }
 
@@ -131,7 +133,7 @@ impl ExitConfig {
             validators_to_exit,
             beacon_url: clap_utils::parse_optional(matches, BEACON_URL_FLAG)?,
             exit_epoch: clap_utils::parse_optional(matches, EXIT_EPOCH_FLAG)?,
-            signature: matches.get_flag(SIGNATURE_FLAG),
+            presign: matches.get_flag(PRESIGN_FLAG),
             exit_status: matches.get_flag(EXIT_STATUS_FLAG),
         })
     }
@@ -157,7 +159,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         mut validators_to_exit,
         beacon_url,
         exit_epoch,
-        signature,
+        presign,
         exit_status,
     } = config;
 
@@ -181,7 +183,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
             .await
             .map_err(|e| format!("Failed to generate voluntary exit message: {}", e))?;
 
-        if signature {
+        if presign {
             let exit_message_json = serde_json::to_string(&exit_message.data);
 
             match exit_message_json {
@@ -198,16 +200,12 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         }
 
         // Only publish the voluntary exit if the --beacon-node flag is present
-        if beacon_url.is_some() {
-            let beacon_node = if let Some(ref beacon_url) = beacon_url {
-                BeaconNodeHttpClient::new(
-                    SensitiveUrl::parse(beacon_url.as_ref())
-                        .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
-                    Timeouts::set_all(Duration::from_secs(12)),
-                )
-            } else {
-                return Err("Beacon URL is not provided".into());
-            };
+        if let Some(ref beacon_url) = beacon_url {
+            let beacon_node = BeaconNodeHttpClient::new(
+                SensitiveUrl::parse(beacon_url.as_ref())
+                    .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
+                Timeouts::set_all(Duration::from_secs(12)),
+            );
 
             if beacon_node
                 .get_node_syncing()
@@ -238,17 +236,21 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                 .ok_or("Failed to create chain spec")?;
 
             let validator_data = beacon_node
-            .get_beacon_states_validator_id(StateId::Head, &ValidatorId::PublicKey(validator_to_exit))
-            .await
-            .map_err(|e| format!("Failed to get validator details: {:?}", e))?
-            .ok_or_else(|| {
-                format!(
-                    "Validator {} is not present in the beacon state. \
-                Please ensure that your beacon node is synced and the validator has been deposited.",
-                    validator_to_exit
+                .get_beacon_states_validator_id(
+                    StateId::Head,
+                    &ValidatorId::PublicKey(validator_to_exit),
                 )
-            })?
-            .data;
+                .await
+                .map_err(|e| format!("Failed to get validator details: {:?}", e))?
+                .ok_or_else(|| {
+                    format!(
+                        "Validator {} is not present in the beacon state. \
+                        Please ensure that your beacon node is synced \
+                        and the validator has been deposited.",
+                        validator_to_exit
+                    )
+                })?
+                .data;
 
             let activation_epoch = validator_data.validator.activation_epoch;
             let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, &spec)
@@ -495,7 +497,7 @@ mod test {
                 validators_to_exit,
                 beacon_url: Some(beacon_url),
                 exit_epoch: None,
-                signature: false,
+                presign: false,
                 exit_status: false,
             });
 

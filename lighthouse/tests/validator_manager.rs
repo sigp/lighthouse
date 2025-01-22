@@ -502,7 +502,7 @@ pub fn validator_exit_defaults() {
                 ],
                 beacon_url: Some(SensitiveUrl::parse("http://localhost:5052").unwrap()),
                 exit_epoch: None,
-                signature: false,
+                presign: false,
                 exit_status: false,
             };
             assert_eq!(expected, config);
