@@ -1075,13 +1075,9 @@ fn process_pending_consolidations<E: EthSpec>(
         next_pending_consolidation.safe_add_assign(1)?;
     }
 
-    let new_pending_consolidations = List::try_from_iter(
-        state
-            .pending_consolidations()?
-            .iter_from(next_pending_consolidation)?
-            .cloned(),
-    )?;
-    *state.pending_consolidations_mut()? = new_pending_consolidations;
+    state
+        .pending_consolidations_mut()?
+        .pop_front(next_pending_consolidation)?;
 
     // the spec tests require we don't perform effective balance updates when testing pending_consolidations
     if !perform_effective_balance_updates {

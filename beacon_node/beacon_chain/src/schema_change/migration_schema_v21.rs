@@ -2,9 +2,7 @@ use crate::beacon_chain::BeaconChainTypes;
 use crate::validator_pubkey_cache::DatabasePubkey;
 use ssz::{Decode, Encode};
 use std::sync::Arc;
-use store::{
-    get_key_for_col, DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem,
-};
+use store::{DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem};
 use tracing::info;
 use types::{Hash256, PublicKey};
 
@@ -59,9 +57,9 @@ pub fn downgrade_from_v21<T: BeaconChainTypes>(
             message: format!("{e:?}"),
         })?;
 
-        let db_key = get_key_for_col(DBColumn::PubkeyCache.into(), key.as_slice());
         ops.push(KeyValueStoreOp::PutKeyValue(
-            db_key,
+            DBColumn::PubkeyCache,
+            key.as_slice().to_vec(),
             pubkey_bytes.as_ssz_bytes(),
         ));
 

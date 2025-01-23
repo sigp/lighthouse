@@ -2,7 +2,6 @@ mod cli;
 mod config;
 
 pub use beacon_chain;
-use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
 };
@@ -15,12 +14,20 @@ pub use eth2_config::Eth2Config;
 use slasher::{DatabaseBackendOverride, Slasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
+use store::database::interface::BeaconNodeBackend;
 use tracing::{info, warn};
 use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-pub type ProductionClient<E> =
-    Client<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, LevelDB<E>, LevelDB<E>>>;
+pub type ProductionClient<E> = Client<
+    Witness<
+        SystemTimeSlotClock,
+        CachingEth1Backend<E>,
+        E,
+        BeaconNodeBackend<E>,
+        BeaconNodeBackend<E>,
+    >,
+>;
 
 /// The beacon node `Client` that will be used in production.
 ///
