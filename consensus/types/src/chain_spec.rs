@@ -237,14 +237,14 @@ pub struct ChainSpec {
     max_request_blob_sidecars: u64,
     pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
-    pub blob_sidecar_subnet_count: u64,
+    blob_sidecar_subnet_count: u64,
     max_blobs_per_block: u64,
 
     /*
      * Networking Electra
      */
     max_blobs_per_block_electra: u64,
-    pub blob_sidecar_subnet_count_electra: u64,
+    blob_sidecar_subnet_count_electra: u64,
     max_request_blob_sidecars_electra: u64,
 
     /*
@@ -644,6 +644,26 @@ impl ChainSpec {
             self.max_blobs_per_block_electra
         } else {
             self.max_blobs_per_block
+        }
+    }
+
+    /// Returns the `BLOB_SIDECAR_SUBNET_COUNT` at the given fork_name.
+    pub fn blob_sidecar_subnet_count(&self, fork_name: ForkName) -> u64 {
+        if fork_name.electra_enabled() {
+            self.blob_sidecar_subnet_count_electra
+        } else {
+            self.blob_sidecar_subnet_count
+        }
+    }
+
+    /// Returns the highest possible value of blob sidecar subnet count based on enabled forks.
+    ///
+    /// This is useful for upper bounds for the subnet count during a given run of lighthouse.
+    pub fn blob_sidecar_subnet_count_max(&self) -> u64 {
+        if self.electra_fork_epoch.is_some() {
+            self.blob_sidecar_subnet_count_electra
+        } else {
+            self.blob_sidecar_subnet_count
         }
     }
 
