@@ -234,7 +234,7 @@ pub struct ChainSpec {
      * Networking Deneb
      */
     max_request_blocks_deneb: u64,
-    pub max_request_blob_sidecars: u64,
+    max_request_blob_sidecars: u64,
     pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
     pub blob_sidecar_subnet_count: u64,
@@ -245,7 +245,7 @@ pub struct ChainSpec {
      */
     max_blobs_per_block_electra: u64,
     pub blob_sidecar_subnet_count_electra: u64,
-    pub max_request_blob_sidecars_electra: u64,
+    max_request_blob_sidecars_electra: u64,
 
     /*
      * Networking Derived

@@ -595,27 +595,31 @@ fn handle_rpc_request<E: EthSpec>(
             ))))
         }
         SupportedProtocol::BlobsByRangeV1 => {
-            let req = BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?;
-            let max_requested_blobs = req
-                .count
-                .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
-            // TODO(pawan): change this to max_blobs_per_rpc_request in the alpha10 PR
-            if max_requested_blobs > spec.max_request_blob_sidecars {
-                return Err(RPCError::ErrorResponse(
-                    RpcErrorResponse::InvalidRequest,
-                    format!(
-                        "requested exceeded limit. allowed: {}, requested: {}",
-                        spec.max_request_blob_sidecars, max_requested_blobs
-                    ),
-                ));
-            }
-            Ok(Some(RequestType::BlobsByRange(req)))
+            // TODO(pawan): move this check to the handler
+            // let req = BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?;
+            // let max_requested_blobs = req
+            //     .count
+            //     .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
+            // // TODO(pawan): change this to max_blobs_per_rpc_request in the alpha10 PR
+            // if max_requested_blobs > spec.max_request_blob_sidecars {
+            //     return Err(RPCError::ErrorResponse(
+            //         RpcErrorResponse::InvalidRequest,
+            //         format!(
+            //             "requested exceeded limit. allowed: {}, requested: {}",
+            //             spec.max_request_blob_sidecars, max_requested_blobs
+            //         ),
+            //     ));
+            // }
+            Ok(Some(RequestType::BlobsByRange(
+                BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            )))
         }
         SupportedProtocol::BlobsByRootV1 => {
+            let max_request_blob_sidecars = spec.max_request_blob_sidecars(current_fork);
             Ok(Some(RequestType::BlobsByRoot(BlobsByRootRequest {
                 blob_ids: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blob_sidecars as usize,
+                    max_request_blob_sidecars,
                 )?,
             })))
         }

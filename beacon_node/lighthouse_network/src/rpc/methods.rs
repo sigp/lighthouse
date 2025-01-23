@@ -445,9 +445,11 @@ pub struct BlobsByRootRequest {
 }
 
 impl BlobsByRootRequest {
-    pub fn new(blob_ids: Vec<BlobIdentifier>, spec: &ChainSpec) -> Self {
-        let blob_ids =
-            RuntimeVariableList::from_vec(blob_ids, spec.max_request_blob_sidecars as usize);
+    pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Self {
+        let max_request_blob_sidecars = fork_context
+            .spec
+            .max_request_blob_sidecars(fork_context.current_fork());
+        let blob_ids = RuntimeVariableList::from_vec(blob_ids, max_request_blob_sidecars);
         Self { blob_ids }
     }
 }
