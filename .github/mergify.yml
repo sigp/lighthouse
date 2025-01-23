@@ -18,6 +18,7 @@ pull_request_rules:
       - base=unstable
       - label=trivial
       - author=@sigp/lighthouse
+      - conflict
     actions:
       review:
         type: APPROVE
@@ -26,10 +27,10 @@ pull_request_rules:
     conditions:
       # All branch protection rules are implicit: https://docs.mergify.com/conditions/#about-branch-protection
       - base=unstable
-      - label=ready-to-merge
+      - label=ready-for-merge
+      - label!=do-not-merge
     actions:
       queue:
-
 
 queue_rules:
   - name: default
@@ -48,6 +49,7 @@ queue_rules:
       - "#approved-reviews-by >= 1"
       - "check-success=license/cla"
       - "check-success=target-branch-check"
+      - "label!=do-not-merge"
     merge_conditions:
       - "check-success=test-suite-success"
       - "check-success=local-testnet-success"
