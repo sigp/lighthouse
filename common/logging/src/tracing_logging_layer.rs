@@ -107,10 +107,9 @@ where
                 }
             }
         }
-        let level_str;
 
-        if self.logfile_color {
-            level_str = if visitor.is_crit {
+        let level_str = if self.logfile_color {
+            if visitor.is_crit {
                 "\x1b[35mCRIT\x1b[0m"
             } else {
                 match *log_level {
@@ -120,20 +119,18 @@ where
                     tracing::Level::DEBUG => "\x1b[34mDEBUG\x1b[0m",
                     tracing::Level::TRACE => "\x1b[35mTRACE\x1b[0m",
                 }
-            };
+            }
+        } else if visitor.is_crit {
+            "CRIT"
         } else {
-            level_str = if visitor.is_crit {
-                "CRIT"
-            } else {
-                match *log_level {
-                    tracing::Level::ERROR => "ERROR",
-                    tracing::Level::WARN => "WARN",
-                    tracing::Level::INFO => "INFO",
-                    tracing::Level::DEBUG => "DEBUG",
-                    tracing::Level::TRACE => "TRACE",
-                }
-            };
-        }
+            match *log_level {
+                tracing::Level::ERROR => "ERROR",
+                tracing::Level::WARN => "WARN",
+                tracing::Level::INFO => "INFO",
+                tracing::Level::DEBUG => "DEBUG",
+                tracing::Level::TRACE => "TRACE",
+            }
+        };
 
         let fixed_message_width = 44;
 
