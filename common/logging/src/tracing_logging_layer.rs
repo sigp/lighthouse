@@ -1,4 +1,5 @@
 use chrono::prelude::*;
+use serde_json::json;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -15,6 +16,7 @@ pub struct LoggingLayer {
     pub guard: WorkerGuard,
     pub disable_log_timestamp: bool,
     pub logfile_color: bool,
+    pub format: Option<String>,
     span_fields: Arc<Mutex<HashMap<Id, SpanData>>>,
 }
 
@@ -24,12 +26,14 @@ impl LoggingLayer {
         guard: WorkerGuard,
         disable_log_timestamp: bool,
         logfile_color: bool,
+        format: Option<String>,
     ) -> Self {
         Self {
             non_blocking_writer,
             guard,
             disable_log_timestamp,
             logfile_color,
+            format,
             span_fields: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -77,115 +81,160 @@ where
 
         event.record(&mut visitor);
 
-        let bold_start = "\x1b[1m";
-        let bold_end = "\x1b[0m";
+        if self.format.as_deref() == Some("JSON") {
+            let level_str = if visitor.is_crit {
+                "CRIT"
+            } else {
+                match *log_level {
+                    tracing::Level::ERROR => "ERROR",
+                    tracing::Level::WARN => "WARN",
+                    tracing::Level::INFO => "INFO",
+                    tracing::Level::DEBUG => "DEBUG",
+                    tracing::Level::TRACE => "TRACE",
+                }
+            };
 
-        let mut span_fields = Vec::new();
-        if let Some(scope) = ctx.event_scope(event) {
-            for span in scope {
-                let id = span.id();
-                let span_fields_map = self.span_fields.lock().unwrap();
-                if let Some(span_data) = span_fields_map.get(&id) {
-                    span_fields.push((span_data.name.clone(), span_data.fields.clone()));
+            // let fields_json = visitor
+            //     .fields
+            //     .iter()
+            //     .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            //     .collect::<serde_json::Map<_, _>>();
+
+            // let span_fields_json = span_fields
+            //     .iter()
+            //     .map(|(span_name, fields)| {
+            //         let span_fields_map = fields
+            //             .iter()
+            //             .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+            //             .collect::<serde_json::Map<_, _>>();
+            //         json!({
+            //             "span_name": span_name,
+            //             "fields": span_fields_map
+            //         })
+            //     })
+            //     .collect::<Vec<_>>();
+
+            let log_line = json!({
+                "msg": visitor.message,
+                "level": level_str,
+                "ts": timestamp,
+            });
+
+            let output = format!("{}\n", log_line.to_string());
+            if let Err(e) = writer.write_all(output.as_bytes()) {
+                eprintln!("Failed to write log: {}", e);
+            }
+        } else {
+            let bold_start = "\x1b[1m";
+            let bold_end = "\x1b[0m";
+    
+            let mut span_fields = Vec::new();
+            if let Some(scope) = ctx.event_scope(event) {
+                for span in scope {
+                    let id = span.id();
+                    let span_fields_map = self.span_fields.lock().unwrap();
+                    if let Some(span_data) = span_fields_map.get(&id) {
+                        span_fields.push((span_data.name.clone(), span_data.fields.clone()));
+                    }
                 }
             }
-        }
-
-        let mut formatted_spans = String::new();
-        for (_, fields) in span_fields.iter().rev() {
-            for (i, (field_name, field_value)) in fields.iter().enumerate() {
-                if i > 0 {
-                    formatted_spans.push(' ');
+    
+            let mut formatted_spans = String::new();
+            for (_, fields) in span_fields.iter().rev() {
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        formatted_spans.push(' ');
+                    }
+                    if self.logfile_color {
+                        formatted_spans.push_str(&format!(
+                            "{}{}{}={}",
+                            bold_start, field_name, bold_end, field_value
+                        ));
+                    } else {
+                        formatted_spans.push_str(&format!("{}={}", field_name, field_value));
+                    }
                 }
+            }
+    
+            let level_str = if self.logfile_color {
+                if visitor.is_crit {
+                    "\x1b[35mCRIT\x1b[0m"
+                } else {
+                    match *log_level {
+                        tracing::Level::ERROR => "\x1b[31mERROR\x1b[0m",
+                        tracing::Level::WARN => "\x1b[33mWARN\x1b[0m",
+                        tracing::Level::INFO => "\x1b[32mINFO\x1b[0m",
+                        tracing::Level::DEBUG => "\x1b[34mDEBUG\x1b[0m",
+                        tracing::Level::TRACE => "\x1b[35mTRACE\x1b[0m",
+                    }
+                }
+            } else if visitor.is_crit {
+                "CRIT"
+            } else {
+                match *log_level {
+                    tracing::Level::ERROR => "ERROR",
+                    tracing::Level::WARN => "WARN",
+                    tracing::Level::INFO => "INFO",
+                    tracing::Level::DEBUG => "DEBUG",
+                    tracing::Level::TRACE => "TRACE",
+                }
+            };
+    
+            let fixed_message_width = 44;
+    
+            let message_len = visitor.message.len();
+    
+            let message_content = if self.logfile_color {
+                format!("{}{}{}", bold_start, visitor.message, bold_end)
+            } else {
+                visitor.message.clone()
+            };
+    
+            let padded_message = if message_len < fixed_message_width {
+                let extra_color_len = if self.logfile_color {
+                    bold_start.len() + bold_end.len()
+                } else {
+                    0
+                };
+    
+                format!(
+                    "{:<width$}",
+                    message_content,
+                    width = fixed_message_width + extra_color_len
+                )
+            } else {
+                message_content.clone()
+            };
+    
+            let mut formatted_fields = String::new();
+            for (i, (field_name, field_value)) in visitor.fields.iter().enumerate() {
+                if i > 0 {
+                    formatted_fields.push(' ');
+                }
+    
                 if self.logfile_color {
-                    formatted_spans.push_str(&format!(
+                    formatted_fields.push_str(&format!(
                         "{}{}{}={}",
                         bold_start, field_name, bold_end, field_value
                     ));
                 } else {
-                    formatted_spans.push_str(&format!("{}={}", field_name, field_value));
+                    formatted_fields.push_str(&format!("{}={}", field_name, field_value));
                 }
             }
-        }
-
-        let level_str = if self.logfile_color {
-            if visitor.is_crit {
-                "\x1b[35mCRIT\x1b[0m"
-            } else {
-                match *log_level {
-                    tracing::Level::ERROR => "\x1b[31mERROR\x1b[0m",
-                    tracing::Level::WARN => "\x1b[33mWARN\x1b[0m",
-                    tracing::Level::INFO => "\x1b[32mINFO\x1b[0m",
-                    tracing::Level::DEBUG => "\x1b[34mDEBUG\x1b[0m",
-                    tracing::Level::TRACE => "\x1b[35mTRACE\x1b[0m",
-                }
+    
+            let mut full_message = padded_message.clone();
+            if !formatted_fields.is_empty() {
+                full_message = format!("{}  {}", padded_message, formatted_fields);
             }
-        } else if visitor.is_crit {
-            "CRIT"
-        } else {
-            match *log_level {
-                tracing::Level::ERROR => "ERROR",
-                tracing::Level::WARN => "WARN",
-                tracing::Level::INFO => "INFO",
-                tracing::Level::DEBUG => "DEBUG",
-                tracing::Level::TRACE => "TRACE",
+    
+            let message = format!(
+                "{} {} {}  {}\n",
+                timestamp, level_str, full_message, formatted_spans
+            );
+    
+            if let Err(e) = writer.write_all(message.as_bytes()) {
+                eprintln!("Failed to write log: {}", e);
             }
-        };
-
-        let fixed_message_width = 44;
-
-        let message_len = visitor.message.len();
-
-        let message_content = if self.logfile_color {
-            format!("{}{}{}", bold_start, visitor.message, bold_end)
-        } else {
-            visitor.message.clone()
-        };
-
-        let padded_message = if message_len < fixed_message_width {
-            let extra_color_len = if self.logfile_color {
-                bold_start.len() + bold_end.len()
-            } else {
-                0
-            };
-
-            format!(
-                "{:<width$}",
-                message_content,
-                width = fixed_message_width + extra_color_len
-            )
-        } else {
-            message_content.clone()
-        };
-
-        let mut formatted_fields = String::new();
-        for (i, (field_name, field_value)) in visitor.fields.iter().enumerate() {
-            if i > 0 {
-                formatted_fields.push(' ');
-            }
-
-            if self.logfile_color {
-                formatted_fields.push_str(&format!(
-                    "{}{}{}={}",
-                    bold_start, field_name, bold_end, field_value
-                ));
-            } else {
-                formatted_fields.push_str(&format!("{}={}", field_name, field_value));
-            }
-        }
-
-        let mut full_message = padded_message.clone();
-        if !formatted_fields.is_empty() {
-            full_message = format!("{}  {}", padded_message, formatted_fields);
-        }
-
-        let message = format!(
-            "{} {} {}  {}\n",
-            timestamp, level_str, full_message, formatted_spans
-        );
-
-        if let Err(e) = writer.write_all(message.as_bytes()) {
-            eprintln!("Failed to write log: {}", e);
         }
     }
 }

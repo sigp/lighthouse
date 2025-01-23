@@ -218,6 +218,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         file_guard,
                         config.disable_log_timestamp,
                         config.logfile_color,
+                        config.logfile_format,
                     )
                 }
                 Err(e) => {
@@ -228,13 +229,20 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         sink_guard,
                         config.disable_log_timestamp,
                         config.logfile_color,
+                        config.logfile_format.clone(),
                     )
                 }
             }
         } else {
             eprintln!("No path provided. File logging is disabled.");
             let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-            LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp, true)
+            LoggingLayer::new(
+                sink_writer,
+                sink_guard,
+                config.disable_log_timestamp,
+                true,
+                config.logfile_format,
+            )
         };
 
         let (stdout_non_blocking_writer, stdout_guard) =
@@ -245,6 +253,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             stdout_guard,
             config.disable_log_timestamp,
             true,
+            config.log_format,
         );
 
         let sse_logging_layer_opt = if config.sse_logging {
