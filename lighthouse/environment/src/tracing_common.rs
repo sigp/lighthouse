@@ -5,7 +5,6 @@ use logging::{tracing_logging_layer::LoggingLayer, SSELoggingComponents};
 use std::process;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::filter::Targets;
 use types::EthSpec;
 
 pub fn construct_logger<E: EthSpec>(
@@ -20,8 +19,6 @@ pub fn construct_logger<E: EthSpec>(
     LoggingLayer,
     Option<SSELoggingComponents>,
     LoggerConfig,
-    Targets,
-    Targets,
 ) {
     let libp2p_discv5_layer =
         logging::create_libp2p_discv5_tracing_layer(logger_config.path.clone());
@@ -35,13 +32,6 @@ pub fn construct_logger<E: EthSpec>(
         .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_string().to_lowercase()))
         .unwrap();
 
-    let discv5_logs_off = Targets::new()
-        .with_target("discv5", tracing::level_filters::LevelFilter::OFF)
-        .with_default(logger_config.debug_level);
-    let discv5_file_logs_off = Targets::new()
-        .with_target("discv5", tracing::level_filters::LevelFilter::OFF)
-        .with_default(logger_config.logfile_debug_level);
-
     (
         builder,
         filter_layer,
@@ -50,8 +40,6 @@ pub fn construct_logger<E: EthSpec>(
         stdout_logging_layer,
         sse_logging_layer_opt,
         logger_config,
-        discv5_logs_off,
-        discv5_file_logs_off,
     )
 }
 
