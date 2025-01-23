@@ -69,7 +69,9 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
+};
 
 #[cfg(test)]
 use types::ColumnIndex;
@@ -258,10 +260,11 @@ pub fn spawn<T: BeaconChainTypes>(
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
+    fork_context: Arc<ForkContext>,
     log: slog::Logger,
 ) {
     assert!(
-        beacon_chain.spec.max_request_blocks >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        beacon_chain.spec.max_request_blocks(fork_context.current_fork()) as u64 >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
 
@@ -272,6 +275,7 @@ pub fn spawn<T: BeaconChainTypes>(
         beacon_processor,
         sync_recv,
         SamplingConfig::Default,
+        fork_context,
         log.clone(),
     );
 
@@ -287,6 +291,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
         sampling_config: SamplingConfig,
+        fork_context: Arc<ForkContext>,
         log: slog::Logger,
     ) -> Self {
         let network_globals = beacon_processor.network_globals.clone();
@@ -297,6 +302,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 network_send,
                 beacon_processor.clone(),
                 beacon_chain.clone(),
+                fork_context.clone(),
                 log.clone(),
             ),
             range_sync: RangeSync::new(

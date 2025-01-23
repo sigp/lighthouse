@@ -572,22 +572,28 @@ fn handle_rpc_request<E: EthSpec>(
         SupportedProtocol::BlocksByRangeV1 => Ok(Some(RequestType::BlocksByRange(
             OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1::from_ssz_bytes(decoded_buffer)?),
         ))),
-        SupportedProtocol::BlocksByRootV2 => Ok(Some(RequestType::BlocksByRoot(
-            BlocksByRootRequest::V2(BlocksByRootRequestV2 {
-                block_roots: RuntimeVariableList::from_ssz_bytes(
-                    decoded_buffer,
-                    spec.max_request_blocks as usize,
-                )?,
-            }),
-        ))),
-        SupportedProtocol::BlocksByRootV1 => Ok(Some(RequestType::BlocksByRoot(
-            BlocksByRootRequest::V1(BlocksByRootRequestV1 {
-                block_roots: RuntimeVariableList::from_ssz_bytes(
-                    decoded_buffer,
-                    spec.max_request_blocks as usize,
-                )?,
-            }),
-        ))),
+        SupportedProtocol::BlocksByRootV2 => {
+            let max_request_blocks = spec.max_request_blocks(current_fork);
+            Ok(Some(RequestType::BlocksByRoot(BlocksByRootRequest::V2(
+                BlocksByRootRequestV2 {
+                    block_roots: RuntimeVariableList::from_ssz_bytes(
+                        decoded_buffer,
+                        max_request_blocks,
+                    )?,
+                },
+            ))))
+        }
+        SupportedProtocol::BlocksByRootV1 => {
+            let max_request_blocks = spec.max_request_blocks(current_fork);
+            Ok(Some(RequestType::BlocksByRoot(BlocksByRootRequest::V1(
+                BlocksByRootRequestV1 {
+                    block_roots: RuntimeVariableList::from_ssz_bytes(
+                        decoded_buffer,
+                        max_request_blocks,
+                    )?,
+                },
+            ))))
+        }
         SupportedProtocol::BlobsByRangeV1 => {
             let req = BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?;
             let max_requested_blobs = req

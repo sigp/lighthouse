@@ -217,7 +217,7 @@ pub struct ChainSpec {
     pub network_id: u8,
     pub target_aggregators_per_committee: u64,
     pub gossip_max_size: u64,
-    pub max_request_blocks: u64,
+    max_request_blocks: u64,
     pub min_epochs_for_block_requests: u64,
     pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
@@ -233,12 +233,12 @@ pub struct ChainSpec {
     /*
      * Networking Deneb
      */
-    pub max_request_blocks_deneb: u64,
+    max_request_blocks_deneb: u64,
     pub max_request_blob_sidecars: u64,
     pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
     pub blob_sidecar_subnet_count: u64,
-    pub max_blobs_per_block: u64,
+    max_blobs_per_block: u64,
 
     /*
      * Networking Electra
