@@ -1933,7 +1933,7 @@ impl ApiTester {
             .sync_committee_period(&self.chain.spec)
             .unwrap();
 
-        let result = match self
+        match self
             .client
             .get_beacon_light_client_updates::<E>(current_sync_committee_period, 1)
             .await
@@ -1954,7 +1954,6 @@ impl ApiTester {
             .unwrap();
 
         assert_eq!(1, expected.len());
-        assert_eq!(result.clone().unwrap().len(), expected.len());
         self
     }
 
@@ -1979,7 +1978,6 @@ impl ApiTester {
             .get_light_client_bootstrap(&self.chain.store, &block_root, 1u64, &self.chain.spec);
 
         assert!(expected.is_ok());
-
         assert_eq!(result.unwrap().data, expected.unwrap().unwrap().0);
 
         self
@@ -2362,11 +2360,11 @@ impl ApiTester {
             enr: self.local_enr.clone(),
             p2p_addresses: self.local_enr.multiaddr_p2p_tcp(),
             discovery_addresses: self.local_enr.multiaddr_p2p_udp(),
-            metadata: eth2::types::MetaData {
+            metadata: MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: "0x0000000000000000".to_string(),
                 syncnets: "0x00".to_string(),
-            },
+            }),
         };
 
         assert_eq!(result, expected);

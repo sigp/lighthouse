@@ -14,7 +14,7 @@ use crate::{metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes
 use execution_layer::json_structures::BlobAndProofV1;
 use execution_layer::Error as ExecutionLayerError;
 use metrics::{inc_counter, inc_counter_by, TryExt};
-use slog::{debug, error, o, warn, Logger};
+use slog::{debug, error, o, Logger};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
@@ -163,6 +163,20 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             return Ok(None);
         }
 
+        if chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            // Avoid computing columns if block has already been imported.
+            debug!(
+                log,
+                "Ignoring EL blobs response";
+                "info" => "block has already been imported",
+            );
+            return Ok(None);
+        }
+
         let data_columns_receiver = spawn_compute_and_publish_data_columns_task(
             &chain,
             block.clone(),
@@ -249,23 +263,20 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
             };
 
             if data_columns_sender.send(all_data_columns.clone()).is_err() {
-                // Data column receiver have been dropped - this may not be an issue if the block is
-                // already fully imported. This should not happen after the race condition
-                // described in #6816 is fixed.
-                warn!(
+                // Data column receiver have been dropped - block may have already been imported.
+                // This race condition exists because gossip columns may arrive and trigger block
+                // import during the computation. Here we just drop the computed columns.
+                debug!(
                     log,
                     "Failed to send computed data columns";
                 );
+                return;
             };
-
-            // Check indices from cache before sending the columns, to make sure we don't
-            // publish components already seen on gossip.
-            let is_supernode = chain_cloned.data_availability_checker.is_supernode();
 
             // At the moment non supernodes are not required to publish any columns.
             // TODO(das): we could experiment with having full nodes publish their custodied
             // columns here.
-            if !is_supernode {
+            if !chain_cloned.data_availability_checker.is_supernode() {
                 return;
             }
 
