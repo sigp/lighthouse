@@ -450,6 +450,8 @@ pub fn validator_list_defaults() {
             let expected = ListConfig {
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
+                beacon_url: None,
+                validators_to_display: vec![],
             };
             assert_eq!(expected, config);
         });
@@ -503,7 +505,6 @@ pub fn validator_exit_defaults() {
                 beacon_url: Some(SensitiveUrl::parse("http://localhost:5052").unwrap()),
                 exit_epoch: None,
                 presign: false,
-                exit_status: false,
             };
             assert_eq!(expected, config);
         });

@@ -431,7 +431,6 @@ mod test {
                 beacon_url: Some(beacon_url),
                 exit_epoch: None,
                 presign: false,
-                exit_status: false,
             });
 
             self.validators = local_validators.clone();

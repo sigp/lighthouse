@@ -223,7 +223,9 @@ mod test {
     use crate::{
         common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
     };
+    use types::MainnetEthSpec;
     use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    type E = MainnetEthSpec;
 
     struct TestBuilder {
         list_config: Option<ListConfig>,
@@ -252,6 +254,8 @@ mod test {
             self.list_config = Some(ListConfig {
                 vc_url: builder.get_import_config().vc_url,
                 vc_token_path: builder.get_import_config().vc_token_path,
+                beacon_url: None,
+                validators_to_display: vec![],
             });
 
             self.vc_token =
@@ -288,7 +292,7 @@ mod test {
                 .write_all(self.vc_token.clone().unwrap().as_bytes())
                 .unwrap();
 
-            let result = run(self.list_config.clone().unwrap()).await;
+            let result = run::<E>(self.list_config.clone().unwrap()).await;
 
             if result.is_ok() {
                 let result_ref = result.as_ref().unwrap();
