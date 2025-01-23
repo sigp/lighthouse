@@ -17,8 +17,8 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v6.0.1-",
-    fallback = "Lighthouse/v6.0.1"
+    prefix = "Lighthouse/v6.0.2-",
+    fallback = "Lighthouse/v6.0.2"
 );
 
 /// Returns the first eight characters of the latest commit hash for this build.
@@ -54,7 +54,7 @@ pub fn version_with_platform() -> String {
 ///
 /// `1.5.1`
 pub fn version() -> &'static str {
-    "6.0.1"
+    "6.0.2"
 }
 
 /// Returns the name of the current client running.
