@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::beacon_block_body::KzgCommitments;
 pub use types::*;
+pub use types::signed_beacon_block::DecodeWithFork;
 
 #[cfg(feature = "lighthouse")]
 use crate::lighthouse::BlockReward;
@@ -1656,7 +1657,7 @@ impl<E: EthSpec> FullBlockContents<E> {
     }
 
     /// SSZ decode with fork variant determined by slot.
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, DecodeError> {
         let slot_len = <Slot as Decode>::ssz_fixed_len();
         let slot_bytes = bytes
             .get(0..slot_len)
@@ -1670,10 +1671,7 @@ impl<E: EthSpec> FullBlockContents<E> {
     }
 
     /// SSZ decode with fork variant passed in explicitly.
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
@@ -1828,7 +1826,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
     }
 
     /// SSZ decode with fork variant determined by `fork_name`.
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
             builder.register_anonymous_variable_length_item()?;
@@ -1952,7 +1950,7 @@ impl<E: EthSpec> FullPayloadContents<E> {
         }
     }
 
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             Ok(Self::PayloadAndBlobs(
                 ExecutionPayloadAndBlobs::from_ssz_bytes(bytes, fork_name)?,
@@ -2021,7 +2019,7 @@ pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
 }
 
 impl<E: EthSpec> ExecutionPayloadAndBlobs<E> {
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
         builder.register_anonymous_variable_length_item()?;
         builder.register_type::<BlobsBundle<E>>()?;
@@ -2036,7 +2034,7 @@ impl<E: EthSpec> ExecutionPayloadAndBlobs<E> {
                 blobs_bundle,
             })
         } else {
-            Err(ssz::DecodeError::BytesInvalid(format!(
+            Err(DecodeError::BytesInvalid(format!(
                 "ExecutionPayloadAndBlobs decoding for {fork_name} not implemented"
             )))
         }
