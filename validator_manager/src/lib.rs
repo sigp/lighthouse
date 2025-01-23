@@ -91,7 +91,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), 
                         move_validators::cli_run(matches, dump_config).await
                     }
                     Some((list_validators::CMD, matches)) => {
-                        list_validators::cli_run(matches, dump_config).await
+                        list_validators::cli_run::<E>(matches, dump_config).await
                     }
                     Some((delete_validators::CMD, matches)) => {
                         delete_validators::cli_run(matches, dump_config).await

@@ -19,7 +19,6 @@ pub const VC_TOKEN_FLAG: &str = "vc-token";
 pub const VALIDATOR_FLAG: &str = "validators";
 pub const EXIT_EPOCH_FLAG: &str = "exit-epoch";
 pub const PRESIGN_FLAG: &str = "presign";
-pub const EXIT_STATUS_FLAG: &str = "status";
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
@@ -91,15 +90,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
                 .conflicts_with(BEACON_URL_FLAG),
         )
-        .arg(
-            Arg::new(EXIT_STATUS_FLAG)
-                .long(EXIT_STATUS_FLAG)
-                .help("Display the voluntary exit status.")
-                .help_heading(FLAG_HEADER)
-                .action(ArgAction::SetTrue)
-                .requires(BEACON_URL_FLAG)
-                .display_order(0),
-        )
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -110,7 +100,6 @@ pub struct ExitConfig {
     pub beacon_url: Option<SensitiveUrl>,
     pub exit_epoch: Option<Epoch>,
     pub presign: bool,
-    pub exit_status: bool,
 }
 
 impl ExitConfig {
@@ -134,7 +123,6 @@ impl ExitConfig {
             beacon_url: clap_utils::parse_optional(matches, BEACON_URL_FLAG)?,
             exit_epoch: clap_utils::parse_optional(matches, EXIT_EPOCH_FLAG)?,
             presign: matches.get_flag(PRESIGN_FLAG),
-            exit_status: matches.get_flag(EXIT_STATUS_FLAG),
         })
     }
 }
@@ -160,7 +148,6 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
         beacon_url,
         exit_epoch,
         presign,
-        exit_status,
     } = config;
 
     let (http_client, validators) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
@@ -281,67 +268,13 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
                     validator_to_exit
                 );
             }
-
-            // Check validator status after publishing voluntary exit
-            if exit_status {
-                let updated_validator_data = beacon_node
-                    .get_beacon_states_validator_id(
-                        StateId::Head,
-                        &ValidatorId::PublicKey(validator_to_exit),
-                    )
-                    .await
-                    .map_err(|e| format!("Failed to get updated validator details: {:?}", e))?
-                    .ok_or_else(|| {
-                        format!(
-                            "Validator {} is not present in the beacon state",
-                            validator_to_exit
-                        )
-                    })?
-                    .data;
-
-                if validator_data.status == ValidatorStatus::ActiveOngoing
-                    && updated_validator_data.status == ValidatorStatus::ActiveOngoing
-                {
-                    eprintln!("Voluntary exit for Validator {} is waiting to be accepted into the beacon chain.", validator_to_exit);
-                } else if updated_validator_data.status == ValidatorStatus::ActiveExiting {
-                    let exit_epoch = updated_validator_data.validator.exit_epoch;
-                    let withdrawal_epoch = updated_validator_data.validator.withdrawable_epoch;
-
-                    eprintln!("Voluntary exit for validator {} has been accepted into the beacon chain, but not yet finalized. \
-                        Finalization may take several minutes or longer. Before finalization there is a low \
-                        probability that the exit may be reverted.", validator_to_exit);
-                    eprintln!(
-                        "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
-                        current_epoch, exit_epoch, withdrawal_epoch
-                    );
-                    eprintln!("Please keep your validator running till exit epoch");
-                    eprintln!(
-                        "Exit epoch in approximately {} secs",
-                        (exit_epoch - current_epoch) * spec.seconds_per_slot * E::slots_per_epoch()
-                    );
-                } else if updated_validator_data.status == ValidatorStatus::ExitedSlashed
-                    || updated_validator_data.status == ValidatorStatus::ExitedUnslashed
-                {
-                    {
-                        eprintln!(
-                            "Validator {} has exited at epoch: {}",
-                            validator_to_exit, updated_validator_data.validator.exit_epoch
-                        );
-                    }
-                } else {
-                    eprintln!(
-                        "Validator {} has not initiated voluntary exit. Validator status is: {}",
-                        validator_to_exit, updated_validator_data.status
-                    )
-                }
-            }
         }
     }
 
     Ok(())
 }
 
-fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
+pub fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
     let slot_clock = SystemTimeSlotClock::new(
         spec.genesis_slot,
         Duration::from_secs(genesis_time),
