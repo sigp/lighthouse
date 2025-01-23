@@ -32,28 +32,7 @@ To exit all validators on the validator client, use the keyword `all`:
 lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators all --beacon-node http://localhost:5052
 ```
 
-To check the voluntary exit status, use both `--status` and `--beacon-node` flags:
-
-```bash
-lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572425706b343117b48bdca56808416 --beacon-node http://localhost:5052 --status
-```
-
-If the validator voluntary exit has been accepted by the chain, the following message will be returned:
-
-```text
-Voluntary exit for validator 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572425706b343117b48bdca56808416 has been accepted into the beacon chain, but not yet finalized. Finalization may take several minutes or longer. Before finalization there is a low probability that the exit may be reverted.
-Current epoch: 2, Exit epoch: 7, Withdrawable epoch: 263
-Please keep your validator running till exit epoch
-Exit epoch in approximately 480 secs
-```
-
-When the exit epoch is reached, querying the status will return:
-
-```text
-Validator 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572425706b343117b48bdca56808416 has exited at epoch: 7
-```
-
-You can safely shut down the validator client at this point.
+To check the voluntary exit status, refer to [the list command](./validator-manager-api.md#list).
 
 The following command will only generate the voluntary exit message and save it to a file named `{validator_pubkey}.json`. It will not publish the message to the network, i.e., there will be no voluntary exit.
 
@@ -112,3 +91,26 @@ To list the validators running on the validator client:
 ```bash
 lighthouse vm list --vc-token ~/.lighthouse/mainnet/validators/api-token.txt
 ```
+
+The `list` command can also be used to check the voluntary exit status of validators. To do so, use both `--beacon-node` and `--validators` flags. The `--validators` flag accepts a comma-separated list of validator public keys, or the keyword `all` to check the voluntary exit status of all validators attached to the validator client.
+
+```bash
+lighthouse vm list --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572425706b343117b48bdca56808416 --beacon-node http://localhost:5052
+```
+
+If the validator voluntary exit has been accepted by the chain, the following message will be returned:
+
+```text
+Voluntary exit for validator 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572425706b343117b48bdca56808416 has been accepted into the beacon chain, but not yet finalized. Finalization may take several minutes or longer. Before finalization there is a low probability that the exit may be reverted.
+Current epoch: 2, Exit epoch: 7, Withdrawable epoch: 263
+Please keep your validator running till exit epoch
+Exit epoch in approximately 480 secs
+```
+
+When the exit epoch is reached, querying the status will return:
+
+```text
+Validator 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572425706b343117b48bdca56808416 has exited at epoch: 7
+```
+
+You can safely shut down the validator client at this point.
