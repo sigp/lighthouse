@@ -1091,21 +1091,33 @@ mod tests {
     }
 
     fn bbroot_request_v1(spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()], spec)
+        BlocksByRootRequest::V1(BlocksByRootRequestV1 {
+            block_roots: RuntimeVariableList::from_vec(
+                vec![Hash256::zero()],
+                spec.max_request_blocks_upper_bound(),
+            ),
+        })
     }
 
     fn bbroot_request_v2(spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![Hash256::zero()], spec)
+        BlocksByRootRequest::V2(BlocksByRootRequestV2 {
+            block_roots: RuntimeVariableList::from_vec(
+                vec![Hash256::zero()],
+                spec.max_request_blocks_upper_bound(),
+            ),
+        })
     }
 
     fn blbroot_request(spec: &ChainSpec) -> BlobsByRootRequest {
-        BlobsByRootRequest::new(
-            vec![BlobIdentifier {
-                block_root: Hash256::zero(),
-                index: 0,
-            }],
-            spec,
-        )
+        BlobsByRootRequest {
+            blob_ids: RuntimeVariableList::from_vec(
+                vec![BlobIdentifier {
+                    block_root: Hash256::zero(),
+                    index: 0,
+                }],
+                spec.max_request_blobs_upper_bound(),
+            ),
+        }
     }
 
     fn ping_message() -> Ping {

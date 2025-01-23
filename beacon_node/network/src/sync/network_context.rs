@@ -459,7 +459,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (None, None)
             };
 
-        // TODO(pawan): this would break if a batch contains multiple epochs
         let max_blobs_len = self.chain.spec.max_blobs_per_block(epoch);
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,

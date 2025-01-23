@@ -625,11 +625,33 @@ impl ChainSpec {
         }
     }
 
+    /// Returns the highest possible value for max_request_blocks based on enabled forks.
+    ///
+    /// This is useful for upper bounds in testing.
+    pub fn max_request_blocks_upper_bound(&self) -> usize {
+        if self.deneb_fork_epoch.is_some() {
+            self.max_request_blocks_deneb as usize
+        } else {
+            self.max_request_blocks as usize
+        }
+    }
+
     pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
         if fork_name.electra_enabled() {
             self.max_request_blob_sidecars_electra as usize
         } else {
             self.max_request_blob_sidecars as usize
+        }
+    }
+
+    /// Returns the highest possible value for max_request_blobs based on enabled forks.
+    ///
+    /// This is useful for upper bounds in testing.
+    pub fn max_request_blobs_upper_bound(&self) -> usize {
+        if self.electra_fork_epoch.is_some() {
+            self.max_request_blob_sidecars_electra as usize
+        } else {
+            self.max_request_blocks as usize
         }
     }
 
