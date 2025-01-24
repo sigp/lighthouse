@@ -25,7 +25,6 @@ pub use libp2p::identity::Keypair;
 pub mod peerdb;
 
 use crate::peer_manager::connectivity::Connectivity;
-use crate::peer_manager::network_globals_wrapper::LHNetworkGlobalsWrapper;
 use crate::peer_manager::peerdb::client::ClientKind;
 use libp2p::multiaddr;
 pub use peerdb::peer_info::{
@@ -43,7 +42,7 @@ use types::data_column_custody_group::{
 pub mod config;
 mod connectivity;
 mod network_behaviour;
-mod network_globals_wrapper;
+mod network_globals_provider;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
 /// requests. This defines the interval in seconds.
@@ -119,7 +118,7 @@ pub struct PeerManager<E: EthSpec> {
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
 
-    connectivity: Connectivity<LHNetworkGlobalsWrapper<E>>,
+    connectivity: Connectivity<Arc<NetworkGlobals<E>>>,
 }
 
 /// The events that the `PeerManager` outputs (requests).
@@ -206,7 +205,7 @@ impl<E: EthSpec> PeerManager<E> {
                 MIN_OUTBOUND_ONLY_FACTOR,
                 TARGET_OUTBOUND_ONLY_FACTOR,
                 discovery_enabled,
-                LHNetworkGlobalsWrapper::new(network_globals),
+                network_globals,
             ),
         })
     }

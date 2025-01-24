@@ -1,10 +1,10 @@
-use crate::peer_manager::network_globals_wrapper::NetworkGlobalsWrapper;
+use crate::peer_manager::network_globals_provider::NetworkGlobalsProvider;
 use crate::EnrExt;
 use discv5::Enr;
 use std::collections::HashMap;
 use std::time::Instant;
 
-pub struct Connectivity<N: NetworkGlobalsWrapper> {
+pub struct Connectivity<N: NetworkGlobalsProvider> {
     target_peers: usize,
     peer_excess_factor: f32,
     priority_peer_excess: f32,
@@ -14,10 +14,10 @@ pub struct Connectivity<N: NetworkGlobalsWrapper> {
     discovery_enabled: bool,
     /// Peers queued to be dialed.
     peers_to_dial: Vec<Enr>,
-    network_globals_wrapper: N,
+    network_globals_provider: N,
 }
 
-impl<N: NetworkGlobalsWrapper> Connectivity<N> {
+impl<N: NetworkGlobalsProvider> Connectivity<N> {
     pub fn new(
         target_peers: usize,
         peer_excess_factor: f32,
@@ -25,7 +25,7 @@ impl<N: NetworkGlobalsWrapper> Connectivity<N> {
         min_outbound_only_factor: f32,
         target_outbound_only_factor: f32,
         discovery_enabled: bool,
-        network_globals_connectivity: N,
+        network_globals_provider: N,
     ) -> Self {
         Self {
             target_peers,
@@ -35,14 +35,14 @@ impl<N: NetworkGlobalsWrapper> Connectivity<N> {
             target_outbound_only_factor,
             discovery_enabled,
             peers_to_dial: Default::default(),
-            network_globals_wrapper: network_globals_connectivity,
+            network_globals_provider,
         }
     }
 
     /// A peer is being dialed.
     /// Returns true, if this peer will be dialed.
     pub fn dial_peer(&mut self, peer: Enr) -> bool {
-        if self.network_globals_wrapper.should_dial(&peer.peer_id()) {
+        if self.network_globals_provider.should_dial(&peer.peer_id()) {
             self.peers_to_dial.push(peer);
             true
         } else {
@@ -57,7 +57,7 @@ impl<N: NetworkGlobalsWrapper> Connectivity<N> {
     pub fn peers_discovered(&mut self, results: &HashMap<Enr, Option<Instant>>) -> usize {
         let mut to_dial_peers = 0;
         let results_count = results.len();
-        let connected_or_dialing = self.network_globals_wrapper.connected_or_dialing_peers();
+        let connected_or_dialing = self.network_globals_provider.connected_or_dialing_peers();
         for (enr, min_ttl) in results {
             // There are two conditions in deciding whether to dial this peer.
             // 1. If we are less than our max connections. Discovery queries are executed to reach
@@ -67,7 +67,7 @@ impl<N: NetworkGlobalsWrapper> Connectivity<N> {
             //    considered a priority. We have pre-allocated some extra priority slots for these
             //    peers as specified by PRIORITY_PEER_EXCESS. Therefore we dial these peers, even
             //    if we are already at our max_peer limit.
-            if !self.peers_to_dial.contains(&enr)
+            if !self.peers_to_dial.contains(enr)
                 && ((min_ttl.is_some()
                     && connected_or_dialing + to_dial_peers < self.max_priority_peers())
                     || connected_or_dialing + to_dial_peers < self.max_peers())
@@ -76,7 +76,7 @@ impl<N: NetworkGlobalsWrapper> Connectivity<N> {
                 // dialed
                 let peer_id = enr.peer_id();
                 if let Some(min_ttl) = min_ttl {
-                    self.network_globals_wrapper
+                    self.network_globals_provider
                         .update_min_ttl(&peer_id, *min_ttl);
                 }
                 if self.dial_peer(enr.clone()) {
@@ -110,15 +110,13 @@ impl<N: NetworkGlobalsWrapper> Connectivity<N> {
 
     /// This function checks the status of our current peers and optionally requests a discovery
     /// query if we need to find more peers to maintain the current number of peers
-    pub fn maintain_peer_count(&mut self, dialing_peers: usize) -> usize
-    where
-        N: NetworkGlobalsWrapper,
-    {
+    pub fn maintain_peer_count(&mut self, dialing_peers: usize) -> usize {
         // Check if we need to do a discovery lookup
         if self.discovery_enabled {
-            let peer_count = self.network_globals_wrapper.connected_or_dialing_peers();
-            let outbound_only_peer_count =
-                self.network_globals_wrapper.connected_outbound_only_peers();
+            let peer_count = self.network_globals_provider.connected_or_dialing_peers();
+            let outbound_only_peer_count = self
+                .network_globals_provider
+                .connected_outbound_only_peers();
             // return wanted number of peers
             if peer_count < self.target_peers.saturating_sub(dialing_peers) {
                 // We need more peers in general.
