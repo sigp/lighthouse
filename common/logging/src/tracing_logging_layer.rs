@@ -17,6 +17,7 @@ pub struct LoggingLayer {
     pub disable_log_timestamp: bool,
     pub logfile_color: bool,
     pub format: Option<String>,
+    pub extra_info: bool,
     span_fields: Arc<Mutex<HashMap<Id, SpanData>>>,
 }
 
@@ -27,6 +28,7 @@ impl LoggingLayer {
         disable_log_timestamp: bool,
         logfile_color: bool,
         format: Option<String>,
+        extra_info: bool,
     ) -> Self {
         Self {
             non_blocking_writer,
@@ -34,6 +36,7 @@ impl LoggingLayer {
             disable_log_timestamp,
             logfile_color,
             format,
+            extra_info,
             span_fields: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -81,6 +84,35 @@ where
 
         event.record(&mut visitor);
 
+        let module =match meta.module_path(){
+            Some(module)=>module,
+            None => "<unknown_module>",
+        };
+        
+        let file = match meta.file() {
+            Some(file) => file,
+            None => "<unknown_file>",
+        };
+
+        let line = match meta.line(){
+            Some(line) => line.to_string(),
+            None => "<unknown_line>".to_string(),
+        };
+
+        let gray = "\x1b[90m";
+        let reset = "\x1b[0m";
+        
+        let location = if self.extra_info {
+            if self.logfile_color{
+                format!("{}{}::{}:{}{}", gray, module, file, line, reset)
+            }else{
+                format!("{}::{}:{}", module, file, line)
+            }
+        } else {
+            String::new()
+        };
+
+        
         if self.format.as_deref() == Some("JSON") {
             let level_str = if visitor.is_crit {
                 "CRIT"
@@ -227,10 +259,17 @@ where
                 full_message = format!("{}  {}", padded_message, formatted_fields);
             }
     
-            let message = format!(
-                "{} {} {}  {}\n",
-                timestamp, level_str, full_message, formatted_spans
-            );
+            let message = if !location.is_empty() {
+            format!(
+                "{} {} {} {} {}\n",
+                timestamp, level_str, location, full_message , formatted_spans
+            )
+        } else {
+            format!(
+                    "{} {} {}  {}\n",
+                    timestamp, level_str, full_message, formatted_spans    
+                )
+        };
     
             if let Err(e) = writer.write_all(message.as_bytes()) {
                 eprintln!("Failed to write log: {}", e);

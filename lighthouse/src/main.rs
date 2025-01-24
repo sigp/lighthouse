@@ -220,6 +220,15 @@ fn main() {
                 .display_order(0)
         )
         .arg(
+            Arg::new("log-extra-info")
+            .long("log-extra-info")
+            .action(ArgAction::SetTrue)
+            .help_heading(FLAG_HEADER)
+            .help("If present, show module,file,line in logs")
+            .global(true)
+            .display_order(0)
+        )
+        .arg(
             Arg::new("disable-log-timestamp")
             .long("disable-log-timestamp")
             .action(ArgAction::SetTrue)
@@ -500,6 +509,7 @@ fn run<E: EthSpec>(
 
     let disable_log_timestamp = matches.get_flag("disable-log-timestamp");
 
+    let extra_info = matches.get_flag("log-extra-info");
     let logfile_debug_level = matches
         .get_one::<String>("logfile-debug-level")
         .ok_or("Expected --logfile-debug-level flag")?;
@@ -579,6 +589,7 @@ fn run<E: EthSpec>(
             compression: logfile_compress,
             is_restricted: logfile_restricted,
             sse_logging,
+            extra_info,
         },
         matches,
         environment_builder,

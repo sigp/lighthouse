@@ -116,6 +116,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             compression: false,
             is_restricted: true,
             sse_logging: false,
+            extra_info: false,
         },
         matches,
         EnvironmentBuilder::minimal(),

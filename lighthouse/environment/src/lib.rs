@@ -64,6 +64,7 @@ pub struct LoggerConfig {
     pub compression: bool,
     pub is_restricted: bool,
     pub sse_logging: bool,
+    pub extra_info: bool,
 }
 impl Default for LoggerConfig {
     fn default() -> Self {
@@ -80,6 +81,7 @@ impl Default for LoggerConfig {
             compression: false,
             is_restricted: true,
             sse_logging: false,
+            extra_info: false,
         }
     }
 }
@@ -219,6 +221,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         config.disable_log_timestamp,
                         config.logfile_color,
                         config.logfile_format,
+                        config.extra_info,
                     )
                 }
                 Err(e) => {
@@ -230,6 +233,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         config.disable_log_timestamp,
                         config.logfile_color,
                         config.logfile_format.clone(),
+                        config.extra_info,
                     )
                 }
             }
@@ -242,6 +246,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 config.disable_log_timestamp,
                 true,
                 config.logfile_format,
+                config.extra_info,
             )
         };
 
@@ -254,6 +259,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             config.disable_log_timestamp,
             true,
             config.log_format,
+            config.extra_info,
         );
 
         let sse_logging_layer_opt = if config.sse_logging {

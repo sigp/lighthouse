@@ -112,6 +112,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             compression: false,
             is_restricted: true,
             sse_logging: false,
+            extra_info: false,
         },
         matches,
         EnvironmentBuilder::minimal(),
