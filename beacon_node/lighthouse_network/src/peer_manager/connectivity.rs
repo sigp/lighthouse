@@ -1,4 +1,4 @@
-use crate::{EnrExt, NetworkGlobals, PeerConnectionStatus, PeerId};
+use crate::{EnrExt, NetworkGlobals, PeerId};
 use discv5::Enr;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -177,7 +177,7 @@ impl<N: NetworkGlobalsConnectivity> Connectivity<N> {
         // recursiveness results in an infinite loop in networks where there not enough peers to
         // reach out target. To prevent the infinite loop, if a query returns no useful peers, we
         // will cancel the recursiveness and wait for the heartbeat to trigger another query latter.
-        if results.len() > 0 && to_dial_peers == 0 {
+        if results_count > 0 && to_dial_peers == 0 {
             //debug!(self.log, "Skipping recursive discovery query after finding no useful results"; "results" => results_count);
             crate::metrics::inc_counter(&crate::metrics::DISCOVERY_NO_USEFUL_ENRS);
             0
