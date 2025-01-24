@@ -24,7 +24,7 @@ pub fn cli_app() -> Command {
     Command::new(CMD)
         .about(
             "Exits one or more validators using the HTTP API. It can \
-        also be used to generate voluntary exit message for a particular future epoch.",
+        also be used to generate a presign voluntary exit message for a particular future epoch.",
         )
         .arg(
             Arg::new(BEACON_URL_FLAG)
@@ -71,11 +71,13 @@ pub fn cli_app() -> Command {
                 .value_name("EPOCH")
                 .help(
                     "Provide the minimum epoch for processing voluntary exit. \
-                This flag is typically used in combination with `--presign` to \
+                This flag is required to be used in combination with `--presign` to \
                 save the voluntary exit presign to a file for future use.",
                 )
                 .action(ArgAction::Set)
-                .display_order(0),
+                .display_order(0)
+                .requires(PRESIGN_FLAG)
+                .conflicts_with(BEACON_URL_FLAG),
         )
         .arg(
             Arg::new(PRESIGN_FLAG)

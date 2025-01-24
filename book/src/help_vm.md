@@ -30,7 +30,8 @@ Commands:
           API.
   exit
           Exits one or more validators using the HTTP API. It can also be used
-          to generate voluntary exit message for a particular future epoch.
+          to generate a presign voluntary exit message for a particular future
+          epoch.
   help
           Print this message or the help of the given subcommand(s)
 

@@ -18,7 +18,7 @@ Example:
 lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators 0x8885c29b8f88ee9b9a37b480fd4384fed74bda33d85bc8171a904847e65688b6c9bb4362d6597fd30109fb2def6c3ae4,0xa262dae3dcd2b2e280af534effa16bedb27c06f2959e114d53bd2a248ca324a018dc73179899a066149471a94a1bc92f --beacon-node http://localhost:5052
 ```
 
-If successful, the following message will be returned:
+If successful, the following log will be returned:
 
 ```text
 Successfully validated and published voluntary exit for validator 0x8885c29b8f88ee9b9a37b480fd4384fed74bda33d85bc8171a904847e65688b6c9bb4362d6597fd30109fb2def6c3ae4
@@ -34,21 +34,21 @@ lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --v
 
 To check the voluntary exit status, refer to [the list command](./validator-manager-api.md#list).
 
-The following command will only generate the voluntary exit message and save it to a file named `{validator_pubkey}.json`. It will not publish the message to the network, i.e., there will be no voluntary exit.
+The following command will only generate a presign voluntary exit message and save it to a file named `{validator_pubkey}.json`. It **will not** publish the voluntary exit to the network.
 
-To generate the exit message and save it to a file, use the flag `--signature`:
-
-```bash
-lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators all --signature
-```
-
-To generate the exit message for a particular (future) epoch, use the flag `--exit-epoch`:
+To generate a presign exit message and save it to a file, use the flag `--presign`:
 
 ```bash
-lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators all --signature --exit-epoch 1234567 
+lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators all --presign
 ```
 
-The generated exit message will only be valid at or after the specified exit-epoch, in this case, epoch 1234567.
+To generate a presign exit message for a particular (future) epoch, use the flag `--exit-epoch`:
+
+```bash
+lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators all --presign --exit-epoch 1234567 
+```
+
+The generated presign exit message will only be valid at or after the specified exit-epoch, in this case, epoch 1234567.
 
 ## Delete
 
@@ -98,7 +98,7 @@ The `list` command can also be used to check the voluntary exit status of valida
 lighthouse vm list --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572425706b343117b48bdca56808416 --beacon-node http://localhost:5052
 ```
 
-If the validator voluntary exit has been accepted by the chain, the following message will be returned:
+If the validator voluntary exit has been accepted by the chain, the following log will be returned:
 
 ```text
 Voluntary exit for validator 0x8de7ec501d574152f52a962bf588573df2fc3563fd0c6077651208ed20f24f3d8572425706b343117b48bdca56808416 has been accepted into the beacon chain, but not yet finalized. Finalization may take several minutes or longer. Before finalization there is a low probability that the exit may be reverted.
