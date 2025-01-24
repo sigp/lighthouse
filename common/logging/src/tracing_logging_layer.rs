@@ -18,6 +18,7 @@ pub struct LoggingLayer {
     pub logfile_color: bool,
     pub format: Option<String>,
     pub extra_info: bool,
+    pub dep_logs: bool,
     span_fields: Arc<Mutex<HashMap<Id, SpanData>>>,
 }
 
@@ -29,6 +30,7 @@ impl LoggingLayer {
         logfile_color: bool,
         format: Option<String>,
         extra_info: bool,
+        dep_logs: bool,
     ) -> Self {
         Self {
             non_blocking_writer,
@@ -37,6 +39,7 @@ impl LoggingLayer {
             logfile_color,
             format,
             extra_info,
+            dep_logs,
             span_fields: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -73,6 +76,15 @@ where
         } else {
             String::new()
         };
+
+        if let Some(file_path) = meta.file() { 
+            if !self.dep_logs && file_path.contains("/.cargo/")
+                {
+                    return;
+                }
+        }else {
+            return;
+        }
 
         let mut writer = self.non_blocking_writer.clone();
 

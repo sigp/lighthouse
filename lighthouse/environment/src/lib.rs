@@ -222,6 +222,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         config.logfile_color,
                         config.logfile_format,
                         config.extra_info,
+                        true,
                     )
                 }
                 Err(e) => {
@@ -234,6 +235,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         config.logfile_color,
                         config.logfile_format.clone(),
                         config.extra_info,
+                        true,
                     )
                 }
             }
@@ -247,6 +249,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 true,
                 config.logfile_format,
                 config.extra_info,
+                true,
             )
         };
 
@@ -260,6 +263,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             true,
             config.log_format,
             config.extra_info,
+            false
         );
 
         let sse_logging_layer_opt = if config.sse_logging {
