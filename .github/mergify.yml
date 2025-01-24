@@ -18,7 +18,7 @@ pull_request_rules:
       - base=unstable
       - label=trivial
       - author=@sigp/lighthouse
-      - conflict
+      - -conflict
     actions:
       review:
         type: APPROVE
