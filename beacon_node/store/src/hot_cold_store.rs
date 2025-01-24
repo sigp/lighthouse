@@ -14,8 +14,8 @@ use crate::metadata::{
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
-    get_data_column_key, metrics, parse_data_column_key, BlobSidecarListFromRoot, DBColumn,
-    DatabaseBlock, Error, ItemStore, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+    get_data_column_key, metrics, parse_data_column_key, BlobSidecarListFromRoot, ColumnKeyIter,
+    DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use itertools::{process_results, Itertools};
 use lru::LruCache;
@@ -405,7 +405,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     }
 
     /// Return an iterator over the state roots of all temporary states.
-    pub fn iter_temporary_state_roots(&self) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
+    pub fn iter_temporary_state_roots(&self) -> ColumnKeyIter<Hash256> {
         self.hot_db
             .iter_column_keys::<Hash256>(DBColumn::BeaconStateTemporary)
     }
@@ -778,7 +778,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut light_client_updates = vec![];
         for res in self
             .hot_db
-            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())?
         {
             let (sync_committee_bytes, light_client_update_bytes) = res?;
             let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)?;
@@ -2077,7 +2077,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Fetch all keys in the data_column column with prefix `block_root`
     pub fn get_data_column_keys(&self, block_root: Hash256) -> Result<Vec<ColumnIndex>, Error> {
         self.blobs_db
-            .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())
+            .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())?
             .take_while(|res| {
                 let Ok((key, _)) = res else { return false };
 
@@ -2932,7 +2932,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         columns.extend(previous_schema_columns);
 
         for column in columns {
-            for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {
+            for res in self.cold_db.iter_column_keys::<Vec<u8>>(column)? {
                 let key = res?;
                 cold_ops.push(KeyValueStoreOp::DeleteKey(column, key));
             }
@@ -2976,7 +2976,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut state_delete_batch = vec![];
         for res in self
             .hot_db
-            .iter_column::<Hash256>(DBColumn::BeaconStateSummary)
+            .iter_column::<Hash256>(DBColumn::BeaconStateSummary)?
         {
             let (state_root, summary_bytes) = res?;
             let summary = HotStateSummary::from_ssz_bytes(&summary_bytes)?;

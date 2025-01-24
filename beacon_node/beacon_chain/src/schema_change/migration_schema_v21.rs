@@ -19,7 +19,7 @@ pub fn upgrade_to_v21<T: BeaconChainTypes>(
     // Iterate through all pubkeys and decompress them.
     for (i, res) in db
         .hot_db
-        .iter_column::<Hash256>(DBColumn::PubkeyCache)
+        .iter_column::<Hash256>(DBColumn::PubkeyCache)?
         .enumerate()
     {
         let (key, value) = res?;
@@ -51,7 +51,7 @@ pub fn downgrade_from_v21<T: BeaconChainTypes>(
     // Iterate through all pubkeys and recompress them.
     for (i, res) in db
         .hot_db
-        .iter_column::<Hash256>(DBColumn::PubkeyCache)
+        .iter_column::<Hash256>(DBColumn::PubkeyCache)?
         .enumerate()
     {
         let (key, value) = res?;

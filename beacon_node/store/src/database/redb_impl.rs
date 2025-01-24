@@ -231,7 +231,7 @@ impl<E: EthSpec> Redb<E> {
             })
         };
 
-        Box::new(iter)
+        Ok(Box::new(iter))
     }
 
     /// Iterate through all keys and values in a particular column.
@@ -242,8 +242,6 @@ impl<E: EthSpec> Redb<E> {
     pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
-
-        let prefix = from.to_vec();
 
         let iter = {
             let open_db = self.db.read();
@@ -272,7 +270,7 @@ impl<E: EthSpec> Redb<E> {
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        self.iter_column_from(column, &vec![0; column.key_size()], |_, _| true)
+        self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
     pub fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {

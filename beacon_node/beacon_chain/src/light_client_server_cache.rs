@@ -277,7 +277,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let mut light_client_updates = vec![];
         for res in store
             .hot_db
-            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())?
         {
             let (sync_committee_bytes, light_client_update_bytes) = res?;
             let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)

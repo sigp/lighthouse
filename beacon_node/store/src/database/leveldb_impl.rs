@@ -222,7 +222,7 @@ impl<E: EthSpec> LevelDB<E> {
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
-        Box::new(
+        Ok(Box::new(
             iter.take_while(move |(key, _)| key.matches_column(column))
                 .map(move |(bytes_key, value)| {
                     metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
@@ -238,7 +238,7 @@ impl<E: EthSpec> LevelDB<E> {
                     })?;
                     Ok((K::from_bytes(key)?, value))
                 }),
-        )
+        ))
     }
 
     pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
@@ -247,7 +247,7 @@ impl<E: EthSpec> LevelDB<E> {
         let iter = self.db.keys_iter(self.read_options());
         iter.seek(&start_key);
 
-        Box::new(
+        Ok(Box::new(
             iter.take_while(move |key| key.matches_column(column))
                 .map(move |bytes_key| {
                     metrics::inc_counter_vec(&metrics::DISK_DB_KEY_READ_COUNT, &[column.into()]);
@@ -259,7 +259,7 @@ impl<E: EthSpec> LevelDB<E> {
                     let key = &bytes_key.key[column.as_bytes().len()..];
                     K::from_bytes(key)
                 }),
-        )
+        ))
     }
 
     /// Iterate through all keys and values in a particular column.
