@@ -1328,13 +1328,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return None;
             }
             Err(e @ BlockError::BlobNotRequired(_)) => {
-                // TODO(das): penalty not implemented yet as other clients may still send us blobs
-                // during early stage of implementation.
                 debug!(self.log, "Received blobs for slot after PeerDAS epoch from peer";
                     "error" => %e,
                     "peer_id" => %peer_id,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                // Receiving blobs when not required just spends unnecessary bandwidth of us. If the
+                // peer is malicious the damange is mild. If the peer is faulty, it's likely due to
+                // a non-updated node which will be quickly disconnected due to other faults.
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "blob_not_required",
+                );
                 return None;
             }
         };
