@@ -572,37 +572,30 @@ fn handle_rpc_request<E: EthSpec>(
         SupportedProtocol::BlocksByRangeV1 => Ok(Some(RequestType::BlocksByRange(
             OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1::from_ssz_bytes(decoded_buffer)?),
         ))),
-        SupportedProtocol::BlocksByRootV2 => {
-            let max_request_blocks = spec.max_request_blocks(current_fork);
-            Ok(Some(RequestType::BlocksByRoot(BlocksByRootRequest::V2(
-                BlocksByRootRequestV2 {
-                    block_roots: RuntimeVariableList::from_ssz_bytes(
-                        decoded_buffer,
-                        max_request_blocks,
-                    )?,
-                },
-            ))))
-        }
-        SupportedProtocol::BlocksByRootV1 => {
-            let max_request_blocks = spec.max_request_blocks(current_fork);
-            Ok(Some(RequestType::BlocksByRoot(BlocksByRootRequest::V1(
-                BlocksByRootRequestV1 {
-                    block_roots: RuntimeVariableList::from_ssz_bytes(
-                        decoded_buffer,
-                        max_request_blocks,
-                    )?,
-                },
-            ))))
-        }
+        SupportedProtocol::BlocksByRootV2 => Ok(Some(RequestType::BlocksByRoot(
+            BlocksByRootRequest::V2(BlocksByRootRequestV2 {
+                block_roots: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    spec.max_request_blocks(current_fork),
+                )?,
+            }),
+        ))),
+        SupportedProtocol::BlocksByRootV1 => Ok(Some(RequestType::BlocksByRoot(
+            BlocksByRootRequest::V1(BlocksByRootRequestV1 {
+                block_roots: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    spec.max_request_blocks(current_fork),
+                )?,
+            }),
+        ))),
         SupportedProtocol::BlobsByRangeV1 => Ok(Some(RequestType::BlobsByRange(
             BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         SupportedProtocol::BlobsByRootV1 => {
-            let max_request_blob_sidecars = spec.max_request_blob_sidecars(current_fork);
             Ok(Some(RequestType::BlobsByRoot(BlobsByRootRequest {
                 blob_ids: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    max_request_blob_sidecars,
+                    spec.max_request_blob_sidecars(current_fork),
                 )?,
             })))
         }
@@ -1091,23 +1084,20 @@ mod tests {
     }
 
     fn bbroot_request_v1(fork_name: ForkName) -> BlocksByRootRequest {
-        let fork_context = fork_context(fork_name);
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context)
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context(fork_name))
     }
 
     fn bbroot_request_v2(fork_name: ForkName) -> BlocksByRootRequest {
-        let fork_context = fork_context(fork_name);
-        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context)
+        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context(fork_name))
     }
 
     fn blbroot_request(fork_name: ForkName) -> BlobsByRootRequest {
-        let fork_context = fork_context(fork_name);
         BlobsByRootRequest::new(
             vec![BlobIdentifier {
                 block_root: Hash256::zero(),
                 index: 0,
             }],
-            &fork_context,
+            &fork_context(fork_name),
         )
     }
 
