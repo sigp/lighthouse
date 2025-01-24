@@ -1,10 +1,9 @@
+use crate::{EnrExt, NetworkGlobals, PeerConnectionStatus, PeerId};
+use discv5::Enr;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use discv5::Enr;
 use types::EthSpec;
-use crate::{EnrExt, NetworkGlobals, PeerConnectionStatus, PeerId};
-
 
 pub trait NetworkGlobalsConnectivity {
     /// Returns the number of libp2p connected peers with outbound-only connections.
@@ -43,7 +42,10 @@ impl<E: EthSpec> LHNetworkGlobalsConnectivity<E> {
 
     /// Update min ttl of a peer.
     fn update_min_ttl(&self, peer_id: &PeerId, min_ttl: Instant) {
-        self.network_globals.peers.write().update_min_ttl(peer_id, min_ttl);
+        self.network_globals
+            .peers
+            .write()
+            .update_min_ttl(peer_id, min_ttl);
     }
 
     /// Returns true if the peer should be dialed. This checks the connection state and the
@@ -86,7 +88,7 @@ pub struct Connectivity<N: NetworkGlobalsConnectivity> {
     discovery_enabled: bool,
     /// Peers queued to be dialed.
     peers_to_dial: Vec<Enr>,
-    network_globals_connectivity: N
+    network_globals_connectivity: N,
 }
 
 impl<N: NetworkGlobalsConnectivity> Connectivity<N> {
@@ -113,8 +115,10 @@ impl<N: NetworkGlobalsConnectivity> Connectivity<N> {
 
     /// A peer is being dialed.
     /// Returns true, if this peer will be dialed.
-    pub fn dial_peer(&mut self, peer: Enr) -> bool{
-        if self.network_globals_connectivity.should_dial(&peer.peer_id())
+    pub fn dial_peer(&mut self, peer: Enr) -> bool {
+        if self
+            .network_globals_connectivity
+            .should_dial(&peer.peer_id())
         {
             self.peers_to_dial.push(peer);
             true
@@ -128,10 +132,11 @@ impl<N: NetworkGlobalsConnectivity> Connectivity<N> {
     ///
     /// This function decides whether or not to dial these peers.
     pub fn peers_discovered(&mut self, results: &HashMap<Enr, Option<Instant>>) -> usize {
-
         let mut to_dial_peers = 0;
         let results_count = results.len();
-        let connected_or_dialing = self.network_globals_connectivity.connected_or_dialing_peers();
+        let connected_or_dialing = self
+            .network_globals_connectivity
+            .connected_or_dialing_peers();
         for (enr, min_ttl) in results {
             // There are two conditions in deciding whether to dial this peer.
             // 1. If we are less than our max connections. Discovery queries are executed to reach
@@ -143,14 +148,15 @@ impl<N: NetworkGlobalsConnectivity> Connectivity<N> {
             //    if we are already at our max_peer limit.
             if !self.peers_to_dial.contains(&enr)
                 && ((min_ttl.is_some()
-                && connected_or_dialing + to_dial_peers < self.max_priority_peers())
-                || connected_or_dialing + to_dial_peers < self.max_peers())
+                    && connected_or_dialing + to_dial_peers < self.max_priority_peers())
+                    || connected_or_dialing + to_dial_peers < self.max_peers())
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
                 let peer_id = enr.peer_id();
                 if let Some(min_ttl) = min_ttl {
-                    self.network_globals_connectivity.update_min_ttl(&peer_id, *min_ttl);
+                    self.network_globals_connectivity
+                        .update_min_ttl(&peer_id, *min_ttl);
                 }
                 if self.dial_peer(enr.clone()) {
                     //debug!(self.log, "Added discovered ENR peer to dial queue"; "peer_id" => %peer_id);
@@ -184,11 +190,17 @@ impl<N: NetworkGlobalsConnectivity> Connectivity<N> {
     /// This function checks the status of our current peers and optionally requests a discovery
     /// query if we need to find more peers to maintain the current number of peers
     pub fn maintain_peer_count(&mut self, dialing_peers: usize) -> usize
-        where N: NetworkGlobalsConnectivity {
+    where
+        N: NetworkGlobalsConnectivity,
+    {
         // Check if we need to do a discovery lookup
         if self.discovery_enabled {
-            let peer_count = self.network_globals_connectivity.connected_or_dialing_peers();
-            let outbound_only_peer_count = self.network_globals_connectivity.connected_outbound_only_peers();
+            let peer_count = self
+                .network_globals_connectivity
+                .connected_or_dialing_peers();
+            let outbound_only_peer_count = self
+                .network_globals_connectivity
+                .connected_outbound_only_peers();
             let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
                 // We need more peers in general.
                 self.max_peers().saturating_sub(dialing_peers) - peer_count
@@ -217,8 +229,8 @@ impl<N: NetworkGlobalsConnectivity> Connectivity<N> {
     /// subscribed to subnets that our validator requires. This is `target_peers` * (1 +
     /// PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)
     pub fn max_priority_peers(&self) -> usize {
-        (self.target_peers as f32 * (1.0 + self.peer_excess_factor + self.priority_peer_excess)).ceil()
-            as usize
+        (self.target_peers as f32 * (1.0 + self.peer_excess_factor + self.priority_peer_excess))
+            .ceil() as usize
     }
 
     /// The minimum number of outbound peers that we reach before we start another discovery query.
@@ -234,7 +246,8 @@ impl<N: NetworkGlobalsConnectivity> Connectivity<N> {
     /// The maximum number of peers that are connected or dialing before we refuse to do another
     /// discovery search for more outbound peers. We can use up to half the priority peer excess allocation.
     pub fn max_outbound_dialing_peers(&self) -> usize {
-        (self.target_peers as f32 * (1.0 + self.peer_excess_factor + self.priority_peer_excess / 2.0)).ceil()
-            as usize
+        (self.target_peers as f32
+            * (1.0 + self.peer_excess_factor + self.priority_peer_excess / 2.0))
+            .ceil() as usize
     }
 }
