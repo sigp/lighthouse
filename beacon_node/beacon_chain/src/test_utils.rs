@@ -1,7 +1,7 @@
 use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::data_column_verification::CustodyDataColumn;
-use crate::kzg_utils::blobs_to_data_column_sidecars;
+use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
@@ -75,6 +75,11 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // Environment variable to read if `ci_logger` feature is enabled.
 pub const CI_LOGGER_DIR_ENV_VAR: &str = "CI_LOGGER_DIR";
+
+// Pre-computed data column sidecar using a single static blob from:
+// `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
+const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
+    include_bytes!("test_utils/fixtures/test_data_column_sidecars.ssz");
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
 //
@@ -2357,26 +2362,19 @@ where
                 .data_availability_checker
                 .get_sampling_column_count();
 
-            let columns = blob_items
-                .map(|(_proofs, blobs)| {
-                    blobs_to_data_column_sidecars(
-                        &blobs.iter().collect::<Vec<_>>(),
-                        &block,
-                        &self.chain.kzg,
-                        &self.spec,
-                    )
-                    .map(|column_sidecars| {
-                        column_sidecars
-                            .into_iter()
-                            .take(sampling_column_count)
-                            .map(CustodyDataColumn::from_asserted_custody)
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .transpose()
-                .expect("should convert blobs to columns")
-                .unwrap_or_default();
-            RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+            if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
+                // Note: this method ignores the actual custody columns and just take the first
+                // `sampling_column_count` for testing purpose only, because the chain does not
+                // currently have any knowledge of the columns being custodied.
+                let columns = generate_data_column_sidecars_from_block(&block, &self.spec)
+                    .into_iter()
+                    .take(sampling_column_count)
+                    .map(CustodyDataColumn::from_asserted_custody)
+                    .collect::<Vec<_>>();
+                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+            } else {
+                RpcBlock::new_without_blobs(Some(block_root), block)
+            }
         } else {
             let blobs = blob_items
                 .map(|(proofs, blobs)| {
@@ -3073,21 +3071,15 @@ where
     ) {
         let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
         if is_peerdas_enabled {
-            let sidecars = blobs_to_data_column_sidecars(
-                &blobs.collect::<Vec<_>>(),
-                block,
-                &self.chain.kzg,
-                &self.spec,
-            )
-            .unwrap();
-
             let custody_columns = custody_columns_opt.unwrap_or_else(|| {
-                let spec = &self.chain.spec;
-                let sampling_size = spec.sampling_size(spec.custody_requirement).unwrap();
-                (0..sampling_size).collect()
+                let sampling_column_count = self
+                    .chain
+                    .data_availability_checker
+                    .get_sampling_column_count() as u64;
+                (0..sampling_column_count).collect()
             });
 
-            let verified_columns = sidecars
+            let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
                 .into_iter()
                 .filter(|c| custody_columns.contains(&c.index))
                 .map(|sidecar| {
@@ -3098,10 +3090,12 @@ where
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap();
 
-            self.chain
-                .process_gossip_data_columns(verified_columns, || Ok(()))
-                .await
-                .unwrap();
+            if !verified_columns.is_empty() {
+                self.chain
+                    .process_gossip_data_columns(verified_columns, || Ok(()))
+                    .await
+                    .unwrap();
+            }
         } else {
             for (i, (kzg_proof, blob)) in proofs.into_iter().zip(blobs).enumerate() {
                 let sidecar =
@@ -3300,10 +3294,59 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     SignedBeaconBlock<E, FullPayload<E>>,
     DataColumnSidecarList<E>,
 ) {
-    let kzg = get_kzg(spec);
-    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng, spec);
-    let blob_refs = blobs.iter().map(|b| &b.blob).collect::<Vec<_>>();
-    let data_columns = blobs_to_data_column_sidecars(&blob_refs, &block, &kzg, spec).unwrap();
-
+    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng, spec);
+    let data_columns = generate_data_column_sidecars_from_block(&block, spec);
     (block, data_columns)
+}
+
+/// Generate data column sidecars from pre-computed cells and proofs.
+fn generate_data_column_sidecars_from_block<E: EthSpec>(
+    block: &SignedBeaconBlock<E>,
+    spec: &ChainSpec,
+) -> DataColumnSidecarList<E> {
+    let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
+    if kzg_commitments.is_empty() {
+        return vec![];
+    }
+
+    let kzg_commitments_inclusion_proof = block
+        .message()
+        .body()
+        .kzg_commitments_merkle_proof()
+        .unwrap();
+    let signed_block_header = block.signed_block_header();
+
+    // load the precomputed column sidecar to avoid computing them for every block in the tests.
+    let template_data_columns = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
+        TEST_DATA_COLUMN_SIDECARS_SSZ,
+        spec.number_of_columns as usize,
+    )
+    .unwrap();
+
+    let (cells, proofs) = template_data_columns
+        .into_iter()
+        .map(|sidecar| {
+            let DataColumnSidecar {
+                column, kzg_proofs, ..
+            } = sidecar;
+            // There's only one cell per column for a single blob
+            let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
+            let kzg_cell = cell_bytes.try_into().unwrap();
+            let kzg_proof = kzg_proofs.into_iter().next().unwrap();
+            (kzg_cell, kzg_proof)
+        })
+        .collect::<(Vec<_>, Vec<_>)>();
+
+    // Repeat the cells and proofs for every blob
+    let blob_cells_and_proofs_vec =
+        vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+
+    build_data_column_sidecars(
+        kzg_commitments.clone(),
+        kzg_commitments_inclusion_proof,
+        signed_block_header,
+        blob_cells_and_proofs_vec,
+        spec,
+    )
+    .unwrap()
 }
