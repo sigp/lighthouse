@@ -336,9 +336,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        _seen_timestamp: Duration,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
+        // custody_columns must always have at least one element
+        let Some(slot) = custody_columns.iter().map(|d| d.slot()).next() else {
+            return;
+        };
+
+        if let Ok(current_slot) = self.chain.slot() {
+            if current_slot == slot {
+                let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
+                metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
+            }
+        }
+
         let mut result = self
             .chain
             .process_rpc_custody_columns(custody_columns)
