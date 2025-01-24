@@ -283,17 +283,24 @@ impl<E: EthSpec> PendingComponents<E> {
             ..
         } = self;
 
-        let blobs_available_timestamp = verified_blobs
-            .iter()
-            .flatten()
-            .map(|blob| blob.seen_timestamp())
-            .max();
-
         let Some(diet_executed_block) = executed_block else {
             return Err(AvailabilityCheckError::Unexpected);
         };
 
         let is_peer_das_enabled = spec.is_peer_das_enabled_for_epoch(diet_executed_block.epoch());
+        let blobs_available_timestamp = if is_peer_das_enabled {
+            verified_data_columns
+                .iter()
+                .map(|data_column| data_column.seen_timestamp())
+                .max()
+        } else {
+            verified_blobs
+                .iter()
+                .flatten()
+                .map(|blob| blob.seen_timestamp())
+                .max()
+        };
+
         let (blobs, data_columns) = if is_peer_das_enabled {
             let data_columns = verified_data_columns
                 .into_iter()

@@ -5,6 +5,7 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
+use crate::validator_monitor::timestamp_now;
 use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use slog::{debug, error, Logger};
@@ -230,6 +231,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let seen_timestamp = self
+            .slot_clock
+            .now_duration()
+            .ok_or(AvailabilityCheckError::SlotClockError)?;
+
         // TODO(das): report which column is invalid for proper peer scoring
         // TODO(das): batch KZG verification here, but fallback into checking each column
         // individually to report which column(s) are invalid.
@@ -238,7 +244,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(|column| {
                 let index = column.index;
                 Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::new(column, &self.kzg)
+                    KzgVerifiedDataColumn::new(column, &self.kzg, seen_timestamp)
                         .map_err(|e| AvailabilityCheckError::InvalidColumn(index, e))?,
                 ))
             })
@@ -565,6 +571,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             &self.kzg,
             &pending_components.verified_data_columns,
             &self.spec,
+            // TODO(das): what timestamp to use when reconstructing columns?
+            timestamp_now(),
         )
         .map_err(|e| {
             error!(
@@ -732,7 +740,8 @@ where
     // If len > 1 at least one column MUST fail.
     if data_columns.len() > 1 {
         for data_column in data_columns {
-            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
+            let seen_timestamp = Duration::ZERO; // not used
+            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg, seen_timestamp) {
                 return Err(AvailabilityCheckError::InvalidColumn(data_column.index, e));
             }
         }
