@@ -711,7 +711,6 @@ impl TestRig {
         self.complete_data_columns_by_root_request(id, data_columns);
 
         // Expect work event
-        // TODO(das): worth it to append sender id to the work event for stricter assertion?
         self.expect_rpc_sample_verify_work_event();
 
         // Respond with valid result
