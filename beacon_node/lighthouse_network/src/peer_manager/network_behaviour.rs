@@ -94,7 +94,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
             self.events.shrink_to_fit();
         }
 
-        if let Some(enr) = self.peers_to_dial.pop() {
+        if let Some(enr) = self.connectivity.next_peer_to_dial() {
             self.inject_peer_connection(&enr.peer_id(), ConnectingType::Dialing, Some(enr.clone()));
 
             // Prioritize Quic connections over Tcp ones.

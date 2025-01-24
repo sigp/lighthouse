@@ -50,6 +50,10 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
         }
     }
 
+    pub fn next_peer_to_dial(&mut self) -> Option<Enr> {
+        self.peers_to_dial.pop()
+    }
+
     /// Peers that have been returned by discovery requests that are suitable for dialing are
     /// returned here.
     ///

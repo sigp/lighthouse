@@ -1,6 +1,5 @@
 //! Implementation of Lighthouse's peer management system.
 
-use crate::discovery::enr_ext::EnrExt;
 use crate::discovery::peer_id_to_node_id;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RpcErrorResponse};
 use crate::service::TARGET_SUBNET_PEERS;
@@ -86,8 +85,6 @@ pub struct PeerManager<E: EthSpec> {
     status_peers: HashSetDelay<PeerId>,
     /// The target number of peers we would like to connect to.
     target_peers: usize,
-    /// Peers queued to be dialed.
-    peers_to_dial: Vec<Enr>,
     /// The number of temporarily banned peers. This is used to prevent instantaneous
     /// reconnection.
     // NOTE: This just prevents re-connections. The state of the peer is otherwise unaffected. A
@@ -186,7 +183,6 @@ impl<E: EthSpec> PeerManager<E> {
         Ok(PeerManager {
             network_globals: network_globals.clone(),
             events: SmallVec::new(),
-            peers_to_dial: Default::default(),
             inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
             outbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_outbound)),
             status_peers: HashSetDelay::new(Duration::from_secs(status_interval)),
@@ -392,17 +388,7 @@ impl<E: EthSpec> PeerManager<E> {
     /// A peer is being dialed.
     /// Returns true, if this peer will be dialed.
     pub fn dial_peer(&mut self, peer: Enr) -> bool {
-        if self
-            .network_globals
-            .peers
-            .read()
-            .should_dial(&peer.peer_id())
-        {
-            self.peers_to_dial.push(peer);
-            true
-        } else {
-            false
-        }
+        self.connectivity.dial_peer(peer)
     }
 
     /// Reports if a peer is banned or not.
