@@ -24,6 +24,7 @@ pub use libp2p::identity::Keypair;
 
 pub mod peerdb;
 
+use crate::peer_manager::connectivity::{Connectivity, LHNetworkGlobalsConnectivity};
 use crate::peer_manager::peerdb::client::ClientKind;
 use libp2p::multiaddr;
 pub use peerdb::peer_info::{
@@ -37,11 +38,10 @@ use strum::IntoEnumIterator;
 use types::data_column_custody_group::{
     compute_subnets_from_custody_group, get_custody_groups, CustodyIndex,
 };
-use crate::peer_manager::connectivity::{Connectivity, LHNetworkGlobalsConnectivity};
 
 pub mod config;
-mod network_behaviour;
 mod connectivity;
+mod network_behaviour;
 
 /// The heartbeat performs regular updates such as updating reputations and performing discovery
 /// requests. This defines the interval in seconds.
@@ -204,7 +204,7 @@ impl<E: EthSpec> PeerManager<E> {
                 MIN_OUTBOUND_ONLY_FACTOR,
                 TARGET_OUTBOUND_ONLY_FACTOR,
                 discovery_enabled,
-                LHNetworkGlobalsConnectivity::new(network_globals)
+                LHNetworkGlobalsConnectivity::new(network_globals),
             ),
         })
     }
@@ -354,7 +354,8 @@ impl<E: EthSpec> PeerManager<E> {
     pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) {
         let wanted_peers = self.connectivity.peers_discovered(&results);
         if wanted_peers > 0 {
-            self.events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
+            self.events
+                .push(PeerManagerEvent::DiscoverPeers(wanted_peers));
             // debug!(self.log,
             //     "Starting a new peer discovery query";
             //     "connected" => peer_count,
@@ -1152,7 +1153,8 @@ impl<E: EthSpec> PeerManager<E> {
         let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
         let wanted_peers = self.connectivity.maintain_peer_count(0);
         if wanted_peers > 0 {
-            self.events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
+            self.events
+                .push(PeerManagerEvent::DiscoverPeers(wanted_peers));
             debug!(self.log,
                 "Starting a new peer discovery query";
                 "connected" => peer_count,
@@ -2426,7 +2428,8 @@ mod tests {
                 // It could be that we reach our target outbound limit and are unable to prune any
                 // extra, which violates the target_peer_condition.
                 let outbound_peers = peer_manager.network_globals.connected_outbound_only_peers();
-                let hit_outbound_limit = outbound_peers == peer_manager.connectivity.target_outbound_peers();
+                let hit_outbound_limit =
+                    outbound_peers == peer_manager.connectivity.target_outbound_peers();
 
                 // No trusted peers should be disconnected
                 let trusted_peer_disconnected = peer_conditions.iter().any(|condition| {
