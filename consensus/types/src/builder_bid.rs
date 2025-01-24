@@ -9,21 +9,31 @@ use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
-use ssz_derive::Decode;
+use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
-        derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Decode, Clone),
+        derive(
+            PartialEq,
+            Debug,
+            Encode,
+            Serialize,
+            Deserialize,
+            TreeHash,
+            Decode,
+            Clone
+        ),
         serde(bound = "E: EthSpec", deny_unknown_fields)
     ),
     map_ref_into(ExecutionPayloadHeaderRef),
     map_ref_mut_into(ExecutionPayloadHeaderRefMut)
 )]
-#[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
+#[derive(PartialEq, Debug, Encode, Serialize, Deserialize, TreeHash, Clone)]
 #[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
+#[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BuilderBid<E: EthSpec> {
     #[superstruct(only(Bellatrix), partial_getter(rename = "header_bellatrix"))]
@@ -89,7 +99,7 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
 impl<E: EthSpec> SignedRoot for BuilderBid<E> {}
 
 /// Validator registration, for use in interacting with servers implementing the builder API.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Encode, Serialize, Deserialize, Clone)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedBuilderBid<E: EthSpec> {
     pub message: BuilderBid<E>,
