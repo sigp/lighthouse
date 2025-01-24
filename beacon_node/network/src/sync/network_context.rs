@@ -353,15 +353,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// A blocks by range request sent by the range sync algorithm
     pub fn block_components_by_range_request(
         &mut self,
-        peer_id: PeerId,
         batch_type: ByRangeRequestType,
         request: BlocksByRangeRequest,
         requester: RangeRequestId,
+        peers: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
         // Create the overall components_by_range request ID before its individual components
         let id = ComponentsByRangeRequestId {
             id: self.next_id(),
             requester,
+        };
+
+        let Some(peer_id) = peers
+            .iter()
+            .map(|peer| (rand::random::<u32>(), *peer))
+            .min()
+            .map(|(_, peer)| peer)
+        else {
+            // TODO(das): is it safe to error here?
+            return Err(RpcRequestSendError::NoCustodyPeers);
         };
 
         let _blocks_req_id = self.send_blocks_by_range_request(peer_id, request.clone(), id)?;
