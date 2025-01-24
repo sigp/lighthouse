@@ -34,6 +34,7 @@ use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, Prep
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::graffiti_calculator::GraffitiCalculator;
 use crate::head_tracker::{HeadTracker, HeadTrackerReader, SszHeadTracker};
+use crate::kzg_utils::reconstruct_blobs;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -1258,6 +1259,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
         self.store.get_data_columns(block_root).map_err(Error::from)
+    }
+
+    /// Returns the blobs at the given root, if any.
+    ///
+    /// Uses the `block.epoch()` to determine whether to retrieve blobs or columns from the store.
+    ///
+    /// If at least 50% of columns are retrieved, blobs will be reconstructed and returned,
+    /// otherwise an error `InsufficientColumnsToReconstructBlobs` is returned.
+    ///
+    /// ## Errors
+    /// May return a database error.
+    pub fn get_or_reconstruct_blobs(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<BlobSidecarList<T::EthSpec>>, Error> {
+        let Some(block) = self.store.get_blinded_block(block_root)? else {
+            return Ok(None);
+        };
+
+        if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+            if let Some(columns) = self.store.get_data_columns(block_root)? {
+                let num_required_columns = self.spec.number_of_columns / 2;
+                let blobs_available = columns.len() >= num_required_columns as usize;
+                if blobs_available {
+                    reconstruct_blobs(&self.kzg, &columns, None, &block, &self.spec)
+                        .map(Some)
+                        .map_err(Error::FailedToReconstructBlobs)
+                } else {
+                    Err(Error::InsufficientColumnsToReconstructBlobs {
+                        columns_found: columns.len(),
+                    })
+                }
+            } else {
+                Ok(None)
+            }
+        } else {
+            self.get_blobs(block_root).map(|b| b.blobs())
+        }
     }
 
     /// Returns the data columns at the given root, if any.

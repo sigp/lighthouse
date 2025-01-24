@@ -231,6 +231,7 @@ pub struct Builder<T: BeaconChainTypes> {
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
+    import_all_data_columns: bool,
     runtime: TestRuntime,
     log: Logger,
 }
@@ -373,6 +374,7 @@ where
             mock_execution_layer: None,
             testing_slot_clock: None,
             validator_monitor_config: None,
+            import_all_data_columns: false,
             runtime,
             log,
         }
@@ -462,6 +464,11 @@ where
 
     pub fn chain_config(mut self, chain_config: ChainConfig) -> Self {
         self.chain_config = Some(chain_config);
+        self
+    }
+
+    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
+        self.import_all_data_columns = import_all_data_columns;
         self
     }
 
@@ -582,6 +589,7 @@ where
             .expect("should build dummy backend")
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
+            .import_all_data_columns(self.import_all_data_columns)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(
                 log.clone(),
                 5,
