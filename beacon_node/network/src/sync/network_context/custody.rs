@@ -103,8 +103,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
-        // TODO(das): Should downscore peers for verify errors here
-
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
             warn!(self.log,
                 "Received custody column response for unrequested index";
