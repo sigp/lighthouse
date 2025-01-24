@@ -86,17 +86,11 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub signature: Signature,
 }
 
-pub trait DecodeWithFork: Sized {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDecode
+    for SignedBeaconBlock<E, Payload>
+{
     /// SSZ decode with explicit fork variant.
-    fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError>;
-}
-
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> DecodeWithFork for SignedBeaconBlock<E, Payload> {
-    /// SSZ decode with explicit fork variant.
-    fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         Self::from_ssz_bytes_with(bytes, |bytes| {
             BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
         })

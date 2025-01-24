@@ -102,8 +102,9 @@ impl<'a, E: EthSpec> ExecutionPayloadRef<'a, E> {
     }
 }
 
-impl<E: EthSpec> ExecutionPayload<E> {
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
+    /// SSZ decode with explicit fork variant.
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         match fork_name {
             ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(format!(
                 "unsupported fork for ExecutionPayload: {fork_name}",
@@ -117,7 +118,9 @@ impl<E: EthSpec> ExecutionPayload<E> {
             ForkName::Fulu => ExecutionPayloadFulu::from_ssz_bytes(bytes).map(Self::Fulu),
         }
     }
+}
 
+impl<E: EthSpec> ExecutionPayload<E> {
     #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_bellatrix_size() -> usize {

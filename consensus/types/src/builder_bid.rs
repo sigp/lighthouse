@@ -2,8 +2,8 @@ use crate::beacon_block_body::KzgCommitments;
 use crate::{
     ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ForkName, ForkVersionDeserialize,
-    SignedRoot, Uint256,
+    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ForkName, ForkVersionDecode,
+    ForkVersionDeserialize, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -47,24 +47,6 @@ impl<E: EthSpec> BuilderBid<E> {
     pub fn header(&self) -> ExecutionPayloadHeaderRef<'_, E> {
         self.to_ref().header()
     }
-
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        let builder_bid = match fork_name {
-            ForkName::Altair | ForkName::Base => {
-                return Err(ssz::DecodeError::BytesInvalid(format!(
-                    "unsupported fork for ExecutionPayloadHeader: {fork_name}",
-                )))
-            }
-            ForkName::Bellatrix => {
-                BuilderBid::Bellatrix(BuilderBidBellatrix::from_ssz_bytes(bytes)?)
-            }
-            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella::from_ssz_bytes(bytes)?),
-            ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb::from_ssz_bytes(bytes)?),
-            ForkName::Electra => BuilderBid::Electra(BuilderBidElectra::from_ssz_bytes(bytes)?),
-            ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu::from_ssz_bytes(bytes)?),
-        };
-        Ok(builder_bid)
-    }
 }
 
 impl<'a, E: EthSpec> BuilderBidRef<'a, E> {
@@ -91,6 +73,27 @@ impl<E: EthSpec> SignedRoot for BuilderBid<E> {}
 pub struct SignedBuilderBid<E: EthSpec> {
     pub message: BuilderBid<E>,
     pub signature: Signature,
+}
+
+impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
+    /// SSZ decode with explicit fork variant.
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let builder_bid = match fork_name {
+            ForkName::Altair | ForkName::Base => {
+                return Err(ssz::DecodeError::BytesInvalid(format!(
+                    "unsupported fork for ExecutionPayloadHeader: {fork_name}",
+                )))
+            }
+            ForkName::Bellatrix => {
+                BuilderBid::Bellatrix(BuilderBidBellatrix::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Capella => BuilderBid::Capella(BuilderBidCapella::from_ssz_bytes(bytes)?),
+            ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb::from_ssz_bytes(bytes)?),
+            ForkName::Electra => BuilderBid::Electra(BuilderBidElectra::from_ssz_bytes(bytes)?),
+            ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu::from_ssz_bytes(bytes)?),
+        };
+        Ok(builder_bid)
+    }
 }
 
 impl<E: EthSpec> ForkVersionDeserialize for BuilderBid<E> {
@@ -144,8 +147,8 @@ impl<E: EthSpec> SignedBuilderBid<E> {
         builder.register_anonymous_variable_length_item()?;
         builder.register_type::<Signature>()?;
         let mut decoder = builder.build()?;
-        let message =
-            decoder.decode_next_with(|bytes| BuilderBid::from_ssz_bytes(bytes, fork_name))?;
+        let message = decoder
+            .decode_next_with(|bytes| BuilderBid::from_ssz_bytes_by_fork(bytes, fork_name))?;
         let signature = decoder.decode_next()?;
         Ok(Self { message, signature })
     }

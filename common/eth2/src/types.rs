@@ -18,7 +18,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::beacon_block_body::KzgCommitments;
 pub use types::*;
-pub use types::signed_beacon_block::DecodeWithFork;
 
 #[cfg(feature = "lighthouse")]
 use crate::lighthouse::BlockReward;
@@ -1835,7 +1834,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 
             let mut decoder = builder.build()?;
             let block = decoder.decode_next_with(|bytes| {
-                SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+                SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, fork_name)
             })?;
             let kzg_proofs = decoder.decode_next()?;
             let blobs = decoder.decode_next()?;
@@ -1844,7 +1843,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
                 Some((kzg_proofs, blobs)),
             ))
         } else {
-            SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+            SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, fork_name)
                 .map(|block| PublishBlockRequest::Block(Arc::new(block)))
         }
     }
@@ -1956,7 +1955,7 @@ impl<E: EthSpec> FullPayloadContents<E> {
                 ExecutionPayloadAndBlobs::from_ssz_bytes(bytes, fork_name)?,
             ))
         } else if fork_name.bellatrix_enabled() {
-            Ok(Self::Payload(ExecutionPayload::from_ssz_bytes(
+            Ok(Self::Payload(ExecutionPayload::from_ssz_bytes_by_fork(
                 bytes, fork_name,
             )?))
         } else {
@@ -2026,8 +2025,9 @@ impl<E: EthSpec> ExecutionPayloadAndBlobs<E> {
         let mut decoder = builder.build()?;
 
         if fork_name.deneb_enabled() {
-            let execution_payload = decoder
-                .decode_next_with(|bytes| ExecutionPayload::from_ssz_bytes(bytes, fork_name))?;
+            let execution_payload = decoder.decode_next_with(|bytes| {
+                ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
+            })?;
             let blobs_bundle = decoder.decode_next()?;
             Ok(Self {
                 execution_payload,
