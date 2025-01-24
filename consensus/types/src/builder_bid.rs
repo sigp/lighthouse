@@ -65,16 +65,6 @@ impl<'a, E: EthSpec> BuilderBidRefMut<'a, E> {
     }
 }
 
-impl<E: EthSpec> SignedRoot for BuilderBid<E> {}
-
-/// Validator registration, for use in interacting with servers implementing the builder API.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-#[serde(bound = "E: EthSpec")]
-pub struct SignedBuilderBid<E: EthSpec> {
-    pub message: BuilderBid<E>,
-    pub signature: Signature,
-}
-
 impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
     /// SSZ decode with explicit fork variant.
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
@@ -93,6 +83,33 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
             ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu::from_ssz_bytes(bytes)?),
         };
         Ok(builder_bid)
+    }
+}
+
+impl<E: EthSpec> SignedRoot for BuilderBid<E> {}
+
+/// Validator registration, for use in interacting with servers implementing the builder API.
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[serde(bound = "E: EthSpec")]
+pub struct SignedBuilderBid<E: EthSpec> {
+    pub message: BuilderBid<E>,
+    pub signature: Signature,
+}
+
+impl<E: EthSpec> ForkVersionDecode for SignedBuilderBid<E> {
+    /// SSZ decode with explicit fork variant.
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<Signature>()?;
+
+        let mut decoder = builder.build()?;
+        let message = decoder
+            .decode_next_with(|bytes| BuilderBid::from_ssz_bytes_by_fork(bytes, fork_name))?;
+        let signature = decoder.decode_next()?;
+
+        Ok(Self { message, signature })
     }
 }
 
