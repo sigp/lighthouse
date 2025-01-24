@@ -351,6 +351,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         }
 
+        let mut indices = custody_columns.iter().map(|d| d.index).collect::<Vec<_>>();
+        indices.sort_unstable();
+        debug!(
+            self.log,
+            "RPC custody data columns received";
+            "indices" => ?indices,
+            "block_root" => %block_root,
+            "slot" => %slot,
+        );
+
         let mut result = self
             .chain
             .process_rpc_custody_columns(custody_columns)
