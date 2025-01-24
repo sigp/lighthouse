@@ -4,7 +4,6 @@ use crate::{ColumnIter, DBColumn, HotColdDB, ItemStore};
 use itertools::process_results;
 use std::marker::PhantomData;
 use types::{BeaconState, EthSpec, Hash256, Slot};
-
 pub type HybridForwardsBlockRootsIterator<'a, E, Hot, Cold> =
     HybridForwardsIterator<'a, E, Hot, Cold>;
 pub type HybridForwardsStateRootsIterator<'a, E, Hot, Cold> =

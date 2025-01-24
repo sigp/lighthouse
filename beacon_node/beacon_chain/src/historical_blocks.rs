@@ -10,10 +10,7 @@ use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
 use store::metadata::DataColumnInfo;
-use store::{
-    get_key_for_col, AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore,
-    KeyValueStoreOp,
-};
+use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use types::{FixedBytesExtended, Hash256, Slot};
 
@@ -153,7 +150,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
                 cold_batch.push(KeyValueStoreOp::PutKeyValue(
-                    get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                    DBColumn::BeaconBlockRoots,
+                    slot.to_be_bytes().to_vec(),
                     block_root.as_slice().to_vec(),
                 ));
             }
@@ -169,7 +167,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let genesis_slot = self.spec.genesis_slot;
                 for slot in genesis_slot.as_u64()..prev_block_slot.as_u64() {
                     cold_batch.push(KeyValueStoreOp::PutKeyValue(
-                        get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                        DBColumn::BeaconBlockRoots,
+                        slot.to_be_bytes().to_vec(),
                         self.genesis_block_root.as_slice().to_vec(),
                     ));
                 }
