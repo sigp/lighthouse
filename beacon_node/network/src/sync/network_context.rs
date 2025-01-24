@@ -350,6 +350,42 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
+    fn active_request_count_by_peer(&self) -> HashMap<PeerId, usize> {
+        let Self {
+            network_send: _,
+            request_id: _,
+            blocks_by_root_requests,
+            blobs_by_root_requests,
+            data_columns_by_root_requests,
+            blocks_by_range_requests,
+            blobs_by_range_requests,
+            data_columns_by_range_requests,
+            // custody_by_root_requests is a meta request of data_columns_by_root_requests
+            custody_by_root_requests: _,
+            // components_by_range_requests is a meta request of various _by_range requests
+            components_by_range_requests: _,
+            execution_engine_state: _,
+            network_beacon_processor: _,
+            chain: _,
+            log: _,
+        } = self;
+
+        let mut active_request_count_by_peer = HashMap::<PeerId, usize>::new();
+
+        for peer_id in blocks_by_root_requests
+            .iter_request_peers()
+            .chain(blobs_by_root_requests.iter_request_peers())
+            .chain(data_columns_by_root_requests.iter_request_peers())
+            .chain(blocks_by_range_requests.iter_request_peers())
+            .chain(blobs_by_range_requests.iter_request_peers())
+            .chain(data_columns_by_range_requests.iter_request_peers())
+        {
+            *active_request_count_by_peer.entry(peer_id).or_default() += 1;
+        }
+
+        active_request_count_by_peer
+    }
+
     /// A blocks by range request sent by the range sync algorithm
     pub fn block_components_by_range_request(
         &mut self,
@@ -364,11 +400,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             requester,
         };
 
+        let active_request_count_by_peer = self.active_request_count_by_peer();
+
         let Some(peer_id) = peers
             .iter()
-            .map(|peer| (rand::random::<u32>(), *peer))
+            .map(|peer| {
+                (
+                    // Prefer peers with less overall requests
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Random factor to break ties, otherwise the PeerID breaks ties
+                    rand::random::<u32>(),
+                    *peer,
+                )
+            })
             .min()
-            .map(|(_, peer)| peer)
+            .map(|(_, _, peer)| peer)
         else {
             // TODO(das): is it safe to error here?
             return Err(RpcRequestSendError::NoCustodyPeers);
