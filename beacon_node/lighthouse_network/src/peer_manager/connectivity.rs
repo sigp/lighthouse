@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use discv5::Enr;
 use types::EthSpec;
-use crate::{EnrExt, NetworkGlobals, PeerId};
+use crate::{EnrExt, NetworkGlobals, PeerConnectionStatus, PeerId};
 
 
 pub trait NetworkGlobalsConnectivity {
@@ -43,30 +43,13 @@ impl<E: EthSpec> LHNetworkGlobalsConnectivity<E> {
 
     /// Update min ttl of a peer.
     fn update_min_ttl(&self, peer_id: &PeerId, min_ttl: Instant) {
-        // let info = self.peers.entry(*peer_id).or_default();
-        //
-        // // only update if the ttl is longer
-        // if info.min_ttl().is_none() || Some(&min_ttl) > info.min_ttl() {
-        //     info.set_min_ttl(min_ttl);
-        //
-        //     let min_ttl_secs = min_ttl
-        //         .checked_duration_since(Instant::now())
-        //         .map(|duration| duration.as_secs())
-        //         .unwrap_or_else(|| 0);
-        //     debug!(self.log, "Updating the time a peer is required for"; "peer_id" => %peer_id, "future_min_ttl_secs" => min_ttl_secs);
-        // }
+        self.network_globals.peers.write().update_min_ttl(peer_id, min_ttl);
     }
 
     /// Returns true if the peer should be dialed. This checks the connection state and the
     /// score state and determines if the peer manager should dial this peer.
     fn should_dial(&self, peer_id: &PeerId) -> bool {
-        // matches!(
-        //     self.connection_status(peer_id),
-        //     Some(PeerConnectionStatus::Disconnected { .. })
-        //         | Some(PeerConnectionStatus::Unknown { .. })
-        //         | None
-        // ) && !self.score_state_banned_or_disconnected(peer_id)
-        false
+        self.network_globals.peers.read().should_dial(peer_id)
     }
 }
 
