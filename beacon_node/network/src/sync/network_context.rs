@@ -402,7 +402,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let active_request_count_by_peer = self.active_request_count_by_peer();
 
-        let Some(peer_id) = peers
+        let Some(block_peer) = peers
             .iter()
             .map(|peer| {
                 (
@@ -410,21 +410,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     active_request_count_by_peer.get(peer).copied().unwrap_or(0),
                     // Random factor to break ties, otherwise the PeerID breaks ties
                     rand::random::<u32>(),
-                    *peer,
+                    peer,
                 )
             })
             .min()
-            .map(|(_, _, peer)| peer)
+            .map(|(_, _, peer)| *peer)
         else {
             // TODO(das): is it safe to error here?
             return Err(RpcRequestSendError::NoCustodyPeers);
         };
 
-        let _blocks_req_id = self.send_blocks_by_range_request(peer_id, request.clone(), id)?;
+        let _blocks_req_id = self.send_blocks_by_range_request(block_peer, request.clone(), id)?;
 
         let blobs_req_id = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
             Some(self.send_blobs_by_range_request(
-                peer_id,
+                block_peer,
                 BlobsByRangeRequest {
                     start_slot: *request.start_slot(),
                     count: *request.count(),
@@ -440,12 +440,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let column_indexes = self.network_globals().sampling_columns.clone();
 
                 let data_column_requests = self
-                    .make_columns_by_range_requests(request, &column_indexes)?
+                    .select_columns_by_range_peers_to_request(&column_indexes, peers)?
                     .into_iter()
-                    .map(|(peer_id, columns_by_range_request)| {
+                    .map(|(peer_id, columns)| {
                         self.send_data_columns_by_range_request(
                             peer_id,
-                            columns_by_range_request,
+                            DataColumnsByRangeRequest {
+                                start_slot: *request.start_slot(),
+                                count: *request.count(),
+                                columns,
+                            },
                             id,
                         )
                     })
@@ -470,18 +474,44 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(id.id)
     }
 
-    fn make_columns_by_range_requests(
+    fn select_columns_by_range_peers_to_request(
         &self,
-        request: BlocksByRangeRequest,
         custody_indexes: &HashSet<ColumnIndex>,
-    ) -> Result<HashMap<PeerId, DataColumnsByRangeRequest>, RpcRequestSendError> {
-        let mut peer_id_to_request_map = HashMap::new();
+        peers: &HashSet<PeerId>,
+    ) -> Result<HashMap<PeerId, Vec<ColumnIndex>>, RpcRequestSendError> {
+        let mut peer_id_to_request_map = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+
+        // Re-compute here to account for the block peer
+        let active_request_count_by_peer = self.active_request_count_by_peer();
 
         for column_index in custody_indexes {
-            // TODO(das): The peer selection logic here needs to be improved - we should probably
-            // avoid retrying from failed peers, however `BatchState` currently only tracks the peer
-            // serving the blocks.
-            let Some(custody_peer) = self.get_random_custodial_peer(*column_index) else {
+            // Strictly consider peers that are custodials of this column AND are part of this
+            // syncing chain. If the forward range sync chain has few peers, it's likely that this
+            // function will not be able to find peers on our custody columns.
+            let Some(custody_peer) = peers
+                .iter()
+                .filter(|peer| {
+                    self.network_globals()
+                        .is_custody_peer_of(*column_index, peer)
+                })
+                .map(|peer| {
+                    (
+                        // Prefer peers with less overall requests
+                        // Also account for requests that are not yet issued tracked in peer_id_to_request_map
+                        active_request_count_by_peer.get(peer).copied().unwrap_or(0)
+                            + peer_id_to_request_map
+                                .get(peer)
+                                .map(|columns| columns.len())
+                                .unwrap_or(0),
+                        // Random factor to break ties, otherwise the PeerID breaks ties
+                        rand::random::<u32>(),
+                        peer,
+                    )
+                })
+                .min()
+                .map(|(_, _, peer)| *peer)
+            else {
+                // TODO(das): is it safe to error here?
                 // TODO(das): this will be pretty bad UX. To improve we should:
                 // - Attempt to fetch custody requests first, before requesting blocks
                 // - Handle the no peers case gracefully, maybe add some timeout and give a few
@@ -490,15 +520,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 return Err(RpcRequestSendError::NoCustodyPeers);
             };
 
-            let columns_by_range_request = peer_id_to_request_map
+            peer_id_to_request_map
                 .entry(custody_peer)
-                .or_insert_with(|| DataColumnsByRangeRequest {
-                    start_slot: *request.start_slot(),
-                    count: *request.count(),
-                    columns: vec![],
-                });
-
-            columns_by_range_request.columns.push(*column_index);
+                .or_default()
+                .push(*column_index);
         }
 
         Ok(peer_id_to_request_map)
