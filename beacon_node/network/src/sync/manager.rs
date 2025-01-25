@@ -1161,7 +1161,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_blocks_by_range_response(id, peer_id, block) {
             self.on_range_components_response(
-                id.requester,
+                id.parent_request_id,
                 peer_id,
                 RangeBlockComponent::Block(resp),
             );
@@ -1176,7 +1176,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
             self.on_range_components_response(
-                id.requester,
+                id.parent_request_id,
                 peer_id,
                 RangeBlockComponent::Blob(resp),
             );
@@ -1194,7 +1194,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .on_data_columns_by_range_response(id, peer_id, data_column)
         {
             self.on_range_components_response(
-                id.requester,
+                id.parent_request_id,
                 peer_id,
                 RangeBlockComponent::CustodyColumns(resp),
             );

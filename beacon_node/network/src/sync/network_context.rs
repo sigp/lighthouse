@@ -760,11 +760,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlocksByRangeRequest,
-        requester: ComponentsByRangeRequestId,
+        parent_request_id: ComponentsByRangeRequestId,
     ) -> Result<BlocksByRangeRequestId, RpcRequestSendError> {
         let id = BlocksByRangeRequestId {
             id: self.next_id(),
-            requester,
+            parent_request_id,
         };
         debug!(
             self.log,
@@ -798,11 +798,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlobsByRangeRequest,
-        requester: ComponentsByRangeRequestId,
+        parent_request_id: ComponentsByRangeRequestId,
     ) -> Result<BlobsByRangeRequestId, RpcRequestSendError> {
         let id = BlobsByRangeRequestId {
             id: self.next_id(),
-            requester,
+            parent_request_id,
         };
         let request_epoch = Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch());
         debug!(
@@ -840,11 +840,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: DataColumnsByRangeRequest,
-        requester: ComponentsByRangeRequestId,
+        parent_request_id: ComponentsByRangeRequestId,
     ) -> Result<DataColumnsByRangeRequestId, RpcRequestSendError> {
         let id = DataColumnsByRangeRequestId {
             id: self.next_id(),
-            requester,
+            parent_request_id,
         };
         debug!(
             self.log,
