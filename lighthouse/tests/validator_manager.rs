@@ -511,8 +511,72 @@ pub fn validator_exit_defaults() {
 }
 
 #[test]
+pub fn validator_exit_exit_epoch_and_presign_flags() {
+    CommandLineTest::validators_exit()
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--exit-epoch", Some("1234567"))
+        .flag("--presign", None)
+        .assert_success(|config| {
+            let expected = ExitConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                validators_to_exit: vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
+                ],
+                beacon_url: None,
+                exit_epoch: Some(Epoch::new(1234567)),
+                presign: true,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
 pub fn validator_exit_missing_validator_flag() {
     CommandLineTest::validators_exit()
         .flag("--vc-token", Some("./token.json"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_using_beacon_and_presign_flags() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--beacon-node", Some("http://localhost:1001"))
+        .flag("--presign", None)
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_using_beacon_and_exit_epoch_flags() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--beacon-node", Some("http://localhost:1001"))
+        .flag("--exit-epoch", Some("1234567"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_exit_epoch_flag_requires_presign_flag() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--exit-epoch", Some("1234567"))
         .assert_failed();
 }
