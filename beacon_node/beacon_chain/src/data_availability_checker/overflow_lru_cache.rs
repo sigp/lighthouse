@@ -11,7 +11,6 @@ use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::RwLock;
 use slog::{debug, Logger};
-use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -225,26 +224,21 @@ impl<E: EthSpec> PendingComponents<E> {
         } else {
             // Before PeerDAS, blobs
             let num_received_blobs = self.verified_blobs.iter().flatten().count();
-            match num_received_blobs.cmp(&num_expected_blobs) {
-                Ordering::Less => {
-                    // Not enough blobs received yet
-                    None
-                }
-                Ordering::Equal => {
-                    let max_blobs = spec.max_blobs_per_block(block.epoch());
-                    let blobs_vec = self
-                        .verified_blobs
-                        .iter()
-                        .flatten()
-                        .map(|blob| blob.clone().to_blob())
-                        .collect::<Vec<_>>();
-                    let blobs = RuntimeVariableList::new(blobs_vec, max_blobs as usize)
-                        .expect("num_expect_blobs is less than max_blobs");
-                    Some(AvailableBlockData::Blobs(blobs))
-                }
-                Ordering::Greater => {
-                    todo!();
-                }
+            if num_received_blobs >= num_expected_blobs {
+                // TODO(das): Should do something special if `num_received_blobs > num_expected_blobs`?
+                let blobs_vec = self
+                    .verified_blobs
+                    .iter()
+                    .flatten()
+                    .map(|blob| blob.clone().to_blob())
+                    .collect::<Vec<_>>();
+                let max_blobs = spec.max_blobs_per_block(block.epoch());
+                let blobs = RuntimeVariableList::new(blobs_vec, max_blobs as usize)
+                    .expect("num_expect_blobs is less than max_blobs");
+                Some(AvailableBlockData::Blobs(blobs))
+            } else {
+                // Not enough blobs received yet
+                None
             }
         }
     }
