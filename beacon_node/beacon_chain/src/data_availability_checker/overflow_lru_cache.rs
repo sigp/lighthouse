@@ -317,7 +317,6 @@ impl<E: EthSpec> PendingComponents<E> {
                 None,
             )
         };
-
         let executed_block = recover(diet_executed_block)?;
 
         let AvailabilityPendingExecutedBlock {
@@ -732,7 +731,7 @@ mod test {
     use slog::{info, Logger};
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
-    use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
+    use store::{database::interface::BeaconNodeBackend, HotColdDB, ItemStore, StoreConfig};
     use tempfile::{tempdir, TempDir};
     use types::non_zero_usize::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
@@ -744,7 +743,7 @@ mod test {
         db_path: &TempDir,
         spec: Arc<ChainSpec>,
         log: Logger,
-    ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+    ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
         let blobs_path = db_path.path().join("blobs_db");
@@ -920,7 +919,11 @@ mod test {
     )
     where
         E: EthSpec,
-        T: BeaconChainTypes<HotStore = LevelDB<E>, ColdStore = LevelDB<E>, EthSpec = E>,
+        T: BeaconChainTypes<
+            HotStore = BeaconNodeBackend<E>,
+            ColdStore = BeaconNodeBackend<E>,
+            EthSpec = E,
+        >,
     {
         let log = test_logger();
         let chain_db_path = tempdir().expect("should get temp dir");

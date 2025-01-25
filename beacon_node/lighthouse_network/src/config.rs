@@ -116,7 +116,8 @@ pub struct Config {
     pub network_load: u8,
 
     /// Indicates if the user has set the network to be in private mode. Currently this
-    /// prevents sending client identifying information over identify.
+    /// prevents sending client identifying information over identify and prevents
+    /// EIP-7636 indentifiable information being provided in the ENR.
     pub private: bool,
 
     /// Shutdown beacon node after sync is completed.

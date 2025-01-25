@@ -52,6 +52,7 @@ use eth2::types::{
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
+use lighthouse_network::rpc::methods::MetaData;
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
@@ -82,6 +83,7 @@ use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
 };
+use types::ChainSpec;
 use types::{
     fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
     AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
@@ -2898,36 +2900,24 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(network_globals.clone())
+        .and(chain_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
-             network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     let enr = network_globals.local_enr();
                     let p2p_addresses = enr.multiaddr_p2p_tcp();
                     let discovery_addresses = enr.multiaddr_p2p_udp();
-                    let meta_data = network_globals.local_metadata.read();
                     Ok(api_types::GenericResponse::from(api_types::IdentityData {
                         peer_id: network_globals.local_peer_id().to_base58(),
                         enr,
                         p2p_addresses,
                         discovery_addresses,
-                        metadata: api_types::MetaData {
-                            seq_number: *meta_data.seq_number(),
-                            attnets: format!(
-                                "0x{}",
-                                hex::encode(meta_data.attnets().clone().into_bytes()),
-                            ),
-                            syncnets: format!(
-                                "0x{}",
-                                hex::encode(
-                                    meta_data
-                                        .syncnets()
-                                        .cloned()
-                                        .unwrap_or_default()
-                                        .into_bytes()
-                                )
-                            ),
-                        },
+                        metadata: from_meta_data::<T::EthSpec>(
+                            &network_globals.local_metadata,
+                            &chain.spec,
+                        ),
                     }))
                 })
             },
@@ -4842,6 +4832,39 @@ pub fn serve<T: BeaconChainTypes>(
     );
 
     Ok(http_server)
+}
+
+fn from_meta_data<E: EthSpec>(
+    meta_data: &RwLock<MetaData<E>>,
+    spec: &ChainSpec,
+) -> api_types::MetaData {
+    let meta_data = meta_data.read();
+    let format_hex = |bytes: &[u8]| format!("0x{}", hex::encode(bytes));
+
+    let seq_number = *meta_data.seq_number();
+    let attnets = format_hex(&meta_data.attnets().clone().into_bytes());
+    let syncnets = format_hex(
+        &meta_data
+            .syncnets()
+            .cloned()
+            .unwrap_or_default()
+            .into_bytes(),
+    );
+
+    if spec.is_peer_das_scheduled() {
+        api_types::MetaData::V3(api_types::MetaDataV3 {
+            seq_number,
+            attnets,
+            syncnets,
+            custody_group_count: meta_data.custody_group_count().cloned().unwrap_or_default(),
+        })
+    } else {
+        api_types::MetaData::V2(api_types::MetaDataV2 {
+            seq_number,
+            attnets,
+            syncnets,
+        })
+    }
 }
 
 /// Publish a message to the libp2p pubsub network.

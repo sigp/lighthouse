@@ -57,6 +57,15 @@ pub struct DatabaseManager {
     )]
     pub blobs_dir: Option<PathBuf>,
 
+    #[clap(
+        long,
+        value_name = "DATABASE",
+        help = "Set the database backend to be used by the beacon node.",
+        display_order = 0,
+        default_value_t = store::config::DatabaseBackend::LevelDb
+    )]
+    pub backend: store::config::DatabaseBackend,
+
     #[clap(subcommand)]
     pub subcommand: DatabaseManagerSubcommand,
 }
