@@ -1032,19 +1032,29 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return None;
         }
 
-        let batch_id = self.to_be_downloaded;
+        // Find some batch with epoch equal or less than to_be_downloaded that needs to be sent = is
+        // AwaitingDownload. Batches reached this state after failing to find peers on `send_batch`.
+        if let Some((to_retry_batch_id, _)) = self.batches.iter().find(|(batch_epoch, v)| {
+            **batch_epoch <= self.to_be_downloaded
+                && matches!(v.state(), BatchState::AwaitingDownload)
+        }) {
+            return Some(*to_retry_batch_id);
+        }
+
+        // If no batch needs a retry, attempt to send the batch of the next epoch to download
+        let next_batch_id = self.to_be_downloaded;
         // this batch could have been included already being an optimistic batch
-        match self.batches.entry(batch_id) {
+        match self.batches.entry(next_batch_id) {
             Entry::Occupied(_) => {
                 // this batch doesn't need downloading, let this same function decide the next batch
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
                 self.include_next_batch(network)
             }
             Entry::Vacant(entry) => {
-                let batch_type = network.batch_type(batch_id);
-                entry.insert(BatchInfo::new(&batch_id, EPOCHS_PER_BATCH, batch_type));
+                let batch_type = network.batch_type(next_batch_id);
+                entry.insert(BatchInfo::new(&next_batch_id, EPOCHS_PER_BATCH, batch_type));
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
-                Some(batch_id)
+                Some(next_batch_id)
             }
         }
     }
