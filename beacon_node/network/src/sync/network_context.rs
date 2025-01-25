@@ -1262,10 +1262,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         for (id, count) in [
             ("blocks_by_root", self.blocks_by_root_requests.len()),
             ("blobs_by_root", self.blobs_by_root_requests.len()),
-            ("data_columns_by_root", self.blocks_by_root_requests.len()),
+            (
+                "data_columns_by_root",
+                self.data_columns_by_root_requests.len(),
+            ),
             ("blocks_by_range", self.blocks_by_range_requests.len()),
             ("blobs_by_range", self.blobs_by_range_requests.len()),
-            ("data_columns_by_range", self.blocks_by_range_requests.len()),
+            (
+                "data_columns_by_range",
+                self.data_columns_by_range_requests.len(),
+            ),
             ("custody_by_root", self.custody_by_root_requests.len()),
             (
                 "components_by_range",
