@@ -1,7 +1,6 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
 use crate::metrics;
-use crate::metrics::PEERS_PER_COLUMN_SUBNET;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError};
 use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
@@ -9,7 +8,6 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
-use metrics::set_int_gauge;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use strum::IntoStaticStr;
@@ -411,11 +409,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.request_batches(network)?;
                 }
             }
-        } else if !self.good_peers_on_sampling_subnets(self.processing_target, network) {
-            // This is to handle the case where no batch was sent for the current processing
-            // target when there is no sampling peers available. This is a valid state and should not
-            // return an error.
-            return Ok(KeepChain);
         } else {
             return Err(RemoveChain::WrongChainState(format!(
                 "Batch not found for current processing target {}",
@@ -985,14 +978,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // check if we have the batch for our optimistic start. If not, request it first.
         // We wait for this batch before requesting any other batches.
         if let Some(epoch) = self.optimistic_start {
-            if !self.good_peers_on_sampling_subnets(epoch, network) {
-                debug!(
-                    self.log,
-                    "Waiting for peers to be available on sampling column subnets"
-                );
-                return Ok(KeepChain);
-            }
-
             if let Entry::Vacant(entry) = self.batches.entry(epoch) {
                 let batch_type = network.batch_type(epoch);
                 let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH, batch_type);
@@ -1010,40 +995,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // No more batches, simply stop
                 return Ok(KeepChain);
             }
-        }
-    }
-
-    /// Checks all sampling column subnets for peers. Returns `true` if there is at least one peer in
-    /// every sampling column subnet.
-    fn good_peers_on_sampling_subnets(
-        &self,
-        epoch: Epoch,
-        network: &SyncNetworkContext<T>,
-    ) -> bool {
-        if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
-            // Require peers on all sampling column subnets before sending batches
-            let peers_on_all_custody_subnets = network
-                .network_globals()
-                .sampling_subnets
-                .iter()
-                .all(|subnet_id| {
-                    let peer_count = network
-                        .network_globals()
-                        .peers
-                        .read()
-                        .good_custody_subnet_peer(*subnet_id)
-                        .count();
-
-                    set_int_gauge(
-                        &PEERS_PER_COLUMN_SUBNET,
-                        &[&subnet_id.to_string()],
-                        peer_count as i64,
-                    );
-                    peer_count > 0
-                });
-            peers_on_all_custody_subnets
-        } else {
-            true
         }
     }
 
@@ -1074,18 +1025,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .count()
             > BATCH_BUFFER_SIZE as usize
         {
-            return None;
-        }
-
-        // don't send batch requests until we have peers on sampling subnets
-        // TODO(das): this is a workaround to avoid sending out excessive block requests because
-        // block and data column requests are currently coupled. This can be removed once we find a
-        // way to decouple the requests and do retries individually, see issue #6258.
-        if !self.good_peers_on_sampling_subnets(self.to_be_downloaded, network) {
-            debug!(
-                self.log,
-                "Waiting for peers to be available on custody column subnets"
-            );
             return None;
         }
 

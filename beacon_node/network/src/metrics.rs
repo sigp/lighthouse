@@ -746,16 +746,26 @@ pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>)
 
     // count per sync status, the number of connected peers
     let mut peers_per_sync_type = FnvHashMap::default();
-    for sync_type in network_globals
-        .peers
-        .read()
-        .connected_peers()
-        .map(|(_peer_id, info)| info.sync_status().as_str())
-    {
+    let mut peers_per_column_subnet = FnvHashMap::default();
+
+    for (_, info) in network_globals.peers.read().connected_peers() {
+        let sync_type = info.sync_status().as_str();
         *peers_per_sync_type.entry(sync_type).or_default() += 1;
+
+        for subnet in info.custody_subnets_iter() {
+            *peers_per_column_subnet.entry(*subnet).or_default() += 1;
+        }
     }
 
     for (sync_type, peer_count) in peers_per_sync_type {
         set_gauge_entry(&PEERS_PER_SYNC_TYPE, &[sync_type], peer_count);
+    }
+
+    for (subnet, peer_count) in peers_per_column_subnet {
+        set_gauge_entry(
+            &PEERS_PER_COLUMN_SUBNET,
+            &[&format!("{subnet}")],
+            peer_count,
+        );
     }
 }
