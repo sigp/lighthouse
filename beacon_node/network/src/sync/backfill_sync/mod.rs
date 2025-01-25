@@ -879,33 +879,35 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
                     return Ok(());
                 }
-                Err(RpcRequestSendError::NoCustodyPeers) => {
-                    // If we are here the chain has no more synced peers
-                    info!(self.log, "Backfill sync paused"; "reason" => "insufficient_synced_peers");
-                    self.set_state(BackFillState::Paused);
-                    return Err(BackFillError::Paused);
-                }
-                Err(e) => {
-                    // NOTE: under normal conditions this shouldn't happen but we handle it anyway
-                    warn!(self.log, "Could not send batch request";
+                Err(e) => match e {
+                    RpcRequestSendError::NoPeer(no_peer) => {
+                        // If we are here the chain has no more synced peers
+                        info!(self.log, "Backfill sync paused"; "reason" => ?no_peer);
+                        self.set_state(BackFillState::Paused);
+                        return Err(BackFillError::Paused);
+                    }
+                    RpcRequestSendError::InternalError(e) => {
+                        // NOTE: under normal conditions this shouldn't happen but we handle it anyway
+                        warn!(self.log, "Could not send batch request";
                         "batch_id" => batch_id, "error" => ?e, &batch);
-                    // register the failed download and check if the batch can be retried
-                    if let Err(e) = batch.start_downloading_from_peer(1) {
-                        return self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0));
-                    }
+                        // register the failed download and check if the batch can be retried
+                        if let Err(e) = batch.start_downloading_from_peer(1) {
+                            return self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0));
+                        }
 
-                    match batch.download_failed(true) {
-                        Err(e) => {
-                            self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?
-                        }
-                        Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
-                            self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))?
-                        }
-                        Ok(BatchOperationOutcome::Continue) => {
-                            return self.retry_batch_download(network, batch_id)
+                        match batch.download_failed(true) {
+                            Err(e) => {
+                                self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?
+                            }
+                            Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
+                                self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))?
+                            }
+                            Ok(BatchOperationOutcome::Continue) => {
+                                return self.retry_batch_download(network, batch_id)
+                            }
                         }
                     }
-                }
+                },
             }
         }
 

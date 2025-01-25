@@ -3,7 +3,7 @@ use super::RangeSyncType;
 use crate::metrics;
 use crate::metrics::PEERS_PER_COLUMN_SUBNET;
 use crate::network_beacon_processor::ChainSegmentProcessId;
-use crate::sync::network_context::RangeRequestId;
+use crate::sync::network_context::{RangeRequestId, RpcRequestSendError};
 use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
@@ -920,24 +920,36 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     }
                     return Ok(KeepChain);
                 }
-                Err(e) => {
-                    // NOTE: under normal conditions this shouldn't happen but we handle it anyway
-                    warn!(self.log, "Could not send batch request";
+                Err(e) => match e {
+                    RpcRequestSendError::NoPeer(no_peer) => {
+                        // Not possible to reach this condition with NoPeer::BlockPeer. For this
+                        // case the chain should have 0 peers and would be dropped already
+                        debug!(self.log, "Error sending batch no peers"; "epoch" => batch_id, &batch, "no_peer" => ?no_peer);
+                        // Set batch in stale state
+                        // What to return here?
+                        // Not necessary to return a `RemoveChain::EmptyPeerPool` here. If the
+                        // chain actually has 0 peers it will be removed on the remove_peer call
+                        return Ok(KeepChain);
+                    }
+                    RpcRequestSendError::InternalError(e) => {
+                        // NOTE: under normal conditions this shouldn't happen but we handle it anyway
+                        warn!(self.log, "Could not send batch request";
                         "batch_id" => batch_id, "error" => ?e, &batch);
-                    // register the failed download and check if the batch can be retried
-                    batch.start_downloading_from_peer(1)?; // fake request_id = 1 is not relevant
-                    match batch.download_failed(true)? {
-                        BatchOperationOutcome::Failed { blacklist } => {
-                            return Err(RemoveChain::ChainFailed {
-                                blacklist,
-                                failing_batch: batch_id,
-                            })
-                        }
-                        BatchOperationOutcome::Continue => {
-                            return self.retry_batch_download(network, batch_id)
+                        // register the failed download and check if the batch can be retried
+                        batch.start_downloading_from_peer(1)?; // fake request_id = 1 is not relevant
+                        match batch.download_failed(true)? {
+                            BatchOperationOutcome::Failed { blacklist } => {
+                                return Err(RemoveChain::ChainFailed {
+                                    blacklist,
+                                    failing_batch: batch_id,
+                                })
+                            }
+                            BatchOperationOutcome::Continue => {
+                                return self.retry_batch_download(network, batch_id)
+                            }
                         }
                     }
-                }
+                },
             }
         }
 
