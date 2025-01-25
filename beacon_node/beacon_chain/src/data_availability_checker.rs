@@ -257,14 +257,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_engine_blobs(
         &self,
         block_root: Hash256,
+        block_epoch: Epoch,
         blobs: FixedBlobSidecarList<T::EthSpec>,
         data_columns_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        // `data_columns_recv` is always Some if block_root is post-PeerDAS
         if let Some(data_columns_recv) = data_columns_recv {
-            // TODO(das)
-            let block_epoch = Epoch::new(0);
-
-            // TODO(das): This condition must be hit ALWAYS when the block is peer-das
             self.availability_cache.put_computed_data_columns_recv(
                 block_root,
                 block_epoch,

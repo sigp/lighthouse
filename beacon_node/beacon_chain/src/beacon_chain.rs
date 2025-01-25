@@ -3598,9 +3598,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         self.check_blobs_for_slashability(block_root, &blobs)?;
-        let availability =
-            self.data_availability_checker
-                .put_engine_blobs(block_root, blobs, data_column_recv)?;
+        let availability = self.data_availability_checker.put_engine_blobs(
+            block_root,
+            slot.epoch(T::EthSpec::slots_per_epoch()),
+            blobs,
+            data_column_recv,
+        )?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await

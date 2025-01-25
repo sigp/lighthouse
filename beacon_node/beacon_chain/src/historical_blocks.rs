@@ -1,4 +1,4 @@
-use crate::data_availability_checker::AvailableBlock;
+use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
 use slog::debug;
@@ -133,6 +133,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Store block in the hot database without payload.
             self.store
                 .blinded_block_as_kv_store_ops(&block_root, &blinded_block, &mut hot_batch);
+
+            match &block_data {
+                AvailableBlockData::NoData => {}
+                AvailableBlockData::Blobs(_) => {
+                    new_oldest_blob_slot = Some(block.slot());
+                }
+                AvailableBlockData::DataColumns(_) | AvailableBlockData::DataColumnsRecv(_) => {
+                    new_oldest_data_column_slot = Some(block.slot());
+                }
+            }
+
             // Store the blobs or data columns too
             if let Some(op) = self
                 .get_blobs_or_columns_store_op(block_root, block_data)
@@ -142,9 +153,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })
                 })?
             {
-                // TODO(das): Update `new_oldest_blob_slot`
-                new_oldest_blob_slot = Some(Slot::new(0));
-                new_oldest_data_column_slot = Some(Slot::new(0));
                 for op in self.store.convert_to_kv_batch(vec![op])? {
                     blob_batch.push(op);
                 }
