@@ -184,7 +184,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// Mapping of active custody column requests for a block root
     custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
-    /// BlocksByRange requests paired with BlobsByRange
+    /// BlocksByRange requests paired with other ByRange requests for data components
     components_by_range_requests:
         FnvHashMap<ComponentsByRangeRequestId, RangeBlockComponentsRequest<T::EthSpec>>,
 
@@ -241,7 +241,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// Returns the ids of all the requests made to the given peer_id.
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Vec<SyncRequestId> {
         // Note: using destructuring pattern without a default case to make sure we don't forget to
-        // add new request types to the this function. Otherwise, lookup sync can break and lookups
+        // add new request types to this function. Otherwise, lookup sync can break and lookups
         // will get stuck if a peer disconnects during an active requests.
         let Self {
             network_send: _,
@@ -398,7 +398,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (None, None)
             };
 
-        // TODO(pawan): this would break if a batch contains multiple epochs
         let expected_blobs = blobs_req_id.is_some();
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
@@ -449,7 +448,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn range_block_component_response(
         &mut self,
         id: ComponentsByRangeRequestId,
-        block_or_blob: RangeBlockComponent<T::EthSpec>,
+        range_block_component: RangeBlockComponent<T::EthSpec>,
     ) -> Option<Result<Vec<RpcBlock<T::EthSpec>>, RpcResponseError>> {
         let Entry::Occupied(mut entry) = self.components_by_range_requests.entry(id) else {
             metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
@@ -458,7 +457,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         if let Err(e) = {
             let request = entry.get_mut();
-            match block_or_blob {
+            match range_block_component {
                 RangeBlockComponent::Block(resp) => resp.map(|(blocks, _)| {
                     request.add_blocks(blocks);
                 }),
@@ -1099,7 +1098,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: DataColumnsByRangeRequestId,
         peer_id: PeerId,
         rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>> {
+    ) -> Option<RpcResponseResult<DataColumnSidecarList<T::EthSpec>>> {
         let resp = self
             .data_columns_by_range_requests
             .on_response(id, rpc_event);
