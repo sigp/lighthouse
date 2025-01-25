@@ -1009,19 +1009,23 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         {
             return None;
         }
+
         // only request batches up to the buffer size limit
-        // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
-        // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &BatchInfo<T::EthSpec>| {
-            matches!(
-                batch.state(),
-                BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
-            )
-        };
         if self
             .batches
             .iter()
-            .filter(|&(_epoch, batch)| in_buffer(batch))
+            .filter(|&(_epoch, batch)| match batch.state() {
+                // filter batches that count towards the buffer limit
+                BatchState::AwaitingDownload => true,
+                BatchState::Downloading { .. } => true,
+                BatchState::AwaitingProcessing { .. } => true,
+                BatchState::Processing { .. } => true,
+                // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
+                // if the current processing window is contained in a long range of skip slots.
+                BatchState::AwaitingValidation { .. } => false,
+                BatchState::Poisoned => false,
+                BatchState::Failed => false,
+            })
             .count()
             > BATCH_BUFFER_SIZE as usize
         {
