@@ -1245,24 +1245,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// blobs.
     fn on_range_components_response(
         &mut self,
-        id: ComponentsByRangeRequestId,
+        range_request_id: ComponentsByRangeRequestId,
         peer_id: PeerId,
-        block_or_blob: RangeBlockComponent<T::EthSpec>,
+        range_block_component: RangeBlockComponent<T::EthSpec>,
     ) {
         if let Some(resp) = self
             .network
-            .range_block_component_response(id, block_or_blob)
+            .range_block_component_response(range_request_id, range_block_component)
         {
             match resp {
                 Ok(blocks) => {
-                    match id.requester {
+                    match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(
                                 &mut self.network,
                                 peer_id,
                                 chain_id,
                                 batch_id,
-                                id.id,
+                                range_request_id.id,
                                 blocks,
                             );
                             self.update_sync_state();
@@ -1272,7 +1272,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 &mut self.network,
                                 batch_id,
                                 &peer_id,
-                                id.id,
+                                range_request_id.id,
                                 blocks,
                             ) {
                                 Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
@@ -1286,20 +1286,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     }
                 }
-                Err(_) => match id.requester {
+                Err(_) => match range_request_id.requester {
                     RangeRequestId::RangeSync { chain_id, batch_id } => {
                         self.range_sync.inject_error(
                             &mut self.network,
                             peer_id,
                             batch_id,
                             chain_id,
-                            id.id,
+                            range_request_id.id,
                         );
                         self.update_sync_state();
                     }
                     RangeRequestId::BackfillSync { batch_id } => match self
                         .backfill_sync
-                        .inject_error(&mut self.network, batch_id, &peer_id, id.id)
+                        .inject_error(&mut self.network, batch_id, &peer_id, range_request_id.id)
                     {
                         Ok(_) => {}
                         Err(_) => self.update_sync_state(),
