@@ -183,6 +183,20 @@ impl<E: EthSpec> NetworkGlobals<E> {
             .collect::<Vec<_>>()
     }
 
+    /// Returns true if the peer is known and is a custodial of `column_index`
+    pub fn is_custody_peer_of(&self, column_index: ColumnIndex, peer_id: &PeerId) -> bool {
+        self.peers
+            .read()
+            .peer_info(peer_id)
+            .map(|info| {
+                info.is_assigned_to_custody_subnet(&DataColumnSubnetId::from_column_index(
+                    column_index,
+                    &self.spec,
+                ))
+            })
+            .unwrap_or(false)
+    }
+
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
     pub fn new_test_globals(
         trusted_peers: Vec<PeerId>,
