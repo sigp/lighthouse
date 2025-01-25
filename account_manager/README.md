@@ -21,7 +21,7 @@ staking on Ethereum 1.x (TPD)
 The AM is not a service, and does not run continuously, nor does it
 interact with any running services.
 It is intended to be executed separately from other Lighthouse binaries
-and produce files which can be consumed by them.&
+and produce files that can be consumed by them.&
 
 ## Usage
 
