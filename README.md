@@ -48,7 +48,7 @@ progress updates, roadmap insights and interesting findings.
 
 Lighthouse maintains two permanent branches:
 
-- [`stable`][stable]: Always points to the latest stable release.
+- [`stable`][stable]: Always point to the latest stable release.
   - This is ideal for most users.
 - [`unstable`][unstable]: Used for development, contains the latest PRs.
   - Developers should base their PRs on this branch.
