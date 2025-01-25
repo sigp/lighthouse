@@ -1836,16 +1836,6 @@ pub static BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: LazyLock<Result<Histogram>
 );
 
 /*
- * Availability related metrics
- */
-pub static BLOCK_AVAILABILITY_DELAY: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "block_availability_delay",
-        "Duration between start of the slot and the time at which all components of the block are available.",
-    )
-});
-
-/*
  * Data Availability cache metrics
  */
 pub static DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: LazyLock<Result<IntGauge>> =

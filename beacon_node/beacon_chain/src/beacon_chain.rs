@@ -4322,9 +4322,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         payload_verification_status: PayloadVerificationStatus,
         current_slot: Slot,
     ) {
-        let block_delay_total =
-            get_slot_delay_ms(block_time_imported, block.slot(), &self.slot_clock);
-
         // Only present some metrics for blocks from the previous epoch or later.
         //
         // This helps avoid noise in the metrics during sync.
@@ -4334,11 +4331,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block.body().attestations_len() as f64,
             );
 
-            metrics::set_gauge(
-                &metrics::BLOCK_AVAILABILITY_DELAY,
-                block_delay_total.as_secs() as i64,
-            );
-
             if let Ok(sync_aggregate) = block.body().sync_aggregate() {
                 metrics::set_gauge(
                     &metrics::BLOCK_SYNC_AGGREGATE_SET_BITS,
@@ -4346,6 +4338,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
         }
+
+        let block_delay_total =
+            get_slot_delay_ms(block_time_imported, block.slot(), &self.slot_clock);
 
         // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
         // the cache during sync.
