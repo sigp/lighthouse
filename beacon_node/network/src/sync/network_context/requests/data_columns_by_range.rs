@@ -31,6 +31,9 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRangeRequestItems<E> {
         if !self.request.columns.contains(&data_column.index) {
             return Err(LookupVerifyError::UnrequestedIndex(data_column.index));
         }
+        if !data_column.verify_inclusion_proof() {
+            return Err(LookupVerifyError::InvalidInclusionProof);
+        }
         if self.items.iter().any(|existing| {
             existing.slot() == data_column.slot() && existing.index == data_column.index
         }) {
