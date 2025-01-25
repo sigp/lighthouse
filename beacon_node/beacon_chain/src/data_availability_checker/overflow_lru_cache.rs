@@ -10,7 +10,7 @@ use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::RwLock;
-use slog::Logger;
+use slog::{debug, Logger};
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -333,6 +333,41 @@ impl<E: EthSpec> PendingComponents<E> {
                 None
             })
     }
+
+    pub fn status_str(
+        &self,
+        spec: &ChainSpec,
+        block_epoch: Epoch,
+        sampling_column_count: usize,
+    ) -> String {
+        let block_count = if self.executed_block.is_some() { 1 } else { 0 };
+        if spec.is_peer_das_enabled_for_epoch(block_epoch) {
+            let data_column_recv_count = if self.data_column_recv.is_some() {
+                1
+            } else {
+                0
+            };
+            format!(
+                "block {} data_columns {}/{} data_columns_recv {}",
+                block_count,
+                self.verified_data_columns.len(),
+                sampling_column_count,
+                data_column_recv_count,
+            )
+        } else {
+            let num_expected_blobs = if let Some(block) = self.get_cached_block() {
+                &block.num_blobs_expected().to_string()
+            } else {
+                "?"
+            };
+            format!(
+                "block {} blobs {}/{}",
+                block_count,
+                self.verified_blobs.len(),
+                num_expected_blobs
+            )
+        }
+    }
 }
 
 /// This is the main struct for this module. Outside methods should
@@ -438,7 +473,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         kzg_verified_blobs: I,
-        _log: &Logger,
+        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_blobs = kzg_verified_blobs.into_iter().peekable();
 
@@ -472,6 +507,12 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
 
+        debug!(log, "Component added to data availability checker";
+            "component" => "blobs",
+            "block_root" => ?block_root,
+            "status" => pending_components.status_str(&self.spec, epoch, self.sampling_column_count),
+        );
+
         if let Some(available_data) =
             pending_components.is_available(self.sampling_column_count, &self.spec)
         {
@@ -495,7 +536,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         kzg_verified_data_columns: I,
-        _log: &Logger,
+        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_data_columns = kzg_verified_data_columns.into_iter().peekable();
         let Some(epoch) = kzg_verified_data_columns
@@ -518,6 +559,12 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
+
+        debug!(log, "Component added to data availability checker";
+            "component" => "data_columns",
+            "block_root" => ?block_root,
+            "status" => pending_components.status_str(&self.spec, epoch, self.sampling_column_count),
+        );
 
         if let Some(available_data) =
             pending_components.is_available(self.sampling_column_count, &self.spec)
@@ -544,7 +591,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         block_root: Hash256,
         block_epoch: Epoch,
         data_column_recv: oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>,
-        _log: &Logger,
+        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
 
@@ -564,6 +611,12 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // later use when importing the block.
         // TODO(das): Error or log if we overwrite a prior receiver
         pending_components.data_column_recv = Some(data_column_recv);
+
+        debug!(log, "Component added to data availability checker";
+            "component" => "data_columns_recv",
+            "block_root" => ?block_root,
+            "status" => pending_components.status_str(&self.spec, block_epoch, self.sampling_column_count),
+        );
 
         if let Some(available_data) =
             pending_components.is_available(self.sampling_column_count, &self.spec)
@@ -637,7 +690,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn put_pending_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
-        _log: &Logger,
+        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
         let epoch = executed_block.as_block().epoch();
@@ -658,6 +711,12 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // Merge in the block.
         pending_components.merge_block(diet_executed_block);
+
+        debug!(log, "Component added to data availability checker";
+            "component" => "block",
+            "block_root" => ?block_root,
+            "status" => pending_components.status_str(&self.spec, epoch, self.sampling_column_count),
+        );
 
         // Check if we have all components and entire set is consistent.
         if let Some(available_data) =
