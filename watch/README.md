@@ -68,7 +68,7 @@ cargo run -- run-updater --config path/to/config.yaml
 cargo run -- serve --config path/to/config.yaml
 ```
 
-You can specify only the parts of the config file which you need changed.
+You can specify only the parts of the config file which you need to change.
 Missing values will remain as their defaults.
 
 For example, if you wish to run with default settings but only wish to alter `log_level`
