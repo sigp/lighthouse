@@ -46,7 +46,7 @@ pub enum Error {
     SendFailed(&'static str),
     TooManyFailures,
     BadState(String),
-    NoPeers(ColumnIndex),
+    NoPeer(ColumnIndex),
     /// Received a download result for a different request id than the in-flight request.
     /// There should only exist a single request at a time. Having multiple requests is a bug and
     /// can result in undefined state, so it's treated as a hard error and the lookup is dropped.
@@ -281,7 +281,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     // `MAX_STALE_NO_PEERS_DURATION`, else error and drop the request. Note that
                     // lookup will naturally retry when other peers send us attestations for
                     // descendants of this un-available lookup.
-                    return Err(Error::NoPeers(*column_index));
+                    return Err(Error::NoPeer(*column_index));
                 } else {
                     // Do not issue requests if there is no custody peer on this column
                 }
@@ -311,6 +311,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         let column_request = self
                             .column_requests
                             .get_mut(column_index)
+                            // Should never happen: column_index is iterated from column_requests
                             .ok_or(Error::BadState("unknown column_index".to_owned()))?;
 
                         column_request.on_download_start(req_id)?;

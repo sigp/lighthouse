@@ -79,11 +79,18 @@ pub enum RpcResponseError {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RpcRequestSendError {
-    /// Network channel send failed
-    NetworkSendError,
-    NoCustodyPeers,
-    CustodyRequestError(custody::Error),
-    SlotClockError,
+    /// No peer available matching the required criteria
+    NoPeer(NoPeerError),
+    /// These errors should never happen, including unreachable custody errors or network send
+    /// errors.
+    InternalError(String),
+}
+
+/// Type of peer missing that caused a `RpcRequestSendError::NoPeers`
+#[derive(Debug, PartialEq, Eq)]
+pub enum NoPeerError {
+    BlockPeer,
+    CustodyPeer(ColumnIndex),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -417,7 +424,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map(|(_, _, peer)| *peer)
         else {
             // TODO(das): is it safe to error here?
-            return Err(RpcRequestSendError::NoCustodyPeers);
+            return Err(RpcRequestSendError::NoPeer(NoPeerError::BlockPeer));
         };
 
         let _blocks_req_id = self.send_blocks_by_range_request(block_peer, request.clone(), id)?;
@@ -517,7 +524,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 // - Handle the no peers case gracefully, maybe add some timeout and give a few
                 //   minutes / seconds to the peer manager to locate peers on this subnet before
                 //   abandoing progress on the chain completely.
-                return Err(RpcRequestSendError::NoCustodyPeers);
+                return Err(RpcRequestSendError::NoPeer(NoPeerError::CustodyPeer(
+                    *column_index,
+                )));
             };
 
             peer_id_to_request_map
@@ -642,7 +651,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 request: RequestType::BlocksByRoot(request.into_request(&self.fork_context)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
-            .map_err(|_| RpcRequestSendError::NetworkSendError)?;
+            .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
         self.blocks_by_root_requests.insert(
             id,
@@ -724,7 +733,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 request: RequestType::BlobsByRoot(request.clone().into_request(&self.fork_context)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
-            .map_err(|_| RpcRequestSendError::NetworkSendError)?;
+            .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
         self.blobs_by_root_requests.insert(
             id,
@@ -837,7 +846,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 self.custody_by_root_requests.insert(requester, request);
                 Ok(LookupRequestResult::RequestSent(req_id))
             }
-            Err(e) => Err(RpcRequestSendError::CustodyRequestError(e)),
+            Err(e) => Err(match e {
+                CustodyRequestError::NoPeer(column_index) => {
+                    RpcRequestSendError::NoPeer(NoPeerError::CustodyPeer(column_index))
+                }
+                // - TooManyFailures: `request` has just been created, it's count of download_failures
+                //   is 0 here
+                // - BadState: Should never happen, a bad state can only happen when handling a
+                //   network response
+                // - UnexpectedRequestId: Never happens: this Err is only constructed handling a
+                //   download or processing response
+                // - SendFailed: Should never happen unless in a bad drop sequence when shutting
+                //   down the node
+                e @ (CustodyRequestError::TooManyFailures
+                | CustodyRequestError::BadState { .. }
+                | CustodyRequestError::UnexpectedRequestId { .. }
+                | CustodyRequestError::SendFailed { .. }) => {
+                    RpcRequestSendError::InternalError(format!("{e:?}"))
+                }
+            }),
         }
     }
 
@@ -866,7 +893,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 request: RequestType::BlocksByRange(request.clone().into()),
                 request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
             })
-            .map_err(|_| RpcRequestSendError::NetworkSendError)?;
+            .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
         self.blocks_by_range_requests.insert(
             id,
@@ -907,7 +934,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 request: RequestType::BlobsByRange(request.clone()),
                 request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
             })
-            .map_err(|_| RpcRequestSendError::NetworkSendError)?;
+            .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
         let max_blobs_per_block = self.chain.spec.max_blobs_per_block(request_epoch);
         self.blobs_by_range_requests.insert(
@@ -947,7 +974,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request: RequestType::DataColumnsByRange(request.clone()),
             request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
         })
-        .map_err(|_| RpcRequestSendError::NetworkSendError)?;
+        .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
         self.data_columns_by_range_requests.insert(
             id,
