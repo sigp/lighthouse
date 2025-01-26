@@ -28,10 +28,10 @@ impl<E: EthSpec> NetworkGlobalsProvider for Arc<NetworkGlobals<E>> {
     }
 
     fn update_min_ttl(&self, peer_id: &PeerId, min_ttl: Instant) {
-        self.as_ref().peers.write().update_min_ttl(peer_id, min_ttl)
+        self.peers.write().update_min_ttl(peer_id, min_ttl)
     }
 
     fn should_dial(&self, peer_id: &PeerId) -> bool {
-        self.as_ref().peers.read().should_dial(peer_id)
+        self.peers.read().should_dial(peer_id)
     }
 }
