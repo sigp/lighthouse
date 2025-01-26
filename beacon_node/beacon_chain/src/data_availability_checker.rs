@@ -813,6 +813,26 @@ impl<E: EthSpec> AvailableBlock<E> {
         } = self;
         (block_root, block, data)
     }
+
+    /// Only used for testing
+    pub fn __clone_without_recv(&self) -> Result<Self, String> {
+        Ok(Self {
+            block_root: self.block_root,
+            block: self.block.clone(),
+            data: match &self.data {
+                AvailableBlockData::NoData => AvailableBlockData::NoData,
+                AvailableBlockData::Blobs(blobs) => AvailableBlockData::Blobs(blobs.clone()),
+                AvailableBlockData::DataColumns(data_columns) => {
+                    AvailableBlockData::DataColumns(data_columns.clone())
+                }
+                AvailableBlockData::DataColumnsRecv(_) => {
+                    return Err("Can't clone DataColumnsRecv".to_owned())
+                }
+            },
+            blobs_available_timestamp: self.blobs_available_timestamp,
+            spec: self.spec.clone(),
+        })
+    }
 }
 
 #[derive(Debug)]
