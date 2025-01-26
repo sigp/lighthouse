@@ -105,7 +105,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let blob_batch_size = blocks_to_import
             .iter()
-            .filter(|available_block| available_block.blobs().is_some())
+            .filter(|available_block| available_block.has_blobs())
             .count()
             .saturating_mul(n_blob_ops_per_block);
 

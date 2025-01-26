@@ -752,26 +752,6 @@ pub enum AvailableBlockData<E: EthSpec> {
     DataColumnsRecv(oneshot::Receiver<DataColumnSidecarList<E>>),
 }
 
-impl<E: EthSpec> AvailableBlockData<E> {
-    pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
-        match self {
-            Self::NoData => None,
-            Self::Blobs(blobs) => Some(blobs),
-            Self::DataColumns(_) => None,
-            Self::DataColumnsRecv(_) => None,
-        }
-    }
-
-    pub fn data_columns(&self) -> Option<&DataColumnSidecarList<E>> {
-        match self {
-            Self::NoData => None,
-            Self::Blobs(_) => None,
-            Self::DataColumns(data_columns) => Some(data_columns),
-            Self::DataColumnsRecv(_) => todo!(),
-        }
-    }
-}
-
 /// A fully available block that is ready to be imported into fork choice.
 #[derive(Debug)]
 pub struct AvailableBlock<E: EthSpec> {
@@ -806,16 +786,21 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.block.clone()
     }
 
-    pub fn blobs(&self) -> Option<&BlobSidecarList<E>> {
-        self.data.blobs()
-    }
-
     pub fn blobs_available_timestamp(&self) -> Option<Duration> {
         self.blobs_available_timestamp
     }
 
-    pub fn data_columns(&self) -> Option<&DataColumnSidecarList<E>> {
-        self.data.data_columns()
+    pub fn data(&self) -> &AvailableBlockData<E> {
+        &self.data
+    }
+
+    pub fn has_blobs(&self) -> bool {
+        match self.data {
+            AvailableBlockData::NoData => false,
+            AvailableBlockData::Blobs(_) => true,
+            AvailableBlockData::DataColumns(_) => false,
+            AvailableBlockData::DataColumnsRecv(_) => false,
+        }
     }
 
     #[allow(clippy::type_complexity)]
@@ -827,10 +812,6 @@ impl<E: EthSpec> AvailableBlock<E> {
             ..
         } = self;
         (block_root, block, data)
-    }
-
-    pub fn clone_without_data_columns_recv(&self) -> Self {
-        todo!()
     }
 }
 

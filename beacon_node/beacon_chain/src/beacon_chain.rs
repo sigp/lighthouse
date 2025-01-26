@@ -3850,10 +3850,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     if let Some(proto_block) = fork_choice.get_block(&block_root) {
                         if let Err(e) = self.early_attester_cache.add_head_block(
                             block_root,
-                            // TODO(das): Once the columns are received, they will not be available in
-                            // the early attester cache. If someone does a query to us via RPC we
-                            // will get downscored.
-                            signed_block.clone_without_data_columns_recv(),
+                            &signed_block,
                             proto_block,
                             &state,
                             &self.spec,

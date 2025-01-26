@@ -21,7 +21,8 @@ pub struct CacheItem<E: EthSpec> {
      * Values used to make the block available.
      */
     block: Arc<SignedBeaconBlock<E>>,
-    data: AvailableBlockData<E>,
+    blobs: Option<BlobSidecarList<E>>,
+    data_columns: Option<DataColumnSidecarList<E>>,
     proto_block: ProtoBlock,
 }
 
@@ -51,7 +52,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     pub fn add_head_block(
         &self,
         beacon_block_root: Hash256,
-        block: AvailableBlock<E>,
+        block: &AvailableBlock<E>,
         proto_block: ProtoBlock,
         state: &BeaconState<E>,
         spec: &ChainSpec,
@@ -69,15 +70,25 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
-        let (_, block, data) = block.deconstruct();
+        let (blobs, data_columns) = match block.data() {
+            AvailableBlockData::NoData => (None, None),
+            AvailableBlockData::Blobs(blobs) => (Some(blobs.clone()), None),
+            AvailableBlockData::DataColumns(data_columns) => (None, Some(data_columns.clone())),
+            // TODO(das): Once the columns are received, they will not be available in
+            // the early attester cache. If someone does a query to us via RPC we
+            // will get downscored.
+            AvailableBlockData::DataColumnsRecv(_) => (None, None),
+        };
+
         let item = CacheItem {
             epoch,
             committee_lengths,
             beacon_block_root,
             source,
             target,
-            block,
-            data,
+            block: block.block_cloned(),
+            blobs,
+            data_columns,
             proto_block,
         };
 
@@ -161,8 +172,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .read()
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
-            .and_then(|item| item.data.blobs())
-            .cloned()
+            .and_then(|item| item.blobs.clone())
     }
 
     /// Returns the data columns, if `block_root` matches the cached item.
@@ -171,8 +181,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .read()
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
-            .and_then(|item| item.data.data_columns())
-            .cloned()
+            .and_then(|item| item.data_columns.clone())
     }
 
     /// Returns the proto-array block, if `block_root` matches the cached item.
