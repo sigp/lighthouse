@@ -1810,9 +1810,22 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_attestations_valid_v1(mut self) -> Self {
+    pub async fn test_post_beacon_pool_attestations_valid(mut self) -> Self {
         self.client
             .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .await
+            .unwrap();
+
+        let fork_name = self
+            .attestations
+            .first()
+            .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
+            .unwrap();
+
+        let submit_attestations = SubmitAttestations::<E>::Attestations(self.attestations.clone());
+
+        self.client
+            .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
             .await
             .unwrap();
 
@@ -1833,8 +1846,10 @@ impl ApiTester {
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data.slot))
             .unwrap();
+        let submit_attestations =
+            SubmitAttestations::<E>::SingleAttestations(self.single_attestations.clone());
         self.client
-            .post_beacon_pool_attestations_v2(self.single_attestations.as_slice(), fork_name)
+            .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
             .await
             .unwrap();
         assert!(
@@ -1900,10 +1915,10 @@ impl ApiTester {
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
-
+        let submit_attestations = SubmitAttestations::<E>::SingleAttestations(attestations);
         let err_v2 = self
             .client
-            .post_beacon_pool_attestations_v2(attestations.as_slice(), fork_name)
+            .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
             .await
             .unwrap_err();
 
@@ -6054,9 +6069,10 @@ impl ApiTester {
             .chain
             .spec
             .fork_name_at_slot::<E>(self.chain.slot().unwrap());
-
+        let submit_attestations =
+            SubmitAttestations::<E>::SingleAttestations(self.single_attestations.clone());
         self.client
-            .post_beacon_pool_attestations_v2(&self.single_attestations, fork_name)
+            .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
             .await
             .unwrap();
 
@@ -6375,10 +6391,10 @@ async fn post_beacon_blocks_duplicate() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn beacon_pools_post_attestations_valid_v1() {
+async fn beacon_pools_post_attestations_valid() {
     ApiTester::new()
         .await
-        .test_post_beacon_pool_attestations_valid_v1()
+        .test_post_beacon_pool_attestations_valid()
         .await;
 }
 

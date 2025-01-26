@@ -19,7 +19,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, ForkName,
-    Hash256, MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
+    Hash256, MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot, SubmitAttestations,
+    Uint256,
 };
 
 type E = MainnetEthSpec;
@@ -906,9 +907,11 @@ async fn queue_attestations_from_http() {
             .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
             .collect::<Vec<_>>();
 
+        let submit_attestations = SubmitAttestations::<E>::SingleAttestations(single_attestations);
+
         tokio::spawn(async move {
             client
-                .post_beacon_pool_attestations_v2(&single_attestations, fork_name)
+                .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
                 .await
                 .expect("attestations should be processed successfully")
         })

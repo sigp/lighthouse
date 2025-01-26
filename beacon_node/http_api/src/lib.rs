@@ -30,7 +30,6 @@ mod validator;
 mod validator_inclusion;
 mod validators;
 mod version;
-
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use crate::version::fork_versioned_response;
@@ -89,8 +88,8 @@ use types::{
     AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
     ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
     SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    SingleAttestation, Slot, SyncCommitteeMessage, SyncContributionData,
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SubmitAttestations, SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -1835,47 +1834,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
-    let beacon_pool_path_v2 = eth_v2
-        .and(warp::path("beacon"))
-        .and(warp::path("pool"))
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone());
-
-    // POST beacon/pool/attestations
-    let post_beacon_pool_attestations = beacon_pool_path
-        .clone()
-        .and(warp::path("attestations"))
-        .and(warp::path::end())
-        .and(warp_utils::json::json())
-        .and(network_tx_filter.clone())
-        .and(reprocess_send_filter.clone())
-        .and(log_filter.clone())
-        .then(
-            // V1 and V2 are identical except V2 has a consensus version header in the request.
-            // We only require this header for SSZ deserialization, which isn't supported for
-            // this endpoint presently.
-            |task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             attestations: Vec<Attestation<T::EthSpec>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
-             log: Logger| async move {
-                let attestations = attestations.into_iter().map(Either::Left).collect();
-                let result = crate::publish_attestations::publish_attestations(
-                    task_spawner,
-                    chain,
-                    attestations,
-                    network_tx,
-                    reprocess_tx,
-                    log,
-                )
-                .await
-                .map(|()| warp::reply::json(&()));
-                convert_rejection(result).await
-            },
-        );
-
-    let post_beacon_pool_attestations_v2 = beacon_pool_path_v2
+    let post_beacon_pool_attestations = beacon_pool_path_any
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
@@ -1884,13 +1843,21 @@ pub fn serve<T: BeaconChainTypes>(
         .and(reprocess_send_filter)
         .and(log_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
+            |_endpoint_version: EndpointVersion,
+             task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             attestations: Vec<SingleAttestation>,
+             attestations: SubmitAttestations<T::EthSpec>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
-                let attestations = attestations.into_iter().map(Either::Right).collect();
+                let attestations = match attestations {
+                    SubmitAttestations::Attestations(attestations) => {
+                        attestations.into_iter().map(Either::Left).collect()
+                    }
+                    SubmitAttestations::SingleAttestations(attestations) => {
+                        attestations.into_iter().map(Either::Right).collect()
+                    }
+                };
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
@@ -4766,7 +4733,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_blocks_v2)
                     .uor(post_beacon_blinded_blocks_v2)
                     .uor(post_beacon_pool_attestations)
-                    .uor(post_beacon_pool_attestations_v2)
                     .uor(post_beacon_pool_attester_slashings)
                     .uor(post_beacon_pool_proposer_slashings)
                     .uor(post_beacon_pool_voluntary_exits)

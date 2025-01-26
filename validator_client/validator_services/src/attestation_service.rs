@@ -9,7 +9,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
-use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use types::{
+    Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot, SubmitAttestations,
+};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
@@ -461,7 +463,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         .iter()
                         .zip(validator_indices)
                         .filter_map(|(a, i)| {
-                            match a.to_single_attestation_with_attester_index(*i as usize) {
+                            match a.to_single_attestation_with_attester_index(*i) {
                                 Ok(a) => Some(a),
                                 Err(e) => {
                                     // This shouldn't happen unless BN and VC are out of sync with
@@ -479,8 +481,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             }
                         })
                         .collect::<Vec<_>>();
+                    let submit_attestations =
+                        SubmitAttestations::<E>::SingleAttestations(single_attestations);
                     beacon_node
-                        .post_beacon_pool_attestations_v2(&single_attestations, fork_name)
+                        .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
                         .await
                 } else {
                     beacon_node

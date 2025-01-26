@@ -163,12 +163,12 @@ fn convert_to_attestation<'a, T: BeaconChainTypes>(
                 |committee_cache, _| {
                     let Some(committee) = committee_cache.get_beacon_committee(
                         single_attestation.data.slot,
-                        single_attestation.committee_index as u64,
+                        single_attestation.committee_index,
                     ) else {
                         return Err(BeaconChainError::AttestationError(
                             types::AttestationError::NoCommitteeForSlotAndIndex {
                                 slot: single_attestation.data.slot,
-                                index: single_attestation.committee_index as u64,
+                                index: single_attestation.committee_index,
                             },
                         ));
                     };
@@ -199,7 +199,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
         .iter()
         .map(|att| match att {
             Either::Left(att) => (att.data().slot, att.committee_index()),
-            Either::Right(att) => (att.data.slot, Some(att.committee_index as u64)),
+            Either::Right(att) => (att.data.slot, Some(att.committee_index)),
         })
         .collect::<Vec<_>>();
 

@@ -1324,9 +1324,9 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST v2/beacon/pool/attestations`
-    pub async fn post_beacon_pool_attestations_v2(
+    pub async fn post_beacon_pool_attestations_v2<E: EthSpec>(
         &self,
-        attestations: &[SingleAttestation],
+        attestations: &SubmitAttestations<E>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V2)?;

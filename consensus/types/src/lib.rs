@@ -118,7 +118,7 @@ pub use crate::aggregate_and_proof::{
 };
 pub use crate::attestation::{
     Attestation, AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut,
-    Error as AttestationError, SingleAttestation,
+    Error as AttestationError, SingleAttestation, SubmitAttestations,
 };
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
