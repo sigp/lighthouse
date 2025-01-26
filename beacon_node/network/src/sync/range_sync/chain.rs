@@ -412,15 +412,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 BatchState::AwaitingProcessing(..) => {
                     return self.process_batch(network, self.processing_target);
                 }
-                BatchState::Downloading(..) => {
+                BatchState::Downloading(..) | BatchState::AwaitingDownload => {
                     // Batch is not ready, nothing to process
+                    // A batch may remain in AwaitingDownload if it doesn't have enough peers yet
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
+                BatchState::Failed | BatchState::Processing(_) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have beee removed
-                    // - AwaitingDownload -> A recoverable failed batch should have been
-                    //   re-requested.
                     // - Processing -> `self.current_processing_batch` is None
                     return Err(RemoveChain::WrongChainState(format!(
                         "Robust target batch indicates inconsistent chain state: {:?}",

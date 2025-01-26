@@ -39,12 +39,11 @@ use lighthouse_network::{
 use slog::info;
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
-use types::ForkContext;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkName, Hash256,
-    MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, ForkName,
+    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -154,7 +153,7 @@ impl TestRig {
         }
     }
 
-    fn test_setup_after_fulu() -> Option<Self> {
+    pub fn test_setup_after_fulu() -> Option<Self> {
         let r = Self::test_setup();
         if r.fork_name.fulu_enabled() {
             Some(r)
@@ -382,13 +381,22 @@ impl TestRig {
             .__add_connected_peer_testing_only(true, &self.harness.spec)
     }
 
-    fn new_connected_peers_for_peerdas(&mut self) {
+    pub fn new_connected_peers_for_peerdas(&mut self) {
         // Enough sampling peers with few columns
         for _ in 0..100 {
             self.new_connected_peer();
         }
         // One supernode peer to ensure all columns have at least one peer
         self.new_connected_supernode_peer();
+    }
+
+    pub fn connected_peers(&self) -> Vec<PeerId> {
+        self.network_globals
+            .peers
+            .read()
+            .connected_peers()
+            .map(|(peer, _)| *peer)
+            .collect()
     }
 
     fn parent_chain_processed_success(

@@ -345,6 +345,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
+    pub(crate) fn range_sync_state(&self) -> super::range_sync::SyncChainStatus {
+        self.range_sync.state()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn __range_failed_chains(&mut self) -> Vec<Hash256> {
+        self.range_sync.__failed_chains()
+    }
+
+    #[cfg(test)]
     pub(crate) fn get_failed_chains(&mut self) -> Vec<Hash256> {
         self.block_lookups.get_failed_chains()
     }
@@ -369,13 +379,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn range_sync_state(&self) -> super::range_sync::SyncChainStatus {
-        self.range_sync.state()
+    pub(crate) fn update_execution_engine_state(&mut self, state: EngineState) {
+        self.handle_new_execution_engine_state(state);
     }
 
     #[cfg(test)]
-    pub(crate) fn update_execution_engine_state(&mut self, state: EngineState) {
-        self.handle_new_execution_engine_state(state);
+    pub fn resolve_range_block_components_requests(&self, id: Id) -> Option<RangeRequestId> {
+        self.network.resolve_range_block_components_requests(id)
     }
 
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {

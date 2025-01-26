@@ -265,6 +265,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
+    #[cfg(test)]
+    pub fn resolve_range_block_components_requests(&self, id: Id) -> Option<RangeRequestId> {
+        self.range_block_components_requests
+            .get(&id)
+            .map(|req| req.0)
+    }
+
     pub fn send_sync_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
         self.network_beacon_processor
             .send_sync_message(sync_message);
