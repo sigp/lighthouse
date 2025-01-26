@@ -536,8 +536,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }
         }
 
-        let req_id = self.next_id();
-        let id = SingleLookupReqId { lookup_id, req_id };
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
 
         let request = BlocksByRootSingleRequest(block_root);
 
@@ -561,7 +563,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "method" => "BlocksByRoot",
             "block_root" => ?block_root,
             "peer" => %peer_id,
-            "id" => ?id
+            "id" => %id
         );
 
         self.blocks_by_root_requests.insert(
@@ -573,7 +575,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             BlocksByRootRequestItems::new(request),
         );
 
-        Ok(LookupRequestResult::RequestSent(req_id))
+        Ok(LookupRequestResult::RequestSent(id.req_id))
     }
 
     /// Request necessary blobs for `block_root`. Requests only the necessary blobs by checking:
@@ -619,8 +621,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::NoRequestNeeded("no indices to fetch"));
         }
 
-        let req_id = self.next_id();
-        let id = SingleLookupReqId { lookup_id, req_id };
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
 
         let request = BlobsByRootSingleBlockRequest {
             block_root,
@@ -643,7 +647,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "block_root" => ?block_root,
             "blob_indices" => ?indices,
             "peer" => %peer_id,
-            "id" => ?id
+            "id" => %id
         );
 
         self.blobs_by_root_requests.insert(
@@ -656,7 +660,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             BlobsByRootRequestItems::new(request),
         );
 
-        Ok(LookupRequestResult::RequestSent(req_id))
+        Ok(LookupRequestResult::RequestSent(id.req_id))
     }
 
     /// Request to send a single `data_columns_by_root` request to the network.
@@ -667,7 +671,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request: DataColumnsByRootSingleBlockRequest,
         expect_max_responses: bool,
     ) -> Result<LookupRequestResult<DataColumnsByRootRequestId>, &'static str> {
-        let req_id = DataColumnsByRootRequestId {
+        let id = DataColumnsByRootRequestId {
             id: self.next_id(),
             requester,
         };
@@ -675,7 +679,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: RequestType::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
-            request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(req_id)),
+            request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
         })?;
 
         debug!(
@@ -685,18 +689,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "block_root" => ?request.block_root,
             "indices" => ?request.indices,
             "peer" => %peer_id,
-            "requester" => ?requester,
-            "req_id" => %req_id,
+            "id" => %id,
         );
 
         self.data_columns_by_root_requests.insert(
-            req_id,
+            id,
             peer_id,
             expect_max_responses,
             DataColumnsByRootRequestItems::new(request),
         );
 
-        Ok(LookupRequestResult::RequestSent(req_id))
+        Ok(LookupRequestResult::RequestSent(id))
     }
 
     /// Request to fetch all needed custody columns of a specific block. This function may not send
@@ -729,15 +732,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::NoRequestNeeded("no indices to fetch"));
         }
 
-        let req_id = self.next_id();
-        let id = SingleLookupReqId { lookup_id, req_id };
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
 
         debug!(
             self.log,
             "Starting custody columns request";
             "block_root" => ?block_root,
             "indices" => ?custody_indexes_to_fetch,
-            "id" => ?id
+            "id" => %id
         );
 
         let requester = CustodyRequester(id);
@@ -756,7 +761,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 // created cannot return data immediately, it must send some request to the network
                 // first. And there must exist some request, `custody_indexes_to_fetch` is not empty.
                 self.custody_by_root_requests.insert(requester, request);
-                Ok(LookupRequestResult::RequestSent(req_id))
+                Ok(LookupRequestResult::RequestSent(id.req_id))
             }
             Err(e) => Err(RpcRequestSendError::CustodyRequestError(e)),
         }
@@ -784,10 +789,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sync RPC request sent";
             "method" => "BlocksByRange",
-            "count" => request.count(),
+            "slots" => request.count(),
             "epoch" => Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch()),
             "peer" => %peer_id,
-            "id" => ?id,
+            "id" => %id,
         );
 
         self.blocks_by_range_requests.insert(
@@ -826,10 +831,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sync RPC request sent";
             "method" => "BlobsByRange",
-            "count" => request.count,
+            "slots" => request.count,
             "epoch" => request_epoch,
             "peer" => %peer_id,
-            "id" => ?id,
+            "id" => %id,
         );
 
         let max_blobs_per_block = self.chain.spec.max_blobs_per_block(request_epoch);
@@ -866,11 +871,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sync RPC request sent";
             "method" => "DataColumnsByRange",
-            "count" => request.count,
+            "slots" => request.count,
             "epoch" => Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
             "columns" => ?request.columns,
             "peer" => %peer_id,
-            "id" => ?id,
+            "id" => %id,
         );
 
         self.data_columns_by_range_requests.insert(
@@ -1109,7 +1114,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.on_rpc_response_result(id, "DataColumnsByRange", resp, peer_id, |d| d.len())
     }
 
-    fn on_rpc_response_result<I: Debug, R, F: FnOnce(&R) -> usize>(
+    fn on_rpc_response_result<I: std::fmt::Display, R, F: FnOnce(&R) -> usize>(
         &mut self,
         id: I,
         method: &'static str,
@@ -1123,7 +1128,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 debug!(
                     self.log,
                     "Sync RPC request completed";
-                    "id" => ?id,
+                    "id" => %id,
                     "method" => method,
                     "count" => get_count(v)
                 );
@@ -1132,7 +1137,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 debug!(
                     self.log,
                     "Sync RPC request error";
-                    "id" => ?id,
+                    "id" => %id,
                     "method" => method,
                     "error" => ?e
                 );

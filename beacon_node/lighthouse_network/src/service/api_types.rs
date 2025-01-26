@@ -1,14 +1,13 @@
-use std::sync::Arc;
-
-use libp2p::swarm::ConnectionId;
-use types::{
-    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
-};
-
 use crate::rpc::{
     methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage},
     SubstreamId,
+};
+use libp2p::swarm::ConnectionId;
+use std::fmt::{Display, Formatter};
+use std::sync::Arc;
+use types::{
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
 
 /// Identifier of requests sent by a peer.
@@ -235,9 +234,138 @@ impl slog::Value for RequestId {
     }
 }
 
+// Since each request Id is deeply nested with various types, if rendered with Debug on logs they
+// take too much visual space. This custom Display implementations make the overall Id short while
+// not losing information
+impl Display for BlocksByRangeRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.id, self.parent_request_id)
+    }
+}
+
+impl Display for BlobsByRangeRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.id, self.parent_request_id)
+    }
+}
+
+impl Display for DataColumnsByRangeRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.id, self.parent_request_id)
+    }
+}
+
+impl Display for ComponentsByRangeRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.id, self.requester)
+    }
+}
+
+impl Display for SingleLookupReqId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/Lookup/{}", self.req_id, self.lookup_id)
+    }
+}
+
 // This custom impl reduces log boilerplate not printing `DataColumnsByRootRequestId` on each id log
-impl std::fmt::Display for DataColumnsByRootRequestId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {:?}", self.id, self.requester)
+impl Display for DataColumnsByRootRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.id, self.requester)
+    }
+}
+
+impl Display for DataColumnsByRootRequester {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Custody(id) => write!(f, "Custody/{id}"),
+            Self::Sampling(id) => write!(f, "Sampling/{id}"),
+        }
+    }
+}
+
+impl Display for CustodyId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.requester)
+    }
+}
+
+impl Display for CustodyRequester {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Display for RangeRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RangeSync { chain_id, batch_id } => write!(f, "RangeSync/{batch_id}/{chain_id}"),
+            Self::BackfillSync { batch_id } => write!(f, "BackfillSync/{batch_id}"),
+        }
+    }
+}
+
+impl Display for SamplingId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.sampling_request_id, self.id)
+    }
+}
+
+impl Display for SamplingRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Display for SamplingRequester {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ImportedBlock(block) => write!(f, "ImportedBlock/{block}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_id_data_columns_by_root_custody() {
+        let id = DataColumnsByRootRequestId {
+            id: 123,
+            requester: DataColumnsByRootRequester::Custody(CustodyId {
+                requester: CustodyRequester(SingleLookupReqId {
+                    req_id: 121,
+                    lookup_id: 101,
+                }),
+            }),
+        };
+        assert_eq!(format!("{id}"), "123/Custody/121/Lookup/101");
+    }
+
+    #[test]
+    fn display_id_data_columns_by_root_sampling() {
+        let id = DataColumnsByRootRequestId {
+            id: 123,
+            requester: DataColumnsByRootRequester::Sampling(SamplingId {
+                id: SamplingRequester::ImportedBlock(Hash256::ZERO),
+                sampling_request_id: SamplingRequestId(101),
+            }),
+        };
+        assert_eq!(format!("{id}"), "123/Sampling/101/ImportedBlock/0x0000000000000000000000000000000000000000000000000000000000000000");
+    }
+
+    #[test]
+    fn display_id_data_columns_by_range() {
+        let id = DataColumnsByRangeRequestId {
+            id: 123,
+            parent_request_id: ComponentsByRangeRequestId {
+                id: 122,
+                requester: RangeRequestId::RangeSync {
+                    chain_id: 5492900659401505034,
+                    batch_id: Epoch::new(0),
+                },
+            },
+        };
+        assert_eq!(format!("{id}"), "123/122/RangeSync/0/5492900659401505034");
     }
 }
