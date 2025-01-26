@@ -1850,6 +1850,10 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
+                // V1 and V2 are identical except V2 can also accept `SingleAttestation`
+                // and has a consensus version header in the request. We only require
+                // this header for SSZ deserialization, which isn't supported for
+                // this endpoint presently.
                 let attestations = match attestations {
                     SubmitAttestations::Attestations(attestations) => {
                         attestations.into_iter().map(Either::Left).collect()
