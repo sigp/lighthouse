@@ -10,4 +10,5 @@ lighthouse_version = { workspace = true }
 reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true}
 ethereum_ssz = { workspace = true }

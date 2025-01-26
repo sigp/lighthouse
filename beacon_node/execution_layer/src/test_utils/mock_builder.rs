@@ -982,7 +982,8 @@ pub fn serve<E: EthSpec>(
                         .status(200)
                         .body(payload.as_ssz_bytes())
                         .map(add_ssz_content_type_header)
-                        .map(|res| add_consensus_version_header(res, fork_name)).unwrap()
+                        .map(|res| add_consensus_version_header(res, fork_name))
+                        .unwrap(),
                 )
             },
         );

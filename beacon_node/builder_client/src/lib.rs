@@ -1,17 +1,20 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
-    EthSpec, ExecutionBlockHash, ForkVersionedResponse, PublicKeyBytes,
-    SignedValidatorRegistrationData, Slot,
+    ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
+    PublicKeyBytes, SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 pub use eth2::Error;
-use eth2::{ok_or_error, StatusCode, CONSENSUS_VERSION_HEADER};
+use eth2::{
+    ok_or_error, StatusCode, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+};
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use ssz::Encode;
+use std::str::FromStr;
 use std::time::Duration;
 
 pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
@@ -72,6 +75,44 @@ impl BuilderHttpClient {
         &self.user_agent
     }
 
+    async fn get_with_header<T: DeserializeOwned + ForkVersionDecode, U: IntoUrl>(
+        &self,
+        url: U,
+        timeout: Duration,
+        headers: HeaderMap,
+    ) -> Result<T, Error> {
+        let response = self
+            .get_response_with_header(url, Some(timeout), headers)
+            .await?;
+
+        let content_type = response.headers().get(CONTENT_TYPE_HEADER);
+        let fork_name = ForkName::from_str(
+            response
+                .headers()
+                .get(CONSENSUS_VERSION_HEADER)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        )
+        .unwrap();
+
+        if let Some(content_type) = content_type {
+            let content_type = content_type.to_str().unwrap_or("application/json");
+            match content_type {
+                SSZ_CONTENT_TYPE_HEADER => {
+                    return Ok(T::from_ssz_bytes_by_fork(
+                        &response.bytes().await.unwrap(),
+                        fork_name,
+                    )
+                    .unwrap())
+                }
+                _ => return Ok(serde_json::from_slice(&response.bytes().await.unwrap()).unwrap()),
+            };
+        } else {
+            return Ok(serde_json::from_slice(&response.bytes().await.unwrap()).unwrap());
+        }
+    }
+
     async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
         &self,
         url: U,
@@ -82,6 +123,21 @@ impl BuilderHttpClient {
             .json()
             .await
             .map_err(Into::into)
+    }
+
+    /// Perform a HTTP GET request, returning the `Response` for further processing.
+    async fn get_response_with_header<U: IntoUrl>(
+        &self,
+        url: U,
+        timeout: Option<Duration>,
+        headers: HeaderMap,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.get(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder.headers(headers).send().await.map_err(Error::from)?;
+        ok_or_error(response).await
     }
 
     /// Perform a HTTP GET request, returning the `Response` for further processing.
@@ -252,6 +308,7 @@ impl BuilderHttpClient {
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
+        content_type: ContentType,
     ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, Error> {
         let mut path = self.server.full.clone();
 

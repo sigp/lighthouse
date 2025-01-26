@@ -1124,6 +1124,7 @@ dependencies = [
  "reqwest",
  "sensitive_url",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

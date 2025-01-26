@@ -2049,6 +2049,11 @@ impl<E: EthSpec> ExecutionPayloadAndBlobs<E> {
     }
 }
 
+pub enum ContentType {
+    Json,
+    Ssz,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
