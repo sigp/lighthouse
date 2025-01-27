@@ -1056,14 +1056,6 @@ pub fn serve<E: EthSpec>(
                 let accept_header = accept_header.unwrap_or(eth2::types::Accept::Any);
 
                 match accept_header {
-                    eth2::types::Accept::Json | eth2::types::Accept::Any => {
-                        let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                            version: Some(fork_name),
-                            metadata: Default::default(),
-                            data: signed_bid,
-                        };
-                        Ok::<_, Rejection>(warp::reply::json(&resp).into_response())
-                    }
                     eth2::types::Accept::Ssz => Ok::<_, Rejection>(
                         warp::http::Response::builder()
                             .status(200)
@@ -1072,6 +1064,15 @@ pub fn serve<E: EthSpec>(
                             .map(|res| add_consensus_version_header(res, fork_name))
                             .unwrap(),
                     ),
+                    eth2::types::Accept::Json | eth2::types::Accept::Any => {
+                        let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
+                            version: Some(fork_name),
+                            metadata: Default::default(),
+                            data: signed_bid,
+                        };
+                        Ok::<_, Rejection>(warp::reply::json(&resp).into_response())
+                    }
+                   
                 }
             },
         );

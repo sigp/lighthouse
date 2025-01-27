@@ -7,9 +7,9 @@ use eth2::types::{
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 pub use eth2::Error;
 use eth2::{
-    ok_or_error, StatusCode, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+    ok_or_error, StatusCode, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER
 };
-use reqwest::header::{HeaderMap, HeaderValue};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT};
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
@@ -363,8 +363,8 @@ impl BuilderHttpClient {
             .push(pubkey.as_hex_string().as_str());
 
         let mut headers = HeaderMap::new();
-        if let Ok(ssz_content_type_header) = HeaderValue::from_str(SSZ_CONTENT_TYPE_HEADER) {
-            headers.insert(CONTENT_TYPE_HEADER, ssz_content_type_header);
+        if let Ok(ssz_content_type_header) = HeaderValue::from_str(&format!("{:?},{:?}", SSZ_CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER)) {
+            headers.insert(ACCEPT, ssz_content_type_header);
         };
 
         let resp = self
