@@ -1,8 +1,8 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::fork_versioned_response::EmptyMetadata;
 use eth2::types::{
-    ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
-    PublicKeyBytes, SignedValidatorRegistrationData, Slot,
+    ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionDeserialize,
+    ForkVersionedResponse, PublicKeyBytes, SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 pub use eth2::Error;
@@ -101,17 +101,20 @@ impl BuilderHttpClient {
                 _ => ContentType::Json,
             }
         }) else {
-            return ContentType::Json
+            return ContentType::Json;
         };
         content_type
     }
 
-    async fn get_with_header<T: DeserializeOwned + ForkVersionDecode, U: IntoUrl>(
+    async fn get_with_header<
+        T: DeserializeOwned + ForkVersionDecode + ForkVersionDeserialize,
+        U: IntoUrl,
+    >(
         &self,
         url: U,
         timeout: Duration,
         headers: HeaderMap,
-    ) -> Result<T, Error> {
+    ) -> Result<ForkVersionedResponse<T>, Error> {
         let response = self
             .get_response_with_header(url, Some(timeout), headers)
             .await?;
@@ -131,6 +134,11 @@ impl BuilderHttpClient {
                     *lock = true
                 };
                 T::from_ssz_bytes_by_fork(&response_bytes, fork_name)
+                    .map(|data| ForkVersionedResponse {
+                        version: Some(fork_name),
+                        metadata: EmptyMetadata {},
+                        data,
+                    })
                     .map_err(Error::InvalidSsz)
             }
             ContentType::Json => {
@@ -141,7 +149,7 @@ impl BuilderHttpClient {
 
     pub fn is_ssz_enabled(&self) -> bool {
         if let Ok(ssz_enabled) = self.ssz_enabled.read() {
-            return *ssz_enabled
+            return *ssz_enabled;
         };
         false
     }
@@ -359,18 +367,13 @@ impl BuilderHttpClient {
             headers.insert(CONTENT_TYPE_HEADER, ssz_content_type_header);
         };
 
-        let resp = self.get_with_header::<SignedBuilderBid<E>, _>(path, self.timeouts.get_header, headers).await;
-
+        let resp = self
+            .get_with_header(path, self.timeouts.get_header, headers)
+            .await;
         if matches!(resp, Err(Error::StatusCode(StatusCode::NO_CONTENT))) {
             Ok(None)
         } else {
-            resp.map(|s| {
-                Some(ForkVersionedResponse {
-                    version: None,
-                    metadata: EmptyMetadata {},
-                    data: s
-                })
-            })
+            resp.map(Some)
         }
     }
 
