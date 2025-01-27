@@ -97,6 +97,18 @@ where
 
         event.record(&mut visitor);
 
+        // Remove ascii control codes from message.
+        // All following formatting and logs components are predetermined or known.
+        if visitor.message.as_bytes().iter().any(u8::is_ascii_control) {
+            let filtered = visitor
+                .message
+                .as_bytes()
+                .iter()
+                .map(|c| if is_ascii_control(c) { b'_' } else { *c })
+                .collect::<Vec<u8>>();
+            visitor.message = String::from_utf8(filtered).unwrap_or_default();
+        };
+
         let module = meta.module_path().unwrap_or("<unknown_module>");
 
         let file = meta.file().unwrap_or("<unknown_file>");
@@ -364,4 +376,19 @@ impl tracing_core::field::Visit for LogMessageExtractor {
         self.fields
             .push((field.name().to_string(), value.to_string()));
     }
+}
+
+/// Function to filter out ascii control codes.
+///
+/// This helps to keep log formatting consistent.
+/// Whitespace and padding control codes are excluded.
+fn is_ascii_control(character: &u8) -> bool {
+    matches!(
+        character,
+        b'\x00'..=b'\x08' |
+        b'\x0b'..=b'\x0c' |
+        b'\x0e'..=b'\x1f' |
+        b'\x7f' |
+        b'\x81'..=b'\x9f'
+    )
 }
