@@ -711,7 +711,7 @@ impl<E: EthSpec> Network<E> {
         for kind in fork_core_topics::<E>(
             &new_fork,
             &self.fork_context.spec,
-            &self.network_globals.topic_config(),
+            &self.network_globals.as_topic_config(),
         ) {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);

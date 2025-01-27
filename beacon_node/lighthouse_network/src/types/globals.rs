@@ -185,10 +185,10 @@ impl<E: EthSpec> NetworkGlobals<E> {
     }
 
     /// Returns the TopicConfig to compute the set of Gossip topics for a given fork
-    pub fn topic_config(&self) -> TopicConfig {
+    pub fn as_topic_config(&self) -> TopicConfig {
         TopicConfig {
             subscribe_all_data_column_subnets: self.config.subscribe_all_data_column_subnets,
-            sampling_subnets: self.sampling_subnets.iter().copied().collect(),
+            sampling_subnets: &self.sampling_subnets,
         }
     }
 

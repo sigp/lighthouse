@@ -714,7 +714,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
                     self.fork_context.current_fork(),
                     &self.fork_context.spec,
-                    &self.network_globals.topic_config(),
+                    &self.network_globals.as_topic_config(),
                 ) {
                     for fork_digest in self.required_gossip_fork_digests() {
                         let topic = GossipTopic::new(
@@ -910,7 +910,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let core_topics = core_topics_to_subscribe::<T::EthSpec>(
             self.fork_context.current_fork(),
             &self.fork_context.spec,
-            &self.network_globals.topic_config(),
+            &self.network_globals.as_topic_config(),
         );
         let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
         let subscriptions = self.network_globals.gossipsub_subscriptions.read();

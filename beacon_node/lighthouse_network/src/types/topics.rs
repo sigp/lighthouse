@@ -1,5 +1,6 @@
 use gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use strum::AsRefStr;
 use types::{ChainSpec, DataColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};
 
@@ -41,9 +42,10 @@ pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
     GossipKind::LightClientOptimisticUpdate,
 ];
 
-pub struct TopicConfig {
+#[derive(Debug)]
+pub struct TopicConfig<'a> {
     pub subscribe_all_data_column_subnets: bool,
-    pub sampling_subnets: Vec<DataColumnSubnetId>,
+    pub sampling_subnets: &'a HashSet<DataColumnSubnetId>,
 }
 
 /// Returns the core topics associated with each fork that are new to the previous fork
@@ -82,7 +84,7 @@ pub fn fork_core_topics<E: EthSpec>(
                     )));
                 }
             } else {
-                for column_subnet in &topic_config.sampling_subnets {
+                for column_subnet in topic_config.sampling_subnets {
                     topics.push(GossipKind::DataColumnSidecar(*column_subnet));
                 }
             }
@@ -499,9 +501,10 @@ mod tests {
         type E = MainnetEthSpec;
         let spec = E::default_spec();
         let mut all_topics = Vec::new();
+        let sampling_subnets = HashSet::new();
         let topic_config = TopicConfig {
             subscribe_all_data_column_subnets: false,
-            sampling_subnets: vec![],
+            sampling_subnets: &sampling_subnets,
         };
         let mut electra_core_topics =
             fork_core_topics::<E>(&ForkName::Electra, &spec, &topic_config);
