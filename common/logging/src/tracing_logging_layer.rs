@@ -97,15 +97,9 @@ where
 
         event.record(&mut visitor);
 
-        let module = match meta.module_path() {
-            Some(module) => module,
-            None => "<unknown_module>",
-        };
+        let module = meta.module_path().unwrap_or("<unknown_module>");
 
-        let file = match meta.file() {
-            Some(file) => file,
-            None => "<unknown_file>",
-        };
+        let file = meta.file().unwrap_or("<unknown_file>");
 
         let line = match meta.line() {
             Some(line) => line.to_string(),
@@ -164,7 +158,7 @@ where
                 "ts": timestamp,
             });
 
-            let output = format!("{}\n", log_line.to_string());
+            let output = format!("{}\n", log_line);
             if let Err(e) = writer.write_all(output.as_bytes()) {
                 eprintln!("Failed to write log: {}", e);
             }
