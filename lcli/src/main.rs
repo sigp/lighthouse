@@ -662,6 +662,7 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
                     compression: false,
                     is_restricted: true,
                     sse_logging: false, // No SSE Logging in LCLI
+                    extra_info: false,
                 },
                 "",
             );
