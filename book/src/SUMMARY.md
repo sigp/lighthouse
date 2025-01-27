@@ -66,3 +66,7 @@
 * [FAQs](./faq.md)
 * [Protocol Developers](./developers.md)
 * [Security Researchers](./security.md)
+* [Archived](./archived.md)
+  * [Merge Migration](./archived-merge-migration.md)
+  * [Raspberry Pi 4](./archived-pi.md)
+  * [Key Management](./archived-key-management.md)

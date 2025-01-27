@@ -1,4 +1,4 @@
-# Key Management (Deprecated)
+# Key Management
 
 [launchpad]: https://launchpad.ethereum.org/
 
