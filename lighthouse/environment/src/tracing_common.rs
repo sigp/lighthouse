@@ -3,9 +3,7 @@ use clap::ArgMatches;
 use logging::Libp2pDiscv5TracingLayer;
 use logging::{tracing_logging_layer::LoggingLayer, SSELoggingComponents};
 use std::process;
-use tracing_subscriber::filter::EnvFilter;
-use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::filter::FilterFn;
+use tracing_subscriber::filter::{EnvFilter, FilterFn, LevelFilter};
 use types::EthSpec;
 
 pub fn construct_logger<E: EthSpec>(
@@ -34,7 +32,8 @@ pub fn construct_logger<E: EthSpec>(
         .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_string().to_lowercase()))
         .unwrap();
 
-    let dependency_log_filter = FilterFn::new(filter_dependency_log as fn(&tracing::Metadata<'_>) -> bool);
+    let dependency_log_filter =
+        FilterFn::new(filter_dependency_log as fn(&tracing::Metadata<'_>) -> bool);
 
     (
         builder,

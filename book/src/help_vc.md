@@ -229,6 +229,8 @@ Flags:
           database will have been initialized when you imported your validator
           keys. If you misplace your database and then run with this flag you
           risk being slashed.
+      --log-extra-info
+          If present, show module,file,line in logs
       --logfile-color
           Enables colors in logfile.
       --logfile-compress

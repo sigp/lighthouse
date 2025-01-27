@@ -263,7 +263,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             true,
             config.log_format,
             config.extra_info,
-            false
+            false,
         );
 
         let sse_logging_layer_opt = if config.sse_logging {

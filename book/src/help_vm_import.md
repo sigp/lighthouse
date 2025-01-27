@@ -100,6 +100,8 @@ Flags:
           directly cause slashable conditions, it might be an indicator that
           something is amiss. Users should also be careful to avoid submitting
           duplicate deposits for validators that already exist on the VC.
+      --log-extra-info
+          If present, show module,file,line in logs
       --logfile-color
           Enables colors in logfile.
       --logfile-compress

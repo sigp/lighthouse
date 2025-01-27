@@ -89,6 +89,8 @@ Flags:
           debugging specific memory allocation issues.
   -h, --help
           Prints help information
+      --log-extra-info
+          If present, show module,file,line in logs
       --logfile-color
           Enables colors in logfile.
       --logfile-compress

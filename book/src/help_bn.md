@@ -509,6 +509,8 @@ Flags:
       --light-client-server
           Act as a full node supporting light clients on the p2p network
           [experimental]
+      --log-extra-info
+          If present, show module,file,line in logs
       --logfile-color
           Enables colors in logfile.
       --logfile-compress
