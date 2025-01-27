@@ -570,7 +570,7 @@ pub fn validator_exit_using_beacon_and_exit_epoch_flags() {
 }
 
 #[test]
-pub fn validator_exit_exit_epoch_flag_requires_presign_flag() {
+pub fn validator_exit_exit_epoch_flag_without_presign_flag() {
     CommandLineTest::validators_exit()
         .flag("--vc-token", Some("./token.json"))
         .flag(
