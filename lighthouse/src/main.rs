@@ -575,6 +575,7 @@ fn run<E: EthSpec>(
         stdout_logging_layer,
         sse_logging_layer_opt,
         logger_config,
+        dependency_log_filter,
     ) = tracing_common::construct_logger(
         LoggerConfig {
             path: log_path.clone(),
@@ -594,16 +595,6 @@ fn run<E: EthSpec>(
         matches,
         environment_builder,
     );
-
-    let dependency_log_filter = tracing_subscriber::filter::FilterFn::new(|meta| {
-        if let Some(file) = meta.file() {
-            if file.contains("/.cargo/") {
-                let target = meta.target();
-                return target.contains("discv5") || target.contains("libp2p");
-            }
-        }
-        true
-    });
 
     let logging = tracing_subscriber::registry()
         .with(dependency_log_filter)

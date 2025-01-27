@@ -5,6 +5,7 @@ use logging::{tracing_logging_layer::LoggingLayer, SSELoggingComponents};
 use std::process;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::filter::FilterFn;
 use types::EthSpec;
 
 pub fn construct_logger<E: EthSpec>(
@@ -19,6 +20,7 @@ pub fn construct_logger<E: EthSpec>(
     LoggingLayer,
     Option<SSELoggingComponents>,
     LoggerConfig,
+    FilterFn,
 ) {
     let libp2p_discv5_layer =
         logging::create_libp2p_discv5_tracing_layer(logger_config.path.clone());
@@ -32,6 +34,8 @@ pub fn construct_logger<E: EthSpec>(
         .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_string().to_lowercase()))
         .unwrap();
 
+    let dependency_log_filter = FilterFn::new(filter_dependency_log as fn(&tracing::Metadata<'_>) -> bool);
+
     (
         builder,
         filter_layer,
@@ -40,6 +44,7 @@ pub fn construct_logger<E: EthSpec>(
         stdout_logging_layer,
         sse_logging_layer_opt,
         logger_config,
+        dependency_log_filter,
     )
 }
 
@@ -55,4 +60,14 @@ pub fn parse_level(level: &str) -> LevelFilter {
             process::exit(1)
         }
     }
+}
+
+fn filter_dependency_log(meta: &tracing::Metadata<'_>) -> bool {
+    if let Some(file) = meta.file() {
+        if file.contains("/.cargo/") {
+            let target = meta.target();
+            return target.contains("discv5") || target.contains("libp2p");
+        }
+    }
+    true
 }
