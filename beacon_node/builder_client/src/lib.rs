@@ -1,4 +1,5 @@
 use eth2::types::builder_bid::SignedBuilderBid;
+use eth2::types::fork_versioned_response::EmptyMetadata;
 use eth2::types::{
     ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionedResponse,
     PublicKeyBytes, SignedValidatorRegistrationData, Slot,
@@ -15,7 +16,10 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use ssz::Encode;
 use std::str::FromStr;
+use std::sync::RwLock;
 use std::time::Duration;
+
+use std::sync::Arc;
 
 pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
 
@@ -53,6 +57,7 @@ pub struct BuilderHttpClient {
     server: SensitiveUrl,
     timeouts: Timeouts,
     user_agent: String,
+    ssz_enabled: Arc<RwLock<bool>>,
 }
 
 impl BuilderHttpClient {
@@ -68,11 +73,37 @@ impl BuilderHttpClient {
             server,
             timeouts: Timeouts::new(builder_header_timeout),
             user_agent,
+            ssz_enabled: Arc::new(false.into()),
         })
     }
 
     pub fn get_user_agent(&self) -> &str {
         &self.user_agent
+    }
+
+    fn fork_name_from_header(&self, headers: &HeaderMap) -> Result<Option<ForkName>, String> {
+        headers
+            .get(CONSENSUS_VERSION_HEADER)
+            .map(|fork_name| {
+                fork_name
+                    .to_str()
+                    .map_err(|e| e.to_string())
+                    .and_then(ForkName::from_str)
+            })
+            .transpose()
+    }
+
+    fn content_type_from_header(&self, headers: &HeaderMap) -> ContentType {
+        let Some(content_type) = headers.get(CONTENT_TYPE_HEADER).map(|content_type| {
+            let content_type = content_type.to_str();
+            match content_type {
+                Ok(SSZ_CONTENT_TYPE_HEADER) => ContentType::Ssz,
+                _ => ContentType::Json,
+            }
+        }) else {
+            return ContentType::Json
+        };
+        content_type
     }
 
     async fn get_with_header<T: DeserializeOwned + ForkVersionDecode, U: IntoUrl>(
@@ -85,32 +116,34 @@ impl BuilderHttpClient {
             .get_response_with_header(url, Some(timeout), headers)
             .await?;
 
-        let content_type = response.headers().get(CONTENT_TYPE_HEADER);
-        let fork_name = ForkName::from_str(
-            response
-                .headers()
-                .get(CONSENSUS_VERSION_HEADER)
-                .unwrap()
-                .to_str()
-                .unwrap(),
-        )
-        .unwrap();
+        let headers = response.headers().clone();
+        let response_bytes = response.bytes().await?;
 
-        if let Some(content_type) = content_type {
-            let content_type = content_type.to_str().unwrap_or("application/json");
-            match content_type {
-                SSZ_CONTENT_TYPE_HEADER => {
-                    return Ok(T::from_ssz_bytes_by_fork(
-                        &response.bytes().await.unwrap(),
-                        fork_name,
-                    )
-                    .unwrap())
-                }
-                _ => return Ok(serde_json::from_slice(&response.bytes().await.unwrap()).unwrap()),
-            };
-        } else {
-            return Ok(serde_json::from_slice(&response.bytes().await.unwrap()).unwrap());
+        let Ok(Some(fork_name)) = self.fork_name_from_header(&headers) else {
+            return serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson);
+        };
+
+        let content_type = self.content_type_from_header(&headers);
+
+        match content_type {
+            ContentType::Ssz => {
+                if let Ok(mut lock) = self.ssz_enabled.write() {
+                    *lock = true
+                };
+                T::from_ssz_bytes_by_fork(&response_bytes, fork_name)
+                    .map_err(Error::InvalidSsz)
+            }
+            ContentType::Json => {
+                serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson)
+            }
         }
+    }
+
+    pub fn is_ssz_enabled(&self) -> bool {
+        if let Ok(ssz_enabled) = self.ssz_enabled.read() {
+            return *ssz_enabled
+        };
+        false
     }
 
     async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
@@ -308,7 +341,6 @@ impl BuilderHttpClient {
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
-        content_type: ContentType,
     ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, Error> {
         let mut path = self.server.full.clone();
 
@@ -322,12 +354,23 @@ impl BuilderHttpClient {
             .push(format!("{parent_hash:?}").as_str())
             .push(pubkey.as_hex_string().as_str());
 
-        let resp = self.get_with_timeout(path, self.timeouts.get_header).await;
+        let mut headers = HeaderMap::new();
+        if let Ok(ssz_content_type_header) = HeaderValue::from_str(SSZ_CONTENT_TYPE_HEADER) {
+            headers.insert(CONTENT_TYPE_HEADER, ssz_content_type_header);
+        };
+
+        let resp = self.get_with_header::<SignedBuilderBid<E>, _>(path, self.timeouts.get_header, headers).await;
 
         if matches!(resp, Err(Error::StatusCode(StatusCode::NO_CONTENT))) {
             Ok(None)
         } else {
-            resp.map(Some)
+            resp.map(|s| {
+                Some(ForkVersionedResponse {
+                    version: None,
+                    metadata: EmptyMetadata {},
+                    data: s
+                })
+            })
         }
     }
 

@@ -58,8 +58,6 @@ use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, Slot,
 };
 
-use eth2::types::ContentType;
-
 mod block_hash;
 mod engine_api;
 pub mod engines;
@@ -968,7 +966,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         builder: &BuilderHttpClient,
         builder_params: &BuilderParams,
         payload_parameters: PayloadParameters<'_>,
-        content_type: ContentType,
     ) -> (
         Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, builder_client::Error>,
         Result<GetPayloadResponse<E>, Error>,
@@ -989,7 +986,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
             timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
                 builder
-                    .get_builder_header::<E>(slot, parent_hash, pubkey, content_type)
+                    .get_builder_header::<E>(slot, parent_hash, pubkey)
                     .await
             }),
             timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
@@ -1893,7 +1890,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         block_root: Hash256,
         block: &SignedBlindedBeaconBlock<E>,
-        content_type: ContentType,
     ) -> Result<FullPayloadContents<E>, Error> {
         debug!(
             self.log(),
@@ -1904,16 +1900,17 @@ impl<E: EthSpec> ExecutionLayer<E> {
         if let Some(builder) = self.builder() {
             let (payload_result, duration) =
                 timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
-                    match content_type {
-                        ContentType::Json => builder
+                    if builder.is_ssz_enabled() {
+                        builder
+                            .post_builder_blinded_blocks_ssz(block)
+                            .await
+                            .map_err(Error::Builder)
+                    } else {
+                        builder
                             .post_builder_blinded_blocks(block)
                             .await
                             .map_err(Error::Builder)
-                            .map(|d| d.data),
-                        ContentType::Ssz => builder
-                            .post_builder_blinded_blocks_ssz(block)
-                            .await
-                            .map_err(Error::Builder),
+                            .map(|d| d.data)
                     }
                 })
                 .await;

@@ -111,9 +111,9 @@ impl Error {
             Error::InvalidSignatureHeader => None,
             Error::MissingSignatureHeader => None,
             Error::InvalidJson(_) => None,
+            Error::InvalidSsz(_) => None,
             Error::InvalidServerSentEvent(_) => None,
             Error::InvalidHeaders(_) => None,
-            Error::InvalidSsz(_) => None,
             Error::TokenReadError(..) => None,
             Error::NoServerPubkey | Error::NoToken => None,
         }
