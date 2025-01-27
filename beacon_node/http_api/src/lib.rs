@@ -62,6 +62,7 @@ pub use publish_blocks::{
     publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -1840,7 +1841,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
-    let post_beacon_pool_attestations_any = beacon_pool_path_any
+    let post_beacon_pool_attestations_any = beacon_pool_path
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
@@ -1849,8 +1850,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(reprocess_send_filter.clone())
         .and(log_filter.clone())
         .then(
-            |_endpoint_version: EndpointVersion,
-             task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              attestations: Vec<Attestation<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -1879,14 +1879,14 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and(warp_utils::json::json::<Vec<SingleAttestation>>())
+        .and(warp_utils::json::json::<Value>())
         .and(network_tx_filter.clone())
         .and(reprocess_send_filter)
         .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             attestations: Vec<SingleAttestation>,
+             body: Value,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
@@ -1894,7 +1894,24 @@ pub fn serve<T: BeaconChainTypes>(
                 // and has a consensus version header in the request. We only require
                 // this header for SSZ deserialization, which isn't supported for
                 // this endpoint presently.
-                let attestations = attestations.into_iter().map(Either::Right).collect();
+                let attestations = if let Ok(single_attestations) =
+                    serde_json::from_value::<Vec<SingleAttestation>>(body.clone())
+                {
+                    single_attestations.into_iter().map(Either::Right).collect()
+                } else if let Ok(attestations) =
+                    serde_json::from_value::<Vec<Attestation<T::EthSpec>>>(body.clone())
+                {
+                    attestations.into_iter().map(Either::Left).collect()
+                } else {
+                    return warp::reply::with_status(
+                        warp::reply::json(&format!(
+                            "Unable to deserialize request body, {:?}",
+                            body
+                        )),
+                        eth2::StatusCode::BAD_REQUEST,
+                    )
+                    .into_response();
+                };
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
