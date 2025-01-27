@@ -825,16 +825,6 @@ impl<E: EthSpec> PeerManager<E> {
         true
     }
 
-    // Gracefully disconnects a peer without banning them.
-    fn disconnect_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        self.events
-            .push(PeerManagerEvent::DisconnectPeer(peer_id, reason));
-        self.network_globals
-            .peers
-            .write()
-            .notify_disconnecting(&peer_id, false);
-    }
-
     /// Run discovery query for additional sync committee peers if we fall below `TARGET_PEERS`.
     fn maintain_sync_committee_peers(&mut self) {
         // Remove expired entries
@@ -1116,7 +1106,11 @@ impl<E: EthSpec> PeerManager<E> {
 
         // Disconnect the pruned peers.
         for peer_id in peers_to_prune {
-            self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
+            self.connectivity.disconnect_peer(
+                peer_id,
+                GoodbyeReason::TooManyPeers,
+                &mut self.events,
+            );
         }
     }
 

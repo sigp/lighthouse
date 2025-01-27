@@ -16,6 +16,11 @@ pub trait NetworkGlobalsProvider {
     /// Returns true if the peer should be dialed. This checks the connection state and the
     /// score state and determines if the peer manager should dial this peer.
     fn should_dial(&self, peer_id: &PeerId) -> bool;
+
+    /// The peer manager has notified us that the peer is undergoing a normal disconnect. Optionally tag
+    /// the peer to be banned after the disconnect.
+    // VISIBILITY: Only the peer manager can adjust the connection state.
+    fn notify_disconnecting(&mut self, peer_id: &PeerId, to_ban: bool);
 }
 
 impl<E: EthSpec> NetworkGlobalsProvider for Arc<NetworkGlobals<E>> {
@@ -33,5 +38,9 @@ impl<E: EthSpec> NetworkGlobalsProvider for Arc<NetworkGlobals<E>> {
 
     fn should_dial(&self, peer_id: &PeerId) -> bool {
         self.peers.read().should_dial(peer_id)
+    }
+
+    fn notify_disconnecting(&mut self, peer_id: &PeerId, to_ban: bool) {
+        self.peers.write().notify_disconnecting(peer_id, to_ban);
     }
 }

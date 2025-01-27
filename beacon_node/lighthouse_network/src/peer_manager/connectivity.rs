@@ -1,6 +1,9 @@
 use crate::peer_manager::network_globals_provider::NetworkGlobalsProvider;
-use crate::EnrExt;
+use crate::peer_manager::PeerManagerEvent;
+use crate::rpc::GoodbyeReason;
+use crate::{EnrExt, PeerId};
 use discv5::Enr;
+use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -48,6 +51,18 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
         } else {
             false
         }
+    }
+
+    // Gracefully disconnects a peer without banning them.
+    pub fn disconnect_peer(
+        &mut self,
+        peer_id: PeerId,
+        reason: GoodbyeReason,
+        events: &mut SmallVec<[PeerManagerEvent; 16]>,
+    ) {
+        events.push(PeerManagerEvent::DisconnectPeer(peer_id, reason));
+        self.network_globals_provider
+            .notify_disconnecting(&peer_id, false);
     }
 
     pub fn next_peer_to_dial(&mut self) -> Option<Enr> {
