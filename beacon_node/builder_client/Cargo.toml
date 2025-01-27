@@ -5,8 +5,8 @@ edition = { workspace = true }
 authors = ["Sean Anderson <sean@sigmaprime.io>"]
 
 [dependencies]
+eth2 = { workspace = true }
+lighthouse_version = { workspace = true }
 reqwest = { workspace = true }
 sensitive_url = { workspace = true }
-eth2 = { workspace = true }
 serde = { workspace = true }
-lighthouse_version = { workspace = true }

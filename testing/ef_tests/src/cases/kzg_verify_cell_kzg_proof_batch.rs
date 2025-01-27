@@ -29,8 +29,12 @@ impl<E: EthSpec> LoadCase for KZGVerifyCellKZGProofBatch<E> {
 }
 
 impl<E: EthSpec> Case for KZGVerifyCellKZGProofBatch<E> {
-    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name == ForkName::Deneb
+    fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
+        false
+    }
+
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

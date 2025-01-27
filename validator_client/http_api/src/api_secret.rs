@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use warp::Filter;
 
-/// The name of the file which stores the API token.
+/// The default name of the file which stores the API token.
 pub const PK_FILENAME: &str = "api-token.txt";
 
 pub const PK_LEN: usize = 33;
@@ -31,14 +31,32 @@ pub struct ApiSecret {
 impl ApiSecret {
     /// If the public key is already on-disk, use it.
     ///
-    /// The provided `dir` is a directory containing `PK_FILENAME`.
+    /// The provided `pk_path` is a path containing API token.
     ///
     /// If the public key file is missing on disk, create a new key and
     /// write it to disk (over-writing any existing files).
-    pub fn create_or_open<P: AsRef<Path>>(dir: P) -> Result<Self, String> {
-        let pk_path = dir.as_ref().join(PK_FILENAME);
+    pub fn create_or_open<P: AsRef<Path>>(pk_path: P) -> Result<Self, String> {
+        let pk_path = pk_path.as_ref();
+
+        // Check if the path is a directory
+        if pk_path.is_dir() {
+            return Err(format!(
+                "API token path {:?} is a directory, not a file",
+                pk_path
+            ));
+        }
 
         if !pk_path.exists() {
+            // Create parent directories if they don't exist
+            if let Some(parent) = pk_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    format!(
+                        "Unable to create parent directories for {:?}: {:?}",
+                        pk_path, e
+                    )
+                })?;
+            }
+
             let length = PK_LEN;
             let pk: String = thread_rng()
                 .sample_iter(&Alphanumeric)
@@ -47,7 +65,7 @@ impl ApiSecret {
                 .collect();
 
             // Create and write the public key to file with appropriate permissions
-            create_with_600_perms(&pk_path, pk.to_string().as_bytes()).map_err(|e| {
+            create_with_600_perms(pk_path, pk.to_string().as_bytes()).map_err(|e| {
                 format!(
                     "Unable to create file with permissions for {:?}: {:?}",
                     pk_path, e
@@ -55,13 +73,16 @@ impl ApiSecret {
             })?;
         }
 
-        let pk = fs::read(&pk_path)
-            .map_err(|e| format!("cannot read {}: {}", PK_FILENAME, e))?
+        let pk = fs::read(pk_path)
+            .map_err(|e| format!("cannot read {}: {}", pk_path.display(), e))?
             .iter()
             .map(|&c| char::from(c))
             .collect();
 
-        Ok(Self { pk, pk_path })
+        Ok(Self {
+            pk,
+            pk_path: pk_path.to_path_buf(),
+        })
     }
 
     /// Returns the API token.

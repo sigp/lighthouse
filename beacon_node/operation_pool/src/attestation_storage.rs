@@ -105,7 +105,7 @@ impl<E: EthSpec> SplitAttestation<E> {
     }
 }
 
-impl<'a, E: EthSpec> CompactAttestationRef<'a, E> {
+impl<E: EthSpec> CompactAttestationRef<'_, E> {
     pub fn attestation_data(&self) -> AttestationData {
         AttestationData {
             slot: self.data.slot,
@@ -214,7 +214,7 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
                 .is_zero()
     }
 
-    /// Returns `true` if aggregated, otherwise `false`.
+    /// Returns `true` if aggregated, otherwise `false`.
     pub fn aggregate_same_committee(&mut self, other: &Self) -> bool {
         if self.committee_bits != other.committee_bits {
             return false;

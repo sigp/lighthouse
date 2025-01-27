@@ -247,6 +247,18 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
+        .arg(
+            Arg::new("http-token-path")
+                .long("http-token-path")
+                .requires("http")
+                .value_name("HTTP_TOKEN_PATH")
+                .help(
+                    "Path to file containing the HTTP API token for validator client authentication. \
+                    If not specified, defaults to {validators-dir}/api-token.txt."
+                )
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::new("metrics")

@@ -69,6 +69,10 @@ Options:
           this server (e.g., http://localhost:5062).
       --http-port <PORT>
           Set the listen TCP port for the RESTful HTTP API server.
+      --http-token-path <HTTP_TOKEN_PATH>
+          Path to file containing the HTTP API token for validator client
+          authentication. If not specified, defaults to
+          {validators-dir}/api-token.txt.
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]

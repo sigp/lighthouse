@@ -5,12 +5,12 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [dependencies]
-tokio = { workspace = true }
+deposit_contract = { workspace = true }
+ethers-contract = "1.0.2"
 ethers-core = { workspace = true }
 ethers-providers = { workspace = true }
-ethers-contract = "1.0.2"
-types = { workspace = true }
-serde_json = { workspace = true }
-deposit_contract = { workspace = true }
-unused_port = { workspace = true }
 hex = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }
+unused_port = { workspace = true }

@@ -40,17 +40,19 @@ use beacon_chain::{
     BeaconChainTypes,
 };
 use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
+use either::Either;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{debug, error, warn, Logger};
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
     oneshot,
 };
-use types::Attestation;
+use types::{Attestation, EthSpec, SingleAttestation};
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
@@ -62,6 +64,7 @@ enum Error {
     ReprocessDisabled,
     ReprocessFull,
     ReprocessTimeout,
+    FailedConversion(#[allow(dead_code)] BeaconChainError),
 }
 
 enum PublishAttestationResult {
@@ -73,24 +76,39 @@ enum PublishAttestationResult {
 
 fn verify_and_publish_attestation<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    attestation: &Attestation<T::EthSpec>,
+    either_attestation: &Either<Attestation<T::EthSpec>, SingleAttestation>,
     seen_timestamp: Duration,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: &Logger,
 ) -> Result<(), Error> {
-    let attestation = chain
-        .verify_unaggregated_attestation_for_gossip(attestation, None)
+    let attestation = convert_to_attestation(chain, either_attestation)?;
+    let verified_attestation = chain
+        .verify_unaggregated_attestation_for_gossip(&attestation, None)
         .map_err(Error::Validation)?;
 
-    // Publish.
-    network_tx
-        .send(NetworkMessage::Publish {
-            messages: vec![PubsubMessage::Attestation(Box::new((
-                attestation.subnet_id(),
-                attestation.attestation().clone_as_attestation(),
-            )))],
-        })
-        .map_err(|_| Error::Publication)?;
+    match either_attestation {
+        Either::Left(attestation) => {
+            // Publish.
+            network_tx
+                .send(NetworkMessage::Publish {
+                    messages: vec![PubsubMessage::Attestation(Box::new((
+                        verified_attestation.subnet_id(),
+                        attestation.clone(),
+                    )))],
+                })
+                .map_err(|_| Error::Publication)?;
+        }
+        Either::Right(single_attestation) => {
+            network_tx
+                .send(NetworkMessage::Publish {
+                    messages: vec![PubsubMessage::SingleAttestation(Box::new((
+                        verified_attestation.subnet_id(),
+                        single_attestation.clone(),
+                    )))],
+                })
+                .map_err(|_| Error::Publication)?;
+        }
+    }
 
     // Notify the validator monitor.
     chain
@@ -98,12 +116,12 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
         .read()
         .register_api_unaggregated_attestation(
             seen_timestamp,
-            attestation.indexed_attestation(),
+            verified_attestation.indexed_attestation(),
             &chain.slot_clock,
         );
 
-    let fc_result = chain.apply_attestation_to_fork_choice(&attestation);
-    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&attestation);
+    let fc_result = chain.apply_attestation_to_fork_choice(&verified_attestation);
+    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&verified_attestation);
 
     if let Err(e) = &fc_result {
         warn!(
@@ -129,10 +147,48 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     }
 }
 
+fn convert_to_attestation<'a, T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    attestation: &'a Either<Attestation<T::EthSpec>, SingleAttestation>,
+) -> Result<Cow<'a, Attestation<T::EthSpec>>, Error> {
+    let a = match attestation {
+        Either::Left(a) => Cow::Borrowed(a),
+        Either::Right(single_attestation) => chain
+            .with_committee_cache(
+                single_attestation.data.target.root,
+                single_attestation
+                    .data
+                    .slot
+                    .epoch(T::EthSpec::slots_per_epoch()),
+                |committee_cache, _| {
+                    let Some(committee) = committee_cache.get_beacon_committee(
+                        single_attestation.data.slot,
+                        single_attestation.committee_index as u64,
+                    ) else {
+                        return Err(BeaconChainError::AttestationError(
+                            types::AttestationError::NoCommitteeForSlotAndIndex {
+                                slot: single_attestation.data.slot,
+                                index: single_attestation.committee_index as u64,
+                            },
+                        ));
+                    };
+
+                    let attestation =
+                        single_attestation.to_attestation::<T::EthSpec>(committee.committee)?;
+
+                    Ok(Cow::Owned(attestation))
+                },
+            )
+            .map_err(Error::FailedConversion)?,
+    };
+
+    Ok(a)
+}
+
 pub async fn publish_attestations<T: BeaconChainTypes>(
     task_spawner: TaskSpawner<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
-    attestations: Vec<Attestation<T::EthSpec>>,
+    attestations: Vec<Either<Attestation<T::EthSpec>, SingleAttestation>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     reprocess_send: Option<Sender<ReprocessQueueMessage>>,
     log: Logger,
@@ -141,7 +197,10 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     // move the `attestations` vec into the blocking task, so this small overhead is unavoidable.
     let attestation_metadata = attestations
         .iter()
-        .map(|att| (att.data().slot, att.committee_index()))
+        .map(|att| match att {
+            Either::Left(att) => (att.data().slot, att.committee_index()),
+            Either::Right(att) => (att.data.slot, Some(att.committee_index as u64)),
+        })
         .collect::<Vec<_>>();
 
     // Gossip validate and publish attestations that can be immediately processed.

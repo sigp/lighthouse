@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, DepositData, Epoch,
-    EthSpec, FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec,
+    FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -38,14 +38,15 @@ pub struct Validator {
 impl Validator {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn from_deposit(
-        deposit_data: &DepositData,
+        pubkey: PublicKeyBytes,
+        withdrawal_credentials: Hash256,
         amount: u64,
         fork_name: ForkName,
         spec: &ChainSpec,
     ) -> Self {
         let mut validator = Validator {
-            pubkey: deposit_data.pubkey,
-            withdrawal_credentials: deposit_data.withdrawal_credentials,
+            pubkey,
+            withdrawal_credentials,
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,
             exit_epoch: spec.far_future_epoch,
@@ -55,7 +56,7 @@ impl Validator {
         };
 
         let max_effective_balance = validator.get_max_effective_balance(spec, fork_name);
-        // safe math is unnecessary here since the spec.effecive_balance_increment is never <= 0
+        // safe math is unnecessary here since the spec.effective_balance_increment is never <= 0
         validator.effective_balance = std::cmp::min(
             amount - (amount % spec.effective_balance_increment),
             max_effective_balance,
@@ -194,7 +195,7 @@ impl Validator {
     /// Returns `true` if the validator is fully withdrawable at some epoch.
     ///
     /// Calls the correct function depending on the provided `fork_name`.
-    pub fn is_fully_withdrawable_at(
+    pub fn is_fully_withdrawable_validator(
         &self,
         balance: u64,
         epoch: Epoch,
@@ -202,14 +203,14 @@ impl Validator {
         current_fork: ForkName,
     ) -> bool {
         if current_fork.electra_enabled() {
-            self.is_fully_withdrawable_at_electra(balance, epoch, spec)
+            self.is_fully_withdrawable_validator_electra(balance, epoch, spec)
         } else {
-            self.is_fully_withdrawable_at_capella(balance, epoch, spec)
+            self.is_fully_withdrawable_validator_capella(balance, epoch, spec)
         }
     }
 
     /// Returns `true` if the validator is fully withdrawable at some epoch.
-    fn is_fully_withdrawable_at_capella(
+    fn is_fully_withdrawable_validator_capella(
         &self,
         balance: u64,
         epoch: Epoch,
@@ -221,7 +222,7 @@ impl Validator {
     /// Returns `true` if the validator is fully withdrawable at some epoch.
     ///
     /// Modified in electra as part of EIP 7251.
-    fn is_fully_withdrawable_at_electra(
+    fn is_fully_withdrawable_validator_electra(
         &self,
         balance: u64,
         epoch: Epoch,
@@ -290,16 +291,6 @@ impl Validator {
         } else {
             spec.max_effective_balance
         }
-    }
-
-    pub fn get_active_balance(
-        &self,
-        validator_balance: u64,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> u64 {
-        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
-        std::cmp::min(validator_balance, max_effective_balance)
     }
 }
 

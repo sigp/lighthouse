@@ -5,7 +5,6 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
-use crate::error;
 use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::status_message;
@@ -92,7 +91,7 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         log: slog::Logger,
-    ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
+    ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
         let message_handler_log = log.new(o!("service"=> "router"));
         trace!(message_handler_log, "Service starting");
 
@@ -391,6 +390,17 @@ impl<T: BeaconChainTypes> Router<T> {
             PubsubMessage::Attestation(subnet_attestation) => self
                 .handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_unaggregated_attestation(
+                        message_id,
+                        peer_id,
+                        subnet_attestation.1,
+                        subnet_attestation.0,
+                        should_process,
+                        timestamp_now(),
+                    ),
+                ),
+            PubsubMessage::SingleAttestation(subnet_attestation) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_single_attestation(
                         message_id,
                         peer_id,
                         subnet_attestation.1,

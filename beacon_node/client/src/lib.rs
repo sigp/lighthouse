@@ -4,7 +4,6 @@ mod metrics;
 mod notifier;
 
 pub mod builder;
-pub mod error;
 
 use beacon_chain::BeaconChain;
 use lighthouse_network::{Enr, Multiaddr, NetworkGlobals};

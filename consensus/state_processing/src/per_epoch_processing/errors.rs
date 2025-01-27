@@ -28,6 +28,7 @@ pub enum EpochProcessingError {
     SinglePassMissingActivationQueue,
     MissingEarliestExitEpoch,
     MissingExitBalanceToConsume,
+    PendingDepositsLogicError,
 }
 
 impl From<InclusionError> for EpochProcessingError {

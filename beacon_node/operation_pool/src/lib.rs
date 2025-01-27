@@ -186,7 +186,7 @@ impl<E: EthSpec> OperationPool<E> {
         self.sync_contributions.write().retain(|_, contributions| {
             // All the contributions in this bucket have the same data, so we only need to
             // check the first one.
-            contributions.first().map_or(false, |contribution| {
+            contributions.first().is_some_and(|contribution| {
                 current_slot <= contribution.slot.saturating_add(Slot::new(1))
             })
         });
@@ -401,7 +401,7 @@ impl<E: EthSpec> OperationPool<E> {
                     && state
                         .validators()
                         .get(slashing.as_inner().signed_header_1.message.proposer_index as usize)
-                        .map_or(false, |validator| !validator.slashed)
+                        .is_some_and(|validator| !validator.slashed)
             },
             |slashing| slashing.as_inner().clone(),
             E::MaxProposerSlashings::to_usize(),
@@ -484,7 +484,7 @@ impl<E: EthSpec> OperationPool<E> {
                     validator.exit_epoch > head_state.finalized_checkpoint().epoch
                 },
             )
-            .map_or(false, |indices| !indices.is_empty());
+            .is_ok_and(|indices| !indices.is_empty());
 
             signature_ok && slashing_ok
         });
@@ -583,9 +583,7 @@ impl<E: EthSpec> OperationPool<E> {
                 address_change.signature_is_still_valid(&state.fork())
                     && state
                         .get_validator(address_change.as_inner().message.validator_index as usize)
-                        .map_or(false, |validator| {
-                            !validator.has_execution_withdrawal_credential(spec)
-                        })
+                        .is_ok_and(|validator| !validator.has_execution_withdrawal_credential(spec))
             },
             |address_change| address_change.as_inner().clone(),
             E::MaxBlsToExecutionChanges::to_usize(),
@@ -609,9 +607,7 @@ impl<E: EthSpec> OperationPool<E> {
                 address_change.signature_is_still_valid(&state.fork())
                     && state
                         .get_validator(address_change.as_inner().message.validator_index as usize)
-                        .map_or(false, |validator| {
-                            !validator.has_eth1_withdrawal_credential(spec)
-                        })
+                        .is_ok_and(|validator| !validator.has_eth1_withdrawal_credential(spec))
             },
             |address_change| address_change.as_inner().clone(),
             usize::MAX,
@@ -877,11 +873,11 @@ mod release_tests {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
         // Only run this test on the phase0 hard-fork.
-        if spec.altair_fork_epoch != None {
+        if spec.altair_fork_epoch.is_some() {
             return;
         }
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
         let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
@@ -902,10 +898,10 @@ mod release_tests {
         );
 
         for (atts, aggregate) in &attestations {
-            let att2 = aggregate.as_ref().unwrap().message().aggregate().clone();
+            let att2 = aggregate.as_ref().unwrap().message().aggregate();
 
             let att1 = atts
-                .into_iter()
+                .iter()
                 .map(|(att, _)| att)
                 .take(2)
                 .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
@@ -946,7 +942,7 @@ mod release_tests {
                 .unwrap();
 
             assert_eq!(
-                committees.get(0).unwrap().committee.len() - 2,
+                committees.first().unwrap().committee.len() - 2,
                 earliest_attestation_validators(
                     &att2_split.as_ref(),
                     &state,
@@ -963,7 +959,7 @@ mod release_tests {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let slot = state.slot();
         let committees = state
@@ -1020,7 +1016,7 @@ mod release_tests {
         let agg_att = &block_attestations[0];
         assert_eq!(
             agg_att.num_set_aggregation_bits(),
-            spec.target_committee_size as usize
+            spec.target_committee_size
         );
 
         // Prune attestations shouldn't do anything at this point.
@@ -1039,7 +1035,7 @@ mod release_tests {
     fn attestation_duplicate() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let state = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1082,7 +1078,7 @@ mod release_tests {
     fn attestation_pairwise_overlapping() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let state = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1113,19 +1109,17 @@ mod release_tests {
             let aggs1 = atts1
                 .chunks_exact(step_size * 2)
                 .map(|chunk| {
-                    let agg = chunk.into_iter().map(|(att, _)| att).fold::<Option<
-                        Attestation<MainnetEthSpec>,
-                    >, _>(
-                        None,
-                        |att, new_att| {
+                    let agg = chunk
+                        .iter()
+                        .map(|(att, _)| att)
+                        .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
                             if let Some(mut a) = att {
                                 a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
                             }
-                        },
-                    );
+                        });
                     agg.unwrap()
                 })
                 .collect::<Vec<_>>();
@@ -1136,19 +1130,17 @@ mod release_tests {
                 .as_slice()
                 .chunks_exact(step_size * 2)
                 .map(|chunk| {
-                    let agg = chunk.into_iter().map(|(att, _)| att).fold::<Option<
-                        Attestation<MainnetEthSpec>,
-                    >, _>(
-                        None,
-                        |att, new_att| {
+                    let agg = chunk
+                        .iter()
+                        .map(|(att, _)| att)
+                        .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
                             if let Some(mut a) = att {
                                 a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
                             }
-                        },
-                    );
+                        });
                     agg.unwrap()
                 })
                 .collect::<Vec<_>>();
@@ -1181,7 +1173,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1194,7 +1186,7 @@ mod release_tests {
             .collect::<Vec<_>>();
 
         let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
-        let target_committee_size = spec.target_committee_size as usize;
+        let target_committee_size = spec.target_committee_size;
         let num_validators = num_committees
             * MainnetEthSpec::slots_per_epoch() as usize
             * spec.target_committee_size;
@@ -1209,12 +1201,12 @@ mod release_tests {
 
         let insert_attestations = |attestations: Vec<(Attestation<MainnetEthSpec>, SubnetId)>,
                                    step_size| {
-            let att_0 = attestations.get(0).unwrap().0.clone();
+            let att_0 = attestations.first().unwrap().0.clone();
             let aggs = attestations
                 .chunks_exact(step_size)
                 .map(|chunk| {
                     chunk
-                        .into_iter()
+                        .iter()
                         .map(|(att, _)| att)
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
@@ -1247,14 +1239,11 @@ mod release_tests {
         let stats = op_pool.attestation_stats();
         let fork_name = state.fork_name_unchecked();
 
-        match fork_name {
-            ForkName::Electra => {
-                assert_eq!(stats.num_attestation_data, 1);
-            }
-            _ => {
-                assert_eq!(stats.num_attestation_data, committees.len());
-            }
-        };
+        if fork_name.electra_enabled() {
+            assert_eq!(stats.num_attestation_data, 1);
+        } else {
+            assert_eq!(stats.num_attestation_data, committees.len());
+        }
 
         assert_eq!(
             stats.num_attestations,
@@ -1266,25 +1255,19 @@ mod release_tests {
         let best_attestations = op_pool
             .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have best attestations");
-        match fork_name {
-            ForkName::Electra => {
-                assert_eq!(best_attestations.len(), 8);
-            }
-            _ => {
-                assert_eq!(best_attestations.len(), max_attestations);
-            }
-        };
+        if fork_name.electra_enabled() {
+            assert_eq!(best_attestations.len(), 8);
+        } else {
+            assert_eq!(best_attestations.len(), max_attestations);
+        }
 
         // All the best attestations should be signed by at least `big_step_size` (4) validators.
         for att in &best_attestations {
-            match fork_name {
-                ForkName::Electra => {
-                    assert!(att.num_set_aggregation_bits() >= small_step_size);
-                }
-                _ => {
-                    assert!(att.num_set_aggregation_bits() >= big_step_size);
-                }
-            };
+            if fork_name.electra_enabled() {
+                assert!(att.num_set_aggregation_bits() >= small_step_size);
+            } else {
+                assert!(att.num_set_aggregation_bits() >= big_step_size);
+            }
         }
     }
 
@@ -1296,7 +1279,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
+        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slot = state.slot();
@@ -1308,7 +1291,7 @@ mod release_tests {
             .collect::<Vec<_>>();
 
         let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
-        let target_committee_size = spec.target_committee_size as usize;
+        let target_committee_size = spec.target_committee_size;
 
         // Each validator will have a multiple of 1_000_000_000 wei.
         // Safe from overflow unless there are about 18B validators (2^64 / 1_000_000_000).
@@ -1329,12 +1312,12 @@ mod release_tests {
 
         let insert_attestations = |attestations: Vec<(Attestation<MainnetEthSpec>, SubnetId)>,
                                    step_size| {
-            let att_0 = attestations.get(0).unwrap().0.clone();
+            let att_0 = attestations.first().unwrap().0.clone();
             let aggs = attestations
                 .chunks_exact(step_size)
                 .map(|chunk| {
                     chunk
-                        .into_iter()
+                        .iter()
                         .map(|(att, _)| att)
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
@@ -1365,17 +1348,14 @@ mod release_tests {
         let num_big = target_committee_size / big_step_size;
         let fork_name = state.fork_name_unchecked();
 
-        match fork_name {
-            ForkName::Electra => {
-                assert_eq!(op_pool.attestation_stats().num_attestation_data, 1);
-            }
-            _ => {
-                assert_eq!(
-                    op_pool.attestation_stats().num_attestation_data,
-                    committees.len()
-                );
-            }
-        };
+        if fork_name.electra_enabled() {
+            assert_eq!(op_pool.attestation_stats().num_attestation_data, 1);
+        } else {
+            assert_eq!(
+                op_pool.attestation_stats().num_attestation_data,
+                committees.len()
+            );
+        }
 
         assert_eq!(
             op_pool.num_attestations(),
@@ -1388,14 +1368,11 @@ mod release_tests {
             .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have valid best attestations");
 
-        match fork_name {
-            ForkName::Electra => {
-                assert_eq!(best_attestations.len(), 8);
-            }
-            _ => {
-                assert_eq!(best_attestations.len(), max_attestations);
-            }
-        };
+        if fork_name.electra_enabled() {
+            assert_eq!(best_attestations.len(), 8);
+        } else {
+            assert_eq!(best_attestations.len(), max_attestations);
+        }
 
         let total_active_balance = state.get_total_active_balance().unwrap();
 
@@ -1615,7 +1592,6 @@ mod release_tests {
 
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
-            .ok()
             .expect("block root should exist at slot");
         let contributions = harness.make_sync_contributions(
             &state,
@@ -1674,7 +1650,6 @@ mod release_tests {
         let state = harness.get_current_state();
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
-            .ok()
             .expect("block root should exist at slot");
         let contributions = harness.make_sync_contributions(
             &state,
@@ -1711,7 +1686,6 @@ mod release_tests {
         let state = harness.get_current_state();
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
-            .ok()
             .expect("block root should exist at slot");
         let contributions = harness.make_sync_contributions(
             &state,
@@ -1791,7 +1765,6 @@ mod release_tests {
         let state = harness.get_current_state();
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
-            .ok()
             .expect("block root should exist at slot");
         let contributions = harness.make_sync_contributions(
             &state,

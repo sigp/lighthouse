@@ -48,8 +48,7 @@ pub(crate) struct BackoffStorage {
 
 impl BackoffStorage {
     fn heartbeats(d: &Duration, heartbeat_interval: &Duration) -> usize {
-        ((d.as_nanos() + heartbeat_interval.as_nanos() - 1) / heartbeat_interval.as_nanos())
-            as usize
+        d.as_nanos().div_ceil(heartbeat_interval.as_nanos()) as usize
     }
 
     pub(crate) fn new(
@@ -125,7 +124,7 @@ impl BackoffStorage {
     pub(crate) fn is_backoff_with_slack(&self, topic: &TopicHash, peer: &PeerId) -> bool {
         self.backoffs
             .get(topic)
-            .map_or(false, |m| m.contains_key(peer))
+            .is_some_and(|m| m.contains_key(peer))
     }
 
     pub(crate) fn get_backoff_time(&self, topic: &TopicHash, peer: &PeerId) -> Option<Instant> {
