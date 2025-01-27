@@ -619,15 +619,6 @@ impl SingleAttestation {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[serde(tag = "type")]
-#[serde(bound = "E: EthSpec")]
-pub enum SubmitAttestations<E: EthSpec> {
-    Attestations(Vec<Attestation<E>>),
-    SingleAttestations(Vec<SingleAttestation>),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

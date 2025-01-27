@@ -3,6 +3,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
+use either::Either;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
@@ -1822,10 +1823,10 @@ impl ApiTester {
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
 
-        let submit_attestations = SubmitAttestations::<E>::Attestations(self.attestations.clone());
+        let attestations = Either::Left(self.attestations.clone());
 
         self.client
-            .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -1846,10 +1847,10 @@ impl ApiTester {
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data.slot))
             .unwrap();
-        let submit_attestations =
-            SubmitAttestations::<E>::SingleAttestations(self.single_attestations.clone());
+
+        let attestations = Either::Right(self.single_attestations.clone());
         self.client
-            .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
         assert!(
@@ -1915,10 +1916,10 @@ impl ApiTester {
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
-        let submit_attestations = SubmitAttestations::<E>::SingleAttestations(attestations);
+        let attestations = Either::Right(attestations);
         let err_v2 = self
             .client
-            .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap_err();
 
@@ -6069,10 +6070,9 @@ impl ApiTester {
             .chain
             .spec
             .fork_name_at_slot::<E>(self.chain.slot().unwrap());
-        let submit_attestations =
-            SubmitAttestations::<E>::SingleAttestations(self.single_attestations.clone());
+        let attestations = Either::Right(self.single_attestations.clone());
         self.client
-            .post_beacon_pool_attestations_v2(&submit_attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
