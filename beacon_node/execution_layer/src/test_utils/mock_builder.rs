@@ -1072,7 +1072,6 @@ pub fn serve<E: EthSpec>(
                         };
                         Ok::<_, Rejection>(warp::reply::json(&resp).into_response())
                     }
-                   
                 }
             },
         );
