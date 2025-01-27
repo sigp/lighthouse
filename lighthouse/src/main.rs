@@ -595,7 +595,18 @@ fn run<E: EthSpec>(
         environment_builder,
     );
 
+    let dependency_log_filter = tracing_subscriber::filter::FilterFn::new(|meta| {
+        if let Some(file) = meta.file() {
+            if file.contains("/.cargo/") {
+                let target = meta.target();
+                return target.contains("discv5") || target.contains("libp2p");
+            }
+        }
+        true
+    });
+
     let logging = tracing_subscriber::registry()
+        .with(dependency_log_filter)
         .with(filter_layer)
         .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
         .with(stdout_logging_layer.with_filter(logger_config.debug_level))

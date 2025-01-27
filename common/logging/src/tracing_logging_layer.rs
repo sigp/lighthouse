@@ -77,14 +77,15 @@ where
             String::new()
         };
 
-        if let Some(file_path) = meta.file() { 
-            if !self.dep_logs && file_path.contains("/.cargo/")
-                {
-                    return;
+        if !self.dep_logs {
+            if let Some(file) = meta.file(){
+                if file.contains("/.cargo/") {
+                        return;
                 }
-        }else {
-            return;
-        }
+            } else {
+                return;
+            }
+        } 
 
         let mut writer = self.non_blocking_writer.clone();
 
