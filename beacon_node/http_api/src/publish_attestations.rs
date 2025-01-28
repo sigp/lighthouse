@@ -57,7 +57,7 @@ use types::{Attestation, EthSpec, ForkName, SingleAttestation};
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     Validation(AttestationError),
     Publication,
     ForkChoice(#[allow(dead_code)] BeaconChainError),
@@ -65,7 +65,7 @@ enum Error {
     ReprocessDisabled,
     ReprocessFull,
     ReprocessTimeout,
-    InvalidJson(serde_json::Error),
+    InvalidJson(#[allow(dead_code)] serde_json::Error),
     FailedConversion(#[allow(dead_code)] BeaconChainError),
 }
 
@@ -76,6 +76,7 @@ enum PublishAttestationResult {
     Failure(Error),
 }
 
+#[allow(clippy::type_complexity)]
 pub fn deserialize_attestation_payload<T: BeaconChainTypes>(
     payload: Value,
     fork_name: Option<ForkName>,
