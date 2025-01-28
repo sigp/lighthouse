@@ -202,6 +202,7 @@ impl<E: EthSpec> PeerManager<E> {
                 TARGET_OUTBOUND_ONLY_FACTOR,
                 discovery_enabled,
                 network_globals,
+                log,
             ),
         })
     }
@@ -349,18 +350,8 @@ impl<E: EthSpec> PeerManager<E> {
     ///
     /// This function decides whether or not to dial these peers.
     pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) {
-        let wanted_peers = self.connectivity.peers_discovered(&results);
-        if wanted_peers > 0 {
-            self.events
-                .push(PeerManagerEvent::DiscoverPeers(wanted_peers));
-            // debug!(self.log,
-            //     "Starting a new peer discovery query";
-            //     "connected" => peer_count,
-            //     "target" => self.target_peers,
-            //     "outbound" => outbound_only_peer_count,
-            //     "wanted" => wanted_peers
-            // );
-        }
+        self.connectivity
+            .peers_discovered(&results, &mut self.events);
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
@@ -1130,20 +1121,7 @@ impl<E: EthSpec> PeerManager<E> {
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
         // Optionally run a discovery query if we need more peers.
-        let peer_count = self.network_globals.connected_or_dialing_peers();
-        let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
-        let wanted_peers = self.connectivity.maintain_peer_count(0);
-        if wanted_peers > 0 {
-            self.events
-                .push(PeerManagerEvent::DiscoverPeers(wanted_peers));
-            debug!(self.log,
-                "Starting a new peer discovery query";
-                "connected" => peer_count,
-                "target" => self.target_peers,
-                "outbound" => outbound_only_peer_count,
-                "wanted" => wanted_peers
-            );
-        }
+        self.connectivity.maintain_peer_count(0, &mut self.events);
 
         // Cleans up the connection state of dialing peers.
         // Libp2p dials peer-ids, but sometimes the response is from another peer-id or libp2p

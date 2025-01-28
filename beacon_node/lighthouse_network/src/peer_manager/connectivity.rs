@@ -3,6 +3,7 @@ use crate::peer_manager::PeerManagerEvent;
 use crate::rpc::GoodbyeReason;
 use crate::{EnrExt, PeerId};
 use discv5::Enr;
+use slog::debug;
 use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::time::Instant;
@@ -18,6 +19,8 @@ pub struct Connectivity<N: NetworkGlobalsProvider> {
     /// Peers queued to be dialed.
     peers_to_dial: Vec<Enr>,
     network_globals_provider: N,
+    /// The logger associated with the `PeerManager`.
+    log: slog::Logger,
 }
 
 impl<N: NetworkGlobalsProvider> Connectivity<N> {
@@ -29,6 +32,7 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
         target_outbound_only_factor: f32,
         discovery_enabled: bool,
         network_globals_provider: N,
+        log: &slog::Logger,
     ) -> Self {
         Self {
             target_peers,
@@ -39,6 +43,7 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
             discovery_enabled,
             peers_to_dial: Default::default(),
             network_globals_provider,
+            log: log.clone(),
         }
     }
 
@@ -73,7 +78,11 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
     /// returned here.
     ///
     /// This function decides whether or not to dial these peers.
-    pub fn peers_discovered(&mut self, results: &HashMap<Enr, Option<Instant>>) -> usize {
+    pub fn peers_discovered(
+        &mut self,
+        results: &HashMap<Enr, Option<Instant>>,
+        events: &mut SmallVec<[PeerManagerEvent; 16]>,
+    ) {
         let mut to_dial_peers = 0;
         let results_count = results.len();
         let connected_or_dialing = self.network_globals_provider.connected_or_dialing_peers();
@@ -99,7 +108,7 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
                         .update_min_ttl(&peer_id, *min_ttl);
                 }
                 if self.dial_peer(enr.clone()) {
-                    //debug!(self.log, "Added discovered ENR peer to dial queue"; "peer_id" => %peer_id);
+                    debug!(self.log, "Added discovered ENR peer to dial queue"; "peer_id" => %peer_id);
                     to_dial_peers += 1;
                 }
             }
@@ -118,18 +127,21 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
         // reach out target. To prevent the infinite loop, if a query returns no useful peers, we
         // will cancel the recursiveness and wait for the heartbeat to trigger another query latter.
         if results_count > 0 && to_dial_peers == 0 {
-            //debug!(self.log, "Skipping recursive discovery query after finding no useful results"; "results" => results_count);
-            crate::metrics::inc_counter(&crate::metrics::DISCOVERY_NO_USEFUL_ENRS);
-            0
+            debug!(self.log, "Skipping recursive discovery query after finding no useful results"; "results" => results_count);
+            metrics::inc_counter(&crate::metrics::DISCOVERY_NO_USEFUL_ENRS);
         } else {
             // Queue another discovery if we need to
-            self.maintain_peer_count(to_dial_peers)
+            self.maintain_peer_count(to_dial_peers, events)
         }
     }
 
     /// This function checks the status of our current peers and optionally requests a discovery
     /// query if we need to find more peers to maintain the current number of peers
-    pub fn maintain_peer_count(&mut self, dialing_peers: usize) -> usize {
+    pub fn maintain_peer_count(
+        &mut self,
+        dialing_peers: usize,
+        events: &mut SmallVec<[PeerManagerEvent; 16]>,
+    ) {
         // Check if we need to do a discovery lookup
         if self.discovery_enabled {
             let peer_count = self.network_globals_provider.connected_or_dialing_peers();
@@ -137,7 +149,7 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
                 .network_globals_provider
                 .connected_outbound_only_peers();
             // return wanted number of peers
-            if peer_count < self.target_peers.saturating_sub(dialing_peers) {
+            let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
                 // We need more peers in general.
                 self.max_peers().saturating_sub(dialing_peers) - peer_count
             } else if outbound_only_peer_count < self.min_outbound_only_peers()
@@ -148,9 +160,12 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
                     .saturating_sub(peer_count)
             } else {
                 0
+            };
+            if wanted_peers != 0 {
+                // We need more peers, re-queue a discovery lookup.
+                debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.target_peers, "outbound" => outbound_only_peer_count, "wanted" => wanted_peers);
+                events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
             }
-        } else {
-            0
         }
     }
 
