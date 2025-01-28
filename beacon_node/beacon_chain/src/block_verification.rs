@@ -326,7 +326,7 @@ pub enum BlockError {
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
 #[derive(Debug)]
 pub enum InvalidSignature {
-    // The outter signature in a SignedBeaconBlock
+    // The outer signature in a SignedBeaconBlock
     ProposerSignature,
     // One or more signatures in BeaconBlockBody
     BlockBodySignatures,
