@@ -112,7 +112,7 @@ After checkpoint forwards sync completes, the beacon node will start to download
 INFO Downloading historical blocks           est_time: --, distance: 4524545 slots (89 weeks 5 days), service: slot_notifier
 ```
 
-If the same log appears every minute and you do not see progress in downloading historical blocks, you can try one of the followings:
+If the same log appears every minute and you do not see progress in downloading historical blocks, you can try one of the following:
 
 - Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the ports 9000 TCP/UDP and 9001 UDP to increase peer count.
 - Restart the beacon node.
