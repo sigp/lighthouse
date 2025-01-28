@@ -8,37 +8,24 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::time::Instant;
 
-pub struct ConnectivityConfig {
-    target_peers: usize,
-    peer_excess_factor: f32,
-    priority_peer_excess: f32,
-    min_outbound_only_factor: f32,
-    target_outbound_only_factor: f32,
-    discovery_enabled: bool,
-}
+/// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
+/// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
+/// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
+pub const PEER_EXCESS_FACTOR: f32 = 0.1;
 
-impl ConnectivityConfig {
-    pub fn new(
-        target_peers: usize,
-        peer_excess_factor: f32,
-        priority_peer_excess: f32,
-        min_outbound_only_factor: f32,
-        target_outbound_only_factor: f32,
-        discovery_enabled: bool,
-    ) -> Self {
-        Self {
-            target_peers,
-            peer_excess_factor,
-            priority_peer_excess,
-            min_outbound_only_factor,
-            target_outbound_only_factor,
-            discovery_enabled,
-        }
-    }
-}
+/// The fraction of extra peers beyond the PEER_EXCESS_FACTOR that we allow us to dial for when
+/// requiring subnet peers. More specifically, if our target peer limit is 50, and our excess peer
+/// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
+/// dialing priority peers we need for validator duties.
+const PRIORITY_PEER_EXCESS: f32 = 0.2;
+
+/// A fraction of `PeerManager::target_peers` that if we get below, we start a discovery query to
+/// reach our target.
+pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 
 pub struct Connectivity<N: NetworkGlobalsProvider> {
-    config: ConnectivityConfig,
+    target_peers: usize,
+    discovery_enabled: bool,
     /// Peers queued to be dialed.
     peers_to_dial: Vec<Enr>,
     network_globals_provider: N,
@@ -48,12 +35,14 @@ pub struct Connectivity<N: NetworkGlobalsProvider> {
 
 impl<N: NetworkGlobalsProvider> Connectivity<N> {
     pub fn new(
-        config: ConnectivityConfig,
+        target_peers: usize,
+        discovery_enabled: bool,
         network_globals_provider: N,
         log: &slog::Logger,
     ) -> Self {
         Self {
-            config,
+            target_peers,
+            discovery_enabled,
             peers_to_dial: Default::default(),
             network_globals_provider,
             log: log.clone(),
@@ -156,28 +145,27 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
         events: &mut SmallVec<[PeerManagerEvent; 16]>,
     ) {
         // Check if we need to do a discovery lookup
-        if self.config.discovery_enabled {
+        if self.discovery_enabled {
             let peer_count = self.network_globals_provider.connected_or_dialing_peers();
             let outbound_only_peer_count = self
                 .network_globals_provider
                 .connected_outbound_only_peers();
             // return wanted number of peers
-            let wanted_peers =
-                if peer_count < self.config.target_peers.saturating_sub(dialing_peers) {
-                    // We need more peers in general.
-                    self.max_peers().saturating_sub(dialing_peers) - peer_count
-                } else if outbound_only_peer_count < self.min_outbound_only_peers()
-                    && peer_count < self.max_outbound_dialing_peers()
-                {
-                    self.max_outbound_dialing_peers()
-                        .saturating_sub(dialing_peers)
-                        .saturating_sub(peer_count)
-                } else {
-                    0
-                };
+            let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
+                // We need more peers in general.
+                self.max_peers().saturating_sub(dialing_peers) - peer_count
+            } else if outbound_only_peer_count < self.min_outbound_only_peers()
+                && peer_count < self.max_outbound_dialing_peers()
+            {
+                self.max_outbound_dialing_peers()
+                    .saturating_sub(dialing_peers)
+                    .saturating_sub(peer_count)
+            } else {
+                0
+            };
             if wanted_peers != 0 {
                 // We need more peers, re-queue a discovery lookup.
-                debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.config.target_peers, "outbound" => outbound_only_peer_count, "wanted" => wanted_peers);
+                debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.target_peers, "outbound" => outbound_only_peer_count, "wanted" => wanted_peers);
                 events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
             }
         }
@@ -185,39 +173,37 @@ impl<N: NetworkGlobalsProvider> Connectivity<N> {
 
     /// The target number of peers we would like to connect to.
     pub fn target_peers(&self) -> usize {
-        self.config.target_peers
+        self.target_peers
     }
 
     /// The maximum number of peers we allow to connect to us. This is `target_peers` * (1 +
     /// peer_excess_factor)
     pub fn max_peers(&self) -> usize {
-        (self.config.target_peers as f32 * (1.0 + self.config.peer_excess_factor)).ceil() as usize
+        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as usize
     }
 
     /// The maximum number of peers we allow when dialing a priority peer (i.e a peer that is
     /// subscribed to subnets that our validator requires. This is `target_peers` * (1 +
     /// PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)
     pub fn max_priority_peers(&self) -> usize {
-        (self.config.target_peers as f32
-            * (1.0 + self.config.peer_excess_factor + self.config.priority_peer_excess))
-            .ceil() as usize
+        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)).ceil()
+            as usize
     }
 
     /// The minimum number of outbound peers that we reach before we start another discovery query.
     pub fn min_outbound_only_peers(&self) -> usize {
-        (self.config.target_peers as f32 * self.config.min_outbound_only_factor).ceil() as usize
+        (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize
     }
 
     /// The minimum number of outbound peers that we reach before we start another discovery query.
     pub fn target_outbound_peers(&self) -> usize {
-        (self.config.target_peers as f32 * self.config.target_outbound_only_factor).ceil() as usize
+        (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize
     }
 
     /// The maximum number of peers that are connected or dialing before we refuse to do another
     /// discovery search for more outbound peers. We can use up to half the priority peer excess allocation.
     pub fn max_outbound_dialing_peers(&self) -> usize {
-        (self.config.target_peers as f32
-            * (1.0 + self.config.peer_excess_factor + self.config.priority_peer_excess / 2.0))
-            .ceil() as usize
+        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS / 2.0)).ceil()
+            as usize
     }
 }

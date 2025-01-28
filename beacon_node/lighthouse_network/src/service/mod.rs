@@ -7,7 +7,6 @@ use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
-use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
     self, GoodbyeReason, HandlerErr, NetworkParams, Protocol, RPCError, RPCMessage, RPCReceived,
@@ -411,15 +410,20 @@ impl<E: EthSpec> Network<E> {
                 .with_max_pending_outgoing(Some(16))
                 .with_max_established_incoming(Some(
                     (config.target_peers as f32
-                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
-                        .ceil() as u32,
+                        * (1.0 + peer_manager.peer_excess_factor()
+                            - peer_manager.min_outbound_only_factor()))
+                    .ceil() as u32,
                 ))
                 .with_max_established_outgoing(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as u32,
+                    (config.target_peers as f32 * (1.0 + peer_manager.peer_excess_factor())).ceil()
+                        as u32,
                 ))
                 .with_max_established(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
-                        .ceil() as u32,
+                    (config.target_peers as f32
+                        * (1.0
+                            + peer_manager.peer_excess_factor()
+                            + peer_manager.min_outbound_only_factor()))
+                    .ceil() as u32,
                 ))
                 .with_max_established_per_peer(Some(1));
 

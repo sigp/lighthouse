@@ -23,7 +23,9 @@ pub use libp2p::identity::Keypair;
 
 pub mod peerdb;
 
-use crate::peer_manager::connectivity::{Connectivity, ConnectivityConfig};
+use crate::peer_manager::connectivity::{
+    Connectivity, MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR,
+};
 use crate::peer_manager::peerdb::client::ClientKind;
 use libp2p::multiaddr;
 pub use peerdb::peer_info::{
@@ -54,20 +56,7 @@ pub const PEER_RECONNECTION_TIMEOUT: Duration = Duration::from_secs(600);
 /// lower our peer count below this number. Instead we favour a non-uniform distribution of subnet
 /// peers.
 pub const MIN_SYNC_COMMITTEE_PEERS: u64 = 2;
-/// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
-/// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
-/// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
-pub const PEER_EXCESS_FACTOR: f32 = 0.1;
-/// A fraction of `PeerManager::target_peers` that we want to be outbound-only connections.
-pub const TARGET_OUTBOUND_ONLY_FACTOR: f32 = 0.3;
-/// A fraction of `PeerManager::target_peers` that if we get below, we start a discovery query to
-/// reach our target. MIN_OUTBOUND_ONLY_FACTOR must be < TARGET_OUTBOUND_ONLY_FACTOR.
-pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
-/// The fraction of extra peers beyond the PEER_EXCESS_FACTOR that we allow us to dial for when
-/// requiring subnet peers. More specifically, if our target peer limit is 50, and our excess peer
-/// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
-/// dialing priority peers we need for validator duties.
-pub const PRIORITY_PEER_EXCESS: f32 = 0.2;
+
 /// The numbre of inbound libp2p peers we have seen before we consider our NAT to be open.
 pub const LIBP2P_NAT_OPEN_THRESHOLD: usize = 3;
 
@@ -192,14 +181,8 @@ impl<E: EthSpec> PeerManager<E> {
             quic_enabled,
             log: log.clone(),
             connectivity: Connectivity::new(
-                ConnectivityConfig::new(
-                    target_peer_count,
-                    PEER_EXCESS_FACTOR,
-                    PRIORITY_PEER_EXCESS,
-                    MIN_OUTBOUND_ONLY_FACTOR,
-                    TARGET_OUTBOUND_ONLY_FACTOR,
-                    discovery_enabled,
-                ),
+                target_peer_count,
+                discovery_enabled,
                 network_globals,
                 log,
             ),
@@ -716,6 +699,14 @@ impl<E: EthSpec> PeerManager<E> {
         for (peer_id, score_action) in actions {
             self.handle_score_action(&peer_id, score_action, None);
         }
+    }
+
+    pub fn peer_excess_factor(&self) -> f32 {
+        PEER_EXCESS_FACTOR
+    }
+
+    pub fn min_outbound_only_factor(&self) -> f32 {
+        MIN_OUTBOUND_ONLY_FACTOR
     }
 
     /* Internal functions */
