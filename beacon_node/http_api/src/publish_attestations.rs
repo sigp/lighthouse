@@ -44,6 +44,7 @@ use either::Either;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
+use serde_json::Value;
 use slog::{debug, error, warn, Logger};
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -52,7 +53,7 @@ use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
     oneshot,
 };
-use types::{Attestation, EthSpec, SingleAttestation};
+use types::{Attestation, EthSpec, ForkName, SingleAttestation};
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
@@ -64,6 +65,7 @@ enum Error {
     ReprocessDisabled,
     ReprocessFull,
     ReprocessTimeout,
+    InvalidJson(serde_json::Error),
     FailedConversion(#[allow(dead_code)] BeaconChainError),
 }
 
@@ -72,6 +74,27 @@ enum PublishAttestationResult {
     AlreadyKnown,
     Reprocessing(oneshot::Receiver<Result<(), Error>>),
     Failure(Error),
+}
+
+pub fn deserialize_attestation_payload<T: BeaconChainTypes>(
+    payload: Value,
+    fork_name: Option<ForkName>,
+) -> Result<Vec<Either<Attestation<T::EthSpec>, SingleAttestation>>, Error> {
+    if fork_name.map_or(false, |fork_name| fork_name.electra_enabled()) || fork_name.is_none() {
+        Ok(serde_json::from_value::<Vec<SingleAttestation>>(payload)
+            .map_err(Error::InvalidJson)?
+            .into_iter()
+            .map(Either::Right)
+            .collect())
+    } else {
+        Ok(
+            serde_json::from_value::<Vec<Attestation<T::EthSpec>>>(payload)
+                .map_err(Error::InvalidJson)?
+                .into_iter()
+                .map(Either::Left)
+                .collect(),
+        )
+    }
 }
 
 fn verify_and_publish_attestation<T: BeaconChainTypes>(

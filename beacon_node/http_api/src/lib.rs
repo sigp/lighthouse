@@ -1279,6 +1279,9 @@ pub fn serve<T: BeaconChainTypes>(
     let consensus_version_header_filter =
         warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER);
 
+    let optional_consensus_version_header_filter =
+        warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER);
+
     // POST beacon/blocks
     let post_beacon_blocks = eth_v1
         .and(warp::path("beacon"))
@@ -1841,11 +1844,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
-    let post_beacon_pool_attestations_any = beacon_pool_path
+    let post_beacon_pool_attestations_v1 = beacon_pool_path
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and(warp_utils::json::json::<Vec<Attestation<T::EthSpec>>>())
+        .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and(reprocess_send_filter.clone())
         .and(log_filter.clone())
@@ -1856,10 +1859,6 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
-                // V1 and V2 are identical except V2 can also accept `SingleAttestation`
-                // and has a consensus version header in the request. We only require
-                // this header for SSZ deserialization, which isn't supported for
-                // this endpoint presently.
                 let attestations = attestations.into_iter().map(Either::Left).collect();
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
@@ -1880,38 +1879,28 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("attestations"))
         .and(warp::path::end())
         .and(warp_utils::json::json::<Value>())
+        .and(optional_consensus_version_header_filter)
         .and(network_tx_filter.clone())
-        .and(reprocess_send_filter)
+        .and(reprocess_send_filter.clone())
         .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             body: Value,
+             payload: Value,
+             fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
-                // V1 and V2 are identical except V2 can also accept `SingleAttestation`
-                // and has a consensus version header in the request. We only require
-                // this header for SSZ deserialization, which isn't supported for
-                // this endpoint presently.
-                let attestations = if let Ok(single_attestations) =
-                    serde_json::from_value::<Vec<SingleAttestation>>(body.clone())
-                {
-                    single_attestations.into_iter().map(Either::Right).collect()
-                } else if let Ok(attestations) =
-                    serde_json::from_value::<Vec<Attestation<T::EthSpec>>>(body.clone())
-                {
-                    attestations.into_iter().map(Either::Left).collect()
-                } else {
+                let Ok(attestations) = crate::publish_attestations::deserialize_attestation_payload::<T>(
+                    payload, fork_name,
+                ) else {
                     return warp::reply::with_status(
-                        warp::reply::json(&format!(
-                            "Unable to deserialize request body, {:?}",
-                            body
-                        )),
+                        warp::reply::json(&"Unable to deserialize request body".to_string()),
                         eth2::StatusCode::BAD_REQUEST,
                     )
                     .into_response();
                 };
+
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
@@ -4786,7 +4775,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)
                     .uor(post_beacon_blinded_blocks_v2)
-                    .uor(post_beacon_pool_attestations_any)
+                    .uor(post_beacon_pool_attestations_v1)
                     .uor(post_beacon_pool_attestations_v2)
                     .uor(post_beacon_pool_attester_slashings)
                     .uor(post_beacon_pool_proposer_slashings)
