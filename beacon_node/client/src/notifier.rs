@@ -72,7 +72,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     );
                     eth1_logging(&beacon_chain, &log);
                     bellatrix_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
-                    post_capella_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
+                    post_bellatrix_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
                     genesis_execution_payload_logging(&beacon_chain, &log).await;
                     sleep(slot_duration).await;
                 }
@@ -322,7 +322,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             eth1_logging(&beacon_chain, &log);
             bellatrix_readiness_logging(current_slot, &beacon_chain, &log).await;
-            post_capella_readiness_logging(current_slot, &beacon_chain, &log).await;
+            post_bellatrix_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -410,7 +410,7 @@ async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
 }
 
 /// Provides some helpful logging to users to indicate if their node is ready for Capella
-async fn post_capella_readiness_logging<T: BeaconChainTypes>(
+async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
     log: &Logger,
