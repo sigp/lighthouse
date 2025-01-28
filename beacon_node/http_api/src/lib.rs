@@ -85,13 +85,12 @@ use tokio_stream::{
 };
 use types::{
     fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
-    AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
-    ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
-    SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
+    AttesterSlashing, BeaconStateError, ChainSpec, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
+    ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing,
+    RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
     SyncCommitteeMessage, SyncContributionData,
 };
-use types::ChainSpec;
 use validator::pubkey_to_validator_index;
 use version::{
     add_consensus_version_header, add_ssz_content_type_header,
