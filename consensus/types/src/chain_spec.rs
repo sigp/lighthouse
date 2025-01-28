@@ -651,7 +651,7 @@ impl ChainSpec {
         if self.electra_fork_epoch.is_some() {
             self.max_request_blob_sidecars_electra as usize
         } else {
-            self.max_request_blocks as usize
+            self.max_request_blob_sidecars as usize
         }
     }
 
