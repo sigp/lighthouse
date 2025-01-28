@@ -91,7 +91,7 @@ use types::{
     SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
     SyncCommitteeMessage, SyncContributionData,
 };
-use types::{ChainSpec, SingleAttestation};
+use types::ChainSpec;
 use validator::pubkey_to_validator_index;
 use version::{
     add_consensus_version_header, add_ssz_content_type_header,
