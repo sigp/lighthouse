@@ -23,7 +23,7 @@ pub use libp2p::identity::Keypair;
 
 pub mod peerdb;
 
-use crate::peer_manager::connectivity::Connectivity;
+use crate::peer_manager::connectivity::{Connectivity, ConnectivityConfig};
 use crate::peer_manager::peerdb::client::ClientKind;
 use libp2p::multiaddr;
 pub use peerdb::peer_info::{
@@ -83,8 +83,6 @@ pub struct PeerManager<E: EthSpec> {
     outbound_ping_peers: HashSetDelay<PeerId>,
     /// A collection of peers awaiting to be Status'd.
     status_peers: HashSetDelay<PeerId>,
-    /// The target number of peers we would like to connect to.
-    target_peers: usize,
     /// The number of temporarily banned peers. This is used to prevent instantaneous
     /// reconnection.
     // NOTE: This just prevents re-connections. The state of the peer is otherwise unaffected. A
@@ -186,7 +184,6 @@ impl<E: EthSpec> PeerManager<E> {
             inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
             outbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_outbound)),
             status_peers: HashSetDelay::new(Duration::from_secs(status_interval)),
-            target_peers: target_peer_count,
             temporary_banned_peers: LRUTimeCache::new(PEER_RECONNECTION_TIMEOUT),
             sync_committee_subnets: Default::default(),
             subnets_by_custody_group,
@@ -195,12 +192,14 @@ impl<E: EthSpec> PeerManager<E> {
             quic_enabled,
             log: log.clone(),
             connectivity: Connectivity::new(
-                target_peer_count,
-                PEER_EXCESS_FACTOR,
-                PRIORITY_PEER_EXCESS,
-                MIN_OUTBOUND_ONLY_FACTOR,
-                TARGET_OUTBOUND_ONLY_FACTOR,
-                discovery_enabled,
+                ConnectivityConfig::new(
+                    target_peer_count,
+                    PEER_EXCESS_FACTOR,
+                    PRIORITY_PEER_EXCESS,
+                    MIN_OUTBOUND_ONLY_FACTOR,
+                    TARGET_OUTBOUND_ONLY_FACTOR,
+                    discovery_enabled,
+                ),
                 network_globals,
                 log,
             ),
@@ -302,7 +301,7 @@ impl<E: EthSpec> PeerManager<E> {
             BanOperation::TemporaryBan => {
                 // The peer could be temporarily banned. We only do this in the case that
                 // we have currently reached our peer target limit.
-                if self.network_globals.connected_peers() >= self.target_peers {
+                if self.network_globals.connected_peers() >= self.connectivity.target_peers() {
                     // We have enough peers, prevent this reconnection.
                     self.temporary_banned_peers.raw_insert(*peer_id);
                     self.events.push(PeerManagerEvent::Banned(*peer_id, vec![]));
@@ -712,7 +711,7 @@ impl<E: EthSpec> PeerManager<E> {
             .network_globals
             .peers
             .write()
-            .update_gossipsub_scores(self.target_peers, gossipsub);
+            .update_gossipsub_scores(self.connectivity.target_peers(), gossipsub);
 
         for (peer_id, score_action) in actions {
             self.handle_score_action(&peer_id, score_action, None);
@@ -894,7 +893,7 @@ impl<E: EthSpec> PeerManager<E> {
     fn prune_excess_peers(&mut self) {
         // The current number of connected peers.
         let connected_peer_count = self.network_globals.connected_peers();
-        if connected_peer_count <= self.target_peers {
+        if connected_peer_count <= self.connectivity.target_peers() {
             // No need to prune peers
             return;
         }
@@ -920,7 +919,7 @@ impl<E: EthSpec> PeerManager<E> {
                     })
                 {
                     if peers_to_prune.len()
-                        >= connected_peer_count.saturating_sub(self.target_peers)
+                        >= connected_peer_count.saturating_sub(self.connectivity.target_peers())
                     {
                         // We have found all the peers we need to drop, end.
                         break;
@@ -948,13 +947,17 @@ impl<E: EthSpec> PeerManager<E> {
 
         // 2. Attempt to remove peers that are not subscribed to a subnet, if we still need to
         //    prune more.
-        if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
+        if peers_to_prune.len()
+            < connected_peer_count.saturating_sub(self.connectivity.target_peers())
+        {
             prune_peers!(|info: &PeerInfo<E>| { !info.has_long_lived_subnet() });
         }
 
         // 3. and 4. Remove peers that are too grouped on any given subnet. If all subnets are
         //    uniformly distributed, remove random peers.
-        if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
+        if peers_to_prune.len()
+            < connected_peer_count.saturating_sub(self.connectivity.target_peers())
+        {
             // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
             let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<E>)>> = HashMap::new();
             // These variables are used to track if a peer is in a long-lived sync-committee as we
@@ -999,7 +1002,9 @@ impl<E: EthSpec> PeerManager<E> {
             }
 
             // Add to the peers to prune mapping
-            while peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
+            while peers_to_prune.len()
+                < connected_peer_count.saturating_sub(self.connectivity.target_peers())
+            {
                 if let Some((_, peers_on_subnet)) = subnet_to_peer
                     .iter_mut()
                     .max_by_key(|(_, peers)| peers.len())
