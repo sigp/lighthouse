@@ -79,8 +79,16 @@ enum PublishAttestationResult {
 pub fn deserialize_attestation_payload<T: BeaconChainTypes>(
     payload: Value,
     fork_name: Option<ForkName>,
+    log: &Logger,
 ) -> Result<Vec<Either<Attestation<T::EthSpec>, SingleAttestation>>, Error> {
     if fork_name.map_or(false, |fork_name| fork_name.electra_enabled()) || fork_name.is_none() {
+        if fork_name.is_none() {
+            warn!(
+                log,
+                "No Consensus Version header specified.";
+            );
+        }
+
         Ok(serde_json::from_value::<Vec<SingleAttestation>>(payload)
             .map_err(Error::InvalidJson)?
             .into_iter()
