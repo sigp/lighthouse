@@ -208,24 +208,18 @@ pub enum BlockError {
     ///
     /// The block is invalid and the peer is faulty.
     IncorrectBlockProposer { block: u64, local_shuffling: u64 },
-    /// The proposal signature in invalid.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty.
-    ProposalSignatureInvalid,
     /// The `block.proposal_index` is not known.
     ///
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
     UnknownValidator(u64),
-    /// A signature in the block is invalid (exactly which is unknown).
+    /// A signature in the block is invalid
     ///
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    InvalidSignature,
+    InvalidSignature(InvalidSignature),
     /// The provided block is not from a later slot than its parent.
     ///
     /// ## Peer scoring
@@ -327,6 +321,17 @@ pub enum BlockError {
     /// We were unable to process this block due to an internal error. It's unclear if the block is
     /// valid.
     InternalError(String),
+}
+
+/// Which specific signature(s) are invalid in a SignedBeaconBlock
+#[derive(Debug)]
+pub enum InvalidSignature {
+    // The outer signature in a SignedBeaconBlock
+    ProposerSignature,
+    // One or more signatures in BeaconBlockBody
+    BlockBodySignatures,
+    // One or more signatures in SignedBeaconBlock
+    Unknown,
 }
 
 impl From<AvailabilityCheckError> for BlockError {
@@ -523,7 +528,9 @@ pub enum BlockSlashInfo<TErr> {
 impl BlockSlashInfo<BlockError> {
     pub fn from_early_error_block(header: SignedBeaconBlockHeader, e: BlockError) -> Self {
         match e {
-            BlockError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
+            BlockError::InvalidSignature(InvalidSignature::ProposerSignature) => {
+                BlockSlashInfo::SignatureInvalid(e)
+            }
             // `InvalidSignature` could indicate any signature in the block, so we want
             // to recheck the proposer signature alone.
             _ => BlockSlashInfo::SignatureNotChecked(header, e),
@@ -652,7 +659,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     }
 
     if signature_verifier.verify().is_err() {
-        return Err(BlockError::InvalidSignature);
+        return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
     }
 
     drop(pubkey_cache);
@@ -964,7 +971,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         };
 
         if !signature_is_valid {
-            return Err(BlockError::ProposalSignatureInvalid);
+            return Err(BlockError::InvalidSignature(
+                InvalidSignature::ProposerSignature,
+            ));
         }
 
         chain
@@ -1098,7 +1107,26 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 parent: Some(parent),
             })
         } else {
-            Err(BlockError::InvalidSignature)
+            // Re-verify the proposer signature in isolation to attribute fault
+            let pubkey = pubkey_cache
+                .get(block.message().proposer_index() as usize)
+                .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
+            if block.as_block().verify_signature(
+                Some(block_root),
+                pubkey,
+                &state.fork(),
+                chain.genesis_validators_root,
+                &chain.spec,
+            ) {
+                // Proposer signature is valid, the invalid signature must be in the body
+                Err(BlockError::InvalidSignature(
+                    InvalidSignature::BlockBodySignatures,
+                ))
+            } else {
+                Err(BlockError::InvalidSignature(
+                    InvalidSignature::ProposerSignature,
+                ))
+            }
         }
     }
 
@@ -1153,7 +1181,9 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 consensus_context,
             })
         } else {
-            Err(BlockError::InvalidSignature)
+            Err(BlockError::InvalidSignature(
+                InvalidSignature::BlockBodySignatures,
+            ))
         }
     }
 
@@ -1981,7 +2011,7 @@ impl BlockBlobError for BlockError {
     }
 
     fn proposer_signature_invalid() -> Self {
-        BlockError::ProposalSignatureInvalid
+        BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
     }
 }
 
