@@ -358,6 +358,9 @@ fn pause_and_resume_on_ee_offline() {
     // now resume range, we should have two processing requests in the beacon processor.
     rig.update_execution_engine_state(EngineState::Online);
 
-    rig.expect_chain_segment();
+    // When adding a finalized peer, the initial head chain stops syncing. So sync only sends a
+    // pending batch from the finalized chain to the processor.
+    // TODO: Why did this sent the head chain's batch for processing before??
+    // rig.expect_chain_segment();
     rig.expect_chain_segment();
 }
