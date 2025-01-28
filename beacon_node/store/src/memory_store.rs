@@ -94,19 +94,17 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             .take_while(|(k, _)| k.remove_column_variable(column).is_some())
             .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
             .collect::<Vec<_>>();
-        Ok(Box::new(keys.into_iter().filter_map(move |key| {
+        Box::new(keys.into_iter().filter_map(move |key| {
             self.get_bytes(column, &key).transpose().map(|res| {
                 let k = K::from_bytes(&key)?;
                 let v = res?;
                 Ok((k, v))
             })
-        })))
+        }))
     }
 
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
-        Ok(Box::new(
-            self.iter_column(column)?.map(|res| res.map(|(k, _)| k)),
-        ))
+        Box::new(self.iter_column(column).map(|res| res.map(|(k, _)| k)))
     }
 
     fn begin_rw_transaction(&self) -> MutexGuard<()> {
@@ -129,9 +127,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             .take_while(|(k, _)| k.remove_column_variable(column).is_some())
             .filter_map(|(k, _)| k.remove_column_variable(column).map(|k| k.to_vec()))
             .collect::<Vec<_>>();
-        Ok(Box::new(
-            keys.into_iter().map(move |key| K::from_bytes(&key)),
-        ))
+        Box::new(keys.into_iter().map(move |key| K::from_bytes(&key)))
     }
 
     fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), DBError> {
