@@ -9,7 +9,7 @@ use beacon_chain::{
 };
 use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
-    NotifyExecutionLayer,
+    InvalidSignature, NotifyExecutionLayer,
 };
 use logging::test_logger;
 use slasher::{Config as SlasherConfig, Slasher};
@@ -438,7 +438,7 @@ async fn assert_invalid_signature(
                 .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
-            Err(BlockError::InvalidSignature)
+            Err(BlockError::InvalidSignature(InvalidSignature::Unknown))
         ),
         "should not import chain segment with an invalid {} signature",
         item
@@ -480,7 +480,12 @@ async fn assert_invalid_signature(
         )
         .await;
     assert!(
-        matches!(process_res, Err(BlockError::InvalidSignature)),
+        matches!(
+            process_res,
+            Err(BlockError::InvalidSignature(
+                InvalidSignature::BlockBodySignatures
+            ))
+        ),
         "should not import individual block with an invalid {} signature, got: {:?}",
         item,
         process_res
@@ -536,21 +541,25 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
+        let process_res = harness
+            .chain
+            .process_block(
+                signed_block.canonical_root(),
+                Arc::new(signed_block),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            )
+            .await;
         assert!(
             matches!(
-                harness
-                    .chain
-                    .process_block(
-                        signed_block.canonical_root(),
-                        Arc::new(signed_block),
-                        NotifyExecutionLayer::Yes,
-                        BlockImportSource::Lookup,
-                        || Ok(()),
-                    )
-                    .await,
-                Err(BlockError::InvalidSignature)
+                process_res,
+                Err(BlockError::InvalidSignature(
+                    InvalidSignature::ProposerSignature
+                ))
             ),
-            "should not import individual block with an invalid gossip signature",
+            "should not import individual block with an invalid gossip signature, got: {:?}",
+            process_res
         );
     }
 }
@@ -578,16 +587,18 @@ async fn invalid_signature_block_proposal() {
             })
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
+        let process_res = harness
+            .chain
+            .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
+            .await
+            .into_block_error();
         assert!(
             matches!(
-                harness
-                    .chain
-                    .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
-                    .await
-                    .into_block_error(),
-                Err(BlockError::InvalidSignature)
+                process_res,
+                Err(BlockError::InvalidSignature(InvalidSignature::Unknown))
             ),
-            "should not import chain segment with an invalid block signature",
+            "should not import chain segment with an invalid block signature, got: {:?}",
+            process_res
         );
     }
 }
@@ -890,7 +901,7 @@ async fn invalid_signature_deposit() {
                     .process_chain_segment(blocks, NotifyExecutionLayer::Yes)
                     .await
                     .into_block_error(),
-                Err(BlockError::InvalidSignature)
+                Err(BlockError::InvalidSignature(InvalidSignature::Unknown))
             ),
             "should not throw an invalid signature error for a bad deposit signature"
         );
@@ -1086,7 +1097,7 @@ async fn block_gossip_verification() {
                     )))
                     .await
             ),
-            BlockError::ProposalSignatureInvalid
+            BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
         ),
         "should not import a block with an invalid proposal signature"
     );

@@ -215,11 +215,12 @@ impl<E: EthSpec> Redb<E> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
-        let iter = {
+        let result = (|| {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
-            table.range(from..)?.map(move |res| {
+            let range = table.range(from..)?;
+            Ok(range.map(move |res| {
                 let (key, _) = res?;
                 metrics::inc_counter_vec(&metrics::DISK_DB_KEY_READ_COUNT, &[column.into()]);
                 metrics::inc_counter_vec_by(
@@ -228,10 +229,13 @@ impl<E: EthSpec> Redb<E> {
                     key.value().len() as u64,
                 );
                 K::from_bytes(key.value())
-            })
-        };
+            }))
+        })();
 
-        Box::new(iter)
+        match result {
+            Ok(iter) => Box::new(iter),
+            Err(err) => Box::new(std::iter::once(Err(err))),
+        }
     }
 
     /// Iterate through all keys and values in a particular column.
@@ -243,15 +247,13 @@ impl<E: EthSpec> Redb<E> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
-        let prefix = from.to_vec();
-
-        let iter = {
+        let result = (|| {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
+            let range = table.range(from..)?;
 
-            table
-                .range(from..)?
+            Ok(range
                 .take_while(move |res| match res.as_ref() {
                     Ok((_, _)) => true,
                     Err(_) => false,
@@ -265,14 +267,17 @@ impl<E: EthSpec> Redb<E> {
                         value.value().len() as u64,
                     );
                     Ok((K::from_bytes(key.value())?, value.value().to_vec()))
-                })
-        };
+                }))
+        })();
 
-        Ok(Box::new(iter))
+        match result {
+            Ok(iter) => Box::new(iter),
+            Err(err) => Box::new(std::iter::once(Err(err))),
+        }
     }
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        self.iter_column_from(column, &vec![0; column.key_size()], |_, _| true)
+        self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
     pub fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {

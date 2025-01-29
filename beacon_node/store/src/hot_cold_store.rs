@@ -14,8 +14,8 @@ use crate::metadata::{
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
-    get_data_column_key, metrics, parse_data_column_key, BlobSidecarListFromRoot, DBColumn,
-    DatabaseBlock, Error, ItemStore, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+    get_data_column_key, metrics, parse_data_column_key, BlobSidecarListFromRoot, ColumnKeyIter,
+    DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use itertools::{process_results, Itertools};
 use lru::LruCache;
@@ -405,7 +405,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     }
 
     /// Return an iterator over the state roots of all temporary states.
-    pub fn iter_temporary_state_roots(&self) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
+    pub fn iter_temporary_state_roots(&self) -> ColumnKeyIter<Hash256> {
         self.hot_db
             .iter_column_keys::<Hash256>(DBColumn::BeaconStateTemporary)
     }
