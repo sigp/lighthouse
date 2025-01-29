@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use serde_json::json;
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -16,7 +16,8 @@ pub struct LoggingLayer {
     pub guard: WorkerGuard,
     pub disable_log_timestamp: bool,
     pub logfile_color: bool,
-    pub format: Option<String>,
+    pub log_format: Option<String>,
+    pub logfile_format: Option<String>,
     pub extra_info: bool,
     pub dep_logs: bool,
     span_fields: Arc<Mutex<HashMap<Id, SpanData>>>,
@@ -28,7 +29,8 @@ impl LoggingLayer {
         guard: WorkerGuard,
         disable_log_timestamp: bool,
         logfile_color: bool,
-        format: Option<String>,
+        log_format: Option<String>,
+        logfile_format: Option<String>,
         extra_info: bool,
         dep_logs: bool,
     ) -> Self {
@@ -37,7 +39,8 @@ impl LoggingLayer {
             guard,
             disable_log_timestamp,
             logfile_color,
-            format,
+            log_format,
+            logfile_format,
             extra_info,
             dep_logs,
             span_fields: Arc::new(Mutex::new(HashMap::new())),
@@ -94,7 +97,6 @@ where
             fields: Vec::new(),
             is_crit: false,
         };
-
         event.record(&mut visitor);
 
         // Remove ascii control codes from message.
@@ -110,9 +112,7 @@ where
         };
 
         let module = meta.module_path().unwrap_or("<unknown_module>");
-
         let file = meta.file().unwrap_or("<unknown_file>");
-
         let line = match meta.line() {
             Some(line) => line.to_string(),
             None => "<unknown_line>".to_string(),
@@ -120,7 +120,6 @@ where
 
         let gray = "\x1b[90m";
         let reset = "\x1b[0m";
-
         let location = if self.extra_info {
             if self.logfile_color {
                 format!("{}{}::{}:{}{}", gray, module, file, line, reset)
@@ -131,166 +130,71 @@ where
             String::new()
         };
 
-        if self.format.as_deref() == Some("JSON") {
-            let level_str = if visitor.is_crit {
-                "CRIT"
+        let plain_level_str = if visitor.is_crit {
+            "CRIT"
+        } else {
+            match *log_level {
+                tracing::Level::ERROR => "ERROR",
+                tracing::Level::WARN => "WARN",
+                tracing::Level::INFO => "INFO",
+                tracing::Level::DEBUG => "DEBUG",
+                tracing::Level::TRACE => "TRACE",
+            }
+        };
+
+        let color_level_str = if visitor.is_crit {
+            "\x1b[35mCRIT\x1b[0m"
+        } else {
+            match *log_level {
+                tracing::Level::ERROR => "\x1b[31mERROR\x1b[0m",
+                tracing::Level::WARN => "\x1b[33mWARN\x1b[0m",
+                tracing::Level::INFO => "\x1b[32mINFO\x1b[0m",
+                tracing::Level::DEBUG => "\x1b[34mDEBUG\x1b[0m",
+                tracing::Level::TRACE => "\x1b[35mTRACE\x1b[0m",
+            }
+        };
+
+        if self.dep_logs {
+            if self.logfile_format.as_deref() == Some("JSON") {
+                build_json_log_file(
+                    &visitor,
+                    &plain_level_str,
+                    meta,
+                    &ctx,
+                    &self.span_fields,
+                    event,
+                    &mut writer,
+                );
             } else {
-                match *log_level {
-                    tracing::Level::ERROR => "ERROR",
-                    tracing::Level::WARN => "WARN",
-                    tracing::Level::INFO => "INFO",
-                    tracing::Level::DEBUG => "DEBUG",
-                    tracing::Level::TRACE => "TRACE",
-                }
-            };
-
-            // let fields_json = visitor
-            //     .fields
-            //     .iter()
-            //     .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-            //     .collect::<serde_json::Map<_, _>>();
-
-            // let span_fields_json = span_fields
-            //     .iter()
-            //     .map(|(span_name, fields)| {
-            //         let span_fields_map = fields
-            //             .iter()
-            //             .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-            //             .collect::<serde_json::Map<_, _>>();
-            //         json!({
-            //             "span_name": span_name,
-            //             "fields": span_fields_map
-            //         })
-            //     })
-            //     .collect::<Vec<_>>();
-
-            let log_line = json!({
-                "msg": visitor.message,
-                "level": level_str,
-                "ts": timestamp,
-            });
-
-            let output = format!("{}\n", log_line);
-            if let Err(e) = writer.write_all(output.as_bytes()) {
-                eprintln!("Failed to write log: {}", e);
+                build_log_text(
+                    &visitor,
+                    &plain_level_str,
+                    &timestamp,
+                    &ctx,
+                    &self.span_fields,
+                    event,
+                    &location,
+                    &color_level_str,
+                    self.logfile_color,
+                    &mut writer,
+                );
             }
         } else {
-            let bold_start = "\x1b[1m";
-            let bold_end = "\x1b[0m";
-
-            let mut span_fields = Vec::new();
-            if let Some(scope) = ctx.event_scope(event) {
-                for span in scope {
-                    let id = span.id();
-                    let span_fields_map = self.span_fields.lock().unwrap();
-                    if let Some(span_data) = span_fields_map.get(&id) {
-                        span_fields.push((span_data.name.clone(), span_data.fields.clone()));
-                    }
-                }
-            }
-
-            let mut formatted_spans = String::new();
-            for (_, fields) in span_fields.iter().rev() {
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
-                    if i > 0 {
-                        formatted_spans.push(' ');
-                    }
-                    if self.logfile_color {
-                        formatted_spans.push_str(&format!(
-                            "{}{}{}={}",
-                            bold_start, field_name, bold_end, field_value
-                        ));
-                    } else {
-                        formatted_spans.push_str(&format!("{}={}", field_name, field_value));
-                    }
-                }
-            }
-
-            let level_str = if self.logfile_color {
-                if visitor.is_crit {
-                    "\x1b[35mCRIT\x1b[0m"
-                } else {
-                    match *log_level {
-                        tracing::Level::ERROR => "\x1b[31mERROR\x1b[0m",
-                        tracing::Level::WARN => "\x1b[33mWARN\x1b[0m",
-                        tracing::Level::INFO => "\x1b[32mINFO\x1b[0m",
-                        tracing::Level::DEBUG => "\x1b[34mDEBUG\x1b[0m",
-                        tracing::Level::TRACE => "\x1b[35mTRACE\x1b[0m",
-                    }
-                }
-            } else if visitor.is_crit {
-                "CRIT"
+            if self.log_format.as_deref() == Some("JSON") {
+                build_json_log_stdout(&visitor, &plain_level_str, &timestamp, &mut writer);
             } else {
-                match *log_level {
-                    tracing::Level::ERROR => "ERROR",
-                    tracing::Level::WARN => "WARN",
-                    tracing::Level::INFO => "INFO",
-                    tracing::Level::DEBUG => "DEBUG",
-                    tracing::Level::TRACE => "TRACE",
-                }
-            };
-
-            let fixed_message_width = 44;
-
-            let message_len = visitor.message.len();
-
-            let message_content = if self.logfile_color {
-                format!("{}{}{}", bold_start, visitor.message, bold_end)
-            } else {
-                visitor.message.clone()
-            };
-
-            let padded_message = if message_len < fixed_message_width {
-                let extra_color_len = if self.logfile_color {
-                    bold_start.len() + bold_end.len()
-                } else {
-                    0
-                };
-
-                format!(
-                    "{:<width$}",
-                    message_content,
-                    width = fixed_message_width + extra_color_len
-                )
-            } else {
-                message_content.clone()
-            };
-
-            let mut formatted_fields = String::new();
-            for (i, (field_name, field_value)) in visitor.fields.iter().enumerate() {
-                if i > 0 {
-                    formatted_fields.push(' ');
-                }
-
-                if self.logfile_color {
-                    formatted_fields.push_str(&format!(
-                        "{}{}{}={}",
-                        bold_start, field_name, bold_end, field_value
-                    ));
-                } else {
-                    formatted_fields.push_str(&format!("{}={}", field_name, field_value));
-                }
-            }
-
-            let mut full_message = padded_message.clone();
-            if !formatted_fields.is_empty() {
-                full_message = format!("{}  {}", padded_message, formatted_fields);
-            }
-
-            let message = if !location.is_empty() {
-                format!(
-                    "{} {} {} {} {}\n",
-                    timestamp, level_str, location, full_message, formatted_spans
-                )
-            } else {
-                format!(
-                    "{} {} {}  {}\n",
-                    timestamp, level_str, full_message, formatted_spans
-                )
-            };
-
-            if let Err(e) = writer.write_all(message.as_bytes()) {
-                eprintln!("Failed to write log: {}", e);
+                build_log_text(
+                    &visitor,
+                    &plain_level_str,
+                    &timestamp,
+                    &ctx,
+                    &self.span_fields,
+                    event,
+                    &location,
+                    &color_level_str,
+                    self.logfile_color,
+                    &mut writer,
+                );
             }
         }
     }
@@ -391,4 +295,213 @@ fn is_ascii_control(character: &u8) -> bool {
         b'\x7f' |
         b'\x81'..=b'\x9f'
     )
+}
+
+fn build_json_log_stdout(
+    visitor: &LogMessageExtractor,
+    plain_level_str: &str,
+    timestamp: &str,
+    writer: &mut impl Write,
+) {
+    let mut log_map = Map::new();
+    log_map.insert("msg".to_string(), Value::String(visitor.message.clone()));
+    log_map.insert(
+        "level".to_string(),
+        Value::String(plain_level_str.to_string()),
+    );
+    log_map.insert("ts".to_string(), Value::String(timestamp.to_string()));
+
+    for (key, val) in visitor.fields.clone().into_iter() {
+        let parsed_val = parse_field(&val);
+        log_map.insert(key, parsed_val);
+    }
+
+    let json_obj = Value::Object(log_map);
+    let output = format!("{}\n", json_obj.to_string());
+
+    if let Err(e) = writer.write_all(output.as_bytes()) {
+        eprintln!("Failed to write log: {}", e);
+    }
+}
+
+fn build_json_log_file<'a, S>(
+    visitor: &LogMessageExtractor,
+    plain_level_str: &str,
+    meta: &tracing::Metadata<'_>,
+    ctx: &Context<'_, S>,
+    span_fields: &Arc<Mutex<HashMap<Id, SpanData>>>,
+    event: &tracing::Event<'_>,
+    writer: &mut impl Write,
+) where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+{
+    let utc_timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+    let mut log_map = Map::new();
+
+    log_map.insert("msg".to_string(), Value::String(visitor.message.clone()));
+    log_map.insert(
+        "level".to_string(),
+        Value::String(plain_level_str.to_string()),
+    );
+    log_map.insert("ts".to_string(), Value::String(utc_timestamp));
+
+    let module_path = meta.module_path().unwrap_or("<unknown_module>");
+    let line_number = meta
+        .line()
+        .map_or("<unknown_line>".to_string(), |l| l.to_string());
+    let module_field = format!("{}:{}", module_path, line_number);
+    log_map.insert("module".to_string(), Value::String(module_field));
+
+    for (key, val) in visitor.fields.clone().into_iter() {
+        let cleaned_value = if val.starts_with('\"') && val.ends_with('\"') && val.len() >= 2 {
+            &val[1..val.len() - 1]
+        } else {
+            &val
+        };
+        let parsed_val =
+            serde_json::from_str(cleaned_value).unwrap_or(Value::String(cleaned_value.to_string()));
+        log_map.insert(key, parsed_val);
+    }
+
+    if let Some(scope) = ctx.event_scope(event) {
+        let guard = span_fields.lock().ok();
+        if let Some(span_map) = guard {
+            for span in scope {
+                let id = span.id();
+                if let Some(span_data) = span_map.get(&id) {
+                    for (key, val) in &span_data.fields {
+                        let parsed_span_val = parse_field(&val);
+                        log_map.insert(key.clone(), parsed_span_val);
+                    }
+                }
+            }
+        }
+    }
+
+    let json_obj = Value::Object(log_map);
+    let output = format!("{}\n", json_obj.to_string());
+
+    if let Err(e) = writer.write_all(output.as_bytes()) {
+        eprintln!("Failed to write log: {}", e);
+    }
+}
+
+fn build_log_text<'a, S>(
+    visitor: &LogMessageExtractor,
+    plain_level_str: &str,
+    timestamp: &str,
+    ctx: &Context<'_, S>,
+    span_fields: &Arc<Mutex<HashMap<Id, SpanData>>>,
+    event: &tracing::Event<'_>,
+    location: &str,
+    color_level_str: &str,
+    logfile_color: bool,
+    writer: &mut impl Write,
+) where
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
+{
+    let bold_start = "\x1b[1m";
+    let bold_end = "\x1b[0m";
+    let mut collected_span_fields = Vec::new();
+    if let Some(scope) = ctx.event_scope(event) {
+        for span in scope {
+            let id = span.id();
+            let span_fields_map = span_fields.lock().unwrap();
+            if let Some(span_data) = span_fields_map.get(&id) {
+                collected_span_fields.push((span_data.name.clone(), span_data.fields.clone()));
+            }
+        }
+    }
+
+    let mut formatted_spans = String::new();
+    for (_, fields) in collected_span_fields.iter().rev() {
+        for (i, (field_name, field_value)) in fields.iter().enumerate() {
+            if i > 0 {
+                formatted_spans.push(' ');
+            }
+            if logfile_color {
+                formatted_spans.push_str(&format!(
+                    "{}{}{}={}",
+                    bold_start, field_name, bold_end, field_value
+                ));
+            } else {
+                formatted_spans.push_str(&format!("{}={}", field_name, field_value));
+            }
+        }
+    }
+
+    let level_str = if logfile_color {
+        color_level_str
+    } else {
+        plain_level_str
+    };
+
+    let fixed_message_width = 44;
+    let message_len = visitor.message.len();
+
+    let message_content = if logfile_color {
+        format!("{}{}{}", bold_start, visitor.message, bold_end)
+    } else {
+        visitor.message.clone()
+    };
+
+    let padded_message = if message_len < fixed_message_width {
+        let extra_color_len = if logfile_color {
+            bold_start.len() + bold_end.len()
+        } else {
+            0
+        };
+        format!(
+            "{:<width$}",
+            message_content,
+            width = fixed_message_width + extra_color_len
+        )
+    } else {
+        message_content.clone()
+    };
+
+    let mut formatted_fields = String::new();
+    for (i, (field_name, field_value)) in visitor.fields.iter().enumerate() {
+        if i > 0 {
+            formatted_fields.push(' ');
+        }
+        if logfile_color {
+            formatted_fields.push_str(&format!(
+                "{}{}{}={}",
+                bold_start, field_name, bold_end, field_value
+            ));
+        } else {
+            formatted_fields.push_str(&format!("{}={}", field_name, field_value));
+        }
+    }
+
+    let mut full_message = padded_message.clone();
+    if !formatted_fields.is_empty() {
+        full_message = format!("{}  {}", padded_message, formatted_fields);
+    }
+
+    let message = if !location.is_empty() {
+        format!(
+            "{} {} {} {} {}\n",
+            timestamp, level_str, location, full_message, formatted_spans
+        )
+    } else {
+        format!(
+            "{} {} {}  {}\n",
+            timestamp, level_str, full_message, formatted_spans
+        )
+    };
+
+    if let Err(e) = writer.write_all(message.as_bytes()) {
+        eprintln!("Failed to write log: {}", e);
+    }
+}
+
+fn parse_field(val: &str) -> Value {
+    let cleaned = if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
+        &val[1..val.len() - 1]
+    } else {
+        val
+    };
+    serde_json::from_str(cleaned).unwrap_or(Value::String(cleaned.to_string()))
 }

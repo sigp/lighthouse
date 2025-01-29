@@ -220,7 +220,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         file_guard,
                         config.disable_log_timestamp,
                         config.logfile_color,
-                        config.logfile_format,
+                        config.log_format.clone(),
+                        config.logfile_format.clone(),
                         config.extra_info,
                         true,
                     )
@@ -233,6 +234,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         sink_guard,
                         config.disable_log_timestamp,
                         config.logfile_color,
+                        config.log_format.clone(),
                         config.logfile_format.clone(),
                         config.extra_info,
                         true,
@@ -247,7 +249,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 sink_guard,
                 config.disable_log_timestamp,
                 true,
-                config.logfile_format,
+                config.log_format.clone(),
+                config.logfile_format.clone(),
                 config.extra_info,
                 true,
             )
@@ -262,6 +265,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             config.disable_log_timestamp,
             true,
             config.log_format,
+            config.logfile_format,
             config.extra_info,
             false,
         );
