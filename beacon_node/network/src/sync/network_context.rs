@@ -43,8 +43,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
+    Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -216,6 +216,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     pub chain: Arc<BeaconChain<T>>,
 
+    fork_context: Arc<ForkContext>,
+
     /// Logger for the `SyncNetworkContext`.
     pub log: slog::Logger,
 }
@@ -244,6 +246,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         chain: Arc<BeaconChain<T>>,
+        fork_context: Arc<ForkContext>,
         log: slog::Logger,
     ) -> Self {
         SyncNetworkContext {
@@ -257,6 +260,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             range_block_components_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
+            fork_context,
             log,
         }
     }
@@ -455,7 +459,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (None, None)
             };
 
-        // TODO(pawan): this would break if a batch contains multiple epochs
         let max_blobs_len = self.chain.spec.max_blobs_per_block(epoch);
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
@@ -624,7 +627,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlocksByRoot(request.into_request(&self.chain.spec)),
+                request: RequestType::BlocksByRoot(request.into_request(&self.fork_context)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -706,7 +709,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlobsByRoot(request.clone().into_request(&self.chain.spec)),
+                request: RequestType::BlobsByRoot(request.clone().into_request(&self.fork_context)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;

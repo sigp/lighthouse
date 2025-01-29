@@ -855,6 +855,45 @@ where
         }
 
         let (req, substream) = substream;
+        let current_fork = self.fork_context.current_fork();
+        let spec = &self.fork_context.spec;
+
+        match &req {
+            RequestType::BlocksByRange(request) => {
+                let max_allowed = spec.max_request_blocks(current_fork) as u64;
+                if *request.count() > max_allowed {
+                    self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                        id: self.current_inbound_substream_id,
+                        proto: Protocol::BlocksByRange,
+                        error: RPCError::InvalidData(format!(
+                            "requested exceeded limit. allowed: {}, requested: {}",
+                            max_allowed,
+                            request.count()
+                        )),
+                    }));
+                    return self.shutdown(None);
+                }
+            }
+            RequestType::BlobsByRange(request) => {
+                let max_requested_blobs = request
+                    .count
+                    .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
+                let max_allowed = spec.max_request_blob_sidecars(current_fork) as u64;
+                if max_requested_blobs > max_allowed {
+                    self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                        id: self.current_inbound_substream_id,
+                        proto: Protocol::BlobsByRange,
+                        error: RPCError::InvalidData(format!(
+                            "requested exceeded limit. allowed: {}, requested: {}",
+                            max_allowed, max_requested_blobs
+                        )),
+                    }));
+                    return self.shutdown(None);
+                }
+            }
+            _ => {}
+        };
+
         let max_responses =
             req.max_responses(self.fork_context.current_fork(), &self.fork_context.spec);
 

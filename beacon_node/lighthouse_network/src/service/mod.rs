@@ -282,7 +282,7 @@ impl<E: EthSpec> Network<E> {
 
             let max_topics = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
-                + ctx.chain_spec.blob_sidecar_subnet_count_electra as usize
+                + ctx.chain_spec.blob_sidecar_subnet_count_max() as usize
                 + ctx.chain_spec.data_column_sidecar_subnet_count as usize
                 + BASE_CORE_TOPICS.len()
                 + ALTAIR_CORE_TOPICS.len()
