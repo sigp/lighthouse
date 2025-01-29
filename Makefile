@@ -222,7 +222,7 @@ lint-fix:
 
 # Also run the lints on the optimized-only tests
 lint-full:
-	RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
+	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
 
 # Runs the makefile in the `ef_tests` repo.
 #
