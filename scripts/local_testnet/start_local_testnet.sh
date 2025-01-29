@@ -63,9 +63,9 @@ if [ "$BUILDER_PROPOSALS" = true ]; then
 fi
 
 if [ "$CI" = true ]; then
-  # TODO: run assertoor tests
-  yq eval '.additional_services = []' -i $NETWORK_PARAMS_FILE
-  echo "Running without additional services (CI mode)."
+  yq eval '.additional_services = ["assertoor"]' -i $NETWORK_PARAMS_FILE
+  yq eval '.assertoor_params = {"run_stability_check": true}' -i $NETWORK_PARAMS_FILE
+  echo "Running with Assertoor (CI mode)."
 fi
 
 if [ "$BUILD_IMAGE" = true ]; then

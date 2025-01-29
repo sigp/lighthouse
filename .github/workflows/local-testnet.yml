@@ -64,6 +64,16 @@ jobs:
         run: ./start_local_testnet.sh -e local-blinded -c -p -b false && sleep 60
         working-directory: scripts/local_testnet
 
+      - name: Await Assertoor test result
+        id: assertoor_test_result
+        uses: ethpandaops/assertoor-github-action@v1
+        with:
+          kurtosis_enclave_name: local-blinded
+
+      - name: Debug
+        shell: bash
+        run: echo ${{ steps.assertoor_test_result.outputs.result }}
+
       - name: Stop local testnet and dump logs
         run: ./stop_local_testnet.sh local-blinded
         working-directory: scripts/local_testnet
