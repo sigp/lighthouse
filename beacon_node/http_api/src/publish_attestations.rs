@@ -82,7 +82,7 @@ pub fn deserialize_attestation_payload<T: BeaconChainTypes>(
     fork_name: Option<ForkName>,
     log: &Logger,
 ) -> Result<Vec<Either<Attestation<T::EthSpec>, SingleAttestation>>, Error> {
-    if fork_name.map_or(false, |fork_name| fork_name.electra_enabled()) || fork_name.is_none() {
+    if fork_name.is_some_and(|fork_name| fork_name.electra_enabled()) || fork_name.is_none() {
         if fork_name.is_none() {
             warn!(
                 log,
