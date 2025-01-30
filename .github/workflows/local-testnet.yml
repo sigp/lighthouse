@@ -70,10 +70,6 @@ jobs:
         with:
           kurtosis_enclave_name: local-blinded
 
-      - name: Debug
-        shell: bash
-        run: echo ${{ steps.assertoor_test_result.outputs.result }}
-
       - name: Stop local testnet and dump logs
         run: ./stop_local_testnet.sh local-blinded
         working-directory: scripts/local_testnet
@@ -85,6 +81,29 @@ jobs:
           path: |
             scripts/local_testnet/logs
           retention-days: 3
+
+      - name: Return test result
+        shell: bash
+        run: |
+          test_result="${{ steps.assertoor_test_result.outputs.result }}"
+          test_status=$(
+          cat <<"EOF"
+          ${{ steps.assertoor_test_result.outputs.test_overview }}
+          EOF
+          )
+          failed_test_status=$(
+          cat <<"EOF"
+          ${{ steps.assertoor_test_result.outputs.failed_test_details }}
+          EOF
+          )
+          
+          echo "Test Result:  $test_result"
+          echo "$test_status"
+          if ! [ "$test_result" == "success" ]; then
+            echo "Failed Test Task Status:"
+            echo "$failed_test_status"
+            exit 1
+          fi
 
   doppelganger-protection-success-test:
     needs: dockerfile-ubuntu
