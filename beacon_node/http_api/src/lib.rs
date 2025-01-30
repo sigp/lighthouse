@@ -1873,49 +1873,57 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    let post_beacon_pool_attestations_v2 =
-        beacon_pool_path_v2
-            .clone()
-            .and(warp::path("attestations"))
-            .and(warp::path::end())
-            .and(warp_utils::json::json::<Value>())
-            .and(optional_consensus_version_header_filter)
-            .and(network_tx_filter.clone())
-            .and(reprocess_send_filter.clone())
-            .and(log_filter.clone())
-            .then(
-                |task_spawner: TaskSpawner<T::EthSpec>,
-                 chain: Arc<BeaconChain<T>>,
-                 payload: Value,
-                 fork_name: Option<ForkName>,
-                 network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                 reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
-                 log: Logger| async move {
-                    let Ok(attestations) =
-                        crate::publish_attestations::deserialize_attestation_payload::<T>(
-                            payload, fork_name, &log,
-                        )
-                    else {
-                        return warp::reply::with_status(
-                            warp::reply::json(&"Unable to deserialize request body".to_string()),
-                            eth2::StatusCode::BAD_REQUEST,
-                        )
-                        .into_response();
+    let post_beacon_pool_attestations_v2 = beacon_pool_path_v2
+        .clone()
+        .and(warp::path("attestations"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json::<Value>())
+        .and(optional_consensus_version_header_filter)
+        .and(network_tx_filter.clone())
+        .and(reprocess_send_filter.clone())
+        .and(log_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             payload: Value,
+             fork_name: Option<ForkName>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
+             log: Logger| async move {
+                let attestations =
+                    match crate::publish_attestations::deserialize_attestation_payload::<T>(
+                        payload, fork_name, &log,
+                    ) {
+                        Ok(attestations) => attestations,
+                        Err(err) => {
+                            warn!(
+                                log,
+                                "Unable to deserialize attestation POST request";
+                                "error" => ?err
+                            );
+                            return warp::reply::with_status(
+                                warp::reply::json(
+                                    &"Unable to deserialize request body".to_string(),
+                                ),
+                                eth2::StatusCode::BAD_REQUEST,
+                            )
+                            .into_response();
+                        }
                     };
 
-                    let result = crate::publish_attestations::publish_attestations(
-                        task_spawner,
-                        chain,
-                        attestations,
-                        network_tx,
-                        reprocess_tx,
-                        log,
-                    )
-                    .await
-                    .map(|()| warp::reply::json(&()));
-                    convert_rejection(result).await
-                },
-            );
+                let result = crate::publish_attestations::publish_attestations(
+                    task_spawner,
+                    chain,
+                    attestations,
+                    network_tx,
+                    reprocess_tx,
+                    log,
+                )
+                .await
+                .map(|()| warp::reply::json(&()));
+                convert_rejection(result).await
+            },
+        );
 
     // GET beacon/pool/attestations?committee_index,slot
     let get_beacon_pool_attestations = beacon_pool_path_any
