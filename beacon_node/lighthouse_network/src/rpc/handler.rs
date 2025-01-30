@@ -353,6 +353,7 @@ where
         !matches!(self.state, HandlerState::Deactivated)
     }
 
+    #[allow(deprecated)]
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
@@ -814,6 +815,7 @@ where
         Poll::Pending
     }
 
+    #[allow(deprecated)]
     fn on_connection_event(
         &mut self,
         event: ConnectionEvent<

@@ -31,7 +31,7 @@ execution_layer = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
-igd-next = "0.14"
+igd-next = { version = "0.16", features = ["aio_tokio"] }
 itertools = { workspace = true }
 lighthouse_network = { workspace = true }
 logging = { workspace = true }
