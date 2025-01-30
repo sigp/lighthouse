@@ -66,11 +66,15 @@ fn bls_hardware_acceleration() -> bool {
     return std::arch::is_aarch64_feature_detected!("neon");
 }
 
-fn allocator_name() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "system"
-    } else {
-        "jemalloc"
+fn allocator_name() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        "system".to_string()
+    }
+    #[cfg(not(target_os = "windows"))]
+    match malloc_utils::jemalloc::page_size() {
+        Ok(page_size) => format!("jemalloc ({}K)", page_size / 1024),
+        Err(e) => format!("jemalloc (error: {e:?})"),
     }
 }
 
