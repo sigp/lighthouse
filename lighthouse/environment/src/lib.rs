@@ -204,45 +204,46 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             _ => logfile_prefix,
         };
         // TODO(tracing) re-enable once we figure out the OOM issues
-        let file_logging_layer = { // if let Some(path) = config.path {
-        //     match RollingFileAppender::builder()
-        //         .rotation(Rotation::DAILY)
-        //         .max_log_files(config.max_log_number)
-        //         .filename_prefix(filename_prefix)
-        //         .filename_suffix("log")
-        //         .build(path.clone())
-        //     {
-        //         Ok(file_appender) => {
-        //             let (file_non_blocking_writer, file_guard) =
-        //                 tracing_appender::non_blocking(file_appender);
+        let file_logging_layer = {
+            // if let Some(path) = config.path {
+            //     match RollingFileAppender::builder()
+            //         .rotation(Rotation::DAILY)
+            //         .max_log_files(config.max_log_number)
+            //         .filename_prefix(filename_prefix)
+            //         .filename_suffix("log")
+            //         .build(path.clone())
+            //     {
+            //         Ok(file_appender) => {
+            //             let (file_non_blocking_writer, file_guard) =
+            //                 tracing_appender::non_blocking(file_appender);
 
-        //             LoggingLayer::new(
-        //                 file_non_blocking_writer,
-        //                 file_guard,
-        //                 config.disable_log_timestamp,
-        //                 config.logfile_color,
-        //                 config.log_format.clone(),
-        //                 config.logfile_format.clone(),
-        //                 config.extra_info,
-        //                 true,
-        //             )
-        //         }
-        //         Err(e) => {
-        //             eprintln!("Failed to initialize rolling file appender: {}", e);
-        //             let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-        //             LoggingLayer::new(
-        //                 sink_writer,
-        //                 sink_guard,
-        //                 config.disable_log_timestamp,
-        //                 config.logfile_color,
-        //                 config.log_format.clone(),
-        //                 config.logfile_format.clone(),
-        //                 config.extra_info,
-        //                 true,
-        //             )
-        //         }
-        //     }
-        // } else {
+            //             LoggingLayer::new(
+            //                 file_non_blocking_writer,
+            //                 file_guard,
+            //                 config.disable_log_timestamp,
+            //                 config.logfile_color,
+            //                 config.log_format.clone(),
+            //                 config.logfile_format.clone(),
+            //                 config.extra_info,
+            //                 true,
+            //             )
+            //         }
+            //         Err(e) => {
+            //             eprintln!("Failed to initialize rolling file appender: {}", e);
+            //             let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
+            //             LoggingLayer::new(
+            //                 sink_writer,
+            //                 sink_guard,
+            //                 config.disable_log_timestamp,
+            //                 config.logfile_color,
+            //                 config.log_format.clone(),
+            //                 config.logfile_format.clone(),
+            //                 config.extra_info,
+            //                 true,
+            //             )
+            //         }
+            //     }
+            // } else {
             eprintln!("No path provided. File logging is disabled.");
             let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
             LoggingLayer::new(
