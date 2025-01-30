@@ -25,7 +25,6 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
-use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -34,8 +33,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Slot, SubnetId,
-    SyncCommitteeSubscription, SyncSubnetId, Unsigned, ValidatorSubscription,
+    ChainSpec, DataColumnSubnetId, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -752,7 +751,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
-                if self.fork_context.fork_exists(ForkName::Fulu) {
+                if self.fork_context.spec.is_peer_das_scheduled() {
                     self.subscribe_to_peer_das_topics(&mut subscribed_topics);
                 }
 
@@ -813,13 +812,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     /// `network.subscribe_new_fork_topics()`.
     fn subscribe_to_peer_das_topics(&mut self, subscribed_topics: &mut Vec<GossipTopic>) {
         let column_subnets_to_subscribe = if self.subscribe_all_data_column_subnets {
-            Cow::Owned(
-                (0..self.fork_context.spec.data_column_sidecar_subnet_count)
-                    .map(DataColumnSubnetId::new)
-                    .collect(),
-            )
+            &(0..self.fork_context.spec.data_column_sidecar_subnet_count)
+                .map(DataColumnSubnetId::new)
+                .collect()
         } else {
-            Cow::Borrowed(&self.network_globals.sampling_subnets)
+            &self.network_globals.sampling_subnets
         };
 
         for column_subnet in column_subnets_to_subscribe.iter() {

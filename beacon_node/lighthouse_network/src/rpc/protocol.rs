@@ -386,7 +386,7 @@ impl SupportedProtocol {
             ProtocolId::new(Self::BlocksByRootV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::PingV1, Encoding::SSZSnappy),
         ];
-        if fork_context.fork_exists(ForkName::Fulu) {
+        if fork_context.spec.is_peer_das_scheduled() {
             supported.extend_from_slice(&[
                 // V3 variants have higher preference for protocol negotation
                 ProtocolId::new(Self::MetaDataV3, Encoding::SSZSnappy),
@@ -405,7 +405,7 @@ impl SupportedProtocol {
                 ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
-        if fork_context.fork_exists(ForkName::Fulu) {
+        if fork_context.spec.is_peer_das_scheduled() {
             supported.extend_from_slice(&[
                 ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),

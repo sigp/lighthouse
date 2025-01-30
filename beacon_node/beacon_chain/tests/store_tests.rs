@@ -2300,7 +2300,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let temp1 = tempdir().unwrap();
     let full_store = get_store(&temp1);
 
-    // Run a supernode so the node has full blobs stored.
+    // TODO(das): Run a supernode so the node has full blobs stored.
     // This may not be required in the future if we end up implementing downloading checkpoint
     // blobs from p2p peers:
     // https://github.com/sigp/lighthouse/issues/6837
