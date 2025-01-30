@@ -303,6 +303,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             invalid_block_storage,
             beacon_processor_send,
             beacon_processor_reprocess_tx,
+            fork_context.clone(),
         )?;
 
         // attestation and sync committee subnet service

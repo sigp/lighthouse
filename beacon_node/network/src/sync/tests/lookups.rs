@@ -38,6 +38,7 @@ use lighthouse_network::{
 };
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
+use types::ForkContext;
 use tracing::info;
 use types::{
     data_column_sidecar::ColumnIndex,
@@ -82,6 +83,11 @@ impl TestRig {
             .build();
 
         let chain = harness.chain.clone();
+        let fork_context = Arc::new(ForkContext::new::<E>(
+            Slot::new(0),
+            chain.genesis_validators_root,
+            &chain.spec,
+        ));
 
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let (sync_tx, sync_rx) = mpsc::unbounded_channel::<SyncMessage<E>>();
@@ -127,6 +133,7 @@ impl TestRig {
                 SamplingConfig::Custom {
                     required_successes: vec![SAMPLING_REQUIRED_SUCCESSES],
                 },
+                fork_context,
             ),
             harness,
             fork_name,

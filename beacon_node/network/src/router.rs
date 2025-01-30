@@ -28,7 +28,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info_span, trace, warn, Instrument};
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -88,6 +88,7 @@ impl<T: BeaconChainTypes> Router<T> {
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
+        fork_context: Arc<ForkContext>,
     ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
         trace!("Service starting");
 
@@ -116,6 +117,7 @@ impl<T: BeaconChainTypes> Router<T> {
             network_send.clone(),
             network_beacon_processor.clone(),
             sync_recv,
+            fork_context,
         );
 
         // generate the Message handler

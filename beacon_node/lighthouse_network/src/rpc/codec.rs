@@ -576,7 +576,7 @@ fn handle_rpc_request<E: EthSpec>(
             BlocksByRootRequest::V2(BlocksByRootRequestV2 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blocks as usize,
+                    spec.max_request_blocks(current_fork),
                 )?,
             }),
         ))),
@@ -584,32 +584,18 @@ fn handle_rpc_request<E: EthSpec>(
             BlocksByRootRequest::V1(BlocksByRootRequestV1 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blocks as usize,
+                    spec.max_request_blocks(current_fork),
                 )?,
             }),
         ))),
-        SupportedProtocol::BlobsByRangeV1 => {
-            let req = BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?;
-            let max_requested_blobs = req
-                .count
-                .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
-            // TODO(pawan): change this to max_blobs_per_rpc_request in the alpha10 PR
-            if max_requested_blobs > spec.max_request_blob_sidecars {
-                return Err(RPCError::ErrorResponse(
-                    RpcErrorResponse::InvalidRequest,
-                    format!(
-                        "requested exceeded limit. allowed: {}, requested: {}",
-                        spec.max_request_blob_sidecars, max_requested_blobs
-                    ),
-                ));
-            }
-            Ok(Some(RequestType::BlobsByRange(req)))
-        }
+        SupportedProtocol::BlobsByRangeV1 => Ok(Some(RequestType::BlobsByRange(
+            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         SupportedProtocol::BlobsByRootV1 => {
             Ok(Some(RequestType::BlobsByRoot(BlobsByRootRequest {
                 blob_ids: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blob_sidecars as usize,
+                    spec.max_request_blob_sidecars(current_fork),
                 )?,
             })))
         }
@@ -1097,21 +1083,21 @@ mod tests {
         }
     }
 
-    fn bbroot_request_v1(spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()], spec)
+    fn bbroot_request_v1(fork_name: ForkName) -> BlocksByRootRequest {
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context(fork_name))
     }
 
-    fn bbroot_request_v2(spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![Hash256::zero()], spec)
+    fn bbroot_request_v2(fork_name: ForkName) -> BlocksByRootRequest {
+        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context(fork_name))
     }
 
-    fn blbroot_request(spec: &ChainSpec) -> BlobsByRootRequest {
+    fn blbroot_request(fork_name: ForkName) -> BlobsByRootRequest {
         BlobsByRootRequest::new(
             vec![BlobIdentifier {
                 block_root: Hash256::zero(),
                 index: 0,
             }],
-            spec,
+            &fork_context(fork_name),
         )
     }
 
@@ -1909,7 +1895,8 @@ mod tests {
 
     #[test]
     fn test_encode_then_decode_request() {
-        let chain_spec = Spec::default_spec();
+        let fork_context = fork_context(ForkName::Electra);
+        let chain_spec = fork_context.spec.clone();
 
         let requests: &[RequestType<Spec>] = &[
             RequestType::Ping(ping_message()),
@@ -1917,18 +1904,30 @@ mod tests {
             RequestType::Goodbye(GoodbyeReason::Fault),
             RequestType::BlocksByRange(bbrange_request_v1()),
             RequestType::BlocksByRange(bbrange_request_v2()),
-            RequestType::BlocksByRoot(bbroot_request_v1(&chain_spec)),
-            RequestType::BlocksByRoot(bbroot_request_v2(&chain_spec)),
             RequestType::MetaData(MetadataRequest::new_v1()),
             RequestType::BlobsByRange(blbrange_request()),
-            RequestType::BlobsByRoot(blbroot_request(&chain_spec)),
             RequestType::DataColumnsByRange(dcbrange_request()),
             RequestType::DataColumnsByRoot(dcbroot_request(&chain_spec)),
             RequestType::MetaData(MetadataRequest::new_v2()),
         ];
-
         for req in requests.iter() {
             for fork_name in ForkName::list_all() {
+                encode_then_decode_request(req.clone(), fork_name, &chain_spec);
+            }
+        }
+
+        // Request types that have different length limits depending on the fork
+        // Handled separately to have consistent `ForkName` across request and responses
+        let fork_dependent_requests = |fork_name| {
+            [
+                RequestType::BlobsByRoot(blbroot_request(fork_name)),
+                RequestType::BlocksByRoot(bbroot_request_v1(fork_name)),
+                RequestType::BlocksByRoot(bbroot_request_v2(fork_name)),
+            ]
+        };
+        for fork_name in ForkName::list_all() {
+            let requests = fork_dependent_requests(fork_name);
+            for req in requests {
                 encode_then_decode_request(req.clone(), fork_name, &chain_spec);
             }
         }

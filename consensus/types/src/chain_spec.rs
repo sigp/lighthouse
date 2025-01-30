@@ -217,7 +217,7 @@ pub struct ChainSpec {
     pub network_id: u8,
     pub target_aggregators_per_committee: u64,
     pub gossip_max_size: u64,
-    pub max_request_blocks: u64,
+    max_request_blocks: u64,
     pub min_epochs_for_block_requests: u64,
     pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
@@ -233,19 +233,19 @@ pub struct ChainSpec {
     /*
      * Networking Deneb
      */
-    pub max_request_blocks_deneb: u64,
-    pub max_request_blob_sidecars: u64,
+    max_request_blocks_deneb: u64,
+    max_request_blob_sidecars: u64,
     pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
-    pub blob_sidecar_subnet_count: u64,
-    pub max_blobs_per_block: u64,
+    blob_sidecar_subnet_count: u64,
+    max_blobs_per_block: u64,
 
     /*
      * Networking Electra
      */
     max_blobs_per_block_electra: u64,
-    pub blob_sidecar_subnet_count_electra: u64,
-    pub max_request_blob_sidecars_electra: u64,
+    blob_sidecar_subnet_count_electra: u64,
+    max_request_blob_sidecars_electra: u64,
 
     /*
      * Networking Derived
@@ -625,8 +625,30 @@ impl ChainSpec {
         }
     }
 
+    /// Returns the highest possible value for max_request_blocks based on enabled forks.
+    ///
+    /// This is useful for upper bounds in testing.
+    pub fn max_request_blocks_upper_bound(&self) -> usize {
+        if self.deneb_fork_epoch.is_some() {
+            self.max_request_blocks_deneb as usize
+        } else {
+            self.max_request_blocks as usize
+        }
+    }
+
     pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
         if fork_name.electra_enabled() {
+            self.max_request_blob_sidecars_electra as usize
+        } else {
+            self.max_request_blob_sidecars as usize
+        }
+    }
+
+    /// Returns the highest possible value for max_request_blobs based on enabled forks.
+    ///
+    /// This is useful for upper bounds in testing.
+    pub fn max_request_blobs_upper_bound(&self) -> usize {
+        if self.electra_fork_epoch.is_some() {
             self.max_request_blob_sidecars_electra as usize
         } else {
             self.max_request_blob_sidecars as usize
@@ -644,6 +666,26 @@ impl ChainSpec {
             self.max_blobs_per_block_electra
         } else {
             self.max_blobs_per_block
+        }
+    }
+
+    /// Returns the `BLOB_SIDECAR_SUBNET_COUNT` at the given fork_name.
+    pub fn blob_sidecar_subnet_count(&self, fork_name: ForkName) -> u64 {
+        if fork_name.electra_enabled() {
+            self.blob_sidecar_subnet_count_electra
+        } else {
+            self.blob_sidecar_subnet_count
+        }
+    }
+
+    /// Returns the highest possible value of blob sidecar subnet count based on enabled forks.
+    ///
+    /// This is useful for upper bounds for the subnet count during a given run of lighthouse.
+    pub fn blob_sidecar_subnet_count_max(&self) -> u64 {
+        if self.electra_fork_epoch.is_some() {
+            self.blob_sidecar_subnet_count_electra
+        } else {
+            self.blob_sidecar_subnet_count
         }
     }
 

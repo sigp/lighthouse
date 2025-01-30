@@ -1841,6 +1841,30 @@ where
                 peer_score.duplicated_message(propagation_source, &msg_id, &message.topic);
             }
             self.mcache.observe_duplicate(&msg_id, propagation_source);
+            // track metrics for the source of the duplicates
+            if let Some(metrics) = self.metrics.as_mut() {
+                if self
+                    .mesh
+                    .get(&message.topic)
+                    .is_some_and(|peers| peers.contains(propagation_source))
+                {
+                    // duplicate was received from a mesh peer
+                    metrics.mesh_duplicates(&message.topic);
+                } else if self
+                    .gossip_promises
+                    .contains_peer(&msg_id, propagation_source)
+                {
+                    // duplicate was received from an iwant request
+                    metrics.iwant_duplicates(&message.topic);
+                } else {
+                    tracing::warn!(
+                        messsage=%msg_id,
+                        peer=%propagation_source,
+                        topic=%message.topic,
+                        "Peer should not have sent message"
+                    );
+                }
+            }
             return;
         }
 
