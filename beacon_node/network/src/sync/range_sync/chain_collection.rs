@@ -9,6 +9,7 @@ use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use fnv::FnvHashMap;
+use lighthouse_network::service::api_types::Id;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
 use logging::crit;
@@ -30,9 +31,9 @@ const MIN_FINALIZED_CHAIN_PROCESSED_EPOCHS: u64 = 10;
 #[derive(Clone)]
 pub enum RangeSyncState {
     /// A finalized chain is being synced.
-    Finalized(u64),
+    Finalized(Id),
     /// There are no finalized chains and we are syncing one more head chains.
-    Head(SmallVec<[u64; PARALLEL_HEAD_CHAINS]>),
+    Head(SmallVec<[Id; PARALLEL_HEAD_CHAINS]>),
     /// There are no head or finalized chains and no long range sync is in progress.
     Idle,
 }
@@ -72,7 +73,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 if syncing_id == id {
                     // the finalized chain that was syncing was removed
                     debug_assert!(was_syncing && sync_type == RangeSyncType::Finalized);
-                    let syncing_head_ids: SmallVec<[u64; PARALLEL_HEAD_CHAINS]> = self
+                    let syncing_head_ids: SmallVec<[Id; PARALLEL_HEAD_CHAINS]> = self
                         .head_chains
                         .iter()
                         .filter(|(_id, chain)| chain.is_syncing())
@@ -84,7 +85,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         RangeSyncState::Head(syncing_head_ids)
                     };
                 } else {
-                    // we removed a head chain, or an stoped finalized chain
+                    // we removed a head chain, or a stopped finalized chain
                     debug_assert!(!was_syncing || sync_type != RangeSyncType::Finalized);
                 }
             }
@@ -352,7 +353,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .collect::<Vec<_>>();
         preferred_ids.sort_unstable();
 
-        let mut syncing_chains = SmallVec::<[u64; PARALLEL_HEAD_CHAINS]>::new();
+        let mut syncing_chains = SmallVec::<[Id; PARALLEL_HEAD_CHAINS]>::new();
         for (_, _, id) in preferred_ids {
             let chain = self.head_chains.get_mut(&id).expect("known chain");
             if syncing_chains.len() < PARALLEL_HEAD_CHAINS {
@@ -461,15 +462,17 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         sync_type: RangeSyncType,
         network: &mut SyncNetworkContext<T>,
     ) {
-        let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
         let collection = if let RangeSyncType::Finalized = sync_type {
             &mut self.finalized_chains
         } else {
             &mut self.head_chains
         };
-        match collection.entry(id) {
-            Entry::Occupied(mut entry) => {
-                let chain = entry.get_mut();
+
+        match collection
+            .iter_mut()
+            .find(|(_, chain)| chain.has_same_target(target_head_slot, target_head_root))
+        {
+            Some((&id, chain)) => {
                 debug!(peer_id = %peer, ?sync_type, %chain, "Adding peer to known chain");
                 debug_assert_eq!(chain.target_head_root, target_head_root);
                 debug_assert_eq!(chain.target_head_slot, target_head_slot);
@@ -479,22 +482,25 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     } else {
                         error!(chain = %id, reason = ?remove_reason, "Chain removed after adding peer");
                     }
-                    let chain = entry.remove();
-                    self.on_chain_removed(&id, chain.is_syncing(), sync_type);
+                    let is_syncing = chain.is_syncing();
+                    collection.remove(&id);
+                    self.on_chain_removed(&id, is_syncing, sync_type);
                 }
             }
-            Entry::Vacant(entry) => {
+            None => {
                 let peer_rpr = peer.to_string();
+                let id = network.next_id();
                 let new_chain = SyncingChain::new(
+                    id,
                     start_epoch,
                     target_head_slot,
                     target_head_root,
                     peer,
                     sync_type.into(),
                 );
-                debug_assert_eq!(new_chain.get_id(), id);
+
                 debug!(peer_id = peer_rpr, ?sync_type, %new_chain, "New chain added to sync");
-                entry.insert(new_chain);
+                collection.insert(id, new_chain);
                 metrics::inc_counter_vec(&metrics::SYNCING_CHAINS_ADDED, &[sync_type.as_str()]);
                 self.update_metrics();
             }

@@ -698,7 +698,7 @@ mod test {
 
     #[tokio::test]
     async fn empty_data_column_sidecars_fails_validation() {
-        let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.into())
             .deterministic_keypairs(64)

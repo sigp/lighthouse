@@ -133,20 +133,6 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         .len()
     }
 
-    pub fn empty() -> Self {
-        Self {
-            index: 0,
-            column: DataColumn::<E>::default(),
-            kzg_commitments: VariableList::default(),
-            kzg_proofs: VariableList::default(),
-            signed_block_header: SignedBeaconBlockHeader {
-                message: BeaconBlockHeader::empty(),
-                signature: Signature::empty(),
-            },
-            kzg_commitments_inclusion_proof: Default::default(),
-        }
-    }
-
     pub fn id(&self) -> DataColumnIdentifier {
         DataColumnIdentifier {
             block_root: self.block_root(),

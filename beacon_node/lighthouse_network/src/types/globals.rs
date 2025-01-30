@@ -220,7 +220,7 @@ mod test {
     fn test_sampling_subnets() {
         create_test_tracing_subscriber();
         let mut spec = E::default_spec();
-        spec.eip7594_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
 
         let custody_group_count = spec.number_of_custody_groups / 2;
         let subnet_sampling_size = spec.sampling_size(custody_group_count).unwrap();
@@ -243,7 +243,7 @@ mod test {
     fn test_sampling_columns() {
         create_test_tracing_subscriber();
         let mut spec = E::default_spec();
-        spec.eip7594_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
 
         let custody_group_count = spec.number_of_custody_groups / 2;
         let subnet_sampling_size = spec.sampling_size(custody_group_count).unwrap();
