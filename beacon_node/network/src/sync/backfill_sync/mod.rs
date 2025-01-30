@@ -425,9 +425,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             Err(result) => {
                 let (expected_boundary, received_boundary, outcome) = match result {
                     Err(e) => {
-                        return self
-                            .fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
-                            .map(|_| ProcessResult::Successful);
+                        self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
+                        return Ok(ProcessResult::Successful);
                     }
                     Ok(v) => v,
                 };
