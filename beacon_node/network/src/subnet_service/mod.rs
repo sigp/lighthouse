@@ -629,9 +629,8 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         // expire subscription.
         match self.scheduled_subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => {
-                let ExactSubnet { subnet, .. } = exact_subnet;
-                let current_slot = self.beacon_chain.slot_clock.now().unwrap_or_default();
-                if let Err(e) = self.subscribe_to_subnet_immediately(subnet, current_slot + 1) {
+                let ExactSubnet { subnet, slot } = exact_subnet;
+                if let Err(e) = self.subscribe_to_subnet_immediately(subnet, slot + 1) {
                     debug!(self.log, "Failed to subscribe to short lived subnet"; "subnet" => ?subnet, "err" => e);
                 }
                 self.waker
