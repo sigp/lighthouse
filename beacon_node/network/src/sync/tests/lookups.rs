@@ -38,8 +38,8 @@ use lighthouse_network::{
 };
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
-use types::ForkContext;
 use tracing::info;
+use types::ForkContext;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},

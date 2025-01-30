@@ -24,6 +24,7 @@ pub struct LoggingLayer {
 }
 
 impl LoggingLayer {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         non_blocking_writer: NonBlocking,
         guard: WorkerGuard,
@@ -158,7 +159,7 @@ where
             if self.logfile_format.as_deref() == Some("JSON") {
                 build_json_log_file(
                     &visitor,
-                    &plain_level_str,
+                    plain_level_str,
                     meta,
                     &ctx,
                     &self.span_fields,
@@ -168,34 +169,32 @@ where
             } else {
                 build_log_text(
                     &visitor,
-                    &plain_level_str,
+                    plain_level_str,
                     &timestamp,
                     &ctx,
                     &self.span_fields,
                     event,
                     &location,
-                    &color_level_str,
+                    color_level_str,
                     self.logfile_color,
                     &mut writer,
                 );
             }
+        } else if self.log_format.as_deref() == Some("JSON") {
+            build_json_log_stdout(&visitor, plain_level_str, &timestamp, &mut writer);
         } else {
-            if self.log_format.as_deref() == Some("JSON") {
-                build_json_log_stdout(&visitor, &plain_level_str, &timestamp, &mut writer);
-            } else {
-                build_log_text(
-                    &visitor,
-                    &plain_level_str,
-                    &timestamp,
-                    &ctx,
-                    &self.span_fields,
-                    event,
-                    &location,
-                    &color_level_str,
-                    self.logfile_color,
-                    &mut writer,
-                );
-            }
+            build_log_text(
+                &visitor,
+                plain_level_str,
+                &timestamp,
+                &ctx,
+                &self.span_fields,
+                event,
+                &location,
+                color_level_str,
+                self.logfile_color,
+                &mut writer,
+            );
         }
     }
 }
@@ -317,7 +316,7 @@ fn build_json_log_stdout(
     }
 
     let json_obj = Value::Object(log_map);
-    let output = format!("{}\n", json_obj.to_string());
+    let output = format!("{}\n", json_obj);
 
     if let Err(e) = writer.write_all(output.as_bytes()) {
         eprintln!("Failed to write log: {}", e);
@@ -370,7 +369,7 @@ fn build_json_log_file<'a, S>(
                 let id = span.id();
                 if let Some(span_data) = span_map.get(&id) {
                     for (key, val) in &span_data.fields {
-                        let parsed_span_val = parse_field(&val);
+                        let parsed_span_val = parse_field(val);
                         log_map.insert(key.clone(), parsed_span_val);
                     }
                 }
@@ -379,13 +378,14 @@ fn build_json_log_file<'a, S>(
     }
 
     let json_obj = Value::Object(log_map);
-    let output = format!("{}\n", json_obj.to_string());
+    let output = format!("{}\n", json_obj);
 
     if let Err(e) = writer.write_all(output.as_bytes()) {
         eprintln!("Failed to write log: {}", e);
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_log_text<'a, S>(
     visitor: &LogMessageExtractor,
     plain_level_str: &str,
