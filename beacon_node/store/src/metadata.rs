@@ -225,10 +225,10 @@ impl StoreItem for BlobInfo {
 pub struct DataColumnInfo {
     /// The slot after which data columns are or *will be* available (>=).
     ///
-    /// If this slot is in the future, then it is the first slot of the EIP-7594 fork, from which
+    /// If this slot is in the future, then it is the first slot of the Fulu fork, from which
     /// data columns will be available.
     ///
-    /// If the `oldest_data_column_slot` is `None` then this means that the EIP-7594 fork epoch is
+    /// If the `oldest_data_column_slot` is `None` then this means that the Fulu fork epoch is
     /// not yet known.
     pub oldest_data_column_slot: Option<Slot>,
 }

@@ -119,6 +119,11 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn get_blobs<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a BlobSidecarList<E>> {
         self.blob_cache.get(block_root)
     }
+    pub fn get_data_columns(&mut self, block_root: &Hash256) -> Option<DataColumnSidecarList<E>> {
+        self.data_column_cache
+            .get(block_root)
+            .map(|map| map.values().cloned().collect::<Vec<_>>())
+    }
     pub fn get_data_column<'a>(
         &'a mut self,
         block_root: &Hash256,
@@ -322,16 +327,15 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
         db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info.clone())?;
 
         let data_column_info = db.load_data_column_info()?;
-        let eip7594_fork_slot = db
+        let fulu_fork_slot = db
             .spec
-            .eip7594_fork_epoch
+            .fulu_fork_epoch
             .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
         let new_data_column_info = match &data_column_info {
             Some(data_column_info) => {
                 // Set the oldest data column slot to the fork slot if it is not yet set.
-                let oldest_data_column_slot = data_column_info
-                    .oldest_data_column_slot
-                    .or(eip7594_fork_slot);
+                let oldest_data_column_slot =
+                    data_column_info.oldest_data_column_slot.or(fulu_fork_slot);
                 DataColumnInfo {
                     oldest_data_column_slot,
                 }
@@ -339,7 +343,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
             // First start.
             None => DataColumnInfo {
                 // Set the oldest data column slot to the fork slot if it is not yet set.
-                oldest_data_column_slot: eip7594_fork_slot,
+                oldest_data_column_slot: fulu_fork_slot,
             },
         };
         db.compare_and_set_data_column_info_with_write(
@@ -2037,6 +2041,40 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             })
     }
 
+    /// Fetch columns for a given block from the store.
+    pub fn get_data_columns(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<DataColumnSidecarList<E>>, Error> {
+        if let Some(columns) = self.block_cache.lock().get_data_columns(block_root) {
+            metrics::inc_counter(&metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT);
+            return Ok(Some(columns));
+        }
+
+        let columns = self
+            .blobs_db
+            .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())
+            .take_while(|res| {
+                res.as_ref()
+                    .is_ok_and(|(key, _)| key.starts_with(block_root.as_slice()))
+            })
+            .map(|result| {
+                let (_key, value) = result?;
+                let column = DataColumnSidecar::<E>::from_ssz_bytes(&value).map(Arc::new)?;
+                self.block_cache
+                    .lock()
+                    .put_data_column(*block_root, column.clone());
+                Ok(column)
+            })
+            .collect::<Result<DataColumnSidecarList<E>, Error>>()?;
+
+        if columns.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(columns))
+        }
+    }
+
     /// Fetch blobs for a given block from the store.
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobSidecarListFromRoot<E>, Error> {
         // Check the cache.
@@ -2079,13 +2117,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.blobs_db
             .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())
             .take_while(|res| {
-                let Ok((key, _)) = res else { return false };
-
-                if !key.starts_with(block_root.as_slice()) {
-                    return false;
-                }
-
-                true
+                res.as_ref()
+                    .is_ok_and(|(key, _)| key.starts_with(block_root.as_slice()))
             })
             .map(|key| key.and_then(|(key, _)| parse_data_column_key(key).map(|key| key.1)))
             .collect()
@@ -2282,7 +2315,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Initialize the `DataColumnInfo` when starting from genesis or a checkpoint.
     pub fn init_data_column_info(&self, anchor_slot: Slot) -> Result<KeyValueStoreOp, Error> {
-        let oldest_data_column_slot = self.spec.eip7594_fork_epoch.map(|fork_epoch| {
+        let oldest_data_column_slot = self.spec.fulu_fork_epoch.map(|fork_epoch| {
             std::cmp::max(anchor_slot, fork_epoch.start_slot(E::slots_per_epoch()))
         });
         let data_column_info = DataColumnInfo {

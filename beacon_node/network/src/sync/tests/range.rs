@@ -3,8 +3,13 @@ use crate::status::ToStatusMessage;
 use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
 use crate::sync::range_sync::RangeSyncType;
 use crate::sync::SyncMessage;
+use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use beacon_chain::{block_verification_types::RpcBlock, EngineState, NotifyExecutionLayer};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, DataColumnsByRangeRequest, OldBlocksByRangeRequest,
+    OldBlocksByRangeRequestV2,
+};
 use lighthouse_network::rpc::{RequestType, StatusMessage};
 use lighthouse_network::service::api_types::{AppRequestId, Id, SyncRequestId};
 use lighthouse_network::{PeerId, SyncInfo};
@@ -15,6 +20,47 @@ use types::{
 };
 
 const D: Duration = Duration::new(0, 0);
+
+pub(crate) enum DataSidecars<E: EthSpec> {
+    Blobs(BlobSidecarList<E>),
+    DataColumns(Vec<CustodyDataColumn<E>>),
+}
+
+enum ByRangeDataRequestIds {
+    PreDeneb,
+    PrePeerDAS(Id, PeerId),
+    PostPeerDAS(Vec<(Id, PeerId)>),
+}
+
+/// Sync tests are usually written in the form:
+/// - Do some action
+/// - Expect a request to be sent
+/// - Complete the above request
+///
+/// To make writting tests succint, the machinery in this testing rig automatically identifies
+/// _which_ request to complete. Picking the right request is critical for tests to pass, so this
+/// filter allows better expressivity on the criteria to identify the right request.
+#[derive(Default)]
+struct RequestFilter {
+    peer: Option<PeerId>,
+    epoch: Option<u64>,
+}
+
+impl RequestFilter {
+    fn peer(mut self, peer: PeerId) -> Self {
+        self.peer = Some(peer);
+        self
+    }
+
+    fn epoch(mut self, epoch: u64) -> Self {
+        self.epoch = Some(epoch);
+        self
+    }
+}
+
+fn filter() -> RequestFilter {
+    RequestFilter::default()
+}
 
 impl TestRig {
     /// Produce a head peer with an advanced head
@@ -67,7 +113,9 @@ impl TestRig {
 
     fn add_peer(&mut self, remote_info: SyncInfo) -> PeerId {
         // Create valid peer known to network globals
-        let peer_id = self.new_connected_peer();
+        // TODO(fulu): Using supernode peers to ensure we have peer across all column
+        // subnets for syncing. Should add tests connecting to full node peers.
+        let peer_id = self.new_connected_supernode_peer();
         // Send peer to sync
         self.send_sync_message(SyncMessage::AddPeer(peer_id, remote_info.clone()));
         peer_id
@@ -86,11 +134,13 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_chain_segment(&mut self) {
-        self.pop_received_processor_event(|ev| {
-            (ev.work_type() == beacon_processor::WorkType::ChainSegment).then_some(())
-        })
-        .unwrap_or_else(|e| panic!("Expect ChainSegment work event: {e:?}"));
+    fn expect_chain_segments(&mut self, count: usize) {
+        for i in 0..count {
+            self.pop_received_processor_event(|ev| {
+                (ev.work_type() == beacon_processor::WorkType::ChainSegment).then_some(())
+            })
+            .unwrap_or_else(|e| panic!("Expect ChainSegment work event count {i}: {e:?}"));
+        }
     }
 
     fn update_execution_engine_state(&mut self, state: EngineState) {
@@ -98,39 +148,80 @@ impl TestRig {
         self.sync_manager.update_execution_engine_state(state);
     }
 
-    fn find_blocks_by_range_request(&mut self, target_peer_id: &PeerId) -> (Id, Option<Id>) {
+    fn find_blocks_by_range_request(
+        &mut self,
+        request_filter: RequestFilter,
+    ) -> ((Id, PeerId), ByRangeDataRequestIds) {
+        let filter_f = |peer: PeerId, start_slot: u64| {
+            if let Some(expected_epoch) = request_filter.epoch {
+                let epoch = Slot::new(start_slot).epoch(E::slots_per_epoch()).as_u64();
+                if epoch != expected_epoch {
+                    return false;
+                }
+            }
+            if let Some(expected_peer) = request_filter.peer {
+                if peer != expected_peer {
+                    return false;
+                }
+            }
+            true
+        };
+
         let block_req_id = self
             .pop_received_network_event(|ev| match ev {
                 NetworkMessage::SendRequest {
                     peer_id,
-                    request: RequestType::BlocksByRange(_),
+                    request:
+                        RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(
+                            OldBlocksByRangeRequestV2 { start_slot, .. },
+                        )),
                     request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
-                } if peer_id == target_peer_id => Some(*id),
+                } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                 _ => None,
             })
             .expect("Should have a blocks by range request");
 
-        let blob_req_id = if self.after_deneb() {
-            Some(
-                self.pop_received_network_event(|ev| match ev {
+        let by_range_data_requests = if self.after_fulu() {
+            let mut data_columns_requests = vec![];
+            while let Ok(data_columns_request) = self.pop_received_network_event(|ev| match ev {
+                NetworkMessage::SendRequest {
+                    peer_id,
+                    request:
+                        RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
+                            start_slot, ..
+                        }),
+                    request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
+                _ => None,
+            }) {
+                data_columns_requests.push(data_columns_request);
+            }
+            if data_columns_requests.is_empty() {
+                panic!("Found zero DataColumnsByRange requests");
+            }
+            ByRangeDataRequestIds::PostPeerDAS(data_columns_requests)
+        } else if self.after_deneb() {
+            let (id, peer) = self
+                .pop_received_network_event(|ev| match ev {
                     NetworkMessage::SendRequest {
                         peer_id,
-                        request: RequestType::BlobsByRange(_),
+                        request: RequestType::BlobsByRange(BlobsByRangeRequest { start_slot, .. }),
                         request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
-                    } if peer_id == target_peer_id => Some(*id),
+                    } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                     _ => None,
                 })
-                .expect("Should have a blobs by range request"),
-            )
+                .expect("Should have a blobs by range request");
+            ByRangeDataRequestIds::PrePeerDAS(id, peer)
         } else {
-            None
+            ByRangeDataRequestIds::PreDeneb
         };
 
-        (block_req_id, blob_req_id)
+        (block_req_id, by_range_data_requests)
     }
 
-    fn find_and_complete_blocks_by_range_request(&mut self, target_peer_id: PeerId) {
-        let (blocks_req_id, blobs_req_id) = self.find_blocks_by_range_request(&target_peer_id);
+    fn find_and_complete_blocks_by_range_request(&mut self, request_filter: RequestFilter) {
+        let ((blocks_req_id, block_peer), by_range_data_request_ids) =
+            self.find_blocks_by_range_request(request_filter);
 
         // Complete the request with a single stream termination
         self.log(&format!(
@@ -138,28 +229,43 @@ impl TestRig {
         ));
         self.send_sync_message(SyncMessage::RpcBlock {
             request_id: SyncRequestId::RangeBlockAndBlobs { id: blocks_req_id },
-            peer_id: target_peer_id,
+            peer_id: block_peer,
             beacon_block: None,
             seen_timestamp: D,
         });
 
-        if let Some(blobs_req_id) = blobs_req_id {
-            // Complete the request with a single stream termination
-            self.log(&format!(
-                "Completing BlobsByRange request {blobs_req_id} with empty stream"
-            ));
-            self.send_sync_message(SyncMessage::RpcBlob {
-                request_id: SyncRequestId::RangeBlockAndBlobs { id: blobs_req_id },
-                peer_id: target_peer_id,
-                blob_sidecar: None,
-                seen_timestamp: D,
-            });
+        match by_range_data_request_ids {
+            ByRangeDataRequestIds::PreDeneb => {}
+            ByRangeDataRequestIds::PrePeerDAS(id, peer_id) => {
+                // Complete the request with a single stream termination
+                self.log(&format!(
+                    "Completing BlobsByRange request {id} with empty stream"
+                ));
+                self.send_sync_message(SyncMessage::RpcBlob {
+                    request_id: SyncRequestId::RangeBlockAndBlobs { id },
+                    peer_id,
+                    blob_sidecar: None,
+                    seen_timestamp: D,
+                });
+            }
+            ByRangeDataRequestIds::PostPeerDAS(data_column_req_ids) => {
+                // Complete the request with a single stream termination
+                for (id, peer_id) in data_column_req_ids {
+                    self.log(&format!(
+                        "Completing DataColumnsByRange request {id} with empty stream"
+                    ));
+                    self.send_sync_message(SyncMessage::RpcDataColumn {
+                        request_id: SyncRequestId::RangeBlockAndBlobs { id },
+                        peer_id,
+                        data_column: None,
+                        seen_timestamp: D,
+                    });
+                }
+            }
         }
     }
 
-    async fn create_canonical_block(
-        &mut self,
-    ) -> (SignedBeaconBlock<E>, Option<BlobSidecarList<E>>) {
+    async fn create_canonical_block(&mut self) -> (SignedBeaconBlock<E>, Option<DataSidecars<E>>) {
         self.harness.advance_slot();
 
         let block_root = self
@@ -170,20 +276,38 @@ impl TestRig {
                 AttestationStrategy::AllValidators,
             )
             .await;
-        // TODO(das): this does not handle data columns yet
+
         let store = &self.harness.chain.store;
         let block = store.get_full_block(&block_root).unwrap().unwrap();
-        let blobs = if block.fork_name_unchecked().deneb_enabled() {
-            store.get_blobs(&block_root).unwrap().blobs()
+        let fork = block.fork_name_unchecked();
+
+        let data_sidecars = if fork.fulu_enabled() {
+            store
+                .get_data_columns(&block_root)
+                .unwrap()
+                .map(|columns| {
+                    columns
+                        .into_iter()
+                        .map(CustodyDataColumn::from_asserted_custody)
+                        .collect()
+                })
+                .map(DataSidecars::DataColumns)
+        } else if fork.deneb_enabled() {
+            store
+                .get_blobs(&block_root)
+                .unwrap()
+                .blobs()
+                .map(DataSidecars::Blobs)
         } else {
             None
         };
-        (block, blobs)
+
+        (block, data_sidecars)
     }
 
     async fn remember_block(
         &mut self,
-        (block, blob_sidecars): (SignedBeaconBlock<E>, Option<BlobSidecarList<E>>),
+        (block, data_sidecars): (SignedBeaconBlock<E>, Option<DataSidecars<E>>),
     ) {
         // This code is kind of duplicated from Harness::process_block, but takes sidecars directly.
         let block_root = block.canonical_root();
@@ -193,7 +317,7 @@ impl TestRig {
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), block.into(), blob_sidecars).unwrap(),
+                build_rpc_block(block.into(), &data_sidecars, &self.spec),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
@@ -203,6 +327,22 @@ impl TestRig {
             .try_into()
             .unwrap();
         self.harness.chain.recompute_head_at_current_slot().await;
+    }
+}
+
+fn build_rpc_block(
+    block: Arc<SignedBeaconBlock<E>>,
+    data_sidecars: &Option<DataSidecars<E>>,
+    spec: &ChainSpec,
+) -> RpcBlock<E> {
+    match data_sidecars {
+        Some(DataSidecars::Blobs(blobs)) => {
+            RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
+        }
+        Some(DataSidecars::DataColumns(columns)) => {
+            RpcBlock::new_with_custody_columns(None, block, columns.clone(), spec).unwrap()
+        }
+        None => RpcBlock::new_without_blobs(None, block),
     }
 }
 
@@ -217,14 +357,14 @@ fn head_chain_removed_while_finalized_syncing() {
     rig.assert_state(RangeSyncType::Head);
 
     // Sync should have requested a batch, grab the request.
-    let _ = rig.find_blocks_by_range_request(&head_peer);
+    let _ = rig.find_blocks_by_range_request(filter().peer(head_peer));
 
     // Now get a peer with an advanced finalized epoch.
     let finalized_peer = rig.add_finalized_peer();
     rig.assert_state(RangeSyncType::Finalized);
 
     // Sync should have requested a batch, grab the request
-    let _ = rig.find_blocks_by_range_request(&finalized_peer);
+    let _ = rig.find_blocks_by_range_request(filter().peer(finalized_peer));
 
     // Fail the head chain by disconnecting the peer.
     rig.peer_disconnected(head_peer);
@@ -251,14 +391,14 @@ async fn state_update_while_purging() {
     rig.assert_state(RangeSyncType::Head);
 
     // Sync should have requested a batch, grab the request.
-    let _ = rig.find_blocks_by_range_request(&head_peer);
+    let _ = rig.find_blocks_by_range_request(filter().peer(head_peer));
 
     // Now get a peer with an advanced finalized epoch.
     let finalized_peer = rig.add_finalized_peer_with_root(finalized_peer_root);
     rig.assert_state(RangeSyncType::Finalized);
 
     // Sync should have requested a batch, grab the request
-    let _ = rig.find_blocks_by_range_request(&finalized_peer);
+    let _ = rig.find_blocks_by_range_request(filter().peer(finalized_peer));
 
     // Now the chain knows both chains target roots.
     rig.remember_block(head_peer_block).await;
@@ -277,15 +417,18 @@ fn pause_and_resume_on_ee_offline() {
     // make the ee offline
     rig.update_execution_engine_state(EngineState::Offline);
     // send the response to the request
-    rig.find_and_complete_blocks_by_range_request(peer1);
+    rig.find_and_complete_blocks_by_range_request(filter().peer(peer1).epoch(0));
     // the beacon processor shouldn't have received any work
     rig.expect_empty_processor();
 
     // while the ee is offline, more peers might arrive. Add a new finalized peer.
-    let peer2 = rig.add_finalized_peer();
+    let _peer2 = rig.add_finalized_peer();
 
     // send the response to the request
-    rig.find_and_complete_blocks_by_range_request(peer2);
+    // Don't filter requests and the columns requests may be sent to peer1 or peer2
+    // We need to filter by epoch, because the previous batch eagerly sent requests for the next
+    // epoch for the other batch. So we can either filter by epoch of by sync type.
+    rig.find_and_complete_blocks_by_range_request(filter().epoch(0));
     // the beacon processor shouldn't have received any work
     rig.expect_empty_processor();
     // make the beacon processor available again.
@@ -293,6 +436,6 @@ fn pause_and_resume_on_ee_offline() {
     // now resume range, we should have two processing requests in the beacon processor.
     rig.update_execution_engine_state(EngineState::Online);
 
-    rig.expect_chain_segment();
-    rig.expect_chain_segment();
+    // The head chain and finalized chain (2) should be in the processing queue
+    rig.expect_chain_segments(2);
 }

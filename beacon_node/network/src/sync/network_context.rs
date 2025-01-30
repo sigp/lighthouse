@@ -373,6 +373,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "count" => request.count(),
             "epoch" => epoch,
             "peer" => %peer_id,
+            "id" => id,
         );
         let rpc_request = match request {
             BlocksByRangeRequest::V1(ref req) => {
@@ -442,6 +443,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         "epoch" => epoch,
                         "columns" => ?columns_by_range_request.columns,
                         "peer" => %peer_id,
+                        "id" => id,
                     );
 
                     self.send_network_msg(NetworkMessage::SendRequest {

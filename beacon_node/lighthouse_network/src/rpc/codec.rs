@@ -485,17 +485,9 @@ fn context_bytes<E: EthSpec>(
                 RpcSuccessResponse::BlobsByRange(_) | RpcSuccessResponse::BlobsByRoot(_) => {
                     return fork_context.to_context_bytes(ForkName::Deneb);
                 }
-                RpcSuccessResponse::DataColumnsByRoot(d)
-                | RpcSuccessResponse::DataColumnsByRange(d) => {
-                    // TODO(das): Remove deneb fork after `peerdas-devnet-2`.
-                    return if matches!(
-                        fork_context.spec.fork_name_at_slot::<E>(d.slot()),
-                        ForkName::Deneb
-                    ) {
-                        fork_context.to_context_bytes(ForkName::Deneb)
-                    } else {
-                        fork_context.to_context_bytes(ForkName::Electra)
-                    };
+                RpcSuccessResponse::DataColumnsByRoot(_)
+                | RpcSuccessResponse::DataColumnsByRange(_) => {
+                    return fork_context.to_context_bytes(ForkName::Fulu);
                 }
                 RpcSuccessResponse::LightClientBootstrap(lc_bootstrap) => {
                     return lc_bootstrap
@@ -730,10 +722,7 @@ fn handle_rpc_response<E: EthSpec>(
         },
         SupportedProtocol::DataColumnsByRootV1 => match fork_name {
             Some(fork_name) => {
-                // TODO(das): PeerDAS is currently supported for both deneb and electra. This check
-                // does not advertise the topic on deneb, simply allows it to decode it. Advertise
-                // logic is in `SupportedTopic::currently_supported`.
-                if fork_name.deneb_enabled() {
+                if fork_name.fulu_enabled() {
                     Ok(Some(RpcSuccessResponse::DataColumnsByRoot(Arc::new(
                         DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
                     ))))
@@ -754,7 +743,7 @@ fn handle_rpc_response<E: EthSpec>(
         },
         SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
             Some(fork_name) => {
-                if fork_name.deneb_enabled() {
+                if fork_name.fulu_enabled() {
                     Ok(Some(RpcSuccessResponse::DataColumnsByRange(Arc::new(
                         DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
                     ))))
@@ -945,9 +934,10 @@ mod tests {
     use crate::rpc::protocol::*;
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
-        blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FixedBytesExtended,
-        FullPayload, Signature, Slot,
+        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell, BeaconBlock, BeaconBlockAltair,
+        BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader, DataColumnIdentifier, EmptyBlock,
+        Epoch, FixedBytesExtended, FullPayload, KzgCommitment, KzgProof, Signature,
+        SignedBeaconBlockHeader, Slot,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -998,7 +988,17 @@ mod tests {
     }
 
     fn empty_data_column_sidecar() -> Arc<DataColumnSidecar<Spec>> {
-        Arc::new(DataColumnSidecar::empty())
+        Arc::new(DataColumnSidecar {
+            index: 0,
+            column: VariableList::new(vec![Cell::<Spec>::default()]).unwrap(),
+            kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
+            kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader::empty(),
+                signature: Signature::empty(),
+            },
+            kzg_commitments_inclusion_proof: Default::default(),
+        })
     }
 
     /// Bellatrix block with length < max_rpc_size.
