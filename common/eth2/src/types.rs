@@ -2049,6 +2049,7 @@ impl<E: EthSpec> ExecutionPayloadAndBlobs<E> {
     }
 }
 
+#[derive(Debug)]
 pub enum ContentType {
     Json,
     Ssz,

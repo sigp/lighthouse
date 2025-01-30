@@ -128,6 +128,9 @@ impl BuilderHttpClient {
         };
 
         let content_type = self.content_type_from_header(&headers);
+        
+        println!("{:?}", headers);
+        println!("{:?}", content_type);
 
         match content_type {
             ContentType::Ssz => {
@@ -374,6 +377,8 @@ impl BuilderHttpClient {
         let resp = self
             .get_with_header(path, self.timeouts.get_header, headers)
             .await;
+
+        println!("{:?}", resp);
         if matches!(resp, Err(Error::StatusCode(StatusCode::NO_CONTENT))) {
             Ok(None)
         } else {
