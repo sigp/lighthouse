@@ -501,14 +501,15 @@ mod tests {
         type E = MainnetEthSpec;
         let spec = E::default_spec();
         let mut all_topics = Vec::new();
-        let sampling_subnets = HashSet::new();
         let topic_config = TopicConfig {
             subscribe_all_data_column_subnets: false,
-            sampling_subnets: &sampling_subnets,
+            sampling_subnets: &HashSet::from_iter([1, 2].map(DataColumnSubnetId::new)),
         };
+        let mut fulu_core_topics = fork_core_topics::<E>(&ForkName::Fulu, &spec, &topic_config);
         let mut electra_core_topics =
             fork_core_topics::<E>(&ForkName::Electra, &spec, &topic_config);
         let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb, &spec, &topic_config);
+        all_topics.append(&mut fulu_core_topics);
         all_topics.append(&mut electra_core_topics);
         all_topics.append(&mut deneb_core_topics);
         all_topics.extend(CAPELLA_CORE_TOPICS);
