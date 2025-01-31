@@ -20,10 +20,6 @@ use types::{
     SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
 };
 
-// Set to enable/disable logging
-// const TEST_LOG_LEVEL: Option<slog::Level> = Some(slog::Level::Debug);
-const TEST_LOG_LEVEL: Option<slog::Level> = None;
-
 const SLOT_DURATION_MILLIS: u64 = 400;
 
 type TestBeaconChainType = Witness<
@@ -45,7 +41,7 @@ impl TestBeaconChain {
 
         let keypairs = generate_deterministic_keypairs(1);
 
-        let log = get_logger(TEST_LOG_LEVEL);
+        let log = logging::test_logger();
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
@@ -118,7 +114,7 @@ fn get_logger(log_level: Option<slog::Level>) -> Logger {
 static CHAIN: LazyLock<TestBeaconChain> = LazyLock::new(TestBeaconChain::new_with_system_clock);
 
 fn get_subnet_service() -> SubnetService<TestBeaconChainType> {
-    let log = get_logger(TEST_LOG_LEVEL);
+    let log = logging::test_logger();
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
