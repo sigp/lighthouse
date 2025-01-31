@@ -314,10 +314,11 @@ impl Config {
             config.http_api.store_passwords_in_secrets_dir = true;
         }
 
-        if cli_args.get_one::<String>("http-token-path").is_some() {
-            config.http_api.http_token_path = parse_required(cli_args, "http-token-path")
-                // For backward compatibility, default to the path under the validator dir if not provided.
-                .unwrap_or_else(|_| config.validator_dir.join(PK_FILENAME));
+        if let Some(http_token_path) = cli_args.get_one::<String>("http-token-path") {
+            config.http_api.http_token_path = PathBuf::from(http_token_path);
+        } else {
+            // For backward compatibility, default to the path under the validator dir if not provided.
+            config.http_api.http_token_path = config.validator_dir.join(PK_FILENAME);
         }
 
         /*

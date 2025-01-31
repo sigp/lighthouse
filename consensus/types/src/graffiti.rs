@@ -57,7 +57,7 @@ impl FromStr for GraffitiString {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.as_bytes().len() > GRAFFITI_BYTES_LEN {
+        if s.len() > GRAFFITI_BYTES_LEN {
             return Err(format!(
                 "Graffiti exceeds max length {}",
                 GRAFFITI_BYTES_LEN

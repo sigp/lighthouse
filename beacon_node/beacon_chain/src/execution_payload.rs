@@ -127,9 +127,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
-async fn notify_new_payload<'a, T: BeaconChainTypes>(
+async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<'a, T::EthSpec>,
+    block: BeaconBlockRef<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
         .execution_layer
@@ -230,9 +230,9 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
 /// Equivalent to the `validate_merge_block` function in the merge Fork Choice Changes:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/fork-choice.md#validate_merge_block
-pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
+pub async fn validate_merge_block<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<'a, T::EthSpec>,
+    block: BeaconBlockRef<'_, T::EthSpec>,
     allow_optimistic_import: AllowOptimisticImport,
 ) -> Result<(), BlockError> {
     let spec = &chain.spec;
@@ -374,19 +374,15 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header = state.latest_execution_payload_header()?;
     let latest_execution_payload_header_block_hash = latest_execution_payload_header.block_hash();
     let latest_execution_payload_header_gas_limit = latest_execution_payload_header.gas_limit();
-    let withdrawals = match state {
-        &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
-            Some(get_expected_withdrawals(state, spec)?.0.into())
-        }
-        &BeaconState::Bellatrix(_) => None,
-        // These shouldn't happen but they're here to make the pattern irrefutable
-        &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
+    let withdrawals = if state.fork_name_unchecked().capella_enabled() {
+        Some(get_expected_withdrawals(state, spec)?.0.into())
+    } else {
+        None
     };
-    let parent_beacon_block_root = match state {
-        BeaconState::Deneb(_) | BeaconState::Electra(_) => Some(parent_block_root),
-        BeaconState::Bellatrix(_) | BeaconState::Capella(_) => None,
-        // These shouldn't happen but they're here to make the pattern irrefutable
-        BeaconState::Base(_) | BeaconState::Altair(_) => None,
+    let parent_beacon_block_root = if state.fork_name_unchecked().deneb_enabled() {
+        Some(parent_block_root)
+    } else {
+        None
     };
 
     // Spawn a task to obtain the execution payload from the EL via a series of async calls. The

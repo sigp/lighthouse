@@ -21,6 +21,9 @@ pub use rust_eth_kzg::{
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
 
+// Note: `spec.number_of_columns` is a config and should match `CELLS_PER_EXT_BLOB` - however this
+// is a constant in the KZG library - be aware that overriding `number_of_columns` will break KZG
+// operations.
 pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]);
 
 pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];

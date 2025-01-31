@@ -1290,13 +1290,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
             | Err(e @ BlockError::BlockSlotLimitReached)
-            | Err(e @ BlockError::ProposalSignatureInvalid)
             | Err(e @ BlockError::NonLinearSlots)
             | Err(e @ BlockError::UnknownValidator(_))
             | Err(e @ BlockError::PerBlockProcessingError(_))
             | Err(e @ BlockError::NonLinearParentRoots)
             | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
-            | Err(e @ BlockError::InvalidSignature)
+            | Err(e @ BlockError::InvalidSignature(_))
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::ExecutionPayloadError(_))
@@ -3129,7 +3128,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .slot_clock
             .now()
-            .map_or(false, |current_slot| sync_message_slot == current_slot);
+            .is_some_and(|current_slot| sync_message_slot == current_slot);
 
         self.propagate_if_timely(is_timely, message_id, peer_id)
     }
