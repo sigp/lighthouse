@@ -216,6 +216,12 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             || self.permanent_attestation_subscriptions.contains(subnet)
     }
 
+    /// Returns whether we are subscribed to a permanent subnet for testing purposes.
+    #[cfg(test)]
+    pub(crate) fn is_subscribed_permanent(&self, subnet: &Subnet) -> bool {
+        self.permanent_attestation_subscriptions.contains(subnet)
+    }
+
     /// Processes a list of validator subscriptions.
     ///
     /// This is fundamentally called form the HTTP API when a validator requests duties from us
