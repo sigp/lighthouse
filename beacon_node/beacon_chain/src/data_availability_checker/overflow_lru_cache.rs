@@ -180,11 +180,8 @@ impl<E: EthSpec> PendingComponents<E> {
         self.merge_blobs(reinsert);
     }
 
-    /// Checks if the block and all of its expected blobs or custody columns (post-PeerDAS) are
-    /// available in the cache.
-    ///
-    /// Returns `true` if both the block exists and the number of received blobs / custody columns
-    /// matches the number of expected blobs / custody columns.
+    /// Returns Some if the block has received all its required data for import. The return value
+    /// must be persisted in the DB along with the block.
     pub fn is_available(
         &mut self,
         custody_column_count: usize,
@@ -225,17 +222,24 @@ impl<E: EthSpec> PendingComponents<E> {
             // Before PeerDAS, blobs
             let num_received_blobs = self.verified_blobs.iter().flatten().count();
             if num_received_blobs >= num_expected_blobs {
+                let blobs_available_timestamp = self
+                    .verified_blobs
+                    .iter()
+                    .flatten()
+                    .map(|blob| blob.seen_timestamp())
+                    .max();
                 // TODO(das): Should do something special if `num_received_blobs > num_expected_blobs`?
+                let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
                 let blobs_vec = self
                     .verified_blobs
                     .iter()
                     .flatten()
                     .map(|blob| blob.clone().to_blob())
+                    .take(max_blobs)
                     .collect::<Vec<_>>();
-                let max_blobs = spec.max_blobs_per_block(block.epoch());
-                let blobs = RuntimeVariableList::new(blobs_vec, max_blobs as usize)
-                    .expect("num_expect_blobs is less than max_blobs");
-                Some(AvailableBlockData::Blobs(blobs))
+                let blobs = RuntimeVariableList::new(blobs_vec, max_blobs)
+                    .expect("blobs_vec is less <= max_blobs because of take(max_blobs)");
+                Some(AvailableBlockData::Blobs(blobs, blobs_available_timestamp))
             } else {
                 // Not enough blobs received yet
                 None
@@ -278,6 +282,14 @@ impl<E: EthSpec> PendingComponents<E> {
             ..
         } = self;
 
+        let blobs_available_timestamp = match available_data {
+            AvailableBlockData::NoData => None,
+            AvailableBlockData::Blobs(_, blobs_available_timestamp) => blobs_available_timestamp,
+            // TODO(das): To be fixed with https://github.com/sigp/lighthouse/pull/6850
+            AvailableBlockData::DataColumns(_) => None,
+            AvailableBlockData::DataColumnsRecv(_) => None,
+        };
+
         let Some(diet_executed_block) = executed_block else {
             return Err(AvailabilityCheckError::Unexpected);
         };
@@ -294,7 +306,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block_root,
             block,
             data: available_data,
-            blobs_available_timestamp: None,
+            blobs_available_timestamp,
             spec: spec.clone(),
         };
         Ok(Availability::Available(Box::new(
@@ -330,9 +342,9 @@ impl<E: EthSpec> PendingComponents<E> {
 
     pub fn status_str(
         &self,
-        spec: &ChainSpec,
         block_epoch: Epoch,
         sampling_column_count: usize,
+        spec: &ChainSpec,
     ) -> String {
         let block_count = if self.executed_block.is_some() { 1 } else { 0 };
         if spec.is_peer_das_enabled_for_epoch(block_epoch) {
@@ -504,7 +516,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         debug!(log, "Component added to data availability checker";
             "component" => "blobs",
             "block_root" => ?block_root,
-            "status" => pending_components.status_str(&self.spec, epoch, self.sampling_column_count),
+            "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
         );
 
         if let Some(available_data) =
@@ -557,7 +569,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         debug!(log, "Component added to data availability checker";
             "component" => "data_columns",
             "block_root" => ?block_root,
-            "status" => pending_components.status_str(&self.spec, epoch, self.sampling_column_count),
+            "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
         );
 
         if let Some(available_data) =
@@ -576,9 +588,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    /// The `data_column_recv` parameter is an optional `Receiver` for data columns that are
-    /// computed asynchronously. This method remains **used** after PeerDAS activation, because
-    /// blocks can be made available if the EL already has the blobs and returns them via the
+    /// The `data_column_recv` parameter is a `Receiver` for data columns that are computed
+    /// asynchronously. This method is used if the EL already has the blobs and returns them via the
     /// `getBlobsV1` engine method. More details in [fetch_blobs.rs](https://github.com/sigp/lighthouse/blob/44f8add41ea2252769bb967864af95b3c13af8ca/beacon_node/beacon_chain/src/fetch_blobs.rs).
     pub fn put_computed_data_columns_recv(
         &self,
@@ -600,16 +611,15 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 )
             });
 
-        // If `data_column_recv` is `Some`, it means we have all the blobs from engine, and have
-        // started computing data columns. We store the receiver in `PendingComponents` for
-        // later use when importing the block.
-        // TODO(das): Error or log if we overwrite a prior receiver
+        // We have all the blobs from engine, and have started computing data columns. We store the
+        // receiver in `PendingComponents` for later use when importing the block.
+        // TODO(das): Error or log if we overwrite a prior receiver https://github.com/sigp/lighthouse/issues/6764
         pending_components.data_column_recv = Some(data_column_recv);
 
         debug!(log, "Component added to data availability checker";
             "component" => "data_columns_recv",
             "block_root" => ?block_root,
-            "status" => pending_components.status_str(&self.spec, block_epoch, self.sampling_column_count),
+            "status" => pending_components.status_str(block_epoch, self.sampling_column_count, &self.spec),
         );
 
         if let Some(available_data) =
@@ -709,7 +719,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         debug!(log, "Component added to data availability checker";
             "component" => "block",
             "block_root" => ?block_root,
-            "status" => pending_components.status_str(&self.spec, epoch, self.sampling_column_count),
+            "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
         );
 
         // Check if we have all components and entire set is consistent.

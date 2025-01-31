@@ -346,22 +346,29 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
-        if self.blobs_required_for_block(&block) {
+        if block.num_expected_blobs() == 0 {
+            return Ok(MaybeAvailableBlock::Available(AvailableBlock {
+                block_root,
+                block,
+                data: AvailableBlockData::NoData,
+                blobs_available_timestamp: None,
+                spec: self.spec.clone(),
+            }));
+        } else if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs {
                 verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
                     .map_err(AvailabilityCheckError::InvalidBlobs)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
-                    data: AvailableBlockData::Blobs(blob_list),
+                    data: AvailableBlockData::Blobs(blob_list, None),
                     blobs_available_timestamp: None,
                     spec: self.spec.clone(),
                 }))
             } else {
                 Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
             };
-        }
-        if self.data_columns_required_for_block(&block) {
+        } else if self.data_columns_required_for_block(&block) {
             return if let Some(data_column_list) = data_columns.as_ref() {
                 verify_kzg_for_data_column_list_with_scoring(
                     data_column_list
@@ -440,12 +447,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         for block in blocks {
             let (block_root, block, blobs, data_columns) = block.deconstruct();
 
-            let maybe_available_block = if self.blobs_required_for_block(&block) {
+            let maybe_available_block = if block.num_expected_blobs() == 0 {
+                MaybeAvailableBlock::Available(AvailableBlock {
+                    block_root,
+                    block,
+                    data: AvailableBlockData::NoData,
+                    blobs_available_timestamp: None,
+                    spec: self.spec.clone(),
+                })
+            } else if self.blobs_required_for_block(&block) {
                 if let Some(blobs) = blobs {
                     MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
-                        data: AvailableBlockData::Blobs(blobs),
+                        data: AvailableBlockData::Blobs(blobs, None),
                         blobs_available_timestamp: None,
                         spec: self.spec.clone(),
                     })
@@ -742,13 +757,14 @@ where
 
 #[derive(Debug)]
 pub enum AvailableBlockData<E: EthSpec> {
+    /// Block is pre-Deneb or has zero blobs
     NoData,
-    Blobs(BlobSidecarList<E>),
+    /// Block is post-Deneb, pre-PeerDAS and has more than zero blobs
+    Blobs(BlobSidecarList<E>, Option<Duration>),
+    /// Block is post-PeerDAS and has more than zero blobs
     DataColumns(DataColumnSidecarList<E>),
-    /// An optional receiver for `DataColumnSidecarList`.
-    ///
-    /// This field is `Some` when data columns are being computed asynchronously.
-    /// The resulting `DataColumnSidecarList` will be sent through this receiver.
+    /// Block is post-PeerDAS, has more than zero blobs and we recomputed the columns from the EL's
+    /// mempool blobs
     DataColumnsRecv(oneshot::Receiver<DataColumnSidecarList<E>>),
 }
 
@@ -797,7 +813,7 @@ impl<E: EthSpec> AvailableBlock<E> {
     pub fn has_blobs(&self) -> bool {
         match self.data {
             AvailableBlockData::NoData => false,
-            AvailableBlockData::Blobs(_) => true,
+            AvailableBlockData::Blobs(..) => true,
             AvailableBlockData::DataColumns(_) => false,
             AvailableBlockData::DataColumnsRecv(_) => false,
         }
@@ -821,7 +837,9 @@ impl<E: EthSpec> AvailableBlock<E> {
             block: self.block.clone(),
             data: match &self.data {
                 AvailableBlockData::NoData => AvailableBlockData::NoData,
-                AvailableBlockData::Blobs(blobs) => AvailableBlockData::Blobs(blobs.clone()),
+                AvailableBlockData::Blobs(blobs, seen_timestamp) => {
+                    AvailableBlockData::Blobs(blobs.clone(), *seen_timestamp)
+                }
                 AvailableBlockData::DataColumns(data_columns) => {
                     AvailableBlockData::DataColumns(data_columns.clone())
                 }

@@ -7180,7 +7180,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match block_data {
             AvailableBlockData::NoData => Ok(None),
-            AvailableBlockData::Blobs(blobs) => {
+            AvailableBlockData::Blobs(blobs, _) => {
                 debug!(
                     self.log, "Writing blobs to store";
                     "block_root" => %block_root,
@@ -7211,6 +7211,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "block_root" => %block_root,
                     "count" => computed_data_columns.len(),
                 );
+                // TODO(das): Store only this node's custody columns
                 Ok(Some(StoreOp::PutDataColumns(
                     block_root,
                     computed_data_columns,
