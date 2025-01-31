@@ -485,17 +485,9 @@ fn context_bytes<E: EthSpec>(
                 RpcSuccessResponse::BlobsByRange(_) | RpcSuccessResponse::BlobsByRoot(_) => {
                     return fork_context.to_context_bytes(ForkName::Deneb);
                 }
-                RpcSuccessResponse::DataColumnsByRoot(d)
-                | RpcSuccessResponse::DataColumnsByRange(d) => {
-                    // TODO(das): Remove deneb fork after `peerdas-devnet-2`.
-                    return if matches!(
-                        fork_context.spec.fork_name_at_slot::<E>(d.slot()),
-                        ForkName::Deneb
-                    ) {
-                        fork_context.to_context_bytes(ForkName::Deneb)
-                    } else {
-                        fork_context.to_context_bytes(ForkName::Electra)
-                    };
+                RpcSuccessResponse::DataColumnsByRoot(_)
+                | RpcSuccessResponse::DataColumnsByRange(_) => {
+                    return fork_context.to_context_bytes(ForkName::Fulu);
                 }
                 RpcSuccessResponse::LightClientBootstrap(lc_bootstrap) => {
                     return lc_bootstrap
@@ -576,7 +568,7 @@ fn handle_rpc_request<E: EthSpec>(
             BlocksByRootRequest::V2(BlocksByRootRequestV2 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blocks as usize,
+                    spec.max_request_blocks(current_fork),
                 )?,
             }),
         ))),
@@ -584,32 +576,18 @@ fn handle_rpc_request<E: EthSpec>(
             BlocksByRootRequest::V1(BlocksByRootRequestV1 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blocks as usize,
+                    spec.max_request_blocks(current_fork),
                 )?,
             }),
         ))),
-        SupportedProtocol::BlobsByRangeV1 => {
-            let req = BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?;
-            let max_requested_blobs = req
-                .count
-                .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
-            // TODO(pawan): change this to max_blobs_per_rpc_request in the alpha10 PR
-            if max_requested_blobs > spec.max_request_blob_sidecars {
-                return Err(RPCError::ErrorResponse(
-                    RpcErrorResponse::InvalidRequest,
-                    format!(
-                        "requested exceeded limit. allowed: {}, requested: {}",
-                        spec.max_request_blob_sidecars, max_requested_blobs
-                    ),
-                ));
-            }
-            Ok(Some(RequestType::BlobsByRange(req)))
-        }
+        SupportedProtocol::BlobsByRangeV1 => Ok(Some(RequestType::BlobsByRange(
+            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         SupportedProtocol::BlobsByRootV1 => {
             Ok(Some(RequestType::BlobsByRoot(BlobsByRootRequest {
                 blob_ids: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blob_sidecars as usize,
+                    spec.max_request_blob_sidecars(current_fork),
                 )?,
             })))
         }
@@ -744,10 +722,7 @@ fn handle_rpc_response<E: EthSpec>(
         },
         SupportedProtocol::DataColumnsByRootV1 => match fork_name {
             Some(fork_name) => {
-                // TODO(das): PeerDAS is currently supported for both deneb and electra. This check
-                // does not advertise the topic on deneb, simply allows it to decode it. Advertise
-                // logic is in `SupportedTopic::currently_supported`.
-                if fork_name.deneb_enabled() {
+                if fork_name.fulu_enabled() {
                     Ok(Some(RpcSuccessResponse::DataColumnsByRoot(Arc::new(
                         DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
                     ))))
@@ -768,7 +743,7 @@ fn handle_rpc_response<E: EthSpec>(
         },
         SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
             Some(fork_name) => {
-                if fork_name.deneb_enabled() {
+                if fork_name.fulu_enabled() {
                     Ok(Some(RpcSuccessResponse::DataColumnsByRange(Arc::new(
                         DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
                     ))))
@@ -959,9 +934,10 @@ mod tests {
     use crate::rpc::protocol::*;
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
-        blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FixedBytesExtended,
-        FullPayload, Signature, Slot,
+        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell, BeaconBlock, BeaconBlockAltair,
+        BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader, DataColumnIdentifier, EmptyBlock,
+        Epoch, FixedBytesExtended, FullPayload, KzgCommitment, KzgProof, Signature,
+        SignedBeaconBlockHeader, Slot,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -1012,7 +988,17 @@ mod tests {
     }
 
     fn empty_data_column_sidecar() -> Arc<DataColumnSidecar<Spec>> {
-        Arc::new(DataColumnSidecar::empty())
+        Arc::new(DataColumnSidecar {
+            index: 0,
+            column: VariableList::new(vec![Cell::<Spec>::default()]).unwrap(),
+            kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
+            kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
+            signed_block_header: SignedBeaconBlockHeader {
+                message: BeaconBlockHeader::empty(),
+                signature: Signature::empty(),
+            },
+            kzg_commitments_inclusion_proof: Default::default(),
+        })
     }
 
     /// Bellatrix block with length < max_rpc_size.
@@ -1097,21 +1083,21 @@ mod tests {
         }
     }
 
-    fn bbroot_request_v1(spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()], spec)
+    fn bbroot_request_v1(fork_name: ForkName) -> BlocksByRootRequest {
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context(fork_name))
     }
 
-    fn bbroot_request_v2(spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![Hash256::zero()], spec)
+    fn bbroot_request_v2(fork_name: ForkName) -> BlocksByRootRequest {
+        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context(fork_name))
     }
 
-    fn blbroot_request(spec: &ChainSpec) -> BlobsByRootRequest {
+    fn blbroot_request(fork_name: ForkName) -> BlobsByRootRequest {
         BlobsByRootRequest::new(
             vec![BlobIdentifier {
                 block_root: Hash256::zero(),
                 index: 0,
             }],
-            spec,
+            &fork_context(fork_name),
         )
     }
 
@@ -1909,7 +1895,8 @@ mod tests {
 
     #[test]
     fn test_encode_then_decode_request() {
-        let chain_spec = Spec::default_spec();
+        let fork_context = fork_context(ForkName::Electra);
+        let chain_spec = fork_context.spec.clone();
 
         let requests: &[RequestType<Spec>] = &[
             RequestType::Ping(ping_message()),
@@ -1917,18 +1904,30 @@ mod tests {
             RequestType::Goodbye(GoodbyeReason::Fault),
             RequestType::BlocksByRange(bbrange_request_v1()),
             RequestType::BlocksByRange(bbrange_request_v2()),
-            RequestType::BlocksByRoot(bbroot_request_v1(&chain_spec)),
-            RequestType::BlocksByRoot(bbroot_request_v2(&chain_spec)),
             RequestType::MetaData(MetadataRequest::new_v1()),
             RequestType::BlobsByRange(blbrange_request()),
-            RequestType::BlobsByRoot(blbroot_request(&chain_spec)),
             RequestType::DataColumnsByRange(dcbrange_request()),
             RequestType::DataColumnsByRoot(dcbroot_request(&chain_spec)),
             RequestType::MetaData(MetadataRequest::new_v2()),
         ];
-
         for req in requests.iter() {
             for fork_name in ForkName::list_all() {
+                encode_then_decode_request(req.clone(), fork_name, &chain_spec);
+            }
+        }
+
+        // Request types that have different length limits depending on the fork
+        // Handled separately to have consistent `ForkName` across request and responses
+        let fork_dependent_requests = |fork_name| {
+            [
+                RequestType::BlobsByRoot(blbroot_request(fork_name)),
+                RequestType::BlocksByRoot(bbroot_request_v1(fork_name)),
+                RequestType::BlocksByRoot(bbroot_request_v2(fork_name)),
+            ]
+        };
+        for fork_name in ForkName::list_all() {
+            let requests = fork_dependent_requests(fork_name);
+            for req in requests {
                 encode_then_decode_request(req.clone(), fork_name, &chain_spec);
             }
         }

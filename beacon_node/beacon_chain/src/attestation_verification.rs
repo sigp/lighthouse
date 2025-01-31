@@ -327,8 +327,8 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'_, T> {
 
     pub fn single_attestation(&self) -> Option<SingleAttestation> {
         Some(SingleAttestation {
-            committee_index: self.attestation.committee_index()? as usize,
-            attester_index: self.validator_index,
+            committee_index: self.attestation.committee_index()?,
+            attester_index: self.validator_index as u64,
             data: self.attestation.data().clone(),
             signature: self.attestation.signature().clone(),
         })

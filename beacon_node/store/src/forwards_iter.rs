@@ -158,6 +158,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
             return None;
         }
         self.inner
+            .as_mut()
             .next()?
             .and_then(|(slot_bytes, root_bytes)| {
                 let slot = slot_bytes

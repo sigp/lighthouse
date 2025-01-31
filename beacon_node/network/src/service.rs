@@ -312,6 +312,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             invalid_block_storage,
             beacon_processor_send,
             beacon_processor_reprocess_tx,
+            fork_context.clone(),
             network_log.clone(),
         )?;
 
@@ -750,11 +751,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
-                // TODO(das): This is added here for the purpose of testing, *without* having to
-                // activate Electra. This should happen as part of the Electra upgrade and we should
-                // move the subscription logic once it's ready to rebase PeerDAS on Electra, or if
-                // we decide to activate via the soft fork route:
-                // https://github.com/sigp/lighthouse/pull/5899
                 if self.fork_context.spec.is_peer_das_scheduled() {
                     self.subscribe_to_peer_das_topics(&mut subscribed_topics);
                 }
@@ -805,32 +801,32 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         }
     }
 
+    /// Keeping these separate from core topics because it has custom logic:
+    /// 1. Data column subscription logic depends on subscription configuration.
+    /// 2. Data column topic subscriptions will be dynamic based on validator balances due to
+    ///    validator custody.
+    ///
+    /// TODO(das): The downside with not including it in core fork topic is - we subscribe to
+    /// PeerDAS topics on startup if Fulu is scheduled, rather than waiting until the fork.
+    /// If this is an issue we could potentially consider adding the logic to
+    /// `network.subscribe_new_fork_topics()`.
     fn subscribe_to_peer_das_topics(&mut self, subscribed_topics: &mut Vec<GossipTopic>) {
-        if self.subscribe_all_data_column_subnets {
-            for column_subnet in 0..self.fork_context.spec.data_column_sidecar_subnet_count {
-                for fork_digest in self.required_gossip_fork_digests() {
-                    let gossip_kind =
-                        Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
-                    let topic =
-                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
-                    if self.libp2p.subscribe(topic.clone()) {
-                        subscribed_topics.push(topic);
-                    } else {
-                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                    }
-                }
-            }
+        let column_subnets_to_subscribe = if self.subscribe_all_data_column_subnets {
+            &(0..self.fork_context.spec.data_column_sidecar_subnet_count)
+                .map(DataColumnSubnetId::new)
+                .collect()
         } else {
-            for column_subnet in &self.network_globals.sampling_subnets {
-                for fork_digest in self.required_gossip_fork_digests() {
-                    let gossip_kind = Subnet::DataColumn(*column_subnet).into();
-                    let topic =
-                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
-                    if self.libp2p.subscribe(topic.clone()) {
-                        subscribed_topics.push(topic);
-                    } else {
-                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                    }
+            &self.network_globals.sampling_subnets
+        };
+
+        for column_subnet in column_subnets_to_subscribe.iter() {
+            for fork_digest in self.required_gossip_fork_digests() {
+                let gossip_kind = Subnet::DataColumn(*column_subnet).into();
+                let topic = GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
+                if self.libp2p.subscribe(topic.clone()) {
+                    subscribed_topics.push(topic);
+                } else {
+                    warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
                 }
             }
         }

@@ -9,7 +9,7 @@
 //! B) `_RJEM_MALLOC_CONF` at runtime.
 use metrics::{set_gauge, try_create_int_gauge, IntGauge};
 use std::sync::LazyLock;
-use tikv_jemalloc_ctl::{arenas, epoch, stats, Error};
+use tikv_jemalloc_ctl::{arenas, epoch, stats, Access, AsName, Error};
 
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -51,4 +51,19 @@ pub fn scrape_jemalloc_metrics_fallible() -> Result<(), Error> {
     set_gauge(&BYTES_RETAINED, stats::retained::read()? as i64);
 
     Ok(())
+}
+
+pub fn page_size() -> Result<usize, Error> {
+    // Full list of keys: https://jemalloc.net/jemalloc.3.html
+    "arenas.page\0".name().read()
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn page_size_ok() {
+        assert!(page_size().is_ok());
+    }
 }

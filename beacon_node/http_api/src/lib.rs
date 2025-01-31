@@ -30,7 +30,6 @@ mod validator;
 mod validator_inclusion;
 mod validators;
 mod version;
-
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use crate::version::fork_versioned_response;
@@ -63,6 +62,7 @@ pub use publish_blocks::{
     publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -83,14 +83,13 @@ use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
 };
-use types::ChainSpec;
 use types::{
     fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
-    AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
-    ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
-    SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    SingleAttestation, Slot, SyncCommitteeMessage, SyncContributionData,
+    AttesterSlashing, BeaconStateError, ChainSpec, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
+    ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing,
+    RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -1279,6 +1278,9 @@ pub fn serve<T: BeaconChainTypes>(
     let consensus_version_header_filter =
         warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER);
 
+    let optional_consensus_version_header_filter =
+        warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER);
+
     // POST beacon/blocks
     let post_beacon_blocks = eth_v1
         .and(warp::path("beacon"))
@@ -1829,20 +1831,19 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
-    let beacon_pool_path_any = any_version
-        .and(warp::path("beacon"))
-        .and(warp::path("pool"))
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone());
-
     let beacon_pool_path_v2 = eth_v2
         .and(warp::path("beacon"))
         .and(warp::path("pool"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
-    // POST beacon/pool/attestations
-    let post_beacon_pool_attestations = beacon_pool_path
+    let beacon_pool_path_any = any_version
+        .and(warp::path("beacon"))
+        .and(warp::path("pool"))
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone());
+
+    let post_beacon_pool_attestations_v1 = beacon_pool_path
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
@@ -1851,9 +1852,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(reprocess_send_filter.clone())
         .and(log_filter.clone())
         .then(
-            // V1 and V2 are identical except V2 has a consensus version header in the request.
-            // We only require this header for SSZ deserialization, which isn't supported for
-            // this endpoint presently.
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              attestations: Vec<Attestation<T::EthSpec>>,
@@ -1879,18 +1877,40 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp_utils::json::json::<Value>())
+        .and(optional_consensus_version_header_filter)
         .and(network_tx_filter.clone())
-        .and(reprocess_send_filter)
+        .and(reprocess_send_filter.clone())
         .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             attestations: Vec<SingleAttestation>,
+             payload: Value,
+             fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
-                let attestations = attestations.into_iter().map(Either::Right).collect();
+                let attestations =
+                    match crate::publish_attestations::deserialize_attestation_payload::<T>(
+                        payload, fork_name, &log,
+                    ) {
+                        Ok(attestations) => attestations,
+                        Err(err) => {
+                            warn!(
+                                log,
+                                "Unable to deserialize attestation POST request";
+                                "error" => ?err
+                            );
+                            return warp::reply::with_status(
+                                warp::reply::json(
+                                    &"Unable to deserialize request body".to_string(),
+                                ),
+                                eth2::StatusCode::BAD_REQUEST,
+                            )
+                            .into_response();
+                        }
+                    };
+
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
@@ -4765,7 +4785,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)
                     .uor(post_beacon_blinded_blocks_v2)
-                    .uor(post_beacon_pool_attestations)
+                    .uor(post_beacon_pool_attestations_v1)
                     .uor(post_beacon_pool_attestations_v2)
                     .uor(post_beacon_pool_attester_slashings)
                     .uor(post_beacon_pool_proposer_slashings)

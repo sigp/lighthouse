@@ -42,8 +42,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
+    Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -197,6 +197,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     pub chain: Arc<BeaconChain<T>>,
 
+    fork_context: Arc<ForkContext>,
+
     /// Logger for the `SyncNetworkContext`.
     pub log: slog::Logger,
 }
@@ -213,6 +215,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         chain: Arc<BeaconChain<T>>,
+        fork_context: Arc<ForkContext>,
         log: slog::Logger,
     ) -> Self {
         SyncNetworkContext {
@@ -229,6 +232,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             components_by_range_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
+            fork_context,
             log,
         }
     }
@@ -378,15 +382,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
                 let column_indexes = self.network_globals().sampling_columns.clone();
 
-                let data_column_requests = self
-                    .make_columns_by_range_requests(request, &column_indexes)?
-                    .into_iter()
-                    .map(|(peer_id, columns_by_range_request)| {
-                        self.send_data_columns_by_range_request(
-                            peer_id,
-                            columns_by_range_request,
-                            id,
-                        )
+                for (peer_id, columns_by_range_request) in
+                    self.make_columns_by_range_requests(request, &column_indexes)?
+                {
+                    requested_peers.push(peer_id);
+
+                    debug!(
+                        self.log,
+                        "Sending DataColumnsByRange requests";
+                        "method" => "DataColumnsByRange",
+                        "count" => columns_by_range_request.count,
+                        "epoch" => epoch,
+                        "columns" => ?columns_by_range_request.columns,
+                        "peer" => %peer_id,
+                        "id" => id,
+                    );
+
+                    self.send_network_msg(NetworkMessage::SendRequest {
+                        peer_id,
+                        request: RequestType::DataColumnsByRange(columns_by_range_request),
+                        request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -553,7 +568,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlocksByRoot(request.into_request(&self.chain.spec)),
+                request: RequestType::BlocksByRoot(request.into_request(&self.fork_context)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -635,7 +650,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlobsByRoot(request.clone().into_request(&self.chain.spec)),
+                request: RequestType::BlobsByRoot(request.clone().into_request(&self.fork_context)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;

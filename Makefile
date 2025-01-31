@@ -63,12 +63,18 @@ install-lcli:
 build-x86_64:
 	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64:
-	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
+	# JEMALLOC_SYS_WITH_LG_PAGE=16 tells jemalloc to support up to 64-KiB
+	# pages, which are commonly used by aarch64 systems.
+	# See: https://github.com/sigp/lighthouse/issues/5244
+	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
 build-lcli-x86_64:
 	cross build --bin lcli --target x86_64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 build-lcli-aarch64:
-	cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+	# JEMALLOC_SYS_WITH_LG_PAGE=16 tells jemalloc to support up to 64-KiB
+	# pages, which are commonly used by aarch64 systems.
+	# See: https://github.com/sigp/lighthouse/issues/5244
+	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -222,7 +228,7 @@ lint-fix:
 
 # Also run the lints on the optimized-only tests
 lint-full:
-	RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
+	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
 
 # Runs the makefile in the `ef_tests` repo.
 #

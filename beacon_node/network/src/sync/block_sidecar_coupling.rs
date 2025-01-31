@@ -297,7 +297,7 @@ mod tests {
         let blocks = (0..4)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
-                    ForkName::Deneb,
+                    ForkName::Fulu,
                     NumBlobs::Number(1),
                     &mut rng,
                     &spec,
@@ -363,7 +363,7 @@ mod tests {
         let blocks = (0..4)
             .map(|_| {
                 generate_rand_block_and_data_columns::<E>(
-                    ForkName::Deneb,
+                    ForkName::Fulu,
                     NumBlobs::Number(1),
                     &mut rng,
                     &spec,
