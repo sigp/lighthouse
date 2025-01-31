@@ -636,7 +636,7 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         match self.scheduled_subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => {
                 let ExactSubnet { subnet, slot } = exact_subnet;
-                // Set the `end_slot` for the subscription to be `duty.slot + 1` so that we unsubscribe 
+                // Set the `end_slot` for the subscription to be `duty.slot + 1` so that we unsubscribe
                 // only at the end of the duty slot.
                 if let Err(e) = self.subscribe_to_subnet_immediately(subnet, slot + 1) {
                     debug!(self.log, "Failed to subscribe to short lived subnet"; "subnet" => ?subnet, "err" => e);

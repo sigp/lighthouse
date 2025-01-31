@@ -7,8 +7,6 @@ use beacon_chain::{
 };
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::NetworkConfig;
-use slog::{o, Drain, Logger};
-use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
@@ -91,24 +89,6 @@ pub fn recent_genesis_time() -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs()
-}
-
-fn get_logger(log_level: Option<slog::Level>) -> Logger {
-    if let Some(level) = log_level {
-        let drain = {
-            let decorator = slog_term::TermDecorator::new().build();
-            let decorator =
-                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            let drain = slog_async::Async::new(drain).chan_size(2048).build();
-            drain.filter_level(level)
-        };
-
-        Logger::root(drain.fuse(), o!())
-    } else {
-        let builder = NullLoggerBuilder;
-        builder.build().expect("should build logger")
-    }
 }
 
 static CHAIN: LazyLock<TestBeaconChain> = LazyLock::new(TestBeaconChain::new_with_system_clock);
