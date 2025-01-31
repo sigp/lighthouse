@@ -2516,6 +2516,7 @@ name = "eth2"
 version = "0.1.0"
 dependencies = [
  "derivative",
+ "either",
  "eth2_keystore",
  "ethereum_serde_utils",
  "ethereum_ssz",
@@ -9479,6 +9480,7 @@ dependencies = [
  "beacon_node_fallback",
  "bls",
  "doppelganger_service",
+ "either",
  "environment",
  "eth2",
  "futures",
