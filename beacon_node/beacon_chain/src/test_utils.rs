@@ -1131,15 +1131,15 @@ where
             .unwrap();
 
         let single_attestation =
-            attestation.to_single_attestation_with_attester_index(attester_index)?;
+            attestation.to_single_attestation_with_attester_index(attester_index as u64)?;
 
         let attestation: Attestation<E> = single_attestation.to_attestation(committee.committee)?;
 
         assert_eq!(
             single_attestation.committee_index,
-            attestation.committee_index().unwrap() as usize
+            attestation.committee_index().unwrap()
         );
-        assert_eq!(single_attestation.attester_index, validator_index);
+        assert_eq!(single_attestation.attester_index, validator_index as u64);
         Ok(single_attestation)
     }
 

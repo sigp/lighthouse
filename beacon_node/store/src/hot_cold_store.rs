@@ -863,6 +863,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ));
     }
 
+    pub fn put_data_columns(
+        &self,
+        block_root: &Hash256,
+        data_columns: DataColumnSidecarList<E>,
+    ) -> Result<(), Error> {
+        for data_column in data_columns {
+            self.blobs_db.put_bytes(
+                DBColumn::BeaconDataColumn,
+                &get_data_column_key(block_root, &data_column.index),
+                &data_column.as_ssz_bytes(),
+            )?;
+            self.block_cache
+                .lock()
+                .put_data_column(*block_root, data_column);
+        }
+        Ok(())
+    }
+
     pub fn data_columns_as_kv_store_ops(
         &self,
         block_root: &Hash256,

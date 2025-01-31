@@ -103,7 +103,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             |committee_cache, _| {
                 let Some(committee) = committee_cache.get_beacon_committee(
                     single_attestation.data.slot,
-                    single_attestation.committee_index as u64,
+                    single_attestation.committee_index,
                 ) else {
                     warn!(
                         self.log,
