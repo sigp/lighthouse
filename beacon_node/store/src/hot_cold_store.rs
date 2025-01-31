@@ -870,7 +870,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         for data_column in data_columns {
             self.blobs_db.put_bytes(
-                DBColumn::BeaconDataColumn.into(),
+                DBColumn::BeaconDataColumn,
                 &get_data_column_key(block_root, &data_column.index),
                 &data_column.as_ssz_bytes(),
             )?;
