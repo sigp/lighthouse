@@ -214,7 +214,7 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
                 .is_zero()
     }
 
-    /// Returns `true` if aggregated, otherwise `false`.
+    /// Returns `true` if aggregated, otherwise `false`.
     pub fn aggregate_same_committee(&mut self, other: &Self) -> bool {
         if self.committee_bits != other.committee_bits {
             return false;

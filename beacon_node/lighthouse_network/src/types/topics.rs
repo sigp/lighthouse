@@ -51,7 +51,7 @@ pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
         ForkName::Deneb => {
             // All of deneb blob topics are core topics
             let mut deneb_blob_topics = Vec::new();
-            for i in 0..spec.blob_sidecar_subnet_count {
+            for i in 0..spec.blob_sidecar_subnet_count(ForkName::Deneb) {
                 deneb_blob_topics.push(GossipKind::BlobSidecar(i));
             }
             deneb_blob_topics
@@ -59,7 +59,7 @@ pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
         ForkName::Electra => {
             // All of electra blob topics are core topics
             let mut electra_blob_topics = Vec::new();
-            for i in 0..spec.blob_sidecar_subnet_count_electra {
+            for i in 0..spec.blob_sidecar_subnet_count(ForkName::Electra) {
                 electra_blob_topics.push(GossipKind::BlobSidecar(i));
             }
             electra_blob_topics

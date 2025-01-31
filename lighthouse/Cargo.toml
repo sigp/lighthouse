@@ -4,10 +4,10 @@ version = "6.0.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
-rust-version = "1.80.0"
+rust-version = "1.82.0"
 
 [features]
-default = ["slasher-lmdb"]
+default = ["slasher-lmdb", "beacon-node-leveldb"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -24,6 +24,11 @@ slasher-mdbx = ["slasher/mdbx"]
 slasher-lmdb = ["slasher/lmdb"]
 # Support slasher redb backend.
 slasher-redb = ["slasher/redb"]
+# Supports beacon node leveldb backend.
+beacon-node-leveldb = ["store/leveldb"]
+# Supports beacon node redb backend.
+beacon-node-redb = ["store/redb"]
+
 # Deprecated. This is now enabled by default on non windows targets.
 jemalloc = []
 
@@ -56,6 +61,7 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 slasher = { workspace = true }
 slog = { workspace = true }
+store = { workspace = true }
 task_executor = { workspace = true }
 types = { workspace = true }
 unused_port = { workspace = true }
