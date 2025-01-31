@@ -49,7 +49,6 @@ use types::{
 const D: Duration = Duration::new(0, 0);
 const PARENT_FAIL_TOLERANCE: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
 const SAMPLING_REQUIRED_SUCCESSES: usize = 2;
-
 type DCByRootIds = Vec<DCByRootId>;
 type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
@@ -388,15 +387,6 @@ impl TestRig {
         }
         // One supernode peer to ensure all columns have at least one peer
         self.new_connected_supernode_peer();
-    }
-
-    pub fn connected_peers(&self) -> Vec<PeerId> {
-        self.network_globals
-            .peers
-            .read()
-            .connected_peers()
-            .map(|(peer, _)| *peer)
-            .collect()
     }
 
     fn parent_chain_processed_success(
@@ -1121,7 +1111,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_empty_network(&mut self) {
+    pub fn expect_empty_network(&mut self) {
         self.drain_network_rx();
         if !self.network_rx_queue.is_empty() {
             let n = self.network_rx_queue.len();

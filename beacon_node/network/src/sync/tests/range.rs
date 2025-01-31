@@ -74,7 +74,7 @@ impl TestRig {
     /// Produce a head peer with an advanced head
     fn add_head_peer_with_root(&mut self, head_root: Hash256) -> PeerId {
         let local_info = self.local_info();
-        self.add_peer(SyncInfo {
+        self.add_random_peer(SyncInfo {
             head_root,
             head_slot: local_info.head_slot + 1 + Slot::new(SLOT_IMPORT_TOLERANCE as u64),
             ..local_info
@@ -90,16 +90,12 @@ impl TestRig {
     fn add_finalized_peer_with_root(&mut self, finalized_root: Hash256) -> PeerId {
         let local_info = self.local_info();
         let finalized_epoch = local_info.finalized_epoch + 2;
-        self.add_peer(SyncInfo {
+        self.add_random_peer(SyncInfo {
             finalized_epoch,
             finalized_root,
             head_slot: finalized_epoch.start_slot(E::slots_per_epoch()),
             head_root: Hash256::random(),
         })
-    }
-
-    fn add_finalized_peer_advanced_by(&mut self, advanced_epochs: Epoch) -> PeerId {
-        self.add_peer(self.finalized_remote_info_advanced_by(advanced_epochs))
     }
 
     fn finalized_remote_info_advanced_by(&self, advanced_epochs: Epoch) -> SyncInfo {
@@ -129,7 +125,13 @@ impl TestRig {
         }
     }
 
-    fn add_peer(&mut self, remote_info: SyncInfo) -> PeerId {
+    fn add_random_peer_not_supernode(&mut self, remote_info: SyncInfo) -> PeerId {
+        let peer_id = self.new_connected_peer();
+        self.send_sync_message(SyncMessage::AddPeer(peer_id, remote_info));
+        peer_id
+    }
+
+    fn add_random_peer(&mut self, remote_info: SyncInfo) -> PeerId {
         // Create valid peer known to network globals
         // TODO(fulu): Using supernode peers to ensure we have peer across all column
         // subnets for syncing. Should add tests connecting to full node peers.
@@ -137,6 +139,17 @@ impl TestRig {
         // Send peer to sync
         self.send_sync_message(SyncMessage::AddPeer(peer_id, remote_info));
         peer_id
+    }
+
+    fn add_random_peers(&mut self, remote_info: SyncInfo, count: usize) {
+        for _ in 0..count {
+            let peer = self.new_connected_peer();
+            self.add_peer(peer, remote_info.clone());
+        }
+    }
+
+    fn add_peer(&mut self, peer: PeerId, remote_info: SyncInfo) {
+        self.send_sync_message(SyncMessage::AddPeer(peer, remote_info));
     }
 
     fn assert_state(&self, state: RangeSyncType) {
@@ -544,43 +557,59 @@ fn pause_and_resume_on_ee_offline() {
 const EXTRA_SYNCED_EPOCHS: u64 = 2 + 1;
 
 #[test]
-fn finalized_sync_single_peer_happy_case() {
+fn finalized_sync_enough_global_custody_peers_few_chain_peers() {
     // Run for all forks
     let mut r = TestRig::test_setup();
+    // This test creates enough global custody peers to satisfy column queries but only adds few
+    // peers to the chain
     r.new_connected_peers_for_peerdas();
 
     let advanced_epochs: u64 = 2;
-    let block_peer = r.add_finalized_peer_advanced_by(advanced_epochs.into());
+    let remote_info = r.finalized_remote_info_advanced_by(advanced_epochs.into());
+
+    // Current priorization only sends batches to idle peers, so we need enough peers for each batch
+    // TODO: Test this with a single peer in the chain, it should still work
+    r.add_random_peers(
+        remote_info,
+        (advanced_epochs + EXTRA_SYNCED_EPOCHS) as usize,
+    );
     r.assert_state(RangeSyncType::Finalized);
 
-    let last_epoch = 2 + EXTRA_SYNCED_EPOCHS;
-    r.complete_and_process_range_sync_until(last_epoch, filter().peer(block_peer));
+    let last_epoch = advanced_epochs + EXTRA_SYNCED_EPOCHS;
+    r.complete_and_process_range_sync_until(last_epoch, filter());
 }
 
 #[test]
-fn finalized_sync_initially_no_peers() {
-    let Some(mut r) = TestRig::test_setup_after_fulu() else {
+fn finalized_sync_not_enough_custody_peers_on_start() {
+    let mut r = TestRig::test_setup();
+    // Only run post-PeerDAS
+    if !r.fork_name.fulu_enabled() {
         return;
-    };
-    r.new_connected_peers_for_peerdas();
+    }
 
     let advanced_epochs: u64 = 2;
     let remote_info = r.finalized_remote_info_advanced_by(advanced_epochs.into());
 
     // Unikely that the single peer we added has enough columns for us. Find a way to make this test
     // deterministic.
-    let block_peer = r.new_connected_peer();
-    r.send_sync_message(SyncMessage::AddPeer(block_peer, remote_info.clone()));
+    r.add_random_peer_not_supernode(remote_info.clone());
     r.assert_state(RangeSyncType::Finalized);
-    // Here all batches should be queued but stuck in AwaitingDownload state after not being able to
-    // find custody peer on some specific column
 
-    // Now add the rest of connected peers to the chain, which includes a supernode, and so all
-    // columns should be requested.
-    for peer in r.connected_peers() {
-        r.send_sync_message(SyncMessage::AddPeer(peer, remote_info.clone()));
-    }
+    // Because we don't have enough peers on all columns we haven't sent any request.
+    // NOTE: There's a small chance that this single peer happens to custody exactly the set we
+    // expect, in that case the test will fail. Find a way to make the test deterministic.
+    r.expect_empty_network();
 
-    let last_epoch = 2 + EXTRA_SYNCED_EPOCHS;
+    // Generate enough peers and supernodes to cover all custody columns
+    r.new_connected_peers_for_peerdas();
+    // Note: not necessary to add this peers to the chain, as we draw from the global pool
+    // We still need to add enough peers to trigger batch downloads with idle peers. Same issue as
+    // the test above.
+    r.add_random_peers(
+        remote_info,
+        (advanced_epochs + EXTRA_SYNCED_EPOCHS - 1) as usize,
+    );
+
+    let last_epoch = advanced_epochs + EXTRA_SYNCED_EPOCHS;
     r.complete_and_process_range_sync_until(last_epoch, filter());
 }
