@@ -243,7 +243,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn from_batch(
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
-    ) -> Result<Vec<Self>, (u64, KzgError)> {
+    ) -> Result<Vec<Self>, Vec<(ColumnIndex, KzgError)>> {
         verify_kzg_for_data_column_list_with_scoring(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
@@ -399,27 +399,27 @@ where
 pub fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
     data_column_iter: I,
     kzg: &'a Kzg,
-) -> Result<(), (u64, KzgError)>
+) -> Result<(), Vec<(ColumnIndex, KzgError)>>
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
-    let Err(batch_err) = verify_kzg_for_data_column_list(data_column_iter.clone(), kzg) else {
+    if verify_kzg_for_data_column_list(data_column_iter.clone(), kzg).is_ok() {
         return Ok(());
     };
 
-    let data_columns = data_column_iter.collect::<Vec<_>>();
-    // Find which column is invalid. If len is 1 or 0 continue to default case below.
-    // If len > 1 at least one column MUST fail.
-    if data_columns.len() > 1 {
-        for data_column in data_columns {
+    // Find all columns that are invalid and identify by index. If we hit this condition there
+    // should be at least one invalid column
+    let errors = data_column_iter
+        .filter_map(|data_column| {
             if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
-                return Err((data_column.index, e));
+                Some((data_column.index, e))
+            } else {
+                None
             }
-        }
-    }
+        })
+        .collect::<Vec<_>>();
 
-    // len 0 should never happen
-    Err((0, batch_err))
+    Err(errors)
 }
 
 pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(

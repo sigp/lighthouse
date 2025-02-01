@@ -232,7 +232,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         // Attributes fault to the specific peer that sent an invalid column
         let kzg_verified_columns = KzgVerifiedDataColumn::from_batch(custody_columns, &self.kzg)
-            .map_err(|(index, e)| AvailabilityCheckError::InvalidColumn(index, e))?;
+            .map_err(AvailabilityCheckError::InvalidColumn)?;
 
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
@@ -361,7 +361,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .map(|custody_column| custody_column.as_data_column()),
                     &self.kzg,
                 )
-                .map_err(|(index, e)| AvailabilityCheckError::InvalidColumn(index, e))?;
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
@@ -430,7 +430,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         if !all_data_columns.is_empty() {
             // Attributes fault to the specific peer that sent an invalid column
             verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)
-                .map_err(|(index, e)| AvailabilityCheckError::InvalidColumn(index, e))?;
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
         for block in blocks {
