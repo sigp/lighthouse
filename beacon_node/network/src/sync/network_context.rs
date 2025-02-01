@@ -263,6 +263,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             execution_engine_state: _,
             network_beacon_processor: _,
             chain: _,
+            fork_context: _,
             log: _,
         } = self;
 
@@ -382,26 +383,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
                 let column_indexes = self.network_globals().sampling_columns.clone();
 
-                for (peer_id, columns_by_range_request) in
-                    self.make_columns_by_range_requests(request, &column_indexes)?
-                {
-                    requested_peers.push(peer_id);
-
-                    debug!(
-                        self.log,
-                        "Sending DataColumnsByRange requests";
-                        "method" => "DataColumnsByRange",
-                        "count" => columns_by_range_request.count,
-                        "epoch" => epoch,
-                        "columns" => ?columns_by_range_request.columns,
-                        "peer" => %peer_id,
-                        "id" => id,
-                    );
-
-                    self.send_network_msg(NetworkMessage::SendRequest {
-                        peer_id,
-                        request: RequestType::DataColumnsByRange(columns_by_range_request),
-                        request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                let data_column_requests = self
+                    .make_columns_by_range_requests(request, &column_indexes)?
+                    .into_iter()
+                    .map(|(peer_id, columns_by_range_request)| {
+                        self.send_data_columns_by_range_request(
+                            peer_id,
+                            columns_by_range_request,
+                            id,
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 

@@ -85,7 +85,7 @@ pub struct ComponentsByRangeRequestId {
 /// Range sync chain or backfill batch
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RangeRequestId {
-    RangeSync { chain_id: u64, batch_id: Epoch },
+    RangeSync { chain_id: Id, batch_id: Epoch },
     BackfillSync { batch_id: Epoch },
 }
 
