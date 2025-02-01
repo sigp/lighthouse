@@ -124,6 +124,8 @@ impl BuilderHttpClient {
         let response_bytes = response.bytes().await?;
 
         let Ok(Some(fork_name)) = self.fork_name_from_header(&headers) else {
+            // if no fork version specified, attempt to fallback to JSON
+            self.ssz_enabled.store(false, Ordering::SeqCst);
             return serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson);
         };
 
@@ -220,8 +222,8 @@ impl BuilderHttpClient {
         }
 
         headers.insert(
-            "Content-Type",
-            HeaderValue::from_static("application/octet-stream"),
+            CONTENT_TYPE_HEADER,
+            HeaderValue::from_static(SSZ_CONTENT_TYPE_HEADER),
         );
 
         let response = builder
@@ -305,7 +307,7 @@ impl BuilderHttpClient {
             .bytes()
             .await?;
 
-        FullPayloadContents::from_ssz_bytes(&result, blinded_block.fork_name_unchecked())
+        FullPayloadContents::from_ssz_bytes_by_fork(&result, blinded_block.fork_name_unchecked())
             .map_err(Error::InvalidSsz)
     }
 
