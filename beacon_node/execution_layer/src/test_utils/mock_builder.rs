@@ -1048,15 +1048,11 @@ pub fn serve<E: EthSpec>(
              builder: MockBuilder<E>,
              accept_header: Option<eth2::types::Accept>| async move {
                 let fork_name = builder.fork_name_at_slot(slot);
-                warn!(builder.log, "MAKING BUILDER REQUEST");
                 let signed_bid = builder
                     .get_header(slot, parent_hash, pubkey)
                     .await
                     .map_err(|e| warp::reject::custom(Custom(e)))?;
-                println!("{:?}", signed_bid);
-                warn!(builder.log, "MAKING BUILDER REQUEST 2"; "s" => ?signed_bid);
                 let accept_header = accept_header.unwrap_or(eth2::types::Accept::Any);
-                warn!(builder.log, "MAKING BUILDER REQUEST 3"; "a" => ?signed_bid);
                 match accept_header {
                     eth2::types::Accept::Ssz => Ok::<_, Rejection>(
                         warp::http::Response::builder()
@@ -1079,10 +1075,10 @@ pub fn serve<E: EthSpec>(
         );
 
     let routes = warp::post()
+        // Routes which expect `application/octet-stream` go within this `and`.
         .and(
             warp::header::exact(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
-                // Routes which expect `application/octet-stream` go within this `and`.
-                .and(blinded_block_ssz)
+                .and(blinded_block_ssz),
         )
         .or(validators.or(blinded_block))
         .or(warp::get().and(status).or(header))

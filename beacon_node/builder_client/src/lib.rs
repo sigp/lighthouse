@@ -17,7 +17,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use ssz::Encode;
 use std::str::FromStr;
-use std::sync::RwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use std::sync::Arc;
@@ -58,7 +58,7 @@ pub struct BuilderHttpClient {
     server: SensitiveUrl,
     timeouts: Timeouts,
     user_agent: String,
-    ssz_enabled: Arc<RwLock<bool>>,
+    ssz_enabled: Arc<AtomicBool>,
 }
 
 impl BuilderHttpClient {
@@ -128,15 +128,10 @@ impl BuilderHttpClient {
         };
 
         let content_type = self.content_type_from_header(&headers);
-        
-        println!("{:?}", headers);
-        println!("{:?}", content_type);
 
         match content_type {
             ContentType::Ssz => {
-                if let Ok(mut lock) = self.ssz_enabled.write() {
-                    *lock = true
-                };
+                self.ssz_enabled.store(true, Ordering::SeqCst);
                 T::from_ssz_bytes_by_fork(&response_bytes, fork_name)
                     .map(|data| ForkVersionedResponse {
                         version: Some(fork_name),
@@ -146,16 +141,14 @@ impl BuilderHttpClient {
                     .map_err(Error::InvalidSsz)
             }
             ContentType::Json => {
+                self.ssz_enabled.store(false, Ordering::SeqCst);
                 serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson)
             }
         }
     }
 
     pub fn is_ssz_enabled(&self) -> bool {
-        if let Ok(ssz_enabled) = self.ssz_enabled.read() {
-            return *ssz_enabled;
-        };
-        false
+        self.ssz_enabled.load(Ordering::SeqCst)
     }
 
     async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
@@ -368,7 +361,7 @@ impl BuilderHttpClient {
 
         let mut headers = HeaderMap::new();
         if let Ok(ssz_content_type_header) = HeaderValue::from_str(&format!(
-            "{:?},{:?}",
+            "{}; q=1.0,{}; q=0.9",
             SSZ_CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER
         )) {
             headers.insert(ACCEPT, ssz_content_type_header);
@@ -378,7 +371,6 @@ impl BuilderHttpClient {
             .get_with_header(path, self.timeouts.get_header, headers)
             .await;
 
-        println!("{:?}", resp);
         if matches!(resp, Err(Error::StatusCode(StatusCode::NO_CONTENT))) {
             Ok(None)
         } else {
