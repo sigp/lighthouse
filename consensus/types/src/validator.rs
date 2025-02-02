@@ -55,7 +55,7 @@ impl Validator {
         };
 
         let max_effective_balance = validator.get_max_effective_balance(spec, fork_name);
-        // safe math is unnecessary here since the spec.effecive_balance_increment is never <= 0
+        // safe math is unnecessary here since the spec.effective_balance_increment is never <= 0
         validator.effective_balance = std::cmp::min(
             amount - (amount % spec.effective_balance_increment),
             max_effective_balance,
