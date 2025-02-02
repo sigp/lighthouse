@@ -150,7 +150,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.get_sampling_column_count() == self.spec.number_of_columns
     }
 
-    /// Checks if the block root is currenlty in the availability cache awaiting import because
+    /// Checks if the block root is currently in the availability cache awaiting import because
     /// of missing components.
     pub fn get_execution_valid_block(
         &self,
