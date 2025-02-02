@@ -355,11 +355,14 @@ where
     }
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        // This ensures we only run the tests **once** for the feature, using the types matching the
-        // correct fork, e.g. `Fulu` uses SSZ types from `Electra` fork as of spec test version
-        // `v1.5.0-beta.0`, therefore the `Fulu` tests should get included when testing Electra types.
+        // TODO(fulu): to be removed once Fulu types start differing from Electra. We currently run Fulu tests as a
+        // "feature" - this means we use Electra types for Fulu SSZ tests (except for PeerDAS types, e.g. `DataColumnSidecar`).
         //
-        // e.g. Fulu test vectors are executed in the first line below, but excluded in the 2nd
+        // This ensures we only run the tests **once** for `Fulu`, using the types matching the
+        // correct fork, e.g. `Fulu` uses SSZ types from `Electra` as of spec test version
+        // `v1.5.0-beta.0`, therefore the `Fulu` tests should get included when testing Deneb types.
+        //
+        // e.g. Fulu test vectors are executed in the 2nd line below, but excluded in the 1st
         // line when testing the type `AttestationElectra`:
         //
         // ```
@@ -890,6 +893,10 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
     fn handler_name(&self) -> String {
         "get_custody_groups".into()
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
+    }
 }
 
 #[derive(Derivative)]
@@ -909,6 +916,10 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 
     fn handler_name(&self) -> String {
         "compute_columns_for_custody_group".into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 
@@ -930,6 +941,10 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
     fn handler_name(&self) -> String {
         "compute_cells_and_kzg_proofs".into()
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
+    }
 }
 
 #[derive(Derivative)]
@@ -950,6 +965,10 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
     fn handler_name(&self) -> String {
         "verify_cell_kzg_proof_batch".into()
     }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
+    }
 }
 
 #[derive(Derivative)]
@@ -969,6 +988,10 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
     fn handler_name(&self) -> String {
         "recover_cells_and_kzg_proofs".into()
+    }
+
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        feature_name == FeatureName::Fulu
     }
 }
 

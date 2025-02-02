@@ -263,11 +263,7 @@ pub(crate) fn create_whitelist_filter(
         for id in 0..sync_committee_subnet_count {
             add(SyncCommitteeMessage(SyncSubnetId::new(id)));
         }
-        let blob_subnet_count = if spec.electra_fork_epoch.is_some() {
-            spec.blob_sidecar_subnet_count_electra
-        } else {
-            spec.blob_sidecar_subnet_count
-        };
+        let blob_subnet_count = spec.blob_sidecar_subnet_count_max();
         for id in 0..blob_subnet_count {
             add(BlobSidecar(id));
         }
