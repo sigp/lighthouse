@@ -656,7 +656,7 @@ async fn unaggregated_gossip_verification() {
     let head_root = valid_sync_committee_message.beacon_block_root;
     let parent_root = valid_sync_committee_message_to_parent.beacon_block_root;
 
-    let verifed_message_to_parent = harness
+    let verified_message_to_parent = harness
         .chain
         .verify_sync_committee_message_for_gossip(
             valid_sync_committee_message_to_parent.clone(),
@@ -666,7 +666,7 @@ async fn unaggregated_gossip_verification() {
     // Add the aggregate to the pool.
     harness
         .chain
-        .add_to_naive_sync_aggregation_pool(verifed_message_to_parent)
+        .add_to_naive_sync_aggregation_pool(verified_message_to_parent)
         .unwrap();
 
     /*
