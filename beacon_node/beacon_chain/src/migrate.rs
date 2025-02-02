@@ -449,7 +449,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     }
                 }
                 // Run finalization and blob pruning migrations first, then a reconstruction batch.
-                // This prevents finalization from being starved while reconstruciton runs (a
+                // This prevents finalization from being starved while reconstruction runs (a
                 // problem in previous LH versions).
                 if let Some(fin) = finalization_notif {
                     Self::run_migration(db.clone(), fin, &log);
