@@ -1900,11 +1900,18 @@ impl<E: EthSpec> ExecutionLayer<E> {
         if let Some(builder) = self.builder() {
             let (payload_result, duration) =
                 timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
-                    builder
-                        .post_builder_blinded_blocks(block)
-                        .await
-                        .map_err(Error::Builder)
-                        .map(|d| d.data)
+                    if builder.is_ssz_enabled() {
+                        builder
+                            .post_builder_blinded_blocks_ssz(block)
+                            .await
+                            .map_err(Error::Builder)
+                    } else {
+                        builder
+                            .post_builder_blinded_blocks(block)
+                            .await
+                            .map_err(Error::Builder)
+                            .map(|d| d.data)
+                    }
                 })
                 .await;
 

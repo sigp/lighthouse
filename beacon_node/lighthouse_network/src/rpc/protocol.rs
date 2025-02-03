@@ -554,9 +554,11 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
-            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(fork_context.current_fork()),
+            Protocol::DataColumnsByRoot => {
+                rpc_data_column_limits::<E>(fork_context.current_fork(), &fork_context.spec)
+            }
             Protocol::DataColumnsByRange => {
-                rpc_data_column_limits::<E>(fork_context.current_fork())
+                rpc_data_column_limits::<E>(fork_context.current_fork(), &fork_context.spec)
             }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
@@ -637,13 +639,10 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     }
 }
 
-// TODO(das): fix hardcoded max here
-pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName) -> RpcLimits {
+pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName, spec: &ChainSpec) -> RpcLimits {
     RpcLimits::new(
-        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
-        DataColumnSidecar::<E>::max_size(
-            E::default_spec().max_blobs_per_block_by_fork(fork_name) as usize
-        ),
+        DataColumnSidecar::<E>::min_size(),
+        DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block_by_fork(fork_name) as usize),
     )
 }
 

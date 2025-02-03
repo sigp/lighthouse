@@ -339,9 +339,9 @@ mod test {
 
     type E = MainnetEthSpec;
 
-    fn make_eip7594_spec() -> ChainSpec {
+    fn make_fulu_spec() -> ChainSpec {
         let mut spec = E::default_spec();
-        spec.eip7594_fork_epoch = Some(Epoch::new(10));
+        spec.fulu_fork_epoch = Some(Epoch::new(10));
         spec
     }
 
@@ -359,7 +359,7 @@ mod test {
             subscribe_all_data_column_subnets: false,
             ..NetworkConfig::default()
         };
-        let spec = make_eip7594_spec();
+        let spec = make_fulu_spec();
 
         let enr = build_enr_with_config(config, &spec).0;
 
@@ -375,7 +375,7 @@ mod test {
             subscribe_all_data_column_subnets: true,
             ..NetworkConfig::default()
         };
-        let spec = make_eip7594_spec();
+        let spec = make_fulu_spec();
         let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(

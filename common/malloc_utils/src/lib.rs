@@ -29,10 +29,10 @@
     not(target_env = "musl"),
     not(feature = "jemalloc")
 ))]
-mod glibc;
+pub mod glibc;
 
 #[cfg(feature = "jemalloc")]
-mod jemalloc;
+pub mod jemalloc;
 
 pub use interface::*;
 
