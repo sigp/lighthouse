@@ -990,11 +990,7 @@ pub fn parse_listening_addresses(
 
             // If we are only listening on ipv6 and the user has specified --port6, lets just use
             // that.
-            let port = if let Some(port6) = maybe_port6 {
-                port6
-            } else {
-                port
-            };
+            let port = maybe_port6.unwrap_or(port);
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
@@ -1063,11 +1059,7 @@ pub fn parse_listening_addresses(
         }
         (Some(ipv4), Some(ipv6)) => {
             // If --port6 is not set, we use --port
-            let port6 = if let Some(port6) = maybe_port6 {
-                port6
-            } else {
-                port
-            };
+            let port6 = maybe_port6.unwrap_or(port);
 
             let ipv4_tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp4_port)
