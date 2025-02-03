@@ -12,7 +12,7 @@
 - [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#bn-download-slow)
 - [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)
 - [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
-- [My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?](#bn-queue-full)
+- [My beacon node logs `ERROR Aggregate attestation queue full`, what should I do?](#bn-queue-full)
 - [My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?](#bn-deposit-cache)
 
 ## [Validator](#validator-1)
@@ -62,7 +62,7 @@ Nov 30 21:04:28.268 WARN Syncing deposit contract block cache   est_blocks_remai
 or an error:
 
 ```text
-ERRO Error updating deposit contract cache   error: Failed to get remote head and new block ranges: EndpointError(FarBehind), retry_millis: 60000, service: deposit_contract_rpc
+ERROR Error updating deposit contract cache   error: Failed to get remote head and new block ranges: EndpointError(FarBehind), retry_millis: 60000, service: deposit_contract_rpc
 ```
 
 This log indicates that your beacon node is downloading blocks and deposits
@@ -98,7 +98,7 @@ If the reason for the error message is caused by no. 1 above, you may want to lo
 
 An example of the full error is:
 
-`ERRO Error during execution engine upcheck   error: HttpClient(url: http://127.0.0.1:8551/, kind: request, detail: error trying to connect: tcp connect error: Connection refused (os error 111)), service: exec`
+`ERROR Error during execution engine upcheck   error: HttpClient(url: http://127.0.0.1:8551/, kind: request, detail: error trying to connect: tcp connect error: Connection refused (os error 111)), service: exec`
 
 Connection refused means the beacon node cannot reach the execution client. This could be due to the execution client is offline or the configuration is wrong. If the execution client is offline, run the execution engine and the error will disappear.
 
@@ -173,7 +173,7 @@ This warning usually comes with an http error code. Some examples are given belo
     The error is `503 Service Unavailable`. This means that the beacon node is still syncing. When this happens, the validator client will log:
 
     ```text
-    ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
+    ERROR Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
     ```
 
     This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced.
@@ -188,12 +188,12 @@ WARN Error signalling fork choice waiter slot: 6763073, error: ForkChoiceSignalO
 
 This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear when the resources used return to normal or when the node is synced.
 
-### <a name="bn-queue-full"></a> My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?
+### <a name="bn-queue-full"></a> My beacon node logs `ERROR Aggregate attestation queue full`, what should I do?
 
 An example of the full log is shown below:
 
 ```text
-ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
+ERROR Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
 ```
 
 This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear when the resources used return to normal or when the node is synced.
