@@ -37,7 +37,10 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         // no events from the dummy handler
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Self::ToSwarm, void::Void>> {
+    fn poll(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<ToSwarm<Self::ToSwarm, std::convert::Infallible>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
