@@ -708,10 +708,16 @@ impl<E: EthSpec> Network<E> {
         }
 
         // Subscribe to core topics for the new fork
-        for kind in fork_core_topics::<E>(&new_fork, &self.fork_context.spec) {
+        for kind in fork_core_topics::<E>(
+            &new_fork,
+            &self.fork_context.spec,
+            &self.network_globals.as_topic_config(),
+        ) {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
+
+        // TODO(das): unsubscribe from blob topics at the Fulu fork
 
         // Register the new topics for metrics
         let topics_to_keep_metrics_for = attestation_sync_committee_topics::<E>()
