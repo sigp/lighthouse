@@ -1,6 +1,8 @@
-use beacon_node_fallback::{beacon_node_health::BeaconNodeSyncDistanceTiers, ApiTopic};
+use crate::cli::ValidatorClient;
+use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
+use beacon_node_fallback::ApiTopic;
 use clap::ArgMatches;
-use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_required};
 use directory::{
     get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
@@ -14,9 +16,8 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::time::Duration;
-use types::{Address, GRAFFITI_BYTES_LEN};
+use types::GRAFFITI_BYTES_LEN;
 use validator_http_api::{self, PK_FILENAME};
 use validator_http_metrics;
 use validator_store::Config as ValidatorStoreConfig;
@@ -132,7 +133,11 @@ impl Default for Config {
 impl Config {
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
-    pub fn from_cli(cli_args: &ArgMatches, log: &Logger) -> Result<Config, String> {
+    pub fn from_cli(
+        cli_args: &ArgMatches,
+        validator_client_config: &ValidatorClient,
+        log: &Logger,
+    ) -> Result<Config, String> {
         let mut config = Config::default();
 
         let default_root_dir = dirs::home_dir()
@@ -145,11 +150,12 @@ impl Config {
             validator_dir = Some(base_dir.join(DEFAULT_VALIDATOR_DIR));
             secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
         }
-        if cli_args.get_one::<String>("validators-dir").is_some() {
-            validator_dir = Some(parse_required(cli_args, "validators-dir")?);
+
+        if let Some(validator_dir_path) = validator_client_config.validators_dir.as_ref() {
+            validator_dir = Some(validator_dir_path.clone());
         }
-        if cli_args.get_one::<String>("secrets-dir").is_some() {
-            secrets_dir = Some(parse_required(cli_args, "secrets-dir")?);
+        if let Some(secrets_dir_path) = validator_client_config.secrets_dir.as_ref() {
+            secrets_dir = Some(secrets_dir_path.clone());
         }
 
         config.validator_dir = validator_dir.unwrap_or_else(|| {
@@ -169,35 +175,36 @@ impl Config {
                 .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
-        if let Some(beacon_nodes) = parse_optional::<String>(cli_args, "beacon-nodes")? {
+        if let Some(beacon_nodes) = validator_client_config.beacon_nodes.as_ref() {
             config.beacon_nodes = beacon_nodes
-                .split(',')
-                .map(SensitiveUrl::parse)
+                .iter()
+                .map(|s| SensitiveUrl::parse(s))
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
-        if let Some(proposer_nodes) = parse_optional::<String>(cli_args, "proposer-nodes")? {
+
+        if let Some(proposer_nodes) = validator_client_config.proposer_nodes.as_ref() {
             config.proposer_nodes = proposer_nodes
-                .split(',')
-                .map(SensitiveUrl::parse)
+                .iter()
+                .map(|s| SensitiveUrl::parse(s))
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
         }
 
-        config.disable_auto_discover = cli_args.get_flag("disable-auto-discover");
-        config.init_slashing_protection = cli_args.get_flag("init-slashing-protection");
-        config.use_long_timeouts = cli_args.get_flag("use-long-timeouts");
+        config.disable_auto_discover = validator_client_config.disable_auto_discover;
+        config.init_slashing_protection = validator_client_config.init_slashing_protection;
+        config.use_long_timeouts = validator_client_config.use_long_timeouts;
 
-        if let Some(graffiti_file_path) = cli_args.get_one::<String>("graffiti-file") {
+        if let Some(graffiti_file_path) = validator_client_config.graffiti_file.as_ref() {
             let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());
             graffiti_file
                 .read_graffiti_file()
                 .map_err(|e| format!("Error reading graffiti file: {:?}", e))?;
             config.graffiti_file = Some(graffiti_file);
-            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path);
+            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path.to_str());
         }
 
-        if let Some(input_graffiti) = cli_args.get_one::<String>("graffiti") {
+        if let Some(input_graffiti) = validator_client_config.graffiti.as_ref() {
             let graffiti_bytes = input_graffiti.as_bytes();
             if graffiti_bytes.len() > GRAFFITI_BYTES_LEN {
                 return Err(format!(
@@ -216,55 +223,40 @@ impl Config {
             }
         }
 
-        if let Some(input_fee_recipient) =
-            parse_optional::<Address>(cli_args, "suggested-fee-recipient")?
-        {
+        if let Some(input_fee_recipient) = validator_client_config.suggested_fee_recipient {
             config.validator_store.fee_recipient = Some(input_fee_recipient);
         }
 
-        if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
-            config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
+        if let Some(tls_certs) = validator_client_config.beacon_nodes_tls_certs.as_ref() {
+            config.beacon_nodes_tls_certs = Some(tls_certs.iter().map(PathBuf::from).collect());
         }
 
-        if cli_args.get_flag("distributed") {
-            config.distributed = true;
-        }
+        config.distributed = validator_client_config.distributed;
 
-        if let Some(broadcast_topics) = cli_args.get_one::<String>("broadcast") {
-            config.broadcast_topics = broadcast_topics
-                .split(',')
-                .filter(|t| *t != "none")
-                .map(|t| {
-                    t.trim()
-                        .parse::<ApiTopic>()
-                        .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
-                })
-                .collect::<Result<_, _>>()?;
+        if let Some(mut broadcast_topics) = validator_client_config.broadcast.clone() {
+            broadcast_topics.retain(|topic| *topic != ApiTopic::None);
+            config.broadcast_topics = broadcast_topics;
         }
 
         /*
          * Beacon node fallback
          */
-        if let Some(sync_tolerance) = cli_args.get_one::<String>("beacon-nodes-sync-tolerances") {
-            config.beacon_node_fallback.sync_tolerances =
-                BeaconNodeSyncDistanceTiers::from_str(sync_tolerance)?;
-        } else {
-            config.beacon_node_fallback.sync_tolerances = BeaconNodeSyncDistanceTiers::default();
-        }
+        config.beacon_node_fallback.sync_tolerances = BeaconNodeSyncDistanceTiers::from_vec(
+            &validator_client_config.beacon_nodes_sync_tolerances,
+        )?;
 
         /*
          * Web3 signer
          */
-        if let Some(s) = parse_optional::<String>(cli_args, "web3-signer-keep-alive-timeout")? {
-            config.initialized_validators.web3_signer_keep_alive_timeout = if s == "null" {
-                None
-            } else {
-                Some(Duration::from_millis(
-                    s.parse().map_err(|_| "invalid timeout value".to_string())?,
-                ))
-            }
+        if validator_client_config.web3_signer_keep_alive_timeout == 0 {
+            config.initialized_validators.web3_signer_keep_alive_timeout = None
+        } else {
+            config.initialized_validators.web3_signer_keep_alive_timeout = Some(
+                Duration::from_millis(validator_client_config.web3_signer_keep_alive_timeout),
+            );
         }
-        if let Some(n) = parse_optional::<usize>(cli_args, "web3-signer-max-idle-connections")? {
+
+        if let Some(n) = validator_client_config.web3_signer_max_idle_connections {
             config
                 .initialized_validators
                 .web3_signer_max_idle_connections = Some(n);
@@ -274,12 +266,10 @@ impl Config {
          * Http API server
          */
 
-        if cli_args.get_flag("http") {
-            config.http_api.enabled = true;
-        }
+        config.http_api.enabled = validator_client_config.http;
 
-        if let Some(address) = cli_args.get_one::<String>("http-address") {
-            if cli_args.get_flag("unencrypted-http-transport") {
+        if let Some(address) = &validator_client_config.http_address {
+            if validator_client_config.unencrypted_http_transport {
                 config.http_api.listen_addr = address
                     .parse::<IpAddr>()
                     .map_err(|_| "http-address is not a valid IP address.")?;
@@ -291,13 +281,9 @@ impl Config {
             }
         }
 
-        if let Some(port) = cli_args.get_one::<String>("http-port") {
-            config.http_api.listen_port = port
-                .parse::<u16>()
-                .map_err(|_| "http-port is not a valid u16.")?;
-        }
+        config.http_api.listen_port = validator_client_config.http_port;
 
-        if let Some(allow_origin) = cli_args.get_one::<String>("http-allow-origin") {
+        if let Some(allow_origin) = validator_client_config.http_allow_origin.as_ref() {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
             hyper::header::HeaderValue::from_str(allow_origin)
@@ -306,15 +292,11 @@ impl Config {
             config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if cli_args.get_flag("http-allow-keystore-export") {
-            config.http_api.allow_keystore_export = true;
-        }
+        config.http_api.allow_keystore_export = validator_client_config.http_allow_keystore_export;
+        config.http_api.store_passwords_in_secrets_dir =
+            validator_client_config.http_store_passwords_in_secrets_dir;
 
-        if cli_args.get_flag("http-store-passwords-in-secrets-dir") {
-            config.http_api.store_passwords_in_secrets_dir = true;
-        }
-
-        if let Some(http_token_path) = cli_args.get_one::<String>("http-token-path") {
+        if let Some(http_token_path) = &validator_client_config.http_token_path {
             config.http_api.http_token_path = PathBuf::from(http_token_path);
         } else {
             // For backward compatibility, default to the path under the validator dir if not provided.
@@ -325,27 +307,19 @@ impl Config {
          * Prometheus metrics HTTP server
          */
 
-        if cli_args.get_flag("metrics") {
-            config.http_metrics.enabled = true;
-        }
+        config.http_metrics.enabled = validator_client_config.metrics;
+        config.enable_high_validator_count_metrics =
+            validator_client_config.enable_high_validator_count_metrics;
 
-        if cli_args.get_flag("enable-high-validator-count-metrics") {
-            config.enable_high_validator_count_metrics = true;
-        }
-
-        if let Some(address) = cli_args.get_one::<String>("metrics-address") {
-            config.http_metrics.listen_addr = address
+        if let Some(metrics_address) = &validator_client_config.metrics_address {
+            config.http_metrics.listen_addr = metrics_address
                 .parse::<IpAddr>()
                 .map_err(|_| "metrics-address is not a valid IP address.")?;
         }
 
-        if let Some(port) = cli_args.get_one::<String>("metrics-port") {
-            config.http_metrics.listen_port = port
-                .parse::<u16>()
-                .map_err(|_| "metrics-port is not a valid u16.")?;
-        }
+        config.http_metrics.listen_port = validator_client_config.metrics_port;
 
-        if let Some(allow_origin) = cli_args.get_one::<String>("metrics-allow-origin") {
+        if let Some(allow_origin) = validator_client_config.metrics_allow_origin.as_ref() {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
             hyper::header::HeaderValue::from_str(allow_origin)
@@ -361,9 +335,8 @@ impl Config {
         /*
          * Explorer metrics
          */
-        if let Some(monitoring_endpoint) = cli_args.get_one::<String>("monitoring-endpoint") {
-            let update_period_secs =
-                clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
+        if let Some(monitoring_endpoint) = validator_client_config.monitoring_endpoint.as_ref() {
+            let update_period_secs = Some(validator_client_config.monitoring_endpoint_period);
             config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,
                 freezer_db_path: None,
@@ -372,56 +345,34 @@ impl Config {
             });
         }
 
-        if cli_args.get_flag("enable-doppelganger-protection") {
-            config.enable_doppelganger_protection = true;
-        }
+        config.enable_doppelganger_protection =
+            validator_client_config.enable_doppelganger_protection;
+        config.validator_store.builder_proposals = validator_client_config.builder_proposals;
+        config.validator_store.prefer_builder_proposals =
+            validator_client_config.prefer_builder_proposals;
+        config.validator_store.gas_limit = Some(validator_client_config.gas_limit);
 
-        if cli_args.get_flag("builder-proposals") {
-            config.validator_store.builder_proposals = true;
-        }
+        config.builder_registration_timestamp_override =
+            validator_client_config.builder_registration_timestamp_override;
 
-        if cli_args.get_flag("prefer-builder-proposals") {
-            config.validator_store.prefer_builder_proposals = true;
-        }
-
-        config.validator_store.gas_limit = cli_args
-            .get_one::<String>("gas-limit")
-            .map(|gas_limit| {
-                gas_limit
-                    .parse::<u64>()
-                    .map_err(|_| "gas-limit is not a valid u64.")
-            })
-            .transpose()?;
-
-        if let Some(registration_timestamp_override) =
-            cli_args.get_one::<String>("builder-registration-timestamp-override")
-        {
-            config.builder_registration_timestamp_override = Some(
-                registration_timestamp_override
-                    .parse::<u64>()
-                    .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
-            );
-        }
-
-        config.validator_store.builder_boost_factor =
-            parse_optional(cli_args, "builder-boost-factor")?;
-
+        config.validator_store.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
-            !cli_args.get_flag("disable-latency-measurement-service");
+            !validator_client_config.disable_latency_measurement_service;
 
         config.validator_registration_batch_size =
-            parse_required(cli_args, "validator-registration-batch-size")?;
+            validator_client_config.validator_registration_batch_size;
+
         if config.validator_registration_batch_size == 0 {
             return Err("validator-registration-batch-size cannot be 0".to_string());
         }
 
         config.validator_store.enable_web3signer_slashing_protection =
-            if cli_args.get_flag("disable-slashing-protection-web3signer") {
+            if validator_client_config.disable_slashing_protection_web3signer {
                 warn!(
                     log,
                     "Slashing protection for remote keys disabled";
                     "info" => "ensure slashing protection on web3signer is enabled or you WILL \
-                               get slashed"
+                            get slashed"
                 );
                 false
             } else {

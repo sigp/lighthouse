@@ -884,6 +884,7 @@ dependencies = [
 name = "beacon_node_fallback"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "environment",
  "eth2",
  "futures",
