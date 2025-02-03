@@ -1,15 +1,20 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
+use bytes::Bytes;
 use eth2::types::PublishBlockRequest;
 use eth2::types::{
     BlobsBundle, BlockId, BroadcastValidation, EventKind, EventTopic, FullPayloadContents,
     ProposerData, StateId, ValidatorId,
 };
-use eth2::{BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER};
+use eth2::{
+    BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
+    SSZ_CONTENT_TYPE_HEADER,
+};
 use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slog::{debug, error, info, warn, Logger};
+use ssz::Encode;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -26,11 +31,12 @@ use types::builder_bid::{
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionedResponse, Hash256,
-    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
-    SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode,
+    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedBlindedBeaconBlock,
+    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
+use warp::reply::{self, Reply};
 use warp::{Filter, Rejection};
 
 pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -955,6 +961,33 @@ pub fn serve<E: EthSpec>(
         )
         .boxed();
 
+    let blinded_block_ssz = prefix
+        .and(warp::path("blinded_blocks"))
+        .and(warp::body::bytes())
+        .and(warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(warp::path::end())
+        .and(ctx_filter.clone())
+        .and_then(
+            |block_bytes: Bytes, fork_name: ForkName, builder: MockBuilder<E>| async move {
+                let block =
+                    SignedBlindedBeaconBlock::<E>::from_ssz_bytes_by_fork(&block_bytes, fork_name)
+                        .map_err(|e| warp::reject::custom(Custom(format!("{:?}", e))))?;
+                let payload = builder
+                    .submit_blinded_block(block)
+                    .await
+                    .map_err(|e| warp::reject::custom(Custom(e)))?;
+
+                Ok::<_, warp::reject::Rejection>(
+                    warp::http::Response::builder()
+                        .status(200)
+                        .body(payload.as_ssz_bytes())
+                        .map(add_ssz_content_type_header)
+                        .map(|res| add_consensus_version_header(res, fork_name))
+                        .unwrap(),
+                )
+            },
+        );
+
     let blinded_block =
         prefix
             .and(warp::path("blinded_blocks"))
@@ -1007,35 +1040,47 @@ pub fn serve<E: EthSpec>(
         )
         .and(warp::path::end())
         .and(ctx_filter.clone())
+        .and(warp::header::optional::<eth2::types::Accept>("accept"))
         .and_then(
             |slot: Slot,
              parent_hash: ExecutionBlockHash,
              pubkey: PublicKeyBytes,
-             builder: MockBuilder<E>| async move {
+             builder: MockBuilder<E>,
+             accept_header: Option<eth2::types::Accept>| async move {
                 let fork_name = builder.fork_name_at_slot(slot);
                 let signed_bid = builder
                     .get_header(slot, parent_hash, pubkey)
                     .await
                     .map_err(|e| warp::reject::custom(Custom(e)))?;
-
-                let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                    version: Some(fork_name),
-                    metadata: Default::default(),
-                    data: signed_bid,
-                };
-                let json_bid = serde_json::to_string(&resp)
-                    .map_err(|_| reject("coudn't serialize signed bid"))?;
-                Ok::<_, Rejection>(
-                    warp::http::Response::builder()
-                        .status(200)
-                        .body(json_bid)
-                        .unwrap(),
-                )
+                let accept_header = accept_header.unwrap_or(eth2::types::Accept::Any);
+                match accept_header {
+                    eth2::types::Accept::Ssz => Ok::<_, Rejection>(
+                        warp::http::Response::builder()
+                            .status(200)
+                            .body(signed_bid.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map(|res| add_consensus_version_header(res, fork_name))
+                            .unwrap(),
+                    ),
+                    eth2::types::Accept::Json | eth2::types::Accept::Any => {
+                        let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
+                            version: Some(fork_name),
+                            metadata: Default::default(),
+                            data: signed_bid,
+                        };
+                        Ok::<_, Rejection>(warp::reply::json(&resp).into_response())
+                    }
+                }
             },
         );
 
     let routes = warp::post()
-        .and(validators.or(blinded_block))
+        // Routes which expect `application/octet-stream` go within this `and`.
+        .and(
+            warp::header::exact(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
+                .and(blinded_block_ssz),
+        )
+        .or(validators.or(blinded_block))
         .or(warp::get().and(status).or(header))
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-builder-server"));
 
@@ -1047,4 +1092,14 @@ pub fn serve<E: EthSpec>(
 
 fn reject(msg: &'static str) -> Rejection {
     warp::reject::custom(Custom(msg.to_string()))
+}
+
+/// Add the 'Content-Type application/octet-stream` header to a response.
+fn add_ssz_content_type_header<T: Reply>(reply: T) -> warp::reply::Response {
+    reply::with_header(reply, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER).into_response()
+}
+
+/// Add the `Eth-Consensus-Version` header to a response.
+fn add_consensus_version_header<T: Reply>(reply: T, fork_name: ForkName) -> warp::reply::Response {
+    reply::with_header(reply, CONSENSUS_VERSION_HEADER, fork_name.to_string()).into_response()
 }
