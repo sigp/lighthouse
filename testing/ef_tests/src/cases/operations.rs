@@ -25,9 +25,9 @@ use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
-    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload, FullPayload,
-    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
-    WithdrawalRequest,
+    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
+    ForkVersionDecode, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
+    SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -398,7 +398,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes(bytes, fork_name)
+            ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
         })
         .map(|payload| WithdrawalsPayload {
             payload: payload.into(),

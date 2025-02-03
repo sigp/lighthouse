@@ -666,7 +666,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .hot_db
             .get_bytes(ExecutionPayload::<E>::db_column(), key)?
         {
-            Some(bytes) => Ok(Some(ExecutionPayload::from_ssz_bytes(&bytes, fork_name)?)),
+            Some(bytes) => Ok(Some(ExecutionPayload::from_ssz_bytes_by_fork(
+                &bytes, fork_name,
+            )?)),
             None => Ok(None),
         }
     }
