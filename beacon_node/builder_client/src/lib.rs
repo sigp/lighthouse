@@ -18,9 +18,8 @@ use serde::Serialize;
 use ssz::Encode;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-
 use std::sync::Arc;
+use std::time::Duration;
 
 pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
 
@@ -149,6 +148,7 @@ impl BuilderHttpClient {
         }
     }
 
+    /// Return `true` if the most recently received response from the builder had SSZ Content-Type.
     pub fn is_ssz_enabled(&self) -> bool {
         self.ssz_enabled.load(Ordering::SeqCst)
     }

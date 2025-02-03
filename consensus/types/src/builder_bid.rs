@@ -171,17 +171,6 @@ impl<E: EthSpec> ForkVersionDeserialize for SignedBuilderBid<E> {
 }
 
 impl<E: EthSpec> SignedBuilderBid<E> {
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        let mut builder = ssz::SszDecoderBuilder::new(bytes);
-        builder.register_anonymous_variable_length_item()?;
-        builder.register_type::<Signature>()?;
-        let mut decoder = builder.build()?;
-        let message = decoder
-            .decode_next_with(|bytes| BuilderBid::from_ssz_bytes_by_fork(bytes, fork_name))?;
-        let signature = decoder.decode_next()?;
-        Ok(Self { message, signature })
-    }
-
     pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
         self.message
             .pubkey()
