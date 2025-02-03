@@ -216,6 +216,12 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             || self.permanent_attestation_subscriptions.contains(subnet)
     }
 
+    /// Returns whether we are subscribed to a permanent subnet for testing purposes.
+    #[cfg(test)]
+    pub(crate) fn is_subscribed_permanent(&self, subnet: &Subnet) -> bool {
+        self.permanent_attestation_subscriptions.contains(subnet)
+    }
+
     /// Processes a list of validator subscriptions.
     ///
     /// This is fundamentally called form the HTTP API when a validator requests duties from us
@@ -629,9 +635,10 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         // expire subscription.
         match self.scheduled_subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => {
-                let ExactSubnet { subnet, .. } = exact_subnet;
-                let current_slot = self.beacon_chain.slot_clock.now().unwrap_or_default();
-                if let Err(e) = self.subscribe_to_subnet_immediately(subnet, current_slot + 1) {
+                let ExactSubnet { subnet, slot } = exact_subnet;
+                // Set the `end_slot` for the subscription to be `duty.slot + 1` so that we unsubscribe
+                // only at the end of the duty slot.
+                if let Err(e) = self.subscribe_to_subnet_immediately(subnet, slot + 1) {
                     debug!(self.log, "Failed to subscribe to short lived subnet"; "subnet" => ?subnet, "err" => e);
                 }
                 self.waker

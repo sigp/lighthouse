@@ -1,4 +1,3 @@
-use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock, IntoGossipVerifiedBlock,
@@ -7,9 +6,10 @@ use eth2::reqwest::StatusCode;
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, Config, ProvenancedBlock};
+use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
-    BlobSidecar, Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, MainnetEthSpec, Slot,
+    ColumnIndex, Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, MainnetEthSpec, Slot,
 };
 use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
@@ -17,6 +17,8 @@ use warp_utils::reject::CustomBadRequest;
 type E = MainnetEthSpec;
 
 /*
+ * TODO(fulu): write PeerDAS equivalent tests for these.
+ *
  * We have the following test cases, which are duplicated for the blinded variant of the route:
  *
  * -  `broadcast_validation=gossip`
@@ -1375,7 +1377,7 @@ pub async fn block_seen_on_gossip_without_blobs() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
 
     // Create some chain depth.
@@ -1437,7 +1439,7 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
 
     // Create some chain depth.
@@ -1464,8 +1466,8 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
         blobs.0.len()
     );
 
-    let partial_kzg_proofs = vec![*blobs.0.first().unwrap()];
-    let partial_blobs = vec![blobs.1.first().unwrap().clone()];
+    let partial_kzg_proofs = [*blobs.0.first().unwrap()];
+    let partial_blobs = [blobs.1.first().unwrap().clone()];
 
     // Simulate the block being seen on gossip.
     block
@@ -1474,21 +1476,15 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
         .unwrap();
 
     // Simulate some of the blobs being seen on gossip.
-    for (i, (kzg_proof, blob)) in partial_kzg_proofs
-        .into_iter()
-        .zip(partial_blobs)
-        .enumerate()
-    {
-        let sidecar = Arc::new(BlobSidecar::new(i, blob, &block, kzg_proof).unwrap());
-        let gossip_blob =
-            GossipVerifiedBlob::new(sidecar, i as u64, &tester.harness.chain).unwrap();
-        tester
-            .harness
-            .chain
-            .process_gossip_blob(gossip_blob)
-            .await
-            .unwrap();
-    }
+    tester
+        .harness
+        .process_gossip_blobs_or_columns(
+            &block,
+            partial_blobs.iter(),
+            partial_kzg_proofs.iter(),
+            Some(get_custody_columns(&tester)),
+        )
+        .await;
 
     // It should not yet be added to fork choice because all blobs have not been seen.
     assert!(!tester
@@ -1523,7 +1519,7 @@ pub async fn blobs_seen_on_gossip_without_block() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
 
     // Create some chain depth.
@@ -1546,22 +1542,15 @@ pub async fn blobs_seen_on_gossip_without_block() {
     let (kzg_proofs, blobs) = blobs.expect("should have some blobs");
 
     // Simulate the blobs being seen on gossip.
-    for (i, (kzg_proof, blob)) in kzg_proofs
-        .clone()
-        .into_iter()
-        .zip(blobs.clone())
-        .enumerate()
-    {
-        let sidecar = Arc::new(BlobSidecar::new(i, blob, &block, kzg_proof).unwrap());
-        let gossip_blob =
-            GossipVerifiedBlob::new(sidecar, i as u64, &tester.harness.chain).unwrap();
-        tester
-            .harness
-            .chain
-            .process_gossip_blob(gossip_blob)
-            .await
-            .unwrap();
-    }
+    tester
+        .harness
+        .process_gossip_blobs_or_columns(
+            &block,
+            blobs.iter(),
+            kzg_proofs.iter(),
+            Some(get_custody_columns(&tester)),
+        )
+        .await;
 
     // It should not yet be added to fork choice because the block has not been seen.
     assert!(!tester
@@ -1596,7 +1585,7 @@ pub async fn blobs_seen_on_gossip_without_block_and_no_http_blobs() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
 
     // Create some chain depth.
@@ -1620,22 +1609,15 @@ pub async fn blobs_seen_on_gossip_without_block_and_no_http_blobs() {
     assert!(!blobs.is_empty());
 
     // Simulate the blobs being seen on gossip.
-    for (i, (kzg_proof, blob)) in kzg_proofs
-        .clone()
-        .into_iter()
-        .zip(blobs.clone())
-        .enumerate()
-    {
-        let sidecar = Arc::new(BlobSidecar::new(i, blob, &block, kzg_proof).unwrap());
-        let gossip_blob =
-            GossipVerifiedBlob::new(sidecar, i as u64, &tester.harness.chain).unwrap();
-        tester
-            .harness
-            .chain
-            .process_gossip_blob(gossip_blob)
-            .await
-            .unwrap();
-    }
+    tester
+        .harness
+        .process_gossip_blobs_or_columns(
+            &block,
+            blobs.iter(),
+            kzg_proofs.iter(),
+            Some(get_custody_columns(&tester)),
+        )
+        .await;
 
     // It should not yet be added to fork choice because the block has not been seen.
     assert!(!tester
@@ -1672,7 +1654,7 @@ pub async fn slashable_blobs_seen_on_gossip_cause_failure() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
 
     // Create some chain depth.
@@ -1697,17 +1679,15 @@ pub async fn slashable_blobs_seen_on_gossip_cause_failure() {
     let (kzg_proofs_b, blobs_b) = blobs_b.expect("should have some blobs");
 
     // Simulate the blobs of block B being seen on gossip.
-    for (i, (kzg_proof, blob)) in kzg_proofs_b.into_iter().zip(blobs_b).enumerate() {
-        let sidecar = Arc::new(BlobSidecar::new(i, blob, &block_b, kzg_proof).unwrap());
-        let gossip_blob =
-            GossipVerifiedBlob::new(sidecar, i as u64, &tester.harness.chain).unwrap();
-        tester
-            .harness
-            .chain
-            .process_gossip_blob(gossip_blob)
-            .await
-            .unwrap();
-    }
+    tester
+        .harness
+        .process_gossip_blobs_or_columns(
+            &block_b,
+            blobs_b.iter(),
+            kzg_proofs_b.iter(),
+            Some(get_custody_columns(&tester)),
+        )
+        .await;
 
     // It should not yet be added to fork choice because block B has not been seen.
     assert!(!tester
@@ -1742,7 +1722,7 @@ pub async fn duplicate_block_status_code() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
     let duplicate_block_status_code = StatusCode::IM_A_TEAPOT;
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec),
@@ -1803,4 +1783,14 @@ fn assert_server_message_error(error_response: eth2::Error, expected_message: St
         panic!("Not a eth2::Error::ServerMessage");
     };
     assert_eq!(err.message, expected_message);
+}
+
+fn get_custody_columns(tester: &InteractiveTester<E>) -> HashSet<ColumnIndex> {
+    tester
+        .ctx
+        .network_globals
+        .as_ref()
+        .unwrap()
+        .sampling_columns
+        .clone()
 }

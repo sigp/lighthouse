@@ -1,5 +1,6 @@
 use gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use strum::AsRefStr;
 use types::{ChainSpec, DataColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};
 
@@ -41,8 +42,18 @@ pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
     GossipKind::LightClientOptimisticUpdate,
 ];
 
+#[derive(Debug)]
+pub struct TopicConfig<'a> {
+    pub subscribe_all_data_column_subnets: bool,
+    pub sampling_subnets: &'a HashSet<DataColumnSubnetId>,
+}
+
 /// Returns the core topics associated with each fork that are new to the previous fork
-pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
+pub fn fork_core_topics<E: EthSpec>(
+    fork_name: &ForkName,
+    spec: &ChainSpec,
+    topic_config: &TopicConfig,
+) -> Vec<GossipKind> {
     match fork_name {
         ForkName::Base => BASE_CORE_TOPICS.to_vec(),
         ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
@@ -51,7 +62,7 @@ pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
         ForkName::Deneb => {
             // All of deneb blob topics are core topics
             let mut deneb_blob_topics = Vec::new();
-            for i in 0..spec.blob_sidecar_subnet_count {
+            for i in 0..spec.blob_sidecar_subnet_count(ForkName::Deneb) {
                 deneb_blob_topics.push(GossipKind::BlobSidecar(i));
             }
             deneb_blob_topics
@@ -59,12 +70,26 @@ pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
         ForkName::Electra => {
             // All of electra blob topics are core topics
             let mut electra_blob_topics = Vec::new();
-            for i in 0..spec.blob_sidecar_subnet_count_electra {
+            for i in 0..spec.blob_sidecar_subnet_count(ForkName::Electra) {
                 electra_blob_topics.push(GossipKind::BlobSidecar(i));
             }
             electra_blob_topics
         }
-        ForkName::Fulu => vec![],
+        ForkName::Fulu => {
+            let mut topics = vec![];
+            if topic_config.subscribe_all_data_column_subnets {
+                for column_subnet in 0..spec.data_column_sidecar_subnet_count {
+                    topics.push(GossipKind::DataColumnSidecar(DataColumnSubnetId::new(
+                        column_subnet,
+                    )));
+                }
+            } else {
+                for column_subnet in topic_config.sampling_subnets {
+                    topics.push(GossipKind::DataColumnSidecar(*column_subnet));
+                }
+            }
+            topics
+        }
     }
 }
 
@@ -84,10 +109,11 @@ pub fn attestation_sync_committee_topics<E: EthSpec>() -> impl Iterator<Item = G
 pub fn core_topics_to_subscribe<E: EthSpec>(
     mut current_fork: ForkName,
     spec: &ChainSpec,
+    topic_config: &TopicConfig,
 ) -> Vec<GossipKind> {
-    let mut topics = fork_core_topics::<E>(&current_fork, spec);
+    let mut topics = fork_core_topics::<E>(&current_fork, spec, topic_config);
     while let Some(previous_fork) = current_fork.previous_fork() {
-        let previous_fork_topics = fork_core_topics::<E>(&previous_fork, spec);
+        let previous_fork_topics = fork_core_topics::<E>(&previous_fork, spec, topic_config);
         topics.extend(previous_fork_topics);
         current_fork = previous_fork;
     }
@@ -475,8 +501,15 @@ mod tests {
         type E = MainnetEthSpec;
         let spec = E::default_spec();
         let mut all_topics = Vec::new();
-        let mut electra_core_topics = fork_core_topics::<E>(&ForkName::Electra, &spec);
-        let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb, &spec);
+        let topic_config = TopicConfig {
+            subscribe_all_data_column_subnets: false,
+            sampling_subnets: &HashSet::from_iter([1, 2].map(DataColumnSubnetId::new)),
+        };
+        let mut fulu_core_topics = fork_core_topics::<E>(&ForkName::Fulu, &spec, &topic_config);
+        let mut electra_core_topics =
+            fork_core_topics::<E>(&ForkName::Electra, &spec, &topic_config);
+        let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb, &spec, &topic_config);
+        all_topics.append(&mut fulu_core_topics);
         all_topics.append(&mut electra_core_topics);
         all_topics.append(&mut deneb_core_topics);
         all_topics.extend(CAPELLA_CORE_TOPICS);
@@ -484,7 +517,7 @@ mod tests {
         all_topics.extend(BASE_CORE_TOPICS);
 
         let latest_fork = *ForkName::list_all().last().unwrap();
-        let core_topics = core_topics_to_subscribe::<E>(latest_fork, &spec);
+        let core_topics = core_topics_to_subscribe::<E>(latest_fork, &spec, &topic_config);
         // Need to check all the topics exist in an order independent manner
         for topic in all_topics {
             assert!(core_topics.contains(&topic));

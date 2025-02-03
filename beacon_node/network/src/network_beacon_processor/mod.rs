@@ -103,7 +103,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             |committee_cache, _| {
                 let Some(committee) = committee_cache.get_beacon_committee(
                     single_attestation.data.slot,
-                    single_attestation.committee_index as u64,
+                    single_attestation.committee_index,
                 ) else {
                     warn!(
                         self.log,
@@ -613,6 +613,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
+        debug!(self.log, "Batch sending for process";
+            "blocks" => blocks.len(),
+            "id" => ?process_id,
+        );
+
         let processor = self.clone();
         let process_fn = async move {
             let notify_execution_layer = if processor

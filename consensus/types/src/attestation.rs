@@ -24,7 +24,7 @@ pub enum Error {
     IncorrectStateVariant,
     InvalidCommitteeLength,
     InvalidCommitteeIndex,
-    AttesterNotInCommittee(usize),
+    AttesterNotInCommittee(u64),
     InvalidCommittee,
     MissingCommittee,
     NoCommitteeForSlotAndIndex { slot: Slot, index: CommitteeIndex },
@@ -238,7 +238,7 @@ impl<E: EthSpec> Attestation<E> {
 
     pub fn to_single_attestation_with_attester_index(
         &self,
-        attester_index: usize,
+        attester_index: u64,
     ) -> Result<SingleAttestation, Error> {
         match self {
             Self::Base(_) => Err(Error::IncorrectStateVariant),
@@ -375,14 +375,14 @@ impl<E: EthSpec> AttestationElectra<E> {
 
     pub fn to_single_attestation_with_attester_index(
         &self,
-        attester_index: usize,
+        attester_index: u64,
     ) -> Result<SingleAttestation, Error> {
         let Some(committee_index) = self.committee_index() else {
             return Err(Error::InvalidCommitteeIndex);
         };
 
         Ok(SingleAttestation {
-            committee_index: committee_index as usize,
+            committee_index,
             attester_index,
             data: self.data.clone(),
             signature: self.signature.clone(),
@@ -579,8 +579,10 @@ impl<E: EthSpec> ForkVersionDeserialize for Vec<Attestation<E>> {
     PartialEq,
 )]
 pub struct SingleAttestation {
-    pub committee_index: usize,
-    pub attester_index: usize,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub committee_index: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub attester_index: u64,
     pub data: AttestationData,
     pub signature: AggregateSignature,
 }
@@ -591,7 +593,7 @@ impl SingleAttestation {
             .iter()
             .enumerate()
             .find_map(|(i, &validator_index)| {
-                if self.attester_index == validator_index {
+                if self.attester_index as usize == validator_index {
                     return Some(i);
                 }
                 None
@@ -600,7 +602,7 @@ impl SingleAttestation {
 
         let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
         committee_bits
-            .set(self.committee_index, true)
+            .set(self.committee_index as usize, true)
             .map_err(|_| Error::InvalidCommitteeIndex)?;
 
         let mut aggregation_bits =

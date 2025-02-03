@@ -5,6 +5,7 @@ use beacon_chain::{
     ChainConfig,
 };
 use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use either::Either;
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
@@ -906,9 +907,11 @@ async fn queue_attestations_from_http() {
             .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
             .collect::<Vec<_>>();
 
+        let attestations = Either::Right(single_attestations);
+
         tokio::spawn(async move {
             client
-                .post_beacon_pool_attestations_v2(&single_attestations, fork_name)
+                .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
                 .await
                 .expect("attestations should be processed successfully")
         })
