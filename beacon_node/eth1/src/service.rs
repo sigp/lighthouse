@@ -549,10 +549,11 @@ impl Service {
 
     /// Returns the number of deposits with valid signatures that have been observed.
     pub fn get_valid_signature_count(&self) -> Option<usize> {
+        let highest_safe_block = self.highest_safe_block()?;
         self.deposits()
             .read()
             .cache
-            .get_valid_signature_count(self.highest_safe_block()?)
+            .get_valid_signature_count(highest_safe_block)
     }
 
     /// Returns the number of deposits with valid signatures that have been observed, without
