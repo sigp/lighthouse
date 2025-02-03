@@ -1,8 +1,9 @@
+use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, RpcBlock};
-use crate::kzg_utils::blobs_to_data_column_sidecars;
+use crate::data_column_verification::CustodyDataColumn;
+use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
-use crate::BeaconBlockResponseWrapper;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
@@ -16,6 +17,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
     StateSkipConfig,
 };
+use crate::{get_block_root, BeaconBlockResponseWrapper};
 use bls::get_withdrawal_credentials;
 use eth2::types::SignedBlockContentsTuple;
 use execution_layer::test_utils::generate_genesis_header;
@@ -56,7 +58,8 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
-use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
+use store::database::interface::BeaconNodeBackend;
+use store::{config::StoreConfig, HotColdDB, ItemStore, MemoryStore};
 use task_executor::TaskExecutor;
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
@@ -72,6 +75,11 @@ pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // Environment variable to read if `ci_logger` feature is enabled.
 pub const CI_LOGGER_DIR_ENV_VAR: &str = "CI_LOGGER_DIR";
+
+// Pre-computed data column sidecar using a single static blob from:
+// `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
+const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
+    include_bytes!("test_utils/fixtures/test_data_column_sidecars.ssz");
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
 //
@@ -104,7 +112,7 @@ static KZG_NO_PRECOMP: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
 });
 
 pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
-    if spec.eip7594_fork_epoch.is_some() {
+    if spec.fulu_fork_epoch.is_some() {
         KZG_PEERDAS.clone()
     } else if spec.deneb_fork_epoch.is_some() {
         KZG.clone()
@@ -116,7 +124,7 @@ pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
 
-pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
+pub type DiskHarnessType<E> = BaseHarnessType<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
 
 pub type BoxedMutator<E, Hot, Cold> = Box<
@@ -223,6 +231,7 @@ pub struct Builder<T: BeaconChainTypes> {
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
+    import_all_data_columns: bool,
     runtime: TestRuntime,
     log: Logger,
 }
@@ -299,7 +308,10 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
 
 impl<E: EthSpec> Builder<DiskHarnessType<E>> {
     /// Disk store, start from genesis.
-    pub fn fresh_disk_store(mut self, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) -> Self {
+    pub fn fresh_disk_store(
+        mut self,
+        store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    ) -> Self {
         let validator_keypairs = self
             .validator_keypairs
             .clone()
@@ -324,7 +336,10 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
     }
 
     /// Disk store, resume.
-    pub fn resumed_disk_store(mut self, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) -> Self {
+    pub fn resumed_disk_store(
+        mut self,
+        store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    ) -> Self {
         let mutator = move |builder: BeaconChainBuilder<_>| {
             builder
                 .resume_from_db()
@@ -359,6 +374,7 @@ where
             mock_execution_layer: None,
             testing_slot_clock: None,
             validator_monitor_config: None,
+            import_all_data_columns: false,
             runtime,
             log,
         }
@@ -448,6 +464,11 @@ where
 
     pub fn chain_config(mut self, chain_config: ChainConfig) -> Self {
         self.chain_config = Some(chain_config);
+        self
+    }
+
+    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
+        self.import_all_data_columns = import_all_data_columns;
         self
     }
 
@@ -568,6 +589,7 @@ where
             .expect("should build dummy backend")
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
+            .import_all_data_columns(self.import_all_data_columns)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(
                 log.clone(),
                 5,
@@ -669,9 +691,15 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub rng: Mutex<StdRng>,
 }
 
+pub type CommitteeSingleAttestations = Vec<(SingleAttestation, SubnetId)>;
 pub type CommitteeAttestations<E> = Vec<(Attestation<E>, SubnetId)>;
 pub type HarnessAttestations<E> =
     Vec<(CommitteeAttestations<E>, Option<SignedAggregateAndProof<E>>)>;
+
+pub type HarnessSingleAttestations<E> = Vec<(
+    CommitteeSingleAttestations,
+    Option<SignedAggregateAndProof<E>>,
+)>;
 
 pub type HarnessSyncContributions<E> = Vec<(
     Vec<(SyncCommitteeMessage, usize)>,
@@ -749,15 +777,13 @@ where
     pub fn get_head_block(&self) -> RpcBlock<E> {
         let block = self.chain.head_beacon_block();
         let block_root = block.canonical_root();
-        let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
-        RpcBlock::new(Some(block_root), block, blobs).unwrap()
+        self.build_rpc_block_from_store_blobs(Some(block_root), block)
     }
 
     pub fn get_full_block(&self, block_root: &Hash256) -> RpcBlock<E> {
         let block = self.chain.get_blinded_block(block_root).unwrap().unwrap();
         let full_block = self.chain.store.make_full_block(block_root, block).unwrap();
-        let blobs = self.chain.get_blobs(block_root).unwrap().blobs();
-        RpcBlock::new(Some(*block_root), Arc::new(full_block), blobs).unwrap()
+        self.build_rpc_block_from_store_blobs(Some(*block_root), Arc::new(full_block))
     }
 
     pub fn get_all_validators(&self) -> Vec<usize> {
@@ -1024,6 +1050,99 @@ where
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn produce_single_attestation_for_block(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+        beacon_block_root: Hash256,
+        mut state: Cow<BeaconState<E>>,
+        state_root: Hash256,
+        aggregation_bit_index: usize,
+        validator_index: usize,
+    ) -> Result<SingleAttestation, BeaconChainError> {
+        let epoch = slot.epoch(E::slots_per_epoch());
+
+        if state.slot() > slot {
+            return Err(BeaconChainError::CannotAttestToFutureState);
+        } else if state.current_epoch() < epoch {
+            let mut_state = state.to_mut();
+            complete_state_advance(
+                mut_state,
+                Some(state_root),
+                epoch.start_slot(E::slots_per_epoch()),
+                &self.spec,
+            )?;
+            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        }
+
+        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+
+        let target_slot = epoch.start_slot(E::slots_per_epoch());
+        let target_root = if state.slot() <= target_slot {
+            beacon_block_root
+        } else {
+            *state.get_block_root(target_slot)?
+        };
+
+        let attestation: Attestation<E> = Attestation::empty_for_signing(
+            index,
+            committee_len,
+            slot,
+            beacon_block_root,
+            state.current_justified_checkpoint(),
+            Checkpoint {
+                epoch,
+                root: target_root,
+            },
+            &self.spec,
+        )?;
+
+        let attestation = match attestation {
+            Attestation::Electra(mut attn) => {
+                attn.aggregation_bits
+                    .set(aggregation_bit_index, true)
+                    .unwrap();
+                attn
+            }
+            Attestation::Base(_) => panic!("Must be an Electra attestation"),
+        };
+
+        let aggregation_bits = attestation.get_aggregation_bits();
+
+        if aggregation_bits.len() != 1 {
+            panic!("Must be an unaggregated attestation")
+        }
+
+        let aggregation_bit = *aggregation_bits.first().unwrap();
+
+        let committee = state.get_beacon_committee(slot, index).unwrap();
+
+        let attester_index = committee
+            .committee
+            .iter()
+            .enumerate()
+            .find_map(|(i, &index)| {
+                if aggregation_bit as usize == i {
+                    return Some(index);
+                }
+                None
+            })
+            .unwrap();
+
+        let single_attestation =
+            attestation.to_single_attestation_with_attester_index(attester_index as u64)?;
+
+        let attestation: Attestation<E> = single_attestation.to_attestation(committee.committee)?;
+
+        assert_eq!(
+            single_attestation.committee_index,
+            attestation.committee_index().unwrap()
+        );
+        assert_eq!(single_attestation.attester_index, validator_index as u64);
+        Ok(single_attestation)
+    }
+
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
     /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
     /// `block` identified by `beacon_block_root`.
@@ -1086,6 +1205,33 @@ where
     /// The first layer of the Vec is organised per committee. For example, if the return value is
     /// called `all_attestations`, then all attestations in `all_attestations[0]` will be for
     /// committee 0, whilst all in `all_attestations[1]` will be for committee 1.
+    pub fn make_single_attestations(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        head_block_root: SignedBeaconBlockHash,
+        attestation_slot: Slot,
+    ) -> Vec<CommitteeSingleAttestations> {
+        let fork = self
+            .spec
+            .fork_at_epoch(attestation_slot.epoch(E::slots_per_epoch()));
+        self.make_single_attestations_with_opts(
+            attesting_validators,
+            state,
+            state_root,
+            head_block_root,
+            attestation_slot,
+            MakeAttestationOptions { limit: None, fork },
+        )
+        .0
+    }
+
+    /// A list of attestations for each committee for the given slot.
+    ///
+    /// The first layer of the Vec is organised per committee. For example, if the return value is
+    /// called `all_attestations`, then all attestations in `all_attestations[0]` will be for
+    /// committee 0, whilst all in `all_attestations[1]` will be for committee 1.
     pub fn make_unaggregated_attestations(
         &self,
         attesting_validators: &[usize],
@@ -1106,6 +1252,99 @@ where
             MakeAttestationOptions { limit: None, fork },
         )
         .0
+    }
+
+    pub fn make_single_attestations_with_opts(
+        &self,
+        attesting_validators: &[usize],
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        head_block_root: SignedBeaconBlockHash,
+        attestation_slot: Slot,
+        opts: MakeAttestationOptions,
+    ) -> (Vec<CommitteeSingleAttestations>, Vec<usize>) {
+        let MakeAttestationOptions { limit, fork } = opts;
+        let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
+        let num_attesters = AtomicUsize::new(0);
+
+        let (attestations, split_attesters) = state
+            .get_beacon_committees_at_slot(attestation_slot)
+            .expect("should get committees")
+            .iter()
+            .map(|bc| {
+                bc.committee
+                    .par_iter()
+                    .enumerate()
+                    .filter_map(|(i, validator_index)| {
+                        if !attesting_validators.contains(validator_index) {
+                            return None;
+                        }
+
+                        if let Some(limit) = limit {
+                            // This atomics stuff is necessary because we're under a par_iter,
+                            // and Rayon will deadlock if we use a mutex.
+                            if num_attesters.fetch_add(1, Ordering::Relaxed) >= limit {
+                                num_attesters.fetch_sub(1, Ordering::Relaxed);
+                                return None;
+                            }
+                        }
+
+                        let mut attestation = self
+                            .produce_single_attestation_for_block(
+                                attestation_slot,
+                                bc.index,
+                                head_block_root.into(),
+                                Cow::Borrowed(state),
+                                state_root,
+                                i,
+                                *validator_index,
+                            )
+                            .unwrap();
+
+                        attestation.signature = {
+                            let domain = self.spec.get_domain(
+                                attestation.data.target.epoch,
+                                Domain::BeaconAttester,
+                                &fork,
+                                state.genesis_validators_root(),
+                            );
+
+                            let message = attestation.data.signing_root(domain);
+
+                            let mut agg_sig = AggregateSignature::infinity();
+
+                            agg_sig.add_assign(
+                                &self.validator_keypairs[*validator_index].sk.sign(message),
+                            );
+
+                            agg_sig
+                        };
+
+                        let subnet_id = SubnetId::compute_subnet_for_single_attestation::<E>(
+                            &attestation,
+                            committee_count,
+                            &self.chain.spec,
+                        )
+                        .unwrap();
+
+                        Some(((attestation, subnet_id), validator_index))
+                    })
+                    .unzip::<_, _, Vec<_>, Vec<_>>()
+            })
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+
+        // Flatten attesters.
+        let attesters = split_attesters.into_iter().flatten().collect::<Vec<_>>();
+
+        if let Some(limit) = limit {
+            assert_eq!(limit, num_attesters.load(Ordering::Relaxed));
+            assert_eq!(
+                limit,
+                attesters.len(),
+                "failed to generate `limit` attestations"
+            );
+        }
+        (attestations, attesters)
     }
 
     pub fn make_unaggregated_attestations_with_opts(
@@ -1280,6 +1519,32 @@ where
             AttestationStrategy::SomeValidators(vals) => vals.clone(),
         };
         self.make_unaggregated_attestations(
+            &validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            attestation_slot,
+        )
+    }
+
+    /// A list of attestations for each committee for the given slot.
+    ///
+    /// The first layer of the Vec is organised per committee. For example, if the return value is
+    /// called `all_attestations`, then all attestations in `all_attestations[0]` will be for
+    /// committee 0, whilst all in `all_attestations[1]` will be for committee 1.
+    pub fn get_single_attestations(
+        &self,
+        attestation_strategy: &AttestationStrategy,
+        state: &BeaconState<E>,
+        state_root: Hash256,
+        head_block_root: Hash256,
+        attestation_slot: Slot,
+    ) -> Vec<Vec<(SingleAttestation, SubnetId)>> {
+        let validators: Vec<usize> = match attestation_strategy {
+            AttestationStrategy::AllValidators => self.get_all_validators(),
+            AttestationStrategy::SomeValidators(vals) => vals.clone(),
+        };
+        self.make_single_attestations(
             &validators,
             state,
             state_root,
@@ -2019,22 +2284,19 @@ where
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
 
-        let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
-            .transpose()
-            .unwrap();
+        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
             )
             .await?
             .try_into()
-            .unwrap();
+            .expect("block blobs are available");
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
@@ -2045,16 +2307,13 @@ where
     ) -> Result<SignedBeaconBlockHash, BlockError> {
         let (block, blob_items) = block_contents;
 
-        let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
-            .transpose()
-            .unwrap();
         let block_root = block.canonical_root();
+        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items)?;
         let block_hash: SignedBeaconBlockHash = self
             .chain
             .process_block(
                 block_root,
-                RpcBlock::new(Some(block_root), block, sidecars).unwrap(),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
@@ -2064,6 +2323,75 @@ where
             .expect("block blobs are available");
         self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
+    }
+
+    /// Builds an `Rpc` block from a `SignedBeaconBlock` and blobs or data columns retrieved from
+    /// the database.
+    pub fn build_rpc_block_from_store_blobs(
+        &self,
+        block_root: Option<Hash256>,
+        block: Arc<SignedBeaconBlock<E>>,
+    ) -> RpcBlock<E> {
+        let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
+        let has_blobs = block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .is_ok_and(|c| !c.is_empty());
+        if !has_blobs {
+            return RpcBlock::new_without_blobs(Some(block_root), block);
+        }
+
+        // Blobs are stored as data columns from Fulu (PeerDAS)
+        if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+            let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
+            let custody_columns = columns
+                .into_iter()
+                .map(CustodyDataColumn::from_asserted_custody)
+                .collect::<Vec<_>>();
+            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
+                .unwrap()
+        } else {
+            let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
+            RpcBlock::new(Some(block_root), block, blobs).unwrap()
+        }
+    }
+
+    /// Builds an `RpcBlock` from a `SignedBeaconBlock` and `BlobsList`.
+    fn build_rpc_block_from_blobs(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
+        blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
+    ) -> Result<RpcBlock<E>, BlockError> {
+        Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+            let sampling_column_count = self
+                .chain
+                .data_availability_checker
+                .get_sampling_column_count();
+
+            if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
+                // Note: this method ignores the actual custody columns and just take the first
+                // `sampling_column_count` for testing purpose only, because the chain does not
+                // currently have any knowledge of the columns being custodied.
+                let columns = generate_data_column_sidecars_from_block(&block, &self.spec)
+                    .into_iter()
+                    .take(sampling_column_count)
+                    .map(CustodyDataColumn::from_asserted_custody)
+                    .collect::<Vec<_>>();
+                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+            } else {
+                RpcBlock::new_without_blobs(Some(block_root), block)
+            }
+        } else {
+            let blobs = blob_items
+                .map(|(proofs, blobs)| {
+                    BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec)
+                })
+                .transpose()
+                .unwrap();
+            RpcBlock::new(Some(block_root), block, blobs)?
+        })
     }
 
     pub fn process_attestations(&self, attestations: HarnessAttestations<E>) {
@@ -2739,6 +3067,56 @@ where
 
         Ok(())
     }
+
+    /// Simulate some of the blobs / data columns being seen on gossip.
+    /// Converts the blobs to data columns if the slot is Fulu or later.
+    pub async fn process_gossip_blobs_or_columns<'a>(
+        &self,
+        block: &SignedBeaconBlock<E>,
+        blobs: impl Iterator<Item = &'a Blob<E>>,
+        proofs: impl Iterator<Item = &'a KzgProof>,
+        custody_columns_opt: Option<HashSet<ColumnIndex>>,
+    ) {
+        let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
+        if is_peerdas_enabled {
+            let custody_columns = custody_columns_opt.unwrap_or_else(|| {
+                let sampling_column_count = self
+                    .chain
+                    .data_availability_checker
+                    .get_sampling_column_count() as u64;
+                (0..sampling_column_count).collect()
+            });
+
+            let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)
+                .into_iter()
+                .filter(|c| custody_columns.contains(&c.index))
+                .map(|sidecar| {
+                    let column_index = sidecar.index;
+                    self.chain
+                        .verify_data_column_sidecar_for_gossip(sidecar, column_index)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+
+            if !verified_columns.is_empty() {
+                self.chain
+                    .process_gossip_data_columns(verified_columns, || Ok(()))
+                    .await
+                    .unwrap();
+            }
+        } else {
+            for (i, (kzg_proof, blob)) in proofs.into_iter().zip(blobs).enumerate() {
+                let sidecar =
+                    Arc::new(BlobSidecar::new(i, blob.clone(), block, *kzg_proof).unwrap());
+                let gossip_blob = GossipVerifiedBlob::new(sidecar, i as u64, &self.chain)
+                    .expect("should obtain gossip verified blob");
+                self.chain
+                    .process_gossip_blob(gossip_blob)
+                    .await
+                    .expect("should import valid gossip verified blob");
+            }
+        }
+    }
 }
 
 // Junk `Debug` impl to satistfy certain trait bounds during testing.
@@ -2924,10 +3302,59 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     SignedBeaconBlock<E, FullPayload<E>>,
     DataColumnSidecarList<E>,
 ) {
-    let kzg = get_kzg(spec);
-    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng, spec);
-    let blob_refs = blobs.iter().map(|b| &b.blob).collect::<Vec<_>>();
-    let data_columns = blobs_to_data_column_sidecars(&blob_refs, &block, &kzg, spec).unwrap();
-
+    let (block, _blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng, spec);
+    let data_columns = generate_data_column_sidecars_from_block(&block, spec);
     (block, data_columns)
+}
+
+/// Generate data column sidecars from pre-computed cells and proofs.
+fn generate_data_column_sidecars_from_block<E: EthSpec>(
+    block: &SignedBeaconBlock<E>,
+    spec: &ChainSpec,
+) -> DataColumnSidecarList<E> {
+    let kzg_commitments = block.message().body().blob_kzg_commitments().unwrap();
+    if kzg_commitments.is_empty() {
+        return vec![];
+    }
+
+    let kzg_commitments_inclusion_proof = block
+        .message()
+        .body()
+        .kzg_commitments_merkle_proof()
+        .unwrap();
+    let signed_block_header = block.signed_block_header();
+
+    // load the precomputed column sidecar to avoid computing them for every block in the tests.
+    let template_data_columns = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
+        TEST_DATA_COLUMN_SIDECARS_SSZ,
+        spec.number_of_columns as usize,
+    )
+    .unwrap();
+
+    let (cells, proofs) = template_data_columns
+        .into_iter()
+        .map(|sidecar| {
+            let DataColumnSidecar {
+                column, kzg_proofs, ..
+            } = sidecar;
+            // There's only one cell per column for a single blob
+            let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
+            let kzg_cell = cell_bytes.try_into().unwrap();
+            let kzg_proof = kzg_proofs.into_iter().next().unwrap();
+            (kzg_cell, kzg_proof)
+        })
+        .collect::<(Vec<_>, Vec<_>)>();
+
+    // Repeat the cells and proofs for every blob
+    let blob_cells_and_proofs_vec =
+        vec![(cells.try_into().unwrap(), proofs.try_into().unwrap()); kzg_commitments.len()];
+
+    build_data_column_sidecars(
+        kzg_commitments.clone(),
+        kzg_commitments_inclusion_proof,
+        signed_block_header,
+        blob_cells_and_proofs_vec,
+        spec,
+    )
+    .unwrap()
 }
