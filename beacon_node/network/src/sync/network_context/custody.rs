@@ -7,8 +7,10 @@ use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use lighthouse_network::PeerId;
 use lru_cache::LRUTimeCache;
+use parking_lot::RwLock;
 use rand::Rng;
 use slog::{debug, warn};
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use types::EthSpec;
@@ -32,6 +34,8 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     /// Peers that have recently failed to successfully respond to a columns by root request.
     /// Having a LRUTimeCache allows this request to not have to track disconnecting peers.
     failed_peers: LRUTimeCache<PeerId>,
+    /// Set of peers that claim to have imported this block and their custody columns
+    lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     /// Logger for the `SyncNetworkContext`.
     pub log: slog::Logger,
     _phantom: PhantomData<T>,
@@ -64,6 +68,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         block_root: Hash256,
         custody_id: CustodyId,
         column_indices: &[ColumnIndex],
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         log: slog::Logger,
     ) -> Self {
         Self {
@@ -76,6 +81,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             ),
             active_batch_columns_requests: <_>::default(),
             failed_peers: LRUTimeCache::new(Duration::from_secs(FAILED_PEERS_CACHE_EXPIRY_SECONDS)),
+            lookup_peers,
             log,
             _phantom: PhantomData,
         }
@@ -215,6 +221,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         }
 
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+        let lookup_peers = self.lookup_peers.read();
 
         // Need to:
         // - track how many active requests a peer has for load balancing
@@ -244,6 +251,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     .iter()
                     .map(|peer| {
                         (
+                            // Prioritize peers that claim to know have imported this block
+                            if lookup_peers.contains(peer) { 0 } else { 1 },
                             // De-prioritize peers that have failed to successfully respond to
                             // requests recently
                             self.failed_peers.contains(peer),
@@ -257,7 +266,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     .collect::<Vec<_>>();
                 priorized_peers.sort_unstable();
 
-                if let Some((_, _, _, peer_id)) = priorized_peers.first() {
+                if let Some((_, _, _, _, peer_id)) = priorized_peers.first() {
                     columns_to_request_by_peer
                         .entry(*peer_id)
                         .or_default()
@@ -283,10 +292,11 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         block_root: self.block_root,
                         indices: indices.clone(),
                     },
-                    // true = enforce max_requests are returned data_columns_by_root. We only issue requests
-                    // for blocks after we know the block has data, and only request peers after they claim to
-                    // have imported the block+columns and claim to be custodians
-                    true,
+                    // If peer is in the lookup peer set, it claims to have imported the block and
+                    // must have its columns in custody. In that case, set `true = enforce max_requests`
+                    // and downscore if data_columns_by_root does not returned the expected custody
+                    // columns. For the rest of peers, don't downscore if columns are missing.
+                    lookup_peers.contains(&peer_id),
                 )
                 .map_err(Error::SendFailed)?;
 

@@ -49,6 +49,13 @@ impl ForkName {
         *ForkName::list_all().last().unwrap()
     }
 
+    /// Returns the fork primarily used for testing purposes.
+    /// This fork serves as the baseline for many tests, and the goal
+    /// is to ensure features are passing on this fork.
+    pub fn latest_stable() -> ForkName {
+        ForkName::Electra
+    }
+
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
     /// is the only fork in effect from genesis.
     pub fn make_genesis_spec(&self, mut spec: ChainSpec) -> ChainSpec {

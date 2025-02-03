@@ -7,6 +7,7 @@ edition = { workspace = true }
 
 [dependencies]
 beacon_chain = { workspace = true }
+health_metrics = { workspace = true }
 lighthouse_network = { workspace = true }
 lighthouse_version = { workspace = true }
 malloc_utils = { workspace = true }

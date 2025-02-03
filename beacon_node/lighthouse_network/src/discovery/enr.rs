@@ -8,6 +8,7 @@ use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use alloy_rlp::bytes::Bytes;
 use libp2p::identity::Keypair;
+use lighthouse_version::{client_name, version};
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
@@ -188,6 +189,11 @@ pub fn build_enr<E: EthSpec>(
         builder.udp6(udp6_port.get());
     }
 
+    // Add EIP 7636 client information
+    if !config.private {
+        builder.client_info(client_name().to_string(), version().to_string(), None);
+    }
+
     // Add QUIC fields to the ENR.
     // Since QUIC is used as an alternative transport for the libp2p protocols,
     // the related fields should only be added when both QUIC and libp2p are enabled
@@ -333,9 +339,9 @@ mod test {
 
     type E = MainnetEthSpec;
 
-    fn make_eip7594_spec() -> ChainSpec {
+    fn make_fulu_spec() -> ChainSpec {
         let mut spec = E::default_spec();
-        spec.eip7594_fork_epoch = Some(Epoch::new(10));
+        spec.fulu_fork_epoch = Some(Epoch::new(10));
         spec
     }
 
@@ -353,7 +359,7 @@ mod test {
             subscribe_all_data_column_subnets: false,
             ..NetworkConfig::default()
         };
-        let spec = make_eip7594_spec();
+        let spec = make_fulu_spec();
 
         let enr = build_enr_with_config(config, &spec).0;
 
@@ -369,7 +375,7 @@ mod test {
             subscribe_all_data_column_subnets: true,
             ..NetworkConfig::default()
         };
-        let spec = make_eip7594_spec();
+        let spec = make_fulu_spec();
         let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(

@@ -194,6 +194,12 @@ pub(crate) struct Metrics {
     /// Number of full messages we received that we previously sent a IDONTWANT for.
     idontwant_messages_ignored_per_topic: Family<TopicHash, Counter>,
 
+    /// Count of duplicate messages we have received from mesh peers for a given topic.
+    mesh_duplicates: Family<TopicHash, Counter>,
+
+    /// Count of duplicate messages we have received from by requesting them over iwant for a given topic.
+    iwant_duplicates: Family<TopicHash, Counter>,
+
     /// The size of the priority queue.
     priority_queue_size: Histogram,
     /// The size of the non-priority queue.
@@ -359,6 +365,16 @@ impl Metrics {
             "IDONTWANT messages that were sent but we received the full message regardless"
         );
 
+        let mesh_duplicates = register_family!(
+            "mesh_duplicates_per_topic",
+            "Count of duplicate messages received from mesh peers per topic"
+        );
+
+        let iwant_duplicates = register_family!(
+            "iwant_duplicates_per_topic",
+            "Count of duplicate messages received from non-mesh peers that we sent iwants for"
+        );
+
         let idontwant_bytes = {
             let metric = Counter::default();
             registry.register(
@@ -425,6 +441,8 @@ impl Metrics {
             idontwant_msgs_ids,
             idontwant_messages_sent_per_topic,
             idontwant_messages_ignored_per_topic,
+            mesh_duplicates,
+            iwant_duplicates,
             priority_queue_size,
             non_priority_queue_size,
         }
@@ -594,6 +612,20 @@ impl Metrics {
             self.topic_msg_recv_bytes
                 .get_or_create(topic)
                 .inc_by(bytes as u64);
+        }
+    }
+
+    /// Register a duplicate message received from a mesh peer.
+    pub(crate) fn mesh_duplicates(&mut self, topic: &TopicHash) {
+        if self.register_topic(topic).is_ok() {
+            self.mesh_duplicates.get_or_create(topic).inc();
+        }
+    }
+
+    /// Register a duplicate message received from a non-mesh peer on an iwant request.
+    pub(crate) fn iwant_duplicates(&mut self, topic: &TopicHash) {
+        if self.register_topic(topic).is_ok() {
+            self.iwant_duplicates.get_or_create(topic).inc();
         }
     }
 

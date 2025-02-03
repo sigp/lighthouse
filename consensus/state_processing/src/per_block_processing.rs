@@ -523,9 +523,9 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     // [New in Electra:EIP7251]
     // Consume pending partial withdrawals
     let processed_partial_withdrawals_count =
-        if let Ok(partial_withdrawals) = state.pending_partial_withdrawals() {
+        if let Ok(pending_partial_withdrawals) = state.pending_partial_withdrawals() {
             let mut processed_partial_withdrawals_count = 0;
-            for withdrawal in partial_withdrawals {
+            for withdrawal in pending_partial_withdrawals {
                 if withdrawal.withdrawable_epoch > epoch
                     || withdrawals.len() == spec.max_pending_partials_per_withdrawals_sweep as usize
                 {
@@ -552,7 +552,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                         validator_index: withdrawal.validator_index,
                         address: validator
                             .get_execution_withdrawal_address(spec)
-                            .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?,
+                            .ok_or(BeaconStateError::NonExecutionAddressWithdrawalCredential)?,
                         amount: withdrawable_balance,
                     });
                     withdrawal_index.safe_add_assign(1)?;
@@ -583,7 +583,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 validator_index as usize,
             ))?
             .safe_sub(partially_withdrawn_balance)?;
-        if validator.is_fully_withdrawable_at(balance, epoch, spec, fork_name) {
+        if validator.is_fully_withdrawable_validator(balance, epoch, spec, fork_name) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
@@ -600,9 +600,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 address: validator
                     .get_execution_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
-                amount: balance.safe_sub(
-                    validator.get_max_effective_balance(spec, state.fork_name_unchecked()),
-                )?,
+                amount: balance.safe_sub(validator.get_max_effective_balance(spec, fork_name))?,
             });
             withdrawal_index.safe_add_assign(1)?;
         }
@@ -624,7 +622,7 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if state.fork_name_unchecked().capella_enabled() {
-        let (expected_withdrawals, partial_withdrawals_count) =
+        let (expected_withdrawals, processed_partial_withdrawals_count) =
             get_expected_withdrawals(state, spec)?;
         let expected_root = expected_withdrawals.tree_hash_root();
         let withdrawals_root = payload.withdrawals_root()?;
@@ -645,14 +643,10 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
         }
 
         // Update pending partial withdrawals [New in Electra:EIP7251]
-        if let Some(partial_withdrawals_count) = partial_withdrawals_count {
-            // TODO(electra): Use efficient pop_front after milhouse release https://github.com/sigp/milhouse/pull/38
-            let new_partial_withdrawals = state
-                .pending_partial_withdrawals()?
-                .iter_from(partial_withdrawals_count)?
-                .cloned()
-                .collect::<Vec<_>>();
-            *state.pending_partial_withdrawals_mut()? = List::new(new_partial_withdrawals)?;
+        if let Some(processed_partial_withdrawals_count) = processed_partial_withdrawals_count {
+            state
+                .pending_partial_withdrawals_mut()?
+                .pop_front(processed_partial_withdrawals_count)?;
         }
 
         // Update the next withdrawal index if this block contained withdrawals

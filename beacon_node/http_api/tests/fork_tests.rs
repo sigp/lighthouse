@@ -155,10 +155,6 @@ async fn attestations_across_fork_with_skip_slots() {
         .post_beacon_pool_attestations_v1(&unaggregated_attestations)
         .await
         .unwrap();
-    client
-        .post_beacon_pool_attestations_v2(&unaggregated_attestations, fork_name)
-        .await
-        .unwrap();
 
     let signed_aggregates = attestations
         .into_iter()

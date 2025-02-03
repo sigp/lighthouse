@@ -39,11 +39,12 @@ use lighthouse_network::{
 use slog::info;
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
+use types::ForkContext;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, Epoch, EthSpec, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkName, Hash256,
+    MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -53,12 +54,8 @@ const SAMPLING_REQUIRED_SUCCESSES: usize = 2;
 type DCByRootIds = Vec<DCByRootId>;
 type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
-struct TestRigConfig {
-    peer_das_enabled: bool,
-}
-
 impl TestRig {
-    fn test_setup_with_config(config: Option<TestRigConfig>) -> Self {
+    pub fn test_setup() -> Self {
         let logger_type = if cfg!(feature = "test_logger") {
             LoggerType::Test
         } else if cfg!(feature = "ci_logger") {
@@ -69,13 +66,7 @@ impl TestRig {
         let log = build_log(slog::Level::Trace, logger_type);
 
         // Use `fork_from_env` logic to set correct fork epochs
-        let mut spec = test_spec::<E>();
-
-        if let Some(config) = config {
-            if config.peer_das_enabled {
-                spec.eip7594_fork_epoch = Some(Epoch::new(0));
-            }
-        }
+        let spec = test_spec::<E>();
 
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
@@ -92,6 +83,11 @@ impl TestRig {
             .build();
 
         let chain = harness.chain.clone();
+        let fork_context = Arc::new(ForkContext::new::<E>(
+            Slot::new(0),
+            chain.genesis_validators_root,
+            &chain.spec,
+        ));
 
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let (sync_tx, sync_rx) = mpsc::unbounded_channel::<SyncMessage<E>>();
@@ -139,6 +135,7 @@ impl TestRig {
                 SamplingConfig::Custom {
                     required_successes: vec![SAMPLING_REQUIRED_SUCCESSES],
                 },
+                fork_context,
                 log.clone(),
             ),
             harness,
@@ -148,24 +145,18 @@ impl TestRig {
         }
     }
 
-    pub fn test_setup() -> Self {
-        Self::test_setup_with_config(None)
-    }
-
-    fn test_setup_after_deneb() -> Option<Self> {
+    fn test_setup_after_deneb_before_fulu() -> Option<Self> {
         let r = Self::test_setup();
-        if r.after_deneb() {
+        if r.after_deneb() && !r.fork_name.fulu_enabled() {
             Some(r)
         } else {
             None
         }
     }
 
-    fn test_setup_after_peerdas() -> Option<Self> {
-        let r = Self::test_setup_with_config(Some(TestRigConfig {
-            peer_das_enabled: true,
-        }));
-        if r.after_deneb() {
+    fn test_setup_after_fulu() -> Option<Self> {
+        let r = Self::test_setup();
+        if r.fork_name.fulu_enabled() {
             Some(r)
         } else {
             None
@@ -178,6 +169,10 @@ impl TestRig {
 
     pub fn after_deneb(&self) -> bool {
         self.fork_name.deneb_enabled()
+    }
+
+    pub fn after_fulu(&self) -> bool {
+        self.fork_name.fulu_enabled()
     }
 
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
@@ -380,7 +375,7 @@ impl TestRig {
             .__add_connected_peer_testing_only(false, &self.harness.spec)
     }
 
-    fn new_connected_supernode_peer(&mut self) -> PeerId {
+    pub fn new_connected_supernode_peer(&mut self) -> PeerId {
         self.network_globals
             .peers
             .write()
@@ -1677,7 +1672,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         rig.assert_not_failed_chain(block_root);
         // send the right parent but fail processing
         rig.parent_lookup_block_response(id, peer_id, Some(parent.clone().into()));
-        rig.parent_block_processed(block_root, BlockError::InvalidSignature.into());
+        rig.parent_block_processed(block_root, BlockError::BlockSlotLimitReached.into());
         rig.parent_lookup_block_response(id, peer_id, None);
         rig.expect_penalty(peer_id, "lookup_block_processing_failure");
     }
@@ -1938,7 +1933,7 @@ fn test_same_chain_race_condition() {
 
 #[test]
 fn block_in_da_checker_skips_download() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -1956,7 +1951,7 @@ fn block_in_da_checker_skips_download() {
 
 #[test]
 fn block_in_processing_cache_becomes_invalid() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -1982,7 +1977,7 @@ fn block_in_processing_cache_becomes_invalid() {
 
 #[test]
 fn block_in_processing_cache_becomes_valid_imported() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -2007,7 +2002,7 @@ fn block_in_processing_cache_becomes_valid_imported() {
 #[ignore]
 #[test]
 fn blobs_in_da_checker_skip_download() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -2026,7 +2021,7 @@ fn blobs_in_da_checker_skip_download() {
 
 #[test]
 fn sampling_happy_path() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     r.new_connected_peers_for_peerdas();
@@ -2043,7 +2038,7 @@ fn sampling_happy_path() {
 
 #[test]
 fn sampling_with_retries() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     r.new_connected_peers_for_peerdas();
@@ -2065,7 +2060,7 @@ fn sampling_with_retries() {
 
 #[test]
 fn sampling_avoid_retrying_same_peer() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let peer_id_1 = r.new_connected_supernode_peer();
@@ -2086,7 +2081,7 @@ fn sampling_avoid_retrying_same_peer() {
 
 #[test]
 fn sampling_batch_requests() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let _supernode = r.new_connected_supernode_peer();
@@ -2112,7 +2107,7 @@ fn sampling_batch_requests() {
 
 #[test]
 fn sampling_batch_requests_not_enough_responses_returned() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let _supernode = r.new_connected_supernode_peer();
@@ -2157,7 +2152,7 @@ fn sampling_batch_requests_not_enough_responses_returned() {
 
 #[test]
 fn custody_lookup_happy_path() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let spec = E::default_spec();
@@ -2231,7 +2226,7 @@ mod deneb_only {
 
     impl DenebTester {
         fn new(request_trigger: RequestTrigger) -> Option<Self> {
-            let Some(mut rig) = TestRig::test_setup_after_deneb() else {
+            let Some(mut rig) = TestRig::test_setup_after_deneb_before_fulu() else {
                 return None;
             };
             let (block, blobs) = rig.rand_block_and_blobs(NumBlobs::Random);
@@ -2575,7 +2570,7 @@ mod deneb_only {
         fn invalid_parent_processed(mut self) -> Self {
             self.rig.parent_block_processed(
                 self.block_root,
-                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                BlockProcessingResult::Err(BlockError::BlockSlotLimitReached),
             );
             assert_eq!(self.rig.active_parent_lookups_count(), 1);
             self
@@ -2584,7 +2579,7 @@ mod deneb_only {
         fn invalid_block_processed(mut self) -> Self {
             self.rig.single_block_component_processed(
                 self.block_req_id.expect("block request id").lookup_id,
-                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                BlockProcessingResult::Err(BlockError::BlockSlotLimitReached),
             );
             self.rig.assert_single_lookups_count(1);
             self
@@ -2956,7 +2951,7 @@ mod deneb_only {
     #[ignore]
     #[test]
     fn no_peer_penalty_when_rpc_response_already_known_from_gossip() {
-        let Some(mut r) = TestRig::test_setup_after_deneb() else {
+        let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
             return;
         };
         let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(2));

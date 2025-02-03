@@ -8,6 +8,12 @@ edition = "2021"
 [dependencies]
 arbitrary = { workspace = true }
 c-kzg = { workspace = true }
+# Required to maintain the pin from https://github.com/sigp/lighthouse/pull/6608
+crate_crypto_internal_eth_kzg_bls12_381 = { workspace = true }
+crate_crypto_internal_eth_kzg_erasure_codes = { workspace = true }
+crate_crypto_internal_eth_kzg_maybe_rayon = { workspace = true }
+crate_crypto_internal_eth_kzg_polynomial = { workspace = true }
+crate_crypto_kzg_multi_open_fk20 = { workspace = true }
 derivative = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }

@@ -659,24 +659,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "start_slot" => req.start_slot(),
         );
 
-        // Should not send more than max request blocks
-        let max_request_size =
-            self.chain
-                .epoch()
-                .map_or(self.chain.spec.max_request_blocks, |epoch| {
-                    if self.chain.spec.fork_name_at_epoch(epoch).deneb_enabled() {
-                        self.chain.spec.max_request_blocks_deneb
-                    } else {
-                        self.chain.spec.max_request_blocks
-                    }
-                });
-        if *req.count() > max_request_size {
-            return Err((
-                RpcErrorResponse::InvalidRequest,
-                "Request exceeded max size",
-            ));
-        }
-
         let forwards_block_root_iter = match self
             .chain
             .forwards_iter_block_roots(Slot::from(*req.start_slot()))
