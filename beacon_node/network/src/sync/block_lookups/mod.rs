@@ -36,6 +36,7 @@ use beacon_chain::data_availability_checker::{
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::RequestState;
 use fnv::FnvHashMap;
+use itertools::Itertools;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
@@ -153,14 +154,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub(crate) fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.single_block_lookups
             .iter()
-            .map(|(id, l)| {
-                (
-                    *id,
-                    l.block_root(),
-                    l.awaiting_parent(),
-                    l.all_peers().copied().collect(),
-                )
-            })
+            .map(|(id, l)| (*id, l.block_root(), l.awaiting_parent(), l.all_peers()))
             .collect()
     }
 
@@ -283,7 +277,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         .find(|(_, l)| l.block_root() == parent_chain_tip)
                     {
                         cx.send_sync_message(SyncMessage::AddPeersForceRangeSync {
-                            peers: lookup.all_peers().copied().collect(),
+                            peers: lookup.all_peers(),
                             head_slot: tip_lookup.peek_downloaded_block_slot(),
                             head_root: parent_chain_tip,
                         });
@@ -651,8 +645,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             // but future errors may follow the same pattern. Generalize this
                             // pattern with https://github.com/sigp/lighthouse/pull/6321
                             BlockError::AvailabilityCheck(
-                                AvailabilityCheckError::InvalidColumn(index, _),
-                            ) => peer_group.of_index(index as usize).collect(),
+                                AvailabilityCheckError::InvalidColumn(errors),
+                            ) => errors
+                                .iter()
+                                // Collect all peers that sent a column that was invalid. Must
+                                // run .unique as a single peer can send multiple invalid
+                                // columns. Penalize once to avoid insta-bans
+                                .flat_map(|(index, _)| peer_group.of_index((*index) as usize))
+                                .unique()
+                                .collect(),
                             _ => peer_group.all().collect(),
                         };
                         for peer in peers_to_penalize {
@@ -682,7 +683,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 lookup.continue_requests(cx)
             }
             Action::ParentUnknown { parent_root } => {
-                let peers = lookup.all_peers().copied().collect::<Vec<_>>();
+                let peers = lookup.all_peers();
                 lookup.set_awaiting_parent(parent_root);
                 debug!(self.log, "Marking lookup as awaiting parent"; "id" => lookup.id, "block_root" => ?block_root, "parent_root" => ?parent_root);
                 self.search_parent_of_child(parent_root, block_root, &peers, cx);

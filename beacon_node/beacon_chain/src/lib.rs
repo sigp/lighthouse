@@ -31,6 +31,7 @@ pub mod execution_payload;
 pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod fork_revert;
+pub mod fulu_readiness;
 pub mod graffiti_calculator;
 mod head_tracker;
 pub mod historical_blocks;
@@ -77,7 +78,7 @@ pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceSto
 pub use block_verification::{
     build_blob_data_column_sidecars, get_block_root, BlockError, ExecutionPayloadError,
     ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock, IntoGossipVerifiedBlock,
-    PayloadVerificationOutcome, PayloadVerificationStatus,
+    InvalidSignature, PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;

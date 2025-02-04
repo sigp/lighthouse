@@ -2,7 +2,7 @@ use crate::{
     light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, EthSpec, FixedVector,
     ForkName, ForkVersionDeserialize, Hash256, LightClientHeader, LightClientHeaderAltair,
     LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderElectra,
-    SignedBlindedBeaconBlock, Slot, SyncCommittee,
+    LightClientHeaderFulu, SignedBlindedBeaconBlock, Slot, SyncCommittee,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -17,7 +17,7 @@ use tree_hash_derive::TreeHash;
 /// A LightClientBootstrap is the initializer we send over to light_client nodes
 /// that are trying to generate their basic storage when booting up.
 #[superstruct(
-    variants(Altair, Capella, Deneb, Electra),
+    variants(Altair, Capella, Deneb, Electra, Fulu),
     variant_attributes(
         derive(
             Debug,
@@ -54,6 +54,8 @@ pub struct LightClientBootstrap<E: EthSpec> {
     pub header: LightClientHeaderDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
     pub header: LightClientHeaderElectra<E>,
+    #[superstruct(only(Fulu), partial_getter(rename = "header_fulu"))]
+    pub header: LightClientHeaderFulu<E>,
     /// The `SyncCommittee` used in the requested period.
     pub current_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for sync committee
@@ -63,7 +65,7 @@ pub struct LightClientBootstrap<E: EthSpec> {
     )]
     pub current_sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen>,
     #[superstruct(
-        only(Electra),
+        only(Electra, Fulu),
         partial_getter(rename = "current_sync_committee_branch_electra")
     )]
     pub current_sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLenElectra>,
@@ -79,6 +81,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             Self::Capella(_) => func(ForkName::Capella),
             Self::Deneb(_) => func(ForkName::Deneb),
             Self::Electra(_) => func(ForkName::Electra),
+            Self::Fulu(_) => func(ForkName::Fulu),
         }
     }
 
@@ -97,6 +100,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella::from_ssz_bytes(bytes)?),
             ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb::from_ssz_bytes(bytes)?),
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?),
+            ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu::from_ssz_bytes(bytes)?),
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientBootstrap decoding for {fork_name} not implemented"
@@ -117,6 +121,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Capella => <LightClientBootstrapCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientBootstrapDeneb<E> as Encode>::ssz_fixed_len(),
             ForkName::Electra => <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len(),
+            ForkName::Fulu => <LightClientBootstrapFulu<E> as Encode>::ssz_fixed_len(),
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
@@ -149,6 +154,11 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }),
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
                 header: LightClientHeaderElectra::block_to_light_client_header(block)?,
+                current_sync_committee,
+                current_sync_committee_branch: current_sync_committee_branch.into(),
+            }),
+            ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu {
+                header: LightClientHeaderFulu::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
@@ -189,6 +199,11 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }),
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
                 header: LightClientHeaderElectra::block_to_light_client_header(block)?,
+                current_sync_committee,
+                current_sync_committee_branch: current_sync_committee_branch.into(),
+            }),
+            ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu {
+                header: LightClientHeaderFulu::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
@@ -240,5 +255,11 @@ mod tests {
     mod electra {
         use crate::{LightClientBootstrapElectra, MainnetEthSpec};
         ssz_tests!(LightClientBootstrapElectra<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod fulu {
+        use crate::{LightClientBootstrapFulu, MainnetEthSpec};
+        ssz_tests!(LightClientBootstrapFulu<MainnetEthSpec>);
     }
 }

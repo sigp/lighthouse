@@ -9,6 +9,7 @@ use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
 use crate::head_tracker::HeadTracker;
+use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -562,9 +563,30 @@ where
             .put_block(&weak_subj_block_root, weak_subj_block.clone())
             .map_err(|e| format!("Failed to store weak subjectivity block: {e:?}"))?;
         if let Some(blobs) = weak_subj_blobs {
-            store
-                .put_blobs(&weak_subj_block_root, blobs)
-                .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;
+            if self
+                .spec
+                .is_peer_das_enabled_for_epoch(weak_subj_block.epoch())
+            {
+                // After PeerDAS recompute columns from blobs to not force the checkpointz server
+                // into exposing another route.
+                let blobs = blobs
+                    .iter()
+                    .map(|blob_sidecar| &blob_sidecar.blob)
+                    .collect::<Vec<_>>();
+                let data_columns =
+                    blobs_to_data_column_sidecars(&blobs, &weak_subj_block, &self.kzg, &self.spec)
+                        .map_err(|e| {
+                            format!("Failed to compute weak subjectivity data_columns: {e:?}")
+                        })?;
+                // TODO(das): only persist the columns under custody
+                store
+                    .put_data_columns(&weak_subj_block_root, data_columns)
+                    .map_err(|e| format!("Failed to store weak subjectivity data_column: {e:?}"))?;
+            } else {
+                store
+                    .put_blobs(&weak_subj_block_root, blobs)
+                    .map_err(|e| format!("Failed to store weak subjectivity blobs: {e:?}"))?;
+            }
         }
 
         // Stage the database's metadata fields for atomic storage when `build` is called.

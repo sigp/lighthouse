@@ -4,7 +4,6 @@ use std::sync::Arc;
 use store::chunked_iter::ChunkedVectorIter;
 use store::{
     chunked_vector::BlockRootsChunked,
-    get_key_for_col,
     metadata::{
         SchemaVersion, ANCHOR_FOR_ARCHIVE_NODE, ANCHOR_UNINITIALIZED, STATE_UPPER_LIMIT_NO_RETAIN,
     },
@@ -21,7 +20,7 @@ fn load_old_schema_frozen_state<T: BeaconChainTypes>(
 ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
     let Some(partial_state_bytes) = db
         .cold_db
-        .get_bytes(DBColumn::BeaconState.into(), state_root.as_slice())?
+        .get_bytes(DBColumn::BeaconState, state_root.as_slice())?
     else {
         return Ok(None);
     };
@@ -136,10 +135,7 @@ pub fn delete_old_schema_freezer_data<T: BeaconChainTypes>(
     for column in columns {
         for res in db.cold_db.iter_column_keys::<Vec<u8>>(column) {
             let key = res?;
-            cold_ops.push(KeyValueStoreOp::DeleteKey(get_key_for_col(
-                column.as_str(),
-                &key,
-            )));
+            cold_ops.push(KeyValueStoreOp::DeleteKey(column, key));
         }
     }
     let delete_ops = cold_ops.len();
@@ -175,7 +171,8 @@ pub fn write_new_schema_block_roots<T: BeaconChainTypes>(
     // Store the genesis block root if it would otherwise not be stored.
     if oldest_block_slot != 0 {
         cold_ops.push(KeyValueStoreOp::PutKeyValue(
-            get_key_for_col(DBColumn::BeaconBlockRoots.into(), &0u64.to_be_bytes()),
+            DBColumn::BeaconBlockRoots,
+            0u64.to_be_bytes().to_vec(),
             genesis_block_root.as_slice().to_vec(),
         ));
     }
@@ -192,10 +189,8 @@ pub fn write_new_schema_block_roots<T: BeaconChainTypes>(
     // OK to hold these in memory (10M slots * 43 bytes per KV ~= 430 MB).
     for (i, (slot, block_root)) in block_root_iter.enumerate() {
         cold_ops.push(KeyValueStoreOp::PutKeyValue(
-            get_key_for_col(
-                DBColumn::BeaconBlockRoots.into(),
-                &(slot as u64).to_be_bytes(),
-            ),
+            DBColumn::BeaconBlockRoots,
+            slot.to_be_bytes().to_vec(),
             block_root.as_slice().to_vec(),
         ));
 

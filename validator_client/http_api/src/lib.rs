@@ -32,6 +32,7 @@ use eth2::lighthouse_vc::{
         PublicKeyBytes, SetGraffitiRequest,
     },
 };
+use health_metrics::observe::Observe;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
@@ -106,6 +107,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        // This value is always overridden when building config from CLI.
         let http_token_path = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(DEFAULT_ROOT_DIR)

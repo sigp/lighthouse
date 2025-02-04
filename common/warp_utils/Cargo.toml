@@ -6,7 +6,6 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-beacon_chain = { workspace = true }
 bytes = { workspace = true }
 eth2 = { workspace = true }
 headers = "0.3.2"
@@ -15,7 +14,6 @@ safe_arith = { workspace = true }
 serde = { workspace = true }
 serde_array_query = "0.1.0"
 serde_json = { workspace = true }
-state_processing = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }
 warp = { workspace = true }

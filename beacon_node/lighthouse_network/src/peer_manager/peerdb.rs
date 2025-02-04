@@ -1,4 +1,4 @@
-use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
+use crate::discovery::enr::PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY;
 use crate::discovery::{peer_id_to_node_id, CombinedKey};
 use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId};
 use itertools::Itertools;
@@ -13,6 +13,7 @@ use std::{
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
+use types::data_column_custody_group::compute_subnets_for_node;
 use types::{ChainSpec, DataColumnSubnetId, EthSpec};
 
 pub mod client;
@@ -695,8 +696,8 @@ impl<E: EthSpec> PeerDB<E> {
 
         if supernode {
             enr.insert(
-                PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
-                &spec.data_column_sidecar_subnet_count,
+                PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY,
+                &spec.number_of_custody_groups,
                 &enr_key,
             )
             .expect("u64 can be encoded");
@@ -714,19 +715,14 @@ impl<E: EthSpec> PeerDB<E> {
         if supernode {
             let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
             let all_subnets = (0..spec.data_column_sidecar_subnet_count)
-                .map(|csc| csc.into())
+                .map(|subnet_id| subnet_id.into())
                 .collect();
             peer_info.set_custody_subnets(all_subnets);
         } else {
             let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
             let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
-            let subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                node_id.raw(),
-                spec.custody_requirement,
-                spec,
-            )
-            .expect("should compute custody subnets")
-            .collect();
+            let subnets = compute_subnets_for_node(node_id.raw(), spec.custody_requirement, spec)
+                .expect("should compute custody subnets");
             peer_info.set_custody_subnets(subnets);
         }
 
@@ -1305,7 +1301,7 @@ impl BannedPeersCount {
     pub fn ip_is_banned(&self, ip: &IpAddr) -> bool {
         self.banned_peers_per_ip
             .get(ip)
-            .map_or(false, |count| *count > BANNED_PEERS_PER_IP_THRESHOLD)
+            .is_some_and(|count| *count > BANNED_PEERS_PER_IP_THRESHOLD)
     }
 }
 

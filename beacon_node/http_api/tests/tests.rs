@@ -3,6 +3,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
+use either::Either;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
@@ -40,7 +41,8 @@ use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::{
     attestation::AttestationBase, AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash,
-    Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
+    Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, SingleAttestation,
+    Slot,
 };
 
 type E = MainnetEthSpec;
@@ -71,6 +73,7 @@ struct ApiTester {
     next_block: PublishBlockRequest<E>,
     reorg_block: PublishBlockRequest<E>,
     attestations: Vec<Attestation<E>>,
+    single_attestations: Vec<SingleAttestation>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
@@ -203,6 +206,27 @@ impl ApiTester {
             "precondition: attestations for testing"
         );
 
+        let fork_name = harness
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(harness.chain.slot().unwrap());
+
+        let single_attestations = if fork_name.electra_enabled() {
+            harness
+                .get_single_attestations(
+                    &AttestationStrategy::AllValidators,
+                    &head.beacon_state,
+                    head_state_root,
+                    head.beacon_block_root,
+                    harness.chain.slot().unwrap(),
+                )
+                .into_iter()
+                .flat_map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
+                .collect::<Vec<_>>()
+        } else {
+            vec![]
+        };
+
         let current_epoch = harness
             .chain
             .slot()
@@ -294,6 +318,7 @@ impl ApiTester {
             next_block,
             reorg_block,
             attestations,
+            single_attestations,
             contribution_and_proofs,
             attester_slashing,
             proposer_slashing,
@@ -381,6 +406,7 @@ impl ApiTester {
             next_block,
             reorg_block,
             attestations,
+            single_attestations: vec![],
             contribution_and_proofs: vec![],
             attester_slashing,
             proposer_slashing,
@@ -1278,7 +1304,7 @@ impl ApiTester {
                 .chain
                 .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                 .unwrap()
-                .map_or(false, |canonical| block_root == canonical);
+                .is_some_and(|canonical| block_root == canonical);
 
             assert_eq!(result.canonical, canonical, "{:?}", block_id);
             assert_eq!(result.root, block_root, "{:?}", block_id);
@@ -1785,9 +1811,22 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_attestations_valid_v1(mut self) -> Self {
+    pub async fn test_post_beacon_pool_attestations_valid(mut self) -> Self {
         self.client
             .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .await
+            .unwrap();
+
+        let fork_name = self
+            .attestations
+            .first()
+            .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
+            .unwrap();
+
+        let attestations = Either::Left(self.attestations.clone());
+
+        self.client
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -1800,13 +1839,18 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_pool_attestations_valid_v2(mut self) -> Self {
+        if self.single_attestations.is_empty() {
+            return self;
+        }
         let fork_name = self
-            .attestations
+            .single_attestations
             .first()
-            .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
+            .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data.slot))
             .unwrap();
+
+        let attestations = Either::Right(self.single_attestations.clone());
         self.client
-            .post_beacon_pool_attestations_v2(self.attestations.as_slice(), fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
         assert!(
@@ -1854,10 +1898,13 @@ impl ApiTester {
         self
     }
     pub async fn test_post_beacon_pool_attestations_invalid_v2(mut self) -> Self {
+        if self.single_attestations.is_empty() {
+            return self;
+        }
         let mut attestations = Vec::new();
-        for attestation in &self.attestations {
+        for attestation in &self.single_attestations {
             let mut invalid_attestation = attestation.clone();
-            invalid_attestation.data_mut().slot += 1;
+            invalid_attestation.data.slot += 1;
 
             // add both to ensure we only fail on invalid attestations
             attestations.push(attestation.clone());
@@ -1869,10 +1916,10 @@ impl ApiTester {
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
-
+        let attestations = Either::Right(attestations);
         let err_v2 = self
             .client
-            .post_beacon_pool_attestations_v2(attestations.as_slice(), fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap_err();
 
@@ -1902,7 +1949,7 @@ impl ApiTester {
             .sync_committee_period(&self.chain.spec)
             .unwrap();
 
-        let result = match self
+        match self
             .client
             .get_beacon_light_client_updates::<E>(current_sync_committee_period, 1)
             .await
@@ -1923,7 +1970,6 @@ impl ApiTester {
             .unwrap();
 
         assert_eq!(1, expected.len());
-        assert_eq!(result.clone().unwrap().len(), expected.len());
         self
     }
 
@@ -1948,7 +1994,6 @@ impl ApiTester {
             .get_light_client_bootstrap(&self.chain.store, &block_root, 1u64, &self.chain.spec);
 
         assert!(expected.is_ok());
-
         assert_eq!(result.unwrap().data, expected.unwrap().unwrap().0);
 
         self
@@ -2232,9 +2277,9 @@ impl ApiTester {
     pub async fn test_get_config_spec(self) -> Self {
         let result = self
             .client
-            .get_config_spec::<ConfigAndPresetElectra>()
+            .get_config_spec::<ConfigAndPresetFulu>()
             .await
-            .map(|res| ConfigAndPreset::Electra(res.data))
+            .map(|res| ConfigAndPreset::Fulu(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
 
@@ -2331,11 +2376,11 @@ impl ApiTester {
             enr: self.local_enr.clone(),
             p2p_addresses: self.local_enr.multiaddr_p2p_tcp(),
             discovery_addresses: self.local_enr.multiaddr_p2p_udp(),
-            metadata: eth2::types::MetaData {
+            metadata: MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: "0x0000000000000000".to_string(),
                 syncnets: "0x00".to_string(),
-            },
+            }),
         };
 
         assert_eq!(result, expected);
@@ -6011,6 +6056,48 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_events_electra(self) -> Self {
+        let topics = vec![EventTopic::SingleAttestation];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        let expected_attestation_len = self.single_attestations.len();
+
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(self.chain.slot().unwrap());
+        let attestations = Either::Right(self.single_attestations.clone());
+        self.client
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
+            .await
+            .unwrap();
+
+        let attestation_events = poll_events(
+            &mut events_future,
+            expected_attestation_len,
+            Duration::from_millis(10000),
+        )
+        .await;
+
+        assert_eq!(
+            attestation_events.as_slice(),
+            self.single_attestations
+                .clone()
+                .into_iter()
+                .map(|single_attestation| EventKind::SingleAttestation(Box::new(
+                    single_attestation
+                )))
+                .collect::<Vec<_>>()
+                .as_slice()
+        );
+
+        self
+    }
+
     pub async fn test_get_events_altair(self) -> Self {
         let topics = vec![EventTopic::ContributionAndProof];
         let mut events_future = self
@@ -6159,6 +6246,20 @@ async fn get_events_altair() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_events_electra() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_events_electra()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events_from_genesis() {
     ApiTester::new_from_genesis()
         .await
@@ -6290,10 +6391,10 @@ async fn post_beacon_blocks_duplicate() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn beacon_pools_post_attestations_valid_v1() {
+async fn beacon_pools_post_attestations_valid() {
     ApiTester::new()
         .await
-        .test_post_beacon_pool_attestations_valid_v1()
+        .test_post_beacon_pool_attestations_valid()
         .await;
 }
 
