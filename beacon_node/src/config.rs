@@ -936,12 +936,11 @@ pub fn parse_listening_addresses(
         .expect("--port has a default value")
         .parse::<u16>()
         .map_err(|parse_error| format!("Failed to parse --port as an integer: {parse_error}"))?;
-    let port6 = cli_args
+    let maybe_port6 = cli_args
         .get_one::<String>("port6")
         .map(|s| str::parse::<u16>(s))
         .transpose()
-        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?
-        .unwrap_or(9090);
+        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?;
 
     // parse the possible discovery ports.
     let maybe_disc_port = cli_args
@@ -988,6 +987,10 @@ pub fn parse_listening_addresses(
             if cli_args.value_source("port6") == Some(ValueSource::CommandLine) {
                 warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.");
             }
+
+            // If we are only listening on ipv6 and the user has specified --port6, lets just use
+            // that.
+            let port = maybe_port6.unwrap_or(port);
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
@@ -1055,6 +1058,9 @@ pub fn parse_listening_addresses(
             })
         }
         (Some(ipv4), Some(ipv6)) => {
+            // If --port6 is not set, we use --port
+            let port6 = maybe_port6.unwrap_or(port);
+
             let ipv4_tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp4_port)
                 .transpose()?
@@ -1074,7 +1080,7 @@ pub fn parse_listening_addresses(
                     ipv4_tcp_port + 1
                 });
 
-            // Defaults to 9090 when required
+            // Defaults to 9000 when required
             let ipv6_tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp6_port)
                 .transpose()?

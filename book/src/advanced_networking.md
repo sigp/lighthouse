@@ -162,8 +162,8 @@ To listen over both IPv4 and IPv6:
 >
 > **IPv6**:
 >
-> It listens on the default value of --port6 (`9090`) for both UDP and TCP.
-> QUIC will use port `9091` for UDP, which is the default `--port6` value (`9090`) + 1.
+> It listens on the default value of --port6 (`9000`) for both UDP and TCP.
+> QUIC will use port `9001` for UDP, which is the default `--port6` value (`9000`) + 1.
 
 > When using `--listen-address :: --listen-address --port 9909 --discovery-port6 9999`, listening will be set up as follows:
 >
@@ -174,8 +174,8 @@ To listen over both IPv4 and IPv6:
 >
 > **IPv6**:
 >
-> It listens on the default value of `--port6` (`9090`) for TCP, and port `9999` for UDP.
-> QUIC will use port `9091` for UDP, which is the default `--port6` value (`9090`) + 1.
+> It listens on the default value of `--port6` (`9000`) for TCP, and port `9999` for UDP.
+> QUIC will use port `9001` for UDP, which is the default `--port6` value (`9000`) + 1.
 
 ### Configuring Lighthouse to advertise IPv6 reachable addresses
 
