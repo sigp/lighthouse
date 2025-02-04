@@ -897,7 +897,7 @@ pub fn parse_listening_addresses(
 ) -> Result<ListenAddress, String> {
     let listen_addresses_str = cli_args
         .get_many::<String>("listen-address")
-        .expect("--listen_addresses has a default value");
+        .unwrap_or_default();
     let use_zero_ports = parse_flag(cli_args, "zero-ports");
 
     // parse the possible ips
