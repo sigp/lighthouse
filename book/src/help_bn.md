@@ -230,7 +230,7 @@ Options:
           peer without an ENR.
       --listen-address [<ADDRESS>...]
           The address lighthouse will listen for UDP and TCP connections. To
-          listen over IpV4 and IpV6 set this flag twice with the different
+          listen over IPv4 and IPv6 set this flag twice with the different
           values.
           Examples:
           - --listen-address '0.0.0.0' will listen over IPv4.
@@ -238,7 +238,8 @@ Options:
           - --listen-address '0.0.0.0' --listen-address '::' will listen over
           both IPv4 and IPv6. The order of the given addresses is not relevant.
           However, multiple IPv4, or multiple IPv6 addresses will not be
-          accepted. [default: 0.0.0.0]
+          accepted. If omitted, Lighthouse will listen on all interfaces, for
+          both IPv4 and IPv6.
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
