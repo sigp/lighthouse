@@ -65,6 +65,10 @@ impl<E: EthSpec> InteropGenesisBuilder<E> {
         self
     }
 
+    pub fn set_alternating_eth1_withdrawal_credentials(self) -> Self {
+        self.set_withdrawal_credentials_fn(Box::new(alternating_eth1_withdrawal_credentials_fn))
+    }
+
     pub fn set_execution_payload_header(
         self,
         execution_payload_header: ExecutionPayloadHeader<E>,
@@ -160,6 +164,18 @@ pub fn interop_genesis_state<E: EthSpec>(
         .build_genesis_state(keypairs, genesis_time, eth1_block_hash, spec)
 }
 
+fn alternating_eth1_withdrawal_credentials_fn<'a>(
+    index: usize,
+    pubkey: &'a PublicKey,
+    spec: &'a ChainSpec,
+) -> Hash256 {
+    if index % 2usize == 0usize {
+        bls_withdrawal_credentials(pubkey, spec)
+    } else {
+        eth1_withdrawal_credentials(pubkey, spec)
+    }
+}
+
 // returns an interop genesis state except every other
 // validator has eth1 withdrawal credentials
 pub fn interop_genesis_state_with_eth1<E: EthSpec>(
@@ -169,19 +185,8 @@ pub fn interop_genesis_state_with_eth1<E: EthSpec>(
     execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, String> {
-    fn withdrawal_credentials_fn<'a>(
-        index: usize,
-        pubkey: &'a PublicKey,
-        spec: &'a ChainSpec,
-    ) -> Hash256 {
-        if index % 2usize == 0usize {
-            bls_withdrawal_credentials(pubkey, spec)
-        } else {
-            eth1_withdrawal_credentials(pubkey, spec)
-        }
-    }
     InteropGenesisBuilder::new()
-        .set_withdrawal_credentials_fn(Box::new(withdrawal_credentials_fn))
+        .set_alternating_eth1_withdrawal_credentials()
         .set_opt_execution_payload_header(execution_payload_header)
         .build_genesis_state(keypairs, genesis_time, eth1_block_hash, spec)
 }

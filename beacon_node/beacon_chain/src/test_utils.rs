@@ -253,7 +253,10 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             )
             .unwrap(),
         );
-        let genesis_state_builder = self.genesis_state_builder.take().unwrap_or_default();
+        let genesis_state_builder = self.genesis_state_builder.take().unwrap_or_else(|| {
+            // Set alternating withdrawal credentials if no builder is specified.
+            InteropGenesisBuilder::default().set_alternating_eth1_withdrawal_credentials()
+        });
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
             let header = generate_genesis_header::<E>(builder.get_spec(), false);
@@ -321,7 +324,10 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
             .clone()
             .expect("cannot build without validator keypairs");
 
-        let genesis_state_builder = self.genesis_state_builder.take().unwrap_or_default();
+        let genesis_state_builder = self.genesis_state_builder.take().unwrap_or_else(|| {
+            // Set alternating withdrawal credentials if no builder is specified.
+            InteropGenesisBuilder::default().set_alternating_eth1_withdrawal_credentials()
+        });
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
             let header = generate_genesis_header::<E>(builder.get_spec(), false);
