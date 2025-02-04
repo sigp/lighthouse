@@ -29,7 +29,7 @@ pub struct Sampling<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> Sampling<T> {
-    #[instrument(level = "info", fields(service = "sampling"), name = "sampling")]
+    #[instrument(parent = None, level = "info", fields(service = "sampling"), name = "sampling")]
     pub fn new(sampling_config: SamplingConfig) -> Self {
         Self {
             requests: <_>::default(),
@@ -38,22 +38,22 @@ impl<T: BeaconChainTypes> Sampling<T> {
     }
 
     #[cfg(test)]
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
-        skip(self)
+        skip_all
     )]
     pub fn active_sampling_requests(&self) -> Vec<Hash256> {
         self.requests.values().map(|r| r.block_root).collect()
     }
 
     #[cfg(test)]
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
-        skip(self)
+        skip_all
     )]
     pub fn get_request_status(
         &self,
@@ -72,11 +72,11 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ///
     /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
     /// - `None`: Request still active, requester should do no action
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
-        skip(self, cx)
+        skip_all
     )]
     pub fn on_new_sample_request(
         &mut self,
@@ -123,11 +123,11 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ///
     /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
     /// - `None`: Request still active, requester should do no action
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
-        skip(self, resp, cx)
+        skip_all
     )]
     pub fn on_sample_downloaded(
         &mut self,
@@ -153,11 +153,11 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ///
     /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
     /// - `None`: Request still active, requester should do no action
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
-        skip(self, cx)
+        skip_all
     )]
     pub fn on_sample_verified(
         &mut self,
@@ -178,11 +178,11 @@ impl<T: BeaconChainTypes> Sampling<T> {
     /// Converts a result from the internal format of `ActiveSamplingRequest` (error first to use ?
     /// conveniently), to an Option first format to use an `if let Some() { act on result }` pattern
     /// in the sync manager.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
-        skip(self)
+        skip_all
     )]
     fn handle_sampling_result(
         &mut self,

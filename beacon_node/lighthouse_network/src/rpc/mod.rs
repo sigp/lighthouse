@@ -167,11 +167,11 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
 }
 
 impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
-    #[instrument(
+    #[instrument(parent = None, 
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
-        skip(network_params)
+        skip_all
     )]
     pub fn new(
         fork_context: Arc<ForkContext>,
@@ -206,11 +206,11 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Sends an RPC response.
     ///
     /// The peer must be connected for this to succeed.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
-        skip(self)
+        skip_all
     )]
     pub fn send_response(
         &mut self,
@@ -229,11 +229,11 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
-        skip(self)
+        skip_all
     )]
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: RequestType<E>) {
         let event = if let Some(self_limiter) = self.self_limiter.as_mut() {
@@ -257,11 +257,11 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
     /// gracefully terminates the RPC behaviour with a goodbye message.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
-        skip(self)
+        skip_all
     )]
     pub fn shutdown(&mut self, peer_id: PeerId, id: Id, reason: GoodbyeReason) {
         self.events.push(ToSwarm::NotifyHandler {
@@ -271,22 +271,22 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         });
     }
 
-    #[instrument(
+    #[instrument(parent = None, 
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
-        skip(self)
+        skip_all
     )]
     pub fn update_seq_number(&mut self, seq_number: u64) {
         self.seq_number = seq_number
     }
 
     /// Send a Ping request to the destination `PeerId` via `ConnectionId`.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
-        skip(self)
+        skip_all
     )]
     pub fn ping(&mut self, peer_id: PeerId, id: Id) {
         let ping = Ping {

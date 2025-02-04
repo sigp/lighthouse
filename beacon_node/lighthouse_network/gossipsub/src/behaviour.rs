@@ -3443,7 +3443,7 @@ where
         }
     }
 
-    #[tracing::instrument(level = "trace", name = "NetworkBehaviour::poll", skip(self, cx))]
+    #[tracing::instrument(level = "trace", name = "NetworkBehaviour::poll", skip_all)]
     fn poll(
         &mut self,
         cx: &mut Context<'_>,

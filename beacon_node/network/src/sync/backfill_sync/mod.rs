@@ -150,10 +150,10 @@ pub struct BackFillSync<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> BackFillSync<T> {
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         name = "backfill_sync",
-        skip(beacon_chain, network_globals)
+        skip_all
     )]
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
@@ -196,11 +196,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Pauses the backfill sync if it's currently syncing.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self)
+        skip_all
     )]
     pub fn pause(&mut self) {
         if let BackFillState::Syncing = self.state() {
@@ -213,11 +213,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ///
     /// If resuming is successful, reports back the current syncing metrics.
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     pub fn start(
         &mut self,
@@ -294,11 +294,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// A fully synced peer has joined us.
     /// If we are in a failed state, update a local variable to indicate we are able to restart
     /// the failed sync on the next attempt.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self)
+        skip_all
     )]
     pub fn fully_synced_peer_joined(&mut self) {
         if matches!(self.state(), BackFillState::Failed) {
@@ -308,11 +308,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// A peer has disconnected.
     /// If the peer has active batches, those are considered failed and re-requested.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn peer_disconnected(
@@ -362,11 +362,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// An RPC error has occurred.
     ///
     /// If the batch exists it is re-requested.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn inject_error(
@@ -407,11 +407,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// If this returns an error, the backfill sync has failed and will be restarted once new peers
     /// join the system.
     /// The sync manager should update the global sync state on failure.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn on_block_response(
@@ -493,11 +493,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// The syncing process has failed.
     ///
     /// This resets past variables, to allow for a fresh start when resuming.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self)
+        skip_all
     )]
     fn fail_sync(&mut self, error: BackFillError) -> Result<(), BackFillError> {
         // Some errors shouldn't fail the chain.
@@ -531,11 +531,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Processes the batch with the given id.
     /// The batch must exist and be ready for processing
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     fn process_batch(
         &mut self,
@@ -595,11 +595,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// The block processor has completed processing a batch. This function handles the result
     /// of the batch processor.
     /// If an error is returned the BackFill sync has failed.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn on_batch_process_result(
@@ -751,11 +751,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Processes the next ready batch.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     fn process_completed_batches(
         &mut self,
@@ -820,11 +820,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ///
     /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     fn advance_chain(&mut self, network: &mut SyncNetworkContext<T>, validating_epoch: Epoch) {
         // make sure this epoch produces an advancement
@@ -922,11 +922,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// These events occur when a peer has successfully responded with blocks, but the blocks we
     /// have received are incorrect or invalid. This indicates the peer has not performed as
     /// intended and can result in downvoting a peer.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     fn handle_invalid_batch(
         &mut self,
@@ -979,11 +979,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Sends and registers the request of a batch awaiting download.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     fn retry_batch_download(
         &mut self,
@@ -1026,11 +1026,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Requests the batch assigned to the given id from a given peer.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     fn send_batch(
         &mut self,
@@ -1091,11 +1091,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// When resuming a chain, this function searches for batches that need to be re-downloaded and
     /// transitions their state to redownload the batch.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     fn resume_batches(&mut self, network: &mut SyncNetworkContext<T>) -> Result<(), BackFillError> {
         let batch_ids_to_retry = self
@@ -1121,11 +1121,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
     /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     fn request_batches(
         &mut self,
@@ -1169,11 +1169,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `false` is returned.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self, network)
+        skip_all
     )]
     fn include_next_batch(&mut self, network: &mut SyncNetworkContext<T>) -> Option<BatchId> {
         // don't request batches beyond genesis;
@@ -1236,11 +1236,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ///
     /// This errors if the beacon chain indicates that backfill sync has already completed or is
     /// not required.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self)
+        skip_all
     )]
     fn reset_start_epoch(&mut self) -> Result<(), ResetEpochError> {
         let anchor_info = self.beacon_chain.store.get_anchor_info();
@@ -1255,11 +1255,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Checks with the beacon chain if backfill sync has completed.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self)
+        skip_all
     )]
     fn check_completed(&mut self) -> bool {
         if self.would_complete(self.current_start) {
@@ -1276,11 +1276,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Checks if backfill would complete by syncing to `start_epoch`.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self)
+        skip_all
     )]
     fn would_complete(&self, start_epoch: Epoch) -> bool {
         start_epoch
@@ -1291,21 +1291,21 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self)
+        skip_all
     )]
     fn set_state(&self, state: BackFillState) {
         *self.network_globals.backfill_state.write() = state;
     }
 
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
-        skip(self)
+        skip_all
     )]
     fn state(&self) -> BackFillState {
         self.network_globals.backfill_state.read().clone()

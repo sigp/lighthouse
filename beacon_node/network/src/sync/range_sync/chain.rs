@@ -172,25 +172,25 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Check if the chain has peers from which to process batches.
-    #[instrument(level = "info", fields(chain = self.id), skip(self))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn available_peers(&self) -> usize {
         self.peers.len()
     }
 
     /// Get the chain's id.
-    #[instrument(level = "info", fields(chain = self.id), skip(self))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn get_id(&self) -> ChainId {
         self.id
     }
 
     /// Peers currently syncing this chain.
-    #[instrument(level = "info", fields(chain = self.id), skip(self))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn peers(&self) -> impl Iterator<Item = PeerId> + '_ {
         self.peers.keys().cloned()
     }
 
     /// Progress in epochs made by the chain
-    #[instrument(level = "info", fields(chain = self.id), skip(self))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn processed_epochs(&self) -> u64 {
         self.processing_target
             .saturating_sub(self.start_epoch)
@@ -198,7 +198,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Returns the total count of pending blocks in all the batches of this chain
-    #[instrument(level = "info", fields(chain = self.id), skip(self))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn pending_blocks(&self) -> usize {
         self.batches
             .values()
@@ -208,7 +208,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Removes a peer from the chain.
     /// If the peer has active batches, those are considered failed and re-requested.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn remove_peer(
         &mut self,
         peer_id: &PeerId,
@@ -241,7 +241,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Returns the latest slot number that has been processed.
-    #[instrument(level = "info", fields(chain = self.id), skip(self))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     fn current_processed_slot(&self) -> Slot {
         // the last slot we processed was included in the previous batch, and corresponds to the
         // first slot of the current target epoch
@@ -251,7 +251,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// A block has been received for a batch on this chain.
     /// If the block correctly completes the batch it will be processed if possible.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn on_block_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -330,7 +330,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Processes the batch with the given id.
     /// The batch must exist and be ready for processing
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     fn process_batch(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -378,7 +378,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Processes the next ready batch, prioritizing optimistic batches over the processing target.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     fn process_completed_batches(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -488,7 +488,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// The block processor has completed processing a batch. This function handles the result
     /// of the batch processor.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn on_batch_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -643,7 +643,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     fn reject_optimistic_batch(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -678,7 +678,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
     #[allow(clippy::modulo_one)]
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     fn advance_chain(&mut self, network: &mut SyncNetworkContext<T>, validating_epoch: Epoch) {
         // make sure this epoch produces an advancement
         if validating_epoch <= self.start_epoch {
@@ -787,7 +787,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// These events occur when a peer has successfully responded with blocks, but the blocks we
     /// have received are incorrect or invalid. This indicates the peer has not performed as
     /// intended and can result in downvoting a peer.
-    #[instrument(level = "info", fields(service = self.id, network), skip(self))]
+    #[instrument(parent = None, level = "info", fields(service = self.id, network), skip_all)]
     fn handle_invalid_batch(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -847,7 +847,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// This chain has been requested to start syncing.
     ///
     /// This could be new chain, or an old chain that is being resumed.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn start_syncing(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -886,7 +886,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Add a peer to the chain.
     ///
     /// If the chain is active, this starts requesting batches from this peer.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn add_peer(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -904,7 +904,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// An RPC error has occurred.
     ///
     /// If the batch exists it is re-requested.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -961,7 +961,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Sends and registers the request of a batch awaiting download.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn retry_batch_download(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -998,7 +998,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Requests the batch assigned to the given id from a given peer.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn send_batch(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -1071,7 +1071,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Returns true if this chain is currently syncing.
-    #[instrument(level = "info", fields(chain = self.id), skip(self))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn is_syncing(&self) -> bool {
         match self.state {
             ChainSyncingState::Syncing => true,
@@ -1081,7 +1081,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Kickstarts the chain by sending for processing batches that are ready and requesting more
     /// batches if needed.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     pub fn resume(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -1094,7 +1094,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
     /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     fn request_batches(&mut self, network: &mut SyncNetworkContext<T>) -> ProcessingResult {
         if !matches!(self.state, ChainSyncingState::Syncing) {
             return Ok(KeepChain);
@@ -1185,7 +1185,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `false` is returned.
-    #[instrument(level = "info", fields(chain = self.id), skip(self, network))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     fn include_next_batch(&mut self, network: &mut SyncNetworkContext<T>) -> Option<BatchId> {
         // don't request batches beyond the target head slot
         if self
@@ -1246,7 +1246,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// This produces a string of the form: [D,E,E,E,E]
     /// to indicate the current buffer state of the chain. The symbols are defined on each of the
     /// batch states. See [BatchState::visualize] for symbol definitions.
-    #[instrument(level = "info", fields(chain = self.id), skip(self))]
+    #[instrument(parent = None, level = "info", fields(chain = self.id), skip_all)]
     fn visualize_batch_state(&self) -> String {
         let mut visualization_string = String::with_capacity((BATCH_BUFFER_SIZE * 3) as usize);
 

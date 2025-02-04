@@ -113,11 +113,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /* Public functions */
 
     /// Establish the service based on the passed configuration.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
-        skip(beacon_chain)
+        skip_all
     )]
     pub fn new(beacon_chain: Arc<BeaconChain<T>>, node_id: NodeId, config: &NetworkConfig) -> Self {
         let slot_duration = beacon_chain.slot_clock.slot_duration();
@@ -222,11 +222,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     ///
     /// This returns a result simply for the ergonomics of using ?. The result can be
     /// safely dropped.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
-        skip(self, subscriptions)
+        skip_all
     )]
     pub fn validator_subscriptions(&mut self, subscriptions: impl Iterator<Item = Subscription>) {
         // If the node is in a proposer-only state, we ignore all subnet subscriptions.
@@ -362,11 +362,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
     /// verification, re-propagates and returns false.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
-        skip(self)
+        skip_all
     )]
     pub fn should_process_attestation(
         &self,
@@ -392,11 +392,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     /// Adds an event to the event queue and notifies that this service is ready to be polled
     /// again.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
-        skip(self)
+        skip_all
     )]
     fn queue_event(&mut self, ev: SubnetServiceMessage) {
         self.events.push_back(ev);
@@ -409,10 +409,10 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     ///
     /// If there is sufficient time, queues a peer discovery request for all the required subnets.
     // NOTE: Sending early subscriptions results in early searching for peers on subnets.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         name = "subnet_service",
-        skip(self, subnets_to_discover)
+        skip_all
     )]
     fn discover_peers_request(
         &mut self,
@@ -461,11 +461,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     }
 
     // Subscribes to the subnet if it should be done immediately, or schedules it if required.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
-        skip(self)
+        skip_all
     )]
     fn subscribe_to_subnet(
         &mut self,
@@ -519,11 +519,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     }
 
     /// Adds a subscription event to the sync subnet.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
-        skip(self)
+        skip_all
     )]
     fn subscribe_to_sync_subnet(
         &mut self,
@@ -574,11 +574,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /// Checks that the time in which the subscription would end is not in the past. If we are
     /// already subscribed, extends the timeout if necessary. If this is a new subscription, we send
     /// out the appropriate events.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
-        skip(self)
+        skip_all
     )]
     fn subscribe_to_subnet_immediately(
         &mut self,
@@ -635,11 +635,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     }
 
     // Unsubscribes from a subnet that was removed.
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
-        skip(self)
+        skip_all
     )]
     fn handle_removed_subnet(&mut self, subnet: Subnet) {
         if !self.subscriptions.contains_key(&subnet) {
@@ -658,11 +658,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 impl<T: BeaconChainTypes> Stream for SubnetService<T> {
     type Item = SubnetServiceMessage;
 
-    #[instrument(
+    #[instrument(parent = None, 
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
-        skip(self)
+        skip_all
     )]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Update the waker if needed.
