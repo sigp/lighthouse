@@ -186,32 +186,6 @@ pub fn interop_genesis_state_with_eth1<E: EthSpec>(
         .build_genesis_state(keypairs, genesis_time, eth1_block_hash, spec)
 }
 
-/*
-pub fn interop_genesis_state_with_withdrawal_credentials<E: EthSpec>(
-    keypairs: &[Keypair],
-    withdrawal_credentials: &[Hash256],
-    genesis_time: u64,
-    eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<E>>,
-    spec: &ChainSpec,
-) -> Result<BeaconState<E>, String> {
-    if keypairs.len() != withdrawal_credentials.len() {
-        return Err(format!(
-            "wrong number of withdrawal credentials, expected: {}, got: {}",
-            keypairs.len(),
-            withdrawal_credentials.len()
-        ));
-    }
-
-    let withdrawal_credentials = withdrawal_credentials.to_vec();
-    let withdrawal_credentials_fn = Box::new(move |i, _, _| withdrawal_credentials[i]);
-    InteropGenesisBuilder::new()
-        .set_withdrawal_credentials_fn(withdrawal_credentials_fn)
-        .set_opt_execution_payload_header(execution_payload_header)
-        .build_genesis_state(keypairs, genesis_time, eth1_block_hash, spec)
-}
-*/
-
 #[cfg(test)]
 mod test {
     use super::*;
