@@ -19,15 +19,6 @@ pub fn cli_app() -> Command {
          * Configuration directory locations.
          */
         .arg(
-            Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
-        )
-        .arg(
             Arg::new("network-dir")
                 .long("network-dir")
                 .value_name("DIR")
