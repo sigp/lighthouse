@@ -754,7 +754,6 @@ mod tests {
     use eth2::Timeouts;
     use logging::test_logger;
     use slot_clock::TestingSlotClock;
-    use std::str::FromStr;
     use strum::VariantNames;
     use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
     use types::{EmptyBlock, Signature, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
