@@ -295,7 +295,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         / EPOCHS_PER_BATCH;
                     debug!(
                         epoch = %batch_id,
-                        blocks = received,
                         batch_state = self.visualize_batch_state(),
                         ?awaiting_batches,
                         "Batch downloaded"
