@@ -27,7 +27,7 @@ use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 #[cfg(target_family = "unix")]
 use {
     futures::Future,
-    std::{pin::Pin, std::os::unix::fs::PermissionsExt, task::Context, task::Poll},
+    std::{pin::Pin, os::unix::fs::PermissionsExt, task::Context, task::Poll},
     tokio::signal::unix::{signal, Signal, SignalKind},
 };
 
