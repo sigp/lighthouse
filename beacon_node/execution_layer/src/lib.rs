@@ -158,6 +158,7 @@ pub enum Error {
     },
     ZeroLengthTransaction,
     PayloadBodiesByRangeNotSupported,
+    GetBlobsNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
     InvalidPayloadBody(String),
@@ -1871,7 +1872,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .map_err(Box::new)
                 .map_err(Error::EngineError)
         } else {
-            Ok(vec![None; query.len()])
+            Err(Error::GetBlobsNotSupported)
         }
     }
 
