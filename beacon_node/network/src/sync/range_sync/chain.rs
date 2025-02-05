@@ -289,7 +289,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .map(|active_requests| active_requests.remove(&batch_id));
 
             match batch.download_completed(blocks) {
-                Ok(received) => {
+                Ok(_) => {
                     let awaiting_batches = batch_id
                         .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
                         / EPOCHS_PER_BATCH;

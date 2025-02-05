@@ -21,3 +21,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
+
+[dev-dependencies]
+logging = { workspace = true }
+validator_test_rig = { workspace = true }

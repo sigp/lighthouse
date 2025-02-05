@@ -538,6 +538,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "155a5a185e42c6b77ac7b88a15143d930a9e9727a5b7b77eed417404ab15c247"
 
 [[package]]
+name = "assert-json-diff"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "async-channel"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -880,6 +890,7 @@ dependencies = [
  "eth2",
  "futures",
  "itertools 0.10.5",
+ "logging",
  "serde",
  "slot_clock",
  "strum",
@@ -887,6 +898,7 @@ dependencies = [
  "tracing",
  "types",
  "validator_metrics",
+ "validator_test_rig",
 ]
 
 [[package]]
@@ -1477,6 +1489,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
+name = "colored"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
+dependencies = [
+ "lazy_static",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "compare_fields"
 version = "0.2.0"
 dependencies = [
@@ -1568,9 +1590,9 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_bls12_381"
-version = "0.5.1"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a23be5253f1bd7fd411721a58712308c4747d0a41d040bbf8ebb78d52909a480"
+checksum = "48603155907d588e487aea229f61a28d9a918c95c9aa987055ba29502225810b"
 dependencies = [
  "blst",
  "blstrs",
@@ -1582,9 +1604,9 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_erasure_codes"
-version = "0.5.1"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2067ce20ef380ff33a93ce0af62bea22d35531b7f3586224d8d5176ec6cf578"
+checksum = "cdf616e4b4f1799191bb1e70b8a29f65e95ab5d74c59972a34998de488d01efd"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_polynomial",
@@ -1592,24 +1614,24 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_maybe_rayon"
-version = "0.5.1"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "558f50324ff016e5fe93113c78a72776d790d52f244ae9602a8013a67a189b66"
+checksum = "f1ddd0330f34f0b92a9f0b29bc3f8494b30d596ab8b951233ec90b2d72ab132c"
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_polynomial"
-version = "0.5.1"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e051c4f5aa5696bd7c504930485436ec62bf14f30a4c2d78504f3f8ec6a3daf"
+checksum = "7488314261926373e1c20121c404fabf5b57ca09f48eddc7fef38be1df79a006"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
 ]
 
 [[package]]
 name = "crate_crypto_kzg_multi_open_fk20"
-version = "0.5.1"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66ed6bf8993d9f3b361da4ed38f067503e08c0b948af0d6f4bb941dd647c0f2c"
+checksum = "d24efdb64e7518848f11069dd9de23bd04455146a9fd5486345d99ed8bfdb049"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_maybe_rayon",
@@ -4714,11 +4736,6 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "c-kzg",
- "crate_crypto_internal_eth_kzg_bls12_381",
- "crate_crypto_internal_eth_kzg_erasure_codes",
- "crate_crypto_internal_eth_kzg_maybe_rayon",
- "crate_crypto_internal_eth_kzg_polynomial",
- "crate_crypto_kzg_multi_open_fk20",
  "criterion",
  "derivative",
  "ethereum_hashing",
@@ -5727,6 +5744,30 @@ name = "mock_instant"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9366861eb2a2c436c20b12c8dbec5f798cea6b47ad99216be0282942e2c81ea0"
+
+[[package]]
+name = "mockito"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "652cd6d169a36eaf9d1e6bce1a221130439a966d7f27858af66a33a66e9c4ee2"
+dependencies = [
+ "assert-json-diff",
+ "bytes",
+ "colored",
+ "futures-util",
+ "http 1.2.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.6.0",
+ "hyper-util",
+ "log",
+ "rand 0.8.5",
+ "regex",
+ "serde_json",
+ "serde_urlencoded",
+ "similar",
+ "tokio",
+]
 
 [[package]]
 name = "moka"
@@ -7446,9 +7487,9 @@ dependencies = [
 
 [[package]]
 name = "rust_eth_kzg"
-version = "0.5.1"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3291fd0d9c629a56537d74bbc1e7bcaf5be610f2f7b55af85c4fea843c6aeca3"
+checksum = "a237a478ee68e491a0f40bbcbb958b79ba9b37aacce459f7ab3ba78f3cbfa9d0"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_erasure_codes",
@@ -8100,6 +8141,12 @@ dependencies = [
  "url",
  "validator_metrics",
 ]
+
+[[package]]
+name = "similar"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1de1d4f81173b03af4c0cbed3c898f6bff5b870e4a7f5d6f4057d62a7a4b686e"
 
 [[package]]
 name = "simple_asn1"
@@ -8889,6 +8936,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot 0.12.3",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -9662,6 +9710,20 @@ dependencies = [
  "tracing",
  "types",
  "validator_metrics",
+]
+
+[[package]]
+name = "validator_test_rig"
+version = "0.1.0"
+dependencies = [
+ "eth2",
+ "logging",
+ "mockito",
+ "regex",
+ "sensitive_url",
+ "serde_json",
+ "tracing",
+ "types",
 ]
 
 [[package]]
