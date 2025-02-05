@@ -57,7 +57,7 @@ impl<E: EthSpec> ActiveRequestItems for BlobsByRootRequestItems<E> {
             return Err(LookupVerifyError::UnrequestedIndex(blob.index));
         }
         if self.items.iter().any(|b| b.index == blob.index) {
-            return Err(LookupVerifyError::DuplicateData);
+            return Err(LookupVerifyError::DuplicatedData(blob.slot(), blob.index));
         }
 
         self.items.push(blob);
