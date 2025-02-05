@@ -612,13 +612,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_id: ChainSegmentProcessId,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
+        let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
         debug!(self.log, "Batch sending for process";
             "blocks" => blocks.len(),
             "id" => ?process_id,
         );
 
         let processor = self.clone();
-        let id = process_id.clone();
         let process_fn = async move {
             let notify_execution_layer = if processor
                 .network_globals
@@ -631,16 +631,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 NotifyExecutionLayer::Yes
             };
             processor
-                .process_chain_segment(id, blocks, notify_execution_layer)
+                .process_chain_segment(process_id, blocks, notify_execution_layer)
                 .await;
         };
         let process_fn = Box::pin(process_fn);
 
         // Back-sync batches are dispatched with a different `Work` variant so
         // they can be rate-limited.
-        let work = match process_id {
-            ChainSegmentProcessId::RangeBatchId { .. } => Work::ChainSegment(process_fn),
-            ChainSegmentProcessId::BackSyncBatchId { .. } => Work::ChainSegmentBackfill(process_fn),
+        let work = if is_backfill {
+            Work::ChainSegmentBackfill(process_fn)
+        } else {
+            Work::ChainSegment(process_fn)
         };
 
         self.try_send(BeaconWorkEvent {
