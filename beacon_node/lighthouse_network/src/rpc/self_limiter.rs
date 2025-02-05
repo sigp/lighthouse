@@ -211,7 +211,7 @@ mod tests {
     use crate::rpc::rate_limiter::Quota;
     use crate::rpc::self_limiter::SelfRateLimiter;
     use crate::rpc::{Ping, Protocol, RequestType};
-    use crate::service::api_types::{AppRequestId, RequestId, SyncRequestId};
+    use crate::service::api_types::{AppRequestId, RequestId, SingleLookupReqId, SyncRequestId};
     use libp2p::PeerId;
     use logging::create_test_tracing_subscriber;
     use std::time::Duration;
@@ -233,12 +233,16 @@ mod tests {
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
             SelfRateLimiter::new(config, fork_context).unwrap();
         let peer_id = PeerId::random();
+        let lookup_id = 0;
 
         for i in 1..=5u32 {
             let _ = limiter.allows(
                 peer_id,
-                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                    id: i,
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    id: SingleLookupReqId {
+                        lookup_id,
+                        req_id: i,
+                    },
                 })),
                 RequestType::Ping(Ping { data: i as u64 }),
             );
@@ -256,9 +260,9 @@ mod tests {
             for i in 2..=5u32 {
                 assert!(matches!(
                     iter.next().unwrap().request_id,
-                    RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                        id,
-                    })) if id == i
+                    RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                        id: SingleLookupReqId { req_id, .. },
+                    })) if req_id == i,
                 ));
             }
 
@@ -281,9 +285,9 @@ mod tests {
             for i in 3..=5 {
                 assert!(matches!(
                     iter.next().unwrap().request_id,
-                    RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                        id
-                    })) if id == i
+                    RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                        id: SingleLookupReqId { req_id, .. },
+                    })) if req_id == i,
                 ));
             }
 
