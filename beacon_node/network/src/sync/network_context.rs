@@ -374,6 +374,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             execution_engine_state: _,
             network_beacon_processor: _,
             chain: _,
+            fork_context: _,
             log: _,
         } = self;
 
@@ -408,7 +409,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         let active_request_count_by_peer = self.active_request_count_by_peer();
-
         let Some(block_peer) = peers
             .iter()
             .map(|peer| {
@@ -590,11 +590,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         block_root: Hash256,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let active_request_count_by_peer = self.active_request_count_by_peer();
         let Some(peer_id) = lookup_peers
             .read()
             .iter()
-            .choose(&mut rand::thread_rng())
-            .copied()
+            .map(|peer| {
+                (
+                    // Prefer peers with less overall requests
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Random factor to break ties, otherwise the PeerID breaks ties
+                    rand::random::<u32>(),
+                    peer,
+                )
+            })
+            .min()
+            .map(|(_, _, peer)| *peer)
         else {
             // Allow lookup to not have any peers and do nothing. This is an optimization to not
             // lose progress of lookups created from a block with unknown parent before we receive
@@ -678,11 +688,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
         expected_blobs: usize,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let active_request_count_by_peer = self.active_request_count_by_peer();
         let Some(peer_id) = lookup_peers
             .read()
             .iter()
-            .choose(&mut rand::thread_rng())
-            .copied()
+            .map(|peer| {
+                (
+                    // Prefer peers with less overall requests
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Random factor to break ties, otherwise the PeerID breaks ties
+                    rand::random::<u32>(),
+                    peer,
+                )
+            })
+            .min()
+            .map(|(_, _, peer)| *peer)
         else {
             // Allow lookup to not have any peers and do nothing. This is an optimization to not
             // lose progress of lookups created from a block with unknown parent before we receive

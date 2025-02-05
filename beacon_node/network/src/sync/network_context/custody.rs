@@ -220,6 +220,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             return Ok(Some((columns, peer_group)));
         }
 
+        let active_request_count_by_peer = cx.active_request_count_by_peer();
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
         let lookup_peers = self.lookup_peers.read();
 
@@ -238,8 +239,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 // only query the peers on that fork. Should this case be handled? How to handle it?
                 let custodial_peers = cx.get_custodial_peers(*column_index);
 
-                // TODO(das): cache this computation in a OneCell or similar to prevent having to
-                // run it every loop
                 let mut active_requests_by_peer = HashMap::<PeerId, usize>::new();
                 for batch_request in self.active_batch_columns_requests.values() {
                     *active_requests_by_peer
@@ -262,8 +261,12 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                             // requests recently
                             self.failed_peers.contains(peer),
                             // Prefer peers with less requests to load balance across peers
-                            active_requests_by_peer.get(peer).copied().unwrap_or(0),
-                            // Final random factor to give all peers a shot in each retry
+                            active_request_count_by_peer.get(peer).copied().unwrap_or(0)
+                                + columns_to_request_by_peer
+                                    .get(peer)
+                                    .map(|columns| columns.len())
+                                    .unwrap_or(0),
+                            // Random factor to break ties, otherwise the PeerID breaks ties
                             rand::thread_rng().gen::<u32>(),
                             *peer,
                         )
