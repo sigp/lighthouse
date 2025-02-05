@@ -194,7 +194,6 @@ impl EnabledHandler {
         &mut self,
         FullyNegotiatedOutbound { protocol, .. }: FullyNegotiatedOutbound<
             <Handler as ConnectionHandler>::OutboundProtocol,
-            <Handler as ConnectionHandler>::OutboundOpenInfo,
         >,
     ) {
         let (substream, peer_kind) = protocol;
@@ -217,7 +216,7 @@ impl EnabledHandler {
     ) -> Poll<
         ConnectionHandlerEvent<
             <Handler as ConnectionHandler>::OutboundProtocol,
-            <Handler as ConnectionHandler>::OutboundOpenInfo,
+            (),
             <Handler as ConnectionHandler>::ToBehaviour,
         >,
     > {
@@ -423,7 +422,7 @@ impl ConnectionHandler for Handler {
     type OutboundOpenInfo = ();
     type OutboundProtocol = ProtocolConfig;
 
-    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
+    fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
         match self {
             Handler::Enabled(handler) => {
                 SubstreamProtocol::new(either::Either::Left(handler.listen_protocol.clone()), ())
@@ -458,9 +457,7 @@ impl ConnectionHandler for Handler {
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
-    ) -> Poll<
-        ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
-    > {
+    ) -> Poll<ConnectionHandlerEvent<Self::OutboundProtocol, (), Self::ToBehaviour>> {
         match self {
             Handler::Enabled(handler) => handler.poll(cx),
             Handler::Disabled(DisabledHandler::ProtocolUnsupported { peer_kind_sent }) => {
@@ -479,12 +476,7 @@ impl ConnectionHandler for Handler {
 
     fn on_connection_event(
         &mut self,
-        event: ConnectionEvent<
-            Self::InboundProtocol,
-            Self::OutboundProtocol,
-            Self::InboundOpenInfo,
-            Self::OutboundOpenInfo,
-        >,
+        event: ConnectionEvent<Self::InboundProtocol, Self::OutboundProtocol>,
     ) {
         match self {
             Handler::Enabled(handler) => {
@@ -521,7 +513,7 @@ impl ConnectionHandler for Handler {
                     }) => match protocol {
                         Either::Left(protocol) => handler.on_fully_negotiated_inbound(protocol),
                         #[allow(unreachable_patterns)]
-                        Either::Right(v) => void::unreachable(v),
+                        Either::Right(v) => libp2p::core::util::unreachable(v),
                     },
                     ConnectionEvent::FullyNegotiatedOutbound(fully_negotiated_outbound) => {
                         handler.on_fully_negotiated_outbound(fully_negotiated_outbound)

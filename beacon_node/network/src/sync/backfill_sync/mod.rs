@@ -150,7 +150,7 @@ pub struct BackFillSync<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> BackFillSync<T> {
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         name = "backfill_sync",
         skip_all
@@ -196,7 +196,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Pauses the backfill sync if it's currently syncing.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -213,7 +213,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ///
     /// If resuming is successful, reports back the current syncing metrics.
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -294,7 +294,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// A fully synced peer has joined us.
     /// If we are in a failed state, update a local variable to indicate we are able to restart
     /// the failed sync on the next attempt.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -308,7 +308,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// A peer has disconnected.
     /// If the peer has active batches, those are considered failed and re-requested.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -362,7 +362,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// An RPC error has occurred.
     ///
     /// If the batch exists it is re-requested.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -407,7 +407,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// If this returns an error, the backfill sync has failed and will be restarted once new peers
     /// join the system.
     /// The sync manager should update the global sync state on failure.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -493,7 +493,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// The syncing process has failed.
     ///
     /// This resets past variables, to allow for a fresh start when resuming.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -531,7 +531,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Processes the batch with the given id.
     /// The batch must exist and be ready for processing
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -595,7 +595,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// The block processor has completed processing a batch. This function handles the result
     /// of the batch processor.
     /// If an error is returned the BackFill sync has failed.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -751,7 +751,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Processes the next ready batch.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -820,7 +820,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ///
     /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -922,7 +922,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// These events occur when a peer has successfully responded with blocks, but the blocks we
     /// have received are incorrect or invalid. This indicates the peer has not performed as
     /// intended and can result in downvoting a peer.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -979,7 +979,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Sends and registers the request of a batch awaiting download.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -1026,7 +1026,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Requests the batch assigned to the given id from a given peer.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -1091,7 +1091,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// When resuming a chain, this function searches for batches that need to be re-downloaded and
     /// transitions their state to redownload the batch.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -1121,7 +1121,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
     /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -1169,7 +1169,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `false` is returned.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -1236,7 +1236,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ///
     /// This errors if the beacon chain indicates that backfill sync has already completed or is
     /// not required.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -1255,7 +1255,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Checks with the beacon chain if backfill sync has completed.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -1276,7 +1276,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Checks if backfill would complete by syncing to `start_epoch`.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -1291,7 +1291,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",
@@ -1301,7 +1301,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         *self.network_globals.backfill_state.write() = state;
     }
 
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "backfill_sync"),
         name = "backfill_sync",

@@ -167,7 +167,7 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
 }
 
 impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
@@ -206,7 +206,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Sends an RPC response.
     ///
     /// The peer must be connected for this to succeed.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
@@ -229,7 +229,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
@@ -257,7 +257,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
     /// gracefully terminates the RPC behaviour with a goodbye message.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
@@ -271,7 +271,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         });
     }
 
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",
@@ -282,7 +282,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     }
 
     /// Send a Ping request to the destination `PeerId` via `ConnectionId`.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "trace",
         fields(service = "libp2p_rpc"),
         name = "libp2p_rpc",

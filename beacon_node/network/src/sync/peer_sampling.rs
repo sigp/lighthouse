@@ -29,7 +29,7 @@ pub struct Sampling<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> Sampling<T> {
-    #[instrument(parent = None, level = "info", fields(service = "sampling"), name = "sampling")]
+    #[instrument(parent = None,level = "info", fields(service = "sampling"), name = "sampling")]
     pub fn new(sampling_config: SamplingConfig) -> Self {
         Self {
             requests: <_>::default(),
@@ -38,7 +38,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     }
 
     #[cfg(test)]
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
@@ -49,7 +49,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     }
 
     #[cfg(test)]
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
@@ -72,7 +72,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ///
     /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
     /// - `None`: Request still active, requester should do no action
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
@@ -123,7 +123,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ///
     /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
     /// - `None`: Request still active, requester should do no action
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
@@ -153,7 +153,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ///
     /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
     /// - `None`: Request still active, requester should do no action
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "sampling"),
         name = "sampling",
@@ -178,7 +178,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     /// Converts a result from the internal format of `ActiveSamplingRequest` (error first to use ?
     /// conveniently), to an Option first format to use an `if let Some() { act on result }` pattern
     /// in the sync manager.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "sampling"),
         name = "sampling",

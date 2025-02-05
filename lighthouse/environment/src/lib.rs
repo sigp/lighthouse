@@ -14,7 +14,9 @@ use futures::{future, StreamExt};
 use logging::tracing_logging_layer::LoggingLayer;
 use logging::SSELoggingComponents;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::fs::{read_dir, set_permissions, Permissions};
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
@@ -203,7 +205,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             "validator_client" => "validator",
             _ => logfile_prefix,
         };
-        // TODO(tracing) re-enable once we figure out the OOM issues
+        #[cfg(target_family = "unix")]
+        let file_mode = if config.is_restricted { 0o600 } else { 0o644 };
         let file_logging_layer = {
             if let Some(path) = config.path {
                 match RollingFileAppender::builder()
@@ -214,6 +217,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                     .build(path.clone())
                 {
                     Ok(file_appender) => {
+                        set_logfile_permissions(&path, filename_prefix, file_mode);
                         let (file_non_blocking_writer, file_guard) =
                             tracing_appender::non_blocking(file_appender);
 
@@ -534,6 +538,40 @@ impl Future for SignalFuture {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(_)) => Poll::Ready(Some(ShutdownReason::Success(self.message))),
             Poll::Ready(None) => Poll::Ready(None),
+        }
+    }
+}
+
+#[cfg(target_family = "unix")]
+fn set_logfile_permissions(log_dir: &Path, filename_prefix: &str, file_mode: u32) {
+    let newest = read_dir(log_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter_map(|entry| {
+            let path = entry.path();
+            let fname = path.file_name()?.to_string_lossy();
+            if path.is_file() && fname.starts_with(filename_prefix) && fname.ends_with(".log") {
+                let modified = entry.metadata().ok()?.modified().ok()?;
+                Some((path, modified))
+            } else {
+                None
+            }
+        })
+        .max_by_key(|(_path, mtime)| *mtime);
+
+    match newest {
+        Some((file, _mtime)) => {
+            if let Err(e) = set_permissions(&file, Permissions::from_mode(file_mode)) {
+                eprintln!("Failed to set permissions on {}: {}", file.display(), e);
+            }
+        }
+        None => {
+            eprintln!(
+                "Couldn't find a newly created logfile in {} matching prefix \"{}\".",
+                log_dir.display(),
+                filename_prefix
+            );
         }
     }
 }

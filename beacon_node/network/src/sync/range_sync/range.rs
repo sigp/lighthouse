@@ -81,7 +81,7 @@ impl<T: BeaconChainTypes> RangeSync<T>
 where
     T: BeaconChainTypes,
 {
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
@@ -98,7 +98,7 @@ where
         }
     }
 
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
@@ -113,7 +113,7 @@ where
     /// may need to be synced as a result. A new peer, may increase the peer pool of a finalized
     /// chain, this may result in a different finalized chain from syncing as finalized chains are
     /// prioritised by peer-pool size.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
@@ -213,7 +213,7 @@ where
     ///
     /// This function finds the chain that made this request. Once found, processes the result.
     /// This request could complete a chain or simply add to its progress.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
@@ -249,7 +249,7 @@ where
         }
     }
 
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
@@ -287,7 +287,7 @@ where
 
     /// A peer has disconnected. This removes the peer from any ongoing chains and mappings. A
     /// disconnected peer could remove a chain
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
@@ -305,7 +305,7 @@ where
     /// which pool the peer is in. The chain may also have a batch or batches awaiting
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
@@ -330,7 +330,7 @@ where
     ///
     /// Check to see if the request corresponds to a pending batch. If so, re-request it if possible, if there have
     /// been too many failed attempts for the batch, remove the chain.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
@@ -365,7 +365,7 @@ where
         }
     }
 
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
@@ -418,7 +418,7 @@ where
     }
 
     /// Kickstarts sync.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
         name = "range_sync",

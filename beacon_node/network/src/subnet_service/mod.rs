@@ -113,7 +113,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /* Public functions */
 
     /// Establish the service based on the passed configuration.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
@@ -211,6 +211,12 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             || self.permanent_attestation_subscriptions.contains(subnet)
     }
 
+    /// Returns whether we are subscribed to a permanent subnet for testing purposes.
+    #[cfg(test)]
+    pub(crate) fn is_subscribed_permanent(&self, subnet: &Subnet) -> bool {
+        self.permanent_attestation_subscriptions.contains(subnet)
+    }
+
     /// Processes a list of validator subscriptions.
     ///
     /// This is fundamentally called form the HTTP API when a validator requests duties from us
@@ -222,7 +228,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     ///
     /// This returns a result simply for the ergonomics of using ?. The result can be
     /// safely dropped.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
@@ -362,7 +368,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
     /// verification, re-propagates and returns false.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
@@ -392,7 +398,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     /// Adds an event to the event queue and notifies that this service is ready to be polled
     /// again.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
@@ -409,7 +415,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     ///
     /// If there is sufficient time, queues a peer discovery request for all the required subnets.
     // NOTE: Sending early subscriptions results in early searching for peers on subnets.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         name = "subnet_service",
         skip_all
@@ -461,7 +467,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     }
 
     // Subscribes to the subnet if it should be done immediately, or schedules it if required.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
@@ -519,7 +525,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     }
 
     /// Adds a subscription event to the sync subnet.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
@@ -574,7 +580,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /// Checks that the time in which the subscription would end is not in the past. If we are
     /// already subscribed, extends the timeout if necessary. If this is a new subscription, we send
     /// out the appropriate events.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
@@ -635,7 +641,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     }
 
     // Unsubscribes from a subnet that was removed.
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
@@ -658,7 +664,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 impl<T: BeaconChainTypes> Stream for SubnetService<T> {
     type Item = SubnetServiceMessage;
 
-    #[instrument(parent = None, 
+    #[instrument(parent = None,
         level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
@@ -683,9 +689,10 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         // expire subscription.
         match self.scheduled_subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => {
-                let ExactSubnet { subnet, .. } = exact_subnet;
-                let current_slot = self.beacon_chain.slot_clock.now().unwrap_or_default();
-                if let Err(e) = self.subscribe_to_subnet_immediately(subnet, current_slot + 1) {
+                let ExactSubnet { subnet, slot } = exact_subnet;
+                // Set the `end_slot` for the subscription to be `duty.slot + 1` so that we unsubscribe
+                // only at the end of the duty slot.
+                if let Err(e) = self.subscribe_to_subnet_immediately(subnet, slot + 1) {
                     debug!(
                         subnet = ?subnet,
                         err = e,
