@@ -57,10 +57,12 @@ fn get_electra_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessTy
         .keypairs(KEYPAIRS.to_vec())
         .with_genesis_state_builder(|builder| {
             builder.set_initial_balance_fn(Box::new(move |i| {
-                spec.max_effective_balance_electra
+                // Use a variety of balances between min activation balance and max effective balance.
+                let balance = spec.max_effective_balance_electra
                     / (i as u64 + 1)
                     / spec.effective_balance_increment
-                    * spec.effective_balance_increment
+                    * spec.effective_balance_increment;
+                balance.max(spec.min_activation_balance)
             }))
         })
         .fresh_ephemeral_store()
