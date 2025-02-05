@@ -205,8 +205,10 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             "validator_client" => "validator",
             _ => logfile_prefix,
         };
+
         #[cfg(target_family = "unix")]
         let file_mode = if config.is_restricted { 0o600 } else { 0o644 };
+
         let file_logging_layer = {
             if let Some(path) = config.path {
                 match RollingFileAppender::builder()
@@ -217,7 +219,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                     .build(path.clone())
                 {
                     Ok(file_appender) => {
+                        #[cfg(target_family = "unix")]
                         set_logfile_permissions(&path, filename_prefix, file_mode);
+
                         let (file_non_blocking_writer, file_guard) =
                             tracing_appender::non_blocking(file_appender);
 
