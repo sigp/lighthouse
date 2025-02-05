@@ -15,7 +15,6 @@ use logging::tracing_logging_layer::LoggingLayer;
 use logging::SSELoggingComponents;
 use serde::{Deserialize, Serialize};
 use std::fs::{read_dir, set_permissions, Permissions};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
@@ -28,7 +27,7 @@ use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 #[cfg(target_family = "unix")]
 use {
     futures::Future,
-    std::{pin::Pin, task::Context, task::Poll},
+    std::{pin::Pin, std::os::unix::fs::PermissionsExt, task::Context, task::Poll},
     tokio::signal::unix::{signal, Signal, SignalKind},
 };
 
