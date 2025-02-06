@@ -84,49 +84,26 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     fn into_responses_with_blobs(self, spec: &ChainSpec) -> Result<Vec<RpcBlock<E>>, String> {
         let RangeBlockComponentsRequest { blocks, blobs, .. } = self;
 
-        // There can't be more more blobs than blocks. i.e. sending any blob (empty
-        // included) for a skipped slot is not permitted.
-        let mut responses = Vec::with_capacity(blocks.len());
-        let mut blob_iter = blobs.into_iter().peekable();
-        for block in blocks.into_iter() {
-            let max_blobs_per_block = spec.max_blobs_per_block(block.epoch()) as usize;
-            let mut blob_list = Vec::with_capacity(max_blobs_per_block);
-            while {
-                let pair_next_blob = blob_iter
-                    .peek()
-                    .map(|sidecar| sidecar.slot() == block.slot())
-                    .unwrap_or(false);
-                pair_next_blob
-            } {
-                blob_list.push(blob_iter.next().ok_or("Missing next blob".to_string())?);
-            }
-
-            let mut blobs_buffer = vec![None; max_blobs_per_block];
-            for blob in blob_list {
-                let blob_index = blob.index as usize;
-                let Some(blob_opt) = blobs_buffer.get_mut(blob_index) else {
-                    return Err("Invalid blob index".to_string());
-                };
-                if blob_opt.is_some() {
-                    return Err("Repeat blob index".to_string());
-                } else {
-                    *blob_opt = Some(blob);
-                }
-            }
-            let blobs = RuntimeVariableList::new(
-                blobs_buffer.into_iter().flatten().collect::<Vec<_>>(),
-                max_blobs_per_block,
-            )
-            .map_err(|_| "Blobs returned exceeds max length".to_string())?;
-            responses.push(RpcBlock::new(None, block, Some(blobs)).map_err(|e| format!("{e:?}"))?)
+        let mut blobs_by_block = HashMap::<Hash256, Vec<Arc<BlobSidecar<E>>>>::new();
+        for blob in blobs {
+            let block_root = blob.block_root();
+            blobs_by_block.entry(block_root).or_default().push(blob);
         }
 
-        // if accumulated sidecars is not empty, throw an error.
-        if blob_iter.next().is_some() {
-            return Err("Received sidecars that don't pair well".to_string());
-        }
-
-        Ok(responses)
+        // Now collect all blobs that match to the block by block root. BlobsByRange request checks
+        // the inclusion proof so we know that the commitment is the expected.
+        // RpcBlock::new ensures that the count of blobs is consistent with the block
+        blocks
+            .into_iter()
+            .map(|block| {
+                let block_root = get_block_root(&block);
+                let max_blobs_per_block = spec.max_blobs_per_block(block.epoch()) as usize;
+                let blobs = blobs_by_block.remove(&block_root).unwrap_or_default();
+                let blobs = RuntimeVariableList::new(blobs, max_blobs_per_block)
+                    .map_err(|_| "Blobs returned exceeds max length".to_string())?;
+                RpcBlock::new(Some(block_root), block, Some(blobs)).map_err(|e| format!("{e:?}"))
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     fn into_responses_with_custody_columns(
