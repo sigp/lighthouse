@@ -14,8 +14,7 @@ use futures::{future, StreamExt};
 use logging::tracing_logging_layer::LoggingLayer;
 use logging::SSELoggingComponents;
 use serde::{Deserialize, Serialize};
-use std::fs::{read_dir, set_permissions, Permissions};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
@@ -27,7 +26,14 @@ use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 #[cfg(target_family = "unix")]
 use {
     futures::Future,
-    std::{os::unix::fs::PermissionsExt, pin::Pin, task::Context, task::Poll},
+    std::{
+        fs::{read_dir, set_permissions, Permissions},
+        os::unix::fs::PermissionsExt,
+        path::Path,
+        pin::Pin,
+        task::Context,
+        task::Poll,
+    },
     tokio::signal::unix::{signal, Signal, SignalKind},
 };
 

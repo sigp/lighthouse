@@ -417,7 +417,7 @@ fn build_log_text<'a, S>(
     let mut formatted_spans = String::new();
     for (_, fields) in collected_span_fields.iter().rev() {
         for (i, (field_name, field_value)) in fields.iter().enumerate() {
-            if i > 0  && visitor.fields.len() != 0 {
+            if i > 0 && !visitor.fields.is_empty() {
                 formatted_spans.push_str(", ");
             }
             if logfile_color {
@@ -474,16 +474,15 @@ fn build_log_text<'a, S>(
         } else {
             formatted_fields.push_str(&format!("{}:{}", field_name, field_value));
         }
+        if i == visitor.fields.len() - 1 && !collected_span_fields.is_empty() {
+            formatted_fields.push(',');
+        }
     }
 
     let full_message = if !formatted_fields.is_empty() {
-        if !formatted_spans.is_empty() {
-            format!("{}  {},", padded_message, formatted_fields)
-        } else {
-            format!("{}  {}", padded_message, formatted_fields)
-        }
+        format!("{}  {}", padded_message, formatted_fields)
     } else {
-        format!("{}", padded_message)
+        padded_message.to_string()
     };
 
     let message = if !location.is_empty() {
@@ -493,7 +492,7 @@ fn build_log_text<'a, S>(
         )
     } else {
         format!(
-            "{} {} {}  {}\n",
+            "{} {} {} {}\n",
             timestamp, level_str, full_message, formatted_spans
         )
     };
