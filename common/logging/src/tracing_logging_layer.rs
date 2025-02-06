@@ -417,16 +417,16 @@ fn build_log_text<'a, S>(
     let mut formatted_spans = String::new();
     for (_, fields) in collected_span_fields.iter().rev() {
         for (i, (field_name, field_value)) in fields.iter().enumerate() {
-            if i > 0 {
+            if i > 0  && visitor.fields.len() != 0 {
                 formatted_spans.push_str(", ");
             }
             if logfile_color {
                 formatted_spans.push_str(&format!(
-                    "{}{}{}={}",
+                    "{}{}{}:{}",
                     bold_start, field_name, bold_end, field_value
                 ));
             } else {
-                formatted_spans.push_str(&format!("{}={}", field_name, field_value));
+                formatted_spans.push_str(&format!("{}:{}", field_name, field_value));
             }
         }
     }
@@ -468,11 +468,11 @@ fn build_log_text<'a, S>(
         }
         if logfile_color {
             formatted_fields.push_str(&format!(
-                "{}{}{}={}",
+                "{}{}{}:{}",
                 bold_start, field_name, bold_end, field_value
             ));
         } else {
-            formatted_fields.push_str(&format!("{}={}", field_name, field_value));
+            formatted_fields.push_str(&format!("{}:{}", field_name, field_value));
         }
     }
 
