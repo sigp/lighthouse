@@ -403,12 +403,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
-        // Create the overall components_by_range request ID before its individual components
-        let id = ComponentsByRangeRequestId {
-            id: self.next_id(),
-            requester,
-        };
-
         let active_request_count_by_peer = self.active_request_count_by_peer();
         let Some(block_peer) = peers
             .iter()
@@ -430,6 +424,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Err(RpcRequestSendError::NoPeer(NoPeerError::BlockPeer));
         };
 
+        // Attempt to find all required custody peers before sending any request or creating an ID
+        let columns_by_range_peers_to_request =
+            if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
+                let column_indexes = self.network_globals().sampling_columns.clone();
+                Some(self.select_columns_by_range_peers_to_request(&column_indexes, peers)?)
+            } else {
+                None
+            };
+
+        // Create the overall components_by_range request ID before its individual components
+        let id = ComponentsByRangeRequestId {
+            id: self.next_id(),
+            requester,
+        };
+
         let _blocks_req_id = self.send_blocks_by_range_request(block_peer, request.clone(), id)?;
 
         let blobs_req_id = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
@@ -445,38 +454,38 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             None
         };
 
-        let (expects_columns, data_column_requests) =
-            if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let column_indexes = self.network_globals().sampling_columns.clone();
-
-                let data_column_requests = self
-                    .select_columns_by_range_peers_to_request(&column_indexes, peers)?
-                    .into_iter()
-                    .map(|(peer_id, columns)| {
-                        self.send_data_columns_by_range_request(
-                            peer_id,
-                            DataColumnsByRangeRequest {
-                                start_slot: *request.start_slot(),
-                                count: *request.count(),
-                                columns,
-                            },
-                            id,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                (
-                    Some(column_indexes.into_iter().collect::<Vec<_>>()),
-                    Some(data_column_requests),
+        let data_column_requests =
+            if let Some(columns_by_range_peers_to_request) = columns_by_range_peers_to_request {
+                Some(
+                    columns_by_range_peers_to_request
+                        .into_iter()
+                        .map(|(peer_id, columns)| {
+                            self.send_data_columns_by_range_request(
+                                peer_id,
+                                DataColumnsByRangeRequest {
+                                    start_slot: *request.start_slot(),
+                                    count: *request.count(),
+                                    columns,
+                                },
+                                id,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
                 )
             } else {
-                (None, None)
+                None
             };
 
         let expected_blobs = blobs_req_id.is_some();
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
-            expects_columns,
+            data_column_requests.as_ref().map(|_| {
+                self.network_globals()
+                    .sampling_columns
+                    .iter()
+                    .copied()
+                    .collect()
+            }),
             data_column_requests.map(|items| items.len()),
         );
         self.components_by_range_requests.insert(id, info);

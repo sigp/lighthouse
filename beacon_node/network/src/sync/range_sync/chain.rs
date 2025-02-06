@@ -263,7 +263,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         });
                     }
                     // this batch can't be used, so we need to request it again.
-                    self.retry_batch_download(network, batch_id)
+                    self.send_batch(network, batch_id)
                 }
             }
         }
@@ -566,7 +566,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             BatchProcessResult::NonFaultyFailure => {
                 batch.processing_completed(BatchProcessingResult::NonFaultyFailure)?;
                 // Simply redownload the batch.
-                self.retry_batch_download(network, batch_id)
+                self.send_batch(network, batch_id)
             }
         }
     }
@@ -586,7 +586,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 debug!(self.log, "Rejected optimistic batch left for future use"; "epoch" => %epoch, "reason" => reason);
                 // this batch is now treated as any other batch, and re-requested for future use
                 if redownload {
-                    return self.retry_batch_download(network, epoch);
+                    return self.send_batch(network, epoch);
                 }
             } else {
                 debug!(self.log, "Rejected optimistic batch"; "epoch" => %epoch, "reason" => reason);
@@ -746,10 +746,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.processing_target = self.start_epoch;
 
         for id in redownload_queue {
-            self.retry_batch_download(network, id)?;
+            self.send_batch(network, id)?;
         }
         // finally, re-request the failed batch.
-        self.retry_batch_download(network, batch_id)
+        self.send_batch(network, batch_id)
     }
 
     pub fn stop_syncing(&mut self) {
@@ -854,7 +854,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     failing_batch: batch_id,
                 });
             }
-            self.retry_batch_download(network, batch_id)
+            self.send_batch(network, batch_id)
         } else {
             debug!(
                 self.log,
@@ -867,17 +867,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // this could be an error for an old batch, removed when the chain advances
             Ok(KeepChain)
         }
-    }
-
-    /// Sends and registers the request of a batch awaiting download.
-    pub fn retry_batch_download(
-        &mut self,
-        network: &mut SyncNetworkContext<T>,
-        batch_id: BatchId,
-    ) -> ProcessingResult {
-        // TODO(das): Previously here we de-prioritize peers that had either failed to download
-        // a batch or failed in processing.
-        self.send_batch(network, batch_id)
     }
 
     /// Requests the batch assigned to the given id from a given peer.
@@ -939,7 +928,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                 })
                             }
                             BatchOperationOutcome::Continue => {
-                                return self.retry_batch_download(network, batch_id)
+                                return self.send_batch(network, batch_id)
                             }
                         }
                     }

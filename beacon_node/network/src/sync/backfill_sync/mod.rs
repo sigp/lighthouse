@@ -320,7 +320,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
                     self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))
                 }
-                Ok(BatchOperationOutcome::Continue) => self.retry_batch_download(network, batch_id),
+                Ok(BatchOperationOutcome::Continue) => self.send_batch(network, batch_id),
             }
         } else {
             // this could be an error for an old batch, removed when the chain advances
@@ -388,7 +388,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     return Ok(ProcessResult::Successful);
                 }
                 // this batch can't be used, so we need to request it again.
-                self.retry_batch_download(network, batch_id)?;
+                self.send_batch(network, batch_id)?;
                 Ok(ProcessResult::Successful)
             }
         }
@@ -590,8 +590,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         );
 
                         for peer in self.participating_peers.drain() {
-                            // TODO(das): this participating peers is broken with custody columns backfill, consider
-                            // a different mechanism
+                            // TODO(das): `participating_peers` only includes block peers. Should we
+                            // penalize the custody column peers too?
                             network.report_peer(peer, *penalty, "backfill_batch_failed");
                         }
                         self.fail_sync(BackFillError::BatchProcessingFailed(batch_id))
@@ -617,7 +617,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 {
                     self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
                 }
-                self.retry_batch_download(network, batch_id)?;
+                self.send_batch(network, batch_id)?;
                 Ok(ProcessResult::Successful)
             }
         }
@@ -816,20 +816,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         self.processing_target = self.current_start;
 
         for id in redownload_queue {
-            self.retry_batch_download(network, id)?;
+            self.send_batch(network, id)?;
         }
         // finally, re-request the failed batch.
-        self.retry_batch_download(network, batch_id)
-    }
-
-    /// Sends and registers the request of a batch awaiting download.
-    fn retry_batch_download(
-        &mut self,
-        network: &mut SyncNetworkContext<T>,
-        batch_id: BatchId,
-    ) -> Result<(), BackFillError> {
-        // TODO(das): previously here we de-prioritize peers that had failed to download or
-        // process a batch
         self.send_batch(network, batch_id)
     }
 
@@ -890,7 +879,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                 self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))?
                             }
                             Ok(BatchOperationOutcome::Continue) => {
-                                return self.retry_batch_download(network, batch_id)
+                                return self.send_batch(network, batch_id)
                             }
                         }
                     }
@@ -920,7 +909,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             .collect::<Vec<_>>();
 
         for batch_id in batch_ids_to_retry {
-            self.retry_batch_download(network, batch_id)?;
+            self.send_batch(network, batch_id)?;
         }
         Ok(())
     }
