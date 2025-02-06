@@ -119,46 +119,6 @@ pub fn is_fork_non_core_topic(topic: &GossipTopic, _fork_name: ForkName) -> bool
     }
 }
 
-pub fn new_topics_to_subscribe_at_epoch<E: EthSpec>(
-    next_fork: ForkName,
-    opts: &TopicConfig,
-    spec: &ChainSpec,
-) -> Vec<GossipKind> {
-    if let Some(prev_fork) = next_fork.previous_fork() {
-        let prev_set = core_topics_to_subscribe::<E>(prev_fork, opts, spec)
-            .into_iter()
-            .collect::<HashSet<_>>();
-        let next_set = core_topics_to_subscribe::<E>(next_fork, opts, spec)
-            .into_iter()
-            .collect::<HashSet<_>>();
-        next_set.difference(&prev_set).cloned().collect()
-    } else {
-        // Handle the genesis case explicitly. Otherwise prev_set == next_set and the node will not
-        // subscribe to anything
-        core_topics_to_subscribe::<E>(ForkName::Base, opts, spec)
-    }
-}
-
-pub fn old_topics_to_unsubscribe_at_epoch<E: EthSpec>(
-    next_fork: ForkName,
-    opts: &TopicConfig,
-    spec: &ChainSpec,
-) -> Vec<GossipKind> {
-    if let Some(prev_fork) = next_fork.previous_fork() {
-        let prev_set = core_topics_to_subscribe::<E>(prev_fork, opts, spec)
-            .into_iter()
-            .collect::<HashSet<_>>();
-        let next_set = core_topics_to_subscribe::<E>(next_fork, opts, spec)
-            .into_iter()
-            .collect::<HashSet<_>>();
-        prev_set.difference(&next_set).cloned().collect()
-    } else {
-        // No need to handle genesis case explicitly, as we never need to unsubscribe anything at
-        // genesis. Because prev_set == next_set at genesis, this function will return `vec![]`
-        vec![]
-    }
-}
-
 pub fn all_topics_at_fork<E: EthSpec>(fork: ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
     // Compute the worst case of all forks
     let sampling_subnets = HashSet::from_iter(spec.all_data_column_sidecar_subnets());

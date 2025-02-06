@@ -16,7 +16,6 @@ pub use pubsub::{PubsubMessage, SnappyTransform};
 pub use subnet::{Subnet, SubnetDiscovery};
 pub use sync_state::{BackFillState, SyncState};
 pub use topics::{
-    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic,
-    new_topics_to_subscribe_at_epoch, old_topics_to_unsubscribe_at_epoch, subnet_from_topic_hash,
+    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
     GossipEncoding, GossipKind, GossipTopic, TopicConfig,
 };
