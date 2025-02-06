@@ -245,7 +245,12 @@ struct LogMessageExtractor {
 impl tracing_core::field::Visit for LogMessageExtractor {
     fn record_str(&mut self, field: &Field, value: &str) {
         if field.name() == "message" {
-            self.message = value.to_string();
+            if self.message.is_empty() {
+                self.message = value.to_string();
+            } else {
+                self.fields
+                    .push(("msg".to_string(), format!("\"{}\"", value)));
+            }
         } else if field.name() == "error_type" && value == "crit" {
             self.is_crit = true;
         } else {
@@ -256,7 +261,12 @@ impl tracing_core::field::Visit for LogMessageExtractor {
 
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
-            self.message = format!("{:?}", value);
+            if self.message.is_empty() {
+                self.message = format!("{:?}", value);
+            } else {
+                self.fields
+                    .push(("msg".to_string(), format!("{:?}", value)));
+            }
         } else if field.name() == "error_type" && format!("{:?}", value) == "\"crit\"" {
             self.is_crit = true;
         } else {
