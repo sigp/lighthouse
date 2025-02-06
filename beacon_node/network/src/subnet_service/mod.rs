@@ -17,7 +17,7 @@ use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDisco
 use slog::{debug, error, o, warn};
 use slot_clock::SlotClock;
 use types::{
-    Attestation, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
+    AttestationData, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
 };
 
@@ -86,7 +86,7 @@ pub struct SubnetService<T: BeaconChainTypes> {
     subscriptions: HashSetDelay<Subnet>,
 
     /// Subscriptions that need to be executed in the future.
-    scheduled_subscriptions: HashSetDelay<Subnet>,
+    scheduled_subscriptions: HashSetDelay<ExactSubnet>,
 
     /// A list of permanent subnets that this node is subscribed to.
     // TODO: Shift this to a dynamic bitfield
@@ -213,6 +213,13 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     #[cfg(test)]
     pub(crate) fn is_subscribed(&self, subnet: &Subnet) -> bool {
         self.subscriptions.contains_key(subnet)
+            || self.permanent_attestation_subscriptions.contains(subnet)
+    }
+
+    /// Returns whether we are subscribed to a permanent subnet for testing purposes.
+    #[cfg(test)]
+    pub(crate) fn is_subscribed_permanent(&self, subnet: &Subnet) -> bool {
+        self.permanent_attestation_subscriptions.contains(subnet)
     }
 
     /// Processes a list of validator subscriptions.
@@ -362,7 +369,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     pub fn should_process_attestation(
         &self,
         subnet: Subnet,
-        attestation: &Attestation<T::EthSpec>,
+        attestation_data: &AttestationData,
     ) -> bool {
         // Proposer-only mode does not need to process attestations
         if self.proposer_only {
@@ -373,7 +380,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             .map(|tracked_vals| {
                 tracked_vals.contains_key(&ExactSubnet {
                     subnet,
-                    slot: attestation.data().slot,
+                    slot: attestation_data.slot,
                 })
             })
             .unwrap_or(true)
@@ -483,8 +490,10 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             self.subscribe_to_subnet_immediately(subnet, slot + 1)?;
         } else {
             // This is a future slot, schedule subscribing.
+            // We need to include the slot to make the key unique to prevent overwriting the entry
+            // for the same subnet.
             self.scheduled_subscriptions
-                .insert_at(subnet, time_to_subscription_start);
+                .insert_at(ExactSubnet { subnet, slot }, time_to_subscription_start);
         }
 
         Ok(())
@@ -625,9 +634,11 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         // Process scheduled subscriptions that might be ready, since those can extend a soon to
         // expire subscription.
         match self.scheduled_subscriptions.poll_next_unpin(cx) {
-            Poll::Ready(Some(Ok(subnet))) => {
-                let current_slot = self.beacon_chain.slot_clock.now().unwrap_or_default();
-                if let Err(e) = self.subscribe_to_subnet_immediately(subnet, current_slot + 1) {
+            Poll::Ready(Some(Ok(exact_subnet))) => {
+                let ExactSubnet { subnet, slot } = exact_subnet;
+                // Set the `end_slot` for the subscription to be `duty.slot + 1` so that we unsubscribe
+                // only at the end of the duty slot.
+                if let Err(e) = self.subscribe_to_subnet_immediately(subnet, slot + 1) {
                     debug!(self.log, "Failed to subscribe to short lived subnet"; "subnet" => ?subnet, "err" => e);
                 }
                 self.waker

@@ -73,7 +73,7 @@ fn get_valid_sync_committee_message_for_block(
     let head_state = harness.chain.head_beacon_state_cloned();
     let (signature, _) = harness
         .make_sync_committee_messages(&head_state, block_root, slot, relative_sync_committee)
-        .get(0)
+        .first()
         .expect("sync messages should exist")
         .get(message_index)
         .expect("first sync message should exist")
@@ -104,7 +104,7 @@ fn get_valid_sync_contribution(
     );
 
     let (_, contribution_opt) = sync_contributions
-        .get(0)
+        .first()
         .expect("sync contributions should exist");
     let contribution = contribution_opt
         .as_ref()

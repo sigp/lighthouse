@@ -26,8 +26,10 @@ const MIN_COMPACTION_PERIOD_SECONDS: u64 = 7200;
 const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
 /// Maximum number of blocks applied in each reconstruction burst.
 ///
-/// This limits the amount of time that the finalization migration is paused for.
-const BLOCKS_PER_RECONSTRUCTION: usize = 8192 * 4;
+/// This limits the amount of time that the finalization migration is paused for. We set this
+/// conservatively because pausing the finalization migration for too long can cause hot state
+/// cache misses and excessive disk use.
+const BLOCKS_PER_RECONSTRUCTION: usize = 1024;
 
 /// Default number of epochs to wait between finalization migrations.
 pub const DEFAULT_EPOCHS_PER_MIGRATION: u64 = 1;

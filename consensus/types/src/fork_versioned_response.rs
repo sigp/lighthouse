@@ -4,6 +4,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::Value;
 use std::sync::Arc;
 
+pub trait ForkVersionDecode: Sized {
+    /// SSZ decode with explicit fork variant.
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError>;
+}
+
 pub trait ForkVersionDeserialize: Sized + DeserializeOwned {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,

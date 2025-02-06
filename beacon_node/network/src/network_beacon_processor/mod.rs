@@ -84,6 +84,58 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map_err(Into::into)
     }
 
+    /// Create a new `Work` event for some `SingleAttestation`.
+    pub fn send_single_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        single_attestation: SingleAttestation,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let result = self.chain.with_committee_cache(
+            single_attestation.data.target.root,
+            single_attestation
+                .data
+                .slot
+                .epoch(T::EthSpec::slots_per_epoch()),
+            |committee_cache, _| {
+                let Some(committee) = committee_cache.get_beacon_committee(
+                    single_attestation.data.slot,
+                    single_attestation.committee_index,
+                ) else {
+                    warn!(
+                        self.log,
+                        "No beacon committee for slot and index";
+                        "slot" => single_attestation.data.slot,
+                        "index" => single_attestation.committee_index
+                    );
+                    return Ok(Ok(()));
+                };
+
+                let attestation = single_attestation.to_attestation(committee.committee)?;
+
+                Ok(self.send_unaggregated_attestation(
+                    message_id.clone(),
+                    peer_id,
+                    attestation,
+                    subnet_id,
+                    should_import,
+                    seen_timestamp,
+                ))
+            },
+        );
+
+        match result {
+            Ok(result) => result,
+            Err(e) => {
+                warn!(self.log, "Failed to send SingleAttestation"; "error" => ?e);
+                Ok(())
+            }
+        }
+    }
+
     /// Create a new `Work` event for some unaggregated attestation.
     pub fn send_unaggregated_attestation(
         self: &Arc<Self>,
@@ -561,6 +613,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
+        debug!(self.log, "Batch sending for process";
+            "blocks" => blocks.len(),
+            "id" => ?process_id,
+        );
+
         let processor = self.clone();
         let process_fn = async move {
             let notify_execution_layer = if processor
@@ -1122,10 +1179,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         messages: columns
                             .into_iter()
                             .map(|d| {
-                                let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                                    d.index as usize,
-                                    &chain.spec,
-                                );
+                                let subnet =
+                                    DataColumnSubnetId::from_column_index(d.index, &chain.spec);
                                 PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
                             })
                             .collect(),
@@ -1139,7 +1194,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let blob_publication_batches = chain.config.blob_publication_batches;
-                let batch_size = chain.spec.number_of_columns / blob_publication_batches;
+                let number_of_columns = chain.spec.number_of_columns as usize;
+                let batch_size = number_of_columns / blob_publication_batches;
                 let mut publish_count = 0usize;
 
                 for batch in data_columns_to_publish.chunks(batch_size) {

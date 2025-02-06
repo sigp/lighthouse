@@ -253,7 +253,7 @@ impl BlockShufflingIds {
         } else if self
             .previous
             .as_ref()
-            .map_or(false, |id| id.shuffling_epoch == epoch)
+            .is_some_and(|id| id.shuffling_epoch == epoch)
         {
             self.previous.clone()
         } else if epoch == self.next.shuffling_epoch {
@@ -512,7 +512,7 @@ mod test {
         }
 
         assert!(
-            !cache.contains(&shuffling_id_and_committee_caches.get(0).unwrap().0),
+            !cache.contains(&shuffling_id_and_committee_caches.first().unwrap().0),
             "should not contain oldest epoch shuffling id"
         );
         assert_eq!(

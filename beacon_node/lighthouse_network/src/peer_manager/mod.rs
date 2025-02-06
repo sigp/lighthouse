@@ -34,6 +34,9 @@ pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::net::IpAddr;
 use strum::IntoEnumIterator;
+use types::data_column_custody_group::{
+    compute_subnets_from_custody_group, get_custody_groups, CustodyIndex,
+};
 
 pub mod config;
 mod network_behaviour;
@@ -63,6 +66,8 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 /// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
 /// dialing priority peers we need for validator duties.
 pub const PRIORITY_PEER_EXCESS: f32 = 0.2;
+/// The numbre of inbound libp2p peers we have seen before we consider our NAT to be open.
+pub const LIBP2P_NAT_OPEN_THRESHOLD: usize = 3;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<E: EthSpec> {
@@ -99,6 +104,8 @@ pub struct PeerManager<E: EthSpec> {
     /// discovery queries for subnet peers if we disconnect from existing sync
     /// committee subnet peers.
     sync_committee_subnets: HashMap<SyncSubnetId, Instant>,
+    /// A mapping of all custody groups to column subnets to avoid re-computation.
+    subnets_by_custody_group: HashMap<u64, Vec<DataColumnSubnetId>>,
     /// The heartbeat interval to perform routine maintenance.
     heartbeat: tokio::time::Interval,
     /// Keeps track of whether the discovery service is enabled or not.
@@ -158,6 +165,21 @@ impl<E: EthSpec> PeerManager<E> {
         // Set up the peer manager heartbeat interval
         let heartbeat = tokio::time::interval(tokio::time::Duration::from_secs(HEARTBEAT_INTERVAL));
 
+        // Compute subnets for all custody groups
+        let subnets_by_custody_group = if network_globals.spec.is_peer_das_scheduled() {
+            (0..network_globals.spec.number_of_custody_groups)
+                .map(|custody_index| {
+                    let subnets =
+                        compute_subnets_from_custody_group(custody_index, &network_globals.spec)
+                            .expect("Should compute subnets for all custody groups")
+                            .collect();
+                    (custody_index, subnets)
+                })
+                .collect::<HashMap<_, Vec<DataColumnSubnetId>>>()
+        } else {
+            HashMap::new()
+        };
+
         Ok(PeerManager {
             network_globals,
             events: SmallVec::new(),
@@ -168,6 +190,7 @@ impl<E: EthSpec> PeerManager<E> {
             target_peers: target_peer_count,
             temporary_banned_peers: LRUTimeCache::new(PEER_RECONNECTION_TIMEOUT),
             sync_committee_subnets: Default::default(),
+            subnets_by_custody_group,
             heartbeat,
             discovery_enabled,
             metrics_enabled,
@@ -709,22 +732,39 @@ impl<E: EthSpec> PeerManager<E> {
                     "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
             }
 
-            let custody_subnet_count_opt = meta_data.custody_subnet_count().copied().ok();
+            let custody_group_count_opt = meta_data.custody_group_count().copied().ok();
             peer_info.set_meta_data(meta_data);
 
             if self.network_globals.spec.is_peer_das_scheduled() {
                 // Gracefully ignore metadata/v2 peers. Potentially downscore after PeerDAS to
                 // prioritize PeerDAS peers.
-                if let Some(custody_subnet_count) = custody_subnet_count_opt {
-                    match self.compute_peer_custody_subnets(peer_id, custody_subnet_count) {
-                        Ok(custody_subnets) => {
+                if let Some(custody_group_count) = custody_group_count_opt {
+                    match self.compute_peer_custody_groups(peer_id, custody_group_count) {
+                        Ok(custody_groups) => {
+                            let custody_subnets = custody_groups
+                                .into_iter()
+                                .flat_map(|custody_index| {
+                                    self.subnets_by_custody_group
+                                        .get(&custody_index)
+                                        .cloned()
+                                        .unwrap_or_else(|| {
+                                            warn!(
+                                                self.log,
+                                                "Custody group not found in subnet mapping";
+                                                "custody_index" => custody_index,
+                                                "peer_id" => %peer_id
+                                            );
+                                            vec![]
+                                        })
+                                })
+                                .collect();
                             peer_info.set_custody_subnets(custody_subnets);
                         }
                         Err(err) => {
-                            debug!(self.log, "Unable to compute peer custody subnets from metadata";
+                            debug!(self.log, "Unable to compute peer custody groups from metadata";
                                 "info" => "Sending goodbye to peer",
                                 "peer_id" => %peer_id,
-                                "custody_subnet_count" => custody_subnet_count,
+                                "custody_group_count" => custody_group_count,
                                 "error" => ?err,
                             );
                             invalid_meta_data = true;
@@ -1307,8 +1347,10 @@ impl<E: EthSpec> PeerManager<E> {
     fn update_peer_count_metrics(&self) {
         let mut peers_connected = 0;
         let mut clients_per_peer = HashMap::new();
-        let mut peers_connected_mutli: HashMap<(&str, &str), i32> = HashMap::new();
-        let mut peers_per_custody_subnet_count: HashMap<u64, i64> = HashMap::new();
+        let mut inbound_ipv4_peers_connected: usize = 0;
+        let mut inbound_ipv6_peers_connected: usize = 0;
+        let mut peers_connected_multi: HashMap<(&str, &str), i32> = HashMap::new();
+        let mut peers_per_custody_group_count: HashMap<u64, i64> = HashMap::new();
 
         for (_, peer_info) in self.network_globals.peers.read().connected_peers() {
             peers_connected += 1;
@@ -1336,25 +1378,48 @@ impl<E: EthSpec> PeerManager<E> {
                     })
                 })
                 .unwrap_or("unknown");
-            *peers_connected_mutli
+            *peers_connected_multi
                 .entry((direction, transport))
                 .or_default() += 1;
 
             if let Some(MetaData::V3(meta_data)) = peer_info.meta_data() {
-                *peers_per_custody_subnet_count
-                    .entry(meta_data.custody_subnet_count)
+                *peers_per_custody_group_count
+                    .entry(meta_data.custody_group_count)
                     .or_default() += 1;
             }
+            // Check if incoming peer is ipv4
+            if peer_info.is_incoming_ipv4_connection() {
+                inbound_ipv4_peers_connected += 1;
+            }
+
+            // Check if incoming peer is ipv6
+            if peer_info.is_incoming_ipv6_connection() {
+                inbound_ipv6_peers_connected += 1;
+            }
+        }
+
+        // Set ipv4 nat_open metric flag if threshold of peercount is met, unset if below threshold
+        if inbound_ipv4_peers_connected >= LIBP2P_NAT_OPEN_THRESHOLD {
+            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv4"], 1);
+        } else {
+            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv4"], 0);
+        }
+
+        // Set ipv6 nat_open metric flag if threshold of peercount is met, unset if below threshold
+        if inbound_ipv6_peers_connected >= LIBP2P_NAT_OPEN_THRESHOLD {
+            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv6"], 1);
+        } else {
+            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv6"], 0);
         }
 
         // PEERS_CONNECTED
         metrics::set_gauge(&metrics::PEERS_CONNECTED, peers_connected);
 
-        // CUSTODY_SUBNET_COUNT
-        for (custody_subnet_count, peer_count) in peers_per_custody_subnet_count.into_iter() {
+        // CUSTODY_GROUP_COUNT
+        for (custody_group_count, peer_count) in peers_per_custody_group_count.into_iter() {
             metrics::set_gauge_vec(
-                &metrics::PEERS_PER_CUSTODY_SUBNET_COUNT,
-                &[&custody_subnet_count.to_string()],
+                &metrics::PEERS_PER_CUSTODY_GROUP_COUNT,
+                &[&custody_group_count.to_string()],
                 peer_count,
             )
         }
@@ -1375,7 +1440,7 @@ impl<E: EthSpec> PeerManager<E> {
                 metrics::set_gauge_vec(
                     &metrics::PEERS_CONNECTED_MULTI,
                     &[direction, transport],
-                    *peers_connected_mutli
+                    *peers_connected_multi
                         .get(&(direction, transport))
                         .unwrap_or(&0) as i64,
                 );
@@ -1383,43 +1448,27 @@ impl<E: EthSpec> PeerManager<E> {
         }
     }
 
-    fn compute_peer_custody_subnets(
+    fn compute_peer_custody_groups(
         &self,
         peer_id: &PeerId,
-        custody_subnet_count: u64,
-    ) -> Result<HashSet<DataColumnSubnetId>, String> {
+        custody_group_count: u64,
+    ) -> Result<HashSet<CustodyIndex>, String> {
         // If we don't have a node id, we cannot compute the custody duties anyway
         let node_id = peer_id_to_node_id(peer_id)?;
         let spec = &self.network_globals.spec;
 
-        if !(spec.custody_requirement..=spec.data_column_sidecar_subnet_count)
-            .contains(&custody_subnet_count)
+        if !(spec.custody_requirement..=spec.number_of_custody_groups)
+            .contains(&custody_group_count)
         {
-            return Err("Invalid custody subnet count in metadata: out of range".to_string());
+            return Err("Invalid custody group count in metadata: out of range".to_string());
         }
 
-        let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-            node_id.raw(),
-            custody_subnet_count,
-            spec,
-        )
-        .map(|subnets| subnets.collect())
-        .unwrap_or_else(|e| {
-            // This is an unreachable scenario unless there's a bug, as we've validated the csc
-            // just above.
-            error!(
-                self.log,
-                "Computing peer custody subnets failed unexpectedly";
-                "info" => "Falling back to default custody requirement subnets",
-                "peer_id" => %peer_id,
-                "custody_subnet_count" => custody_subnet_count,
-                "error" => ?e
-            );
-            DataColumnSubnetId::compute_custody_requirement_subnets::<E>(node_id.raw(), spec)
-                .collect()
-        });
-
-        Ok(custody_subnets)
+        get_custody_groups(node_id.raw(), custody_group_count, spec).map_err(|e| {
+            format!(
+                "Error computing peer custody groups for node {} with cgc={}: {:?}",
+                node_id, custody_group_count, e
+            )
+        })
     }
 }
 

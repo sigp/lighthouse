@@ -1,5 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -9,7 +10,7 @@ use libp2p::{swarm::NotifyHandler, PeerId};
 use slog::{crit, debug, Logger};
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
-use types::EthSpec;
+use types::{EthSpec, ForkContext};
 
 use super::{
     config::OutboundRateLimiterConfig,
@@ -50,9 +51,13 @@ pub enum Error {
 
 impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// Creates a new [`SelfRateLimiter`] based on configration values.
-    pub fn new(config: OutboundRateLimiterConfig, log: Logger) -> Result<Self, &'static str> {
+    pub fn new(
+        config: OutboundRateLimiterConfig,
+        fork_context: Arc<ForkContext>,
+        log: Logger,
+    ) -> Result<Self, &'static str> {
         debug!(log, "Using self rate limiting params"; "config" => ?config);
-        let limiter = RateLimiter::new_with_config(config.0)?;
+        let limiter = RateLimiter::new_with_config(config.0, fork_context)?;
 
         Ok(SelfRateLimiter {
             delayed_requests: Default::default(),
@@ -212,10 +217,10 @@ mod tests {
     use crate::rpc::rate_limiter::Quota;
     use crate::rpc::self_limiter::SelfRateLimiter;
     use crate::rpc::{Ping, Protocol, RequestType};
-    use crate::service::api_types::{AppRequestId, RequestId, SyncRequestId};
+    use crate::service::api_types::{AppRequestId, RequestId, SingleLookupReqId, SyncRequestId};
     use libp2p::PeerId;
     use std::time::Duration;
-    use types::MainnetEthSpec;
+    use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
 
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
@@ -225,15 +230,24 @@ mod tests {
             ping_quota: Quota::n_every(1, 2),
             ..Default::default()
         });
+        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Hash256::ZERO,
+            &MainnetEthSpec::default_spec(),
+        ));
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(config, log).unwrap();
+            SelfRateLimiter::new(config, fork_context, log).unwrap();
         let peer_id = PeerId::random();
+        let lookup_id = 0;
 
         for i in 1..=5u32 {
             let _ = limiter.allows(
                 peer_id,
-                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                    id: i,
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    id: SingleLookupReqId {
+                        lookup_id,
+                        req_id: i,
+                    },
                 })),
                 RequestType::Ping(Ping { data: i as u64 }),
             );
@@ -251,9 +265,9 @@ mod tests {
             for i in 2..=5u32 {
                 assert!(matches!(
                     iter.next().unwrap().request_id,
-                    RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                        id,
-                    })) if id == i
+                    RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                        id: SingleLookupReqId { req_id, .. },
+                    })) if req_id == i,
                 ));
             }
 
@@ -276,9 +290,9 @@ mod tests {
             for i in 3..=5 {
                 assert!(matches!(
                     iter.next().unwrap().request_id,
-                    RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                        id
-                    })) if id == i
+                    RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                        id: SingleLookupReqId { req_id, .. },
+                    })) if req_id == i,
                 ));
             }
 

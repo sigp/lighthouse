@@ -7,8 +7,8 @@ edition = { workspace = true }
 [dependencies]
 alloy-primitives = { workspace = true }
 ethereum_hashing = { workspace = true }
-safe_arith = { workspace = true }
 fixed_bytes = { workspace = true }
+safe_arith = { workspace = true }
 
 [dev-dependencies]
 quickcheck = { workspace = true }

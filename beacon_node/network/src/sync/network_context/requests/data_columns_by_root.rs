@@ -57,7 +57,10 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
             return Err(LookupVerifyError::UnrequestedIndex(data_column.index));
         }
         if self.items.iter().any(|d| d.index == data_column.index) {
-            return Err(LookupVerifyError::DuplicateData);
+            return Err(LookupVerifyError::DuplicatedData(
+                data_column.slot(),
+                data_column.index,
+            ));
         }
 
         self.items.push(data_column);

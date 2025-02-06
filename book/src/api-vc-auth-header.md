@@ -18,12 +18,13 @@ Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh
 ## Obtaining the API token
 
 The API token is stored as a file in the `validators` directory. For most users
-this is `~/.lighthouse/{network}/validators/api-token.txt`. Here's an
-example using the `cat` command to print the token to the terminal, but any
+this is `~/.lighthouse/{network}/validators/api-token.txt`, unless overridden using the
+`--http-token-path` CLI parameter. Here's an
+example using the `cat` command to print the token for mainnet to the terminal, but any
 text editor will suffice:
 
 ```bash
-cat api-token.txt
+cat ~/.lighthouse/mainnet/validators/api-token.txt
 hGut6B8uEujufDXSmZsT0thnxvdvKFBvh
 ```
 

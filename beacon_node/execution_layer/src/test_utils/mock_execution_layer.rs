@@ -13,7 +13,7 @@ pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
     pub el: ExecutionLayer<E>,
     pub executor: TaskExecutor,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> MockExecutionLayer<E> {
@@ -28,8 +28,9 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-            spec,
+            Arc::new(spec),
             None,
         )
     }
@@ -41,8 +42,9 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         shanghai_time: Option<u64>,
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
+        osaka_time: Option<u64>,
         jwt_key: Option<JwtKey>,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let handle = executor.handle().unwrap();
@@ -57,6 +59,8 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             shanghai_time,
             cancun_time,
             prague_time,
+            osaka_time,
+            spec.clone(),
             kzg,
         );
 
@@ -90,6 +94,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         };
 
         let parent_hash = latest_execution_block.block_hash();
+        let parent_gas_limit = latest_execution_block.gas_limit();
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
         let prev_randao = Hash256::from_low_u64_be(block_number);
@@ -131,14 +136,20 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
 
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: ForkName::Bellatrix,
+        };
+
         let block_proposal_content_type = self
             .el
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,
@@ -171,14 +182,20 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
 
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: ForkName::Bellatrix,
+        };
+
         let block_proposal_content_type = self
             .el
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::BlindedV2,
@@ -305,9 +322,9 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         (self, block_hash)
     }
 
-    pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
+    pub async fn with_terminal_block<U, V>(self, func: U) -> Self
     where
-        U: Fn(ChainSpec, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
+        U: Fn(Arc<ChainSpec>, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
         V: Future<Output = ()>,
     {
         let terminal_block_number = self

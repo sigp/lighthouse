@@ -11,6 +11,9 @@ Options:
       --auto-compact-db <auto-compact-db>
           Enable or disable automatic compaction of the database on
           finalization. [default: true]
+      --beacon-node-backend <DATABASE>
+          Set the database backend to be used by the beacon node. [possible
+          values: leveldb]
       --blob-prune-margin-epochs <EPOCHS>
           The margin for blob pruning in epochs. The oldest blobs are pruned up
           until data_availability_boundary - blob_prune_margin_epochs. [default:
@@ -298,8 +301,8 @@ Options:
           [default: 9000]
       --port6 <PORT>
           The TCP/UDP ports to listen on over IPv6 when listening over both IPv4
-          and IPv6. Defaults to 9090 when required. The Quic UDP port will be
-          set to this value + 1. [default: 9090]
+          and IPv6. Defaults to --port. The Quic UDP port will be set to this
+          value + 1.
       --prepare-payload-lookahead <MILLISECONDS>
           The time before the start of a proposal slot at which payload
           attributes should be sent. Low values are useful for execution nodes
