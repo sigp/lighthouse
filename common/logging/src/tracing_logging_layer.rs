@@ -403,6 +403,7 @@ fn build_log_text<'a, S>(
     let bold_start = "\x1b[1m";
     let bold_end = "\x1b[0m";
     let mut collected_span_fields = Vec::new();
+
     if let Some(scope) = ctx.event_scope(event) {
         for span in scope {
             let id = span.id();
@@ -417,7 +418,7 @@ fn build_log_text<'a, S>(
     for (_, fields) in collected_span_fields.iter().rev() {
         for (i, (field_name, field_value)) in fields.iter().enumerate() {
             if i > 0 {
-                formatted_spans.push(' ');
+                formatted_spans.push_str(", ");
             }
             if logfile_color {
                 formatted_spans.push_str(&format!(
@@ -463,7 +464,7 @@ fn build_log_text<'a, S>(
     let mut formatted_fields = String::new();
     for (i, (field_name, field_value)) in visitor.fields.iter().enumerate() {
         if i > 0 {
-            formatted_fields.push(' ');
+            formatted_fields.push_str(", ");
         }
         if logfile_color {
             formatted_fields.push_str(&format!(
@@ -475,10 +476,15 @@ fn build_log_text<'a, S>(
         }
     }
 
-    let mut full_message = padded_message.clone();
-    if !formatted_fields.is_empty() {
-        full_message = format!("{}  {}", padded_message, formatted_fields);
-    }
+    let full_message = if !formatted_fields.is_empty() {
+        if !formatted_spans.is_empty() {
+            format!("{}  {},", padded_message, formatted_fields)
+        } else {
+            format!("{}  {}", padded_message, formatted_fields)
+        }
+    } else {
+        format!("{}", padded_message)
+    };
 
     let message = if !location.is_empty() {
         format!(
