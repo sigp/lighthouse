@@ -43,7 +43,7 @@ use crate::{
 use bls::verify_signature_sets;
 use itertools::Itertools;
 use proto_array::Block as ProtoBlock;
-use slog::debug;
+use slog::{debug, error};
 use slot_clock::SlotClock;
 use state_processing::{
     common::{
@@ -60,7 +60,7 @@ use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationRef, BeaconCommittee, BeaconStateError::NoCommitteeFound, ChainSpec,
+    Attestation, AttestationData, AttestationRef, BeaconCommittee, BeaconStateError, ChainSpec,
     CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, SelectionProof,
     SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
 };
@@ -107,14 +107,18 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    InvalidSelectionProof { aggregator_index: u64 },
+    InvalidSelectionProof {
+        aggregator_index: u64,
+    },
     /// The `selection_proof` on the aggregate attestation selects it as a validator, however the
     /// aggregator index is not in the committee for that attestation.
     ///
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    AggregatorNotInCommittee { aggregator_index: u64 },
+    AggregatorNotInCommittee {
+        aggregator_index: u64,
+    },
     /// The aggregator index refers to a validator index that we have not seen.
     ///
     /// ## Peer scoring
@@ -155,7 +159,9 @@ pub enum Error {
     ///
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
-    UnknownHeadBlock { beacon_block_root: Hash256 },
+    UnknownHeadBlock {
+        beacon_block_root: Hash256,
+    },
     /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
     ///
     /// ## Peer scoring
@@ -163,7 +169,9 @@ pub enum Error {
     /// The attestation is not descended from the finalized checkpoint, which is a REJECT according
     /// to the spec. We downscore lightly because this could also happen if we are processing
     /// attestations extremely slowly.
-    HeadBlockFinalized { beacon_block_root: Hash256 },
+    HeadBlockFinalized {
+        beacon_block_root: Hash256,
+    },
     /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
     ///
     /// ## Peer scoring
@@ -190,7 +198,21 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    NoCommitteeForSlotAndIndex { slot: Slot, index: CommitteeIndex },
+    NoCommitteeForSlotAndIndex {
+        slot: Slot,
+        index: CommitteeIndex,
+    },
+    /// The attestation signature is valid for `attestation.index`, but the validator is not part
+    /// of the committee claimed.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    AttesterNotInCommittee {
+        attester_index: u64,
+        committee_index: u64,
+        slot: Slot,
+    },
     /// The unaggregated attestation doesn't have only one aggregation bit set.
     ///
     /// ## Peer scoring
@@ -211,14 +233,20 @@ pub enum Error {
     /// It's unclear if this attestation is valid, however we have already observed a
     /// single-participant attestation from this validator for this epoch and should not observe
     /// another.
-    PriorAttestationKnown { validator_index: u64, epoch: Epoch },
+    PriorAttestationKnown {
+        validator_index: u64,
+        epoch: Epoch,
+    },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     ///
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    AttestsToFutureBlock { block: Slot, attestation: Slot },
+    AttestsToFutureBlock {
+        block: Slot,
+        attestation: Slot,
+    },
     /// The attestation was received on an invalid attestation subnet.
     ///
     /// ## Peer scoring
@@ -234,6 +262,8 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     Invalid(AttestationValidationError),
+    // FIXME(sproul): try to streamline this error type or something
+    Invalid2(types::attestation::Error),
     /// The attestation head block is too far behind the attestation slot, causing many skip slots.
     /// This is deemed a DoS risk.
     TooManySkippedSlots {
@@ -245,7 +275,10 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    InvalidTargetEpoch { slot: Slot, epoch: Epoch },
+    InvalidTargetEpoch {
+        slot: Slot,
+        epoch: Epoch,
+    },
     /// The attestation references an invalid target block.
     ///
     /// ## Peer scoring
@@ -292,11 +325,14 @@ struct IndexedAggregatedAttestation<'a, T: BeaconChainTypes> {
 /// be derived.
 ///
 /// These attestations have *not* undergone signature verification.
+///
+/// Post-Electra, they also have not been checked against the committee from the chain they purport
+/// to belong to.
 struct IndexedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
-    attestation: AttestationRef<'a, T::EthSpec>,
+    attestation: &'a SingleAttestation,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
-    subnet_id: SubnetId,
-    validator_index: u64,
+    /// Subnet ID (has not been verified yet).
+    subnet_id: Option<SubnetId>,
 }
 
 /// Wraps a `SignedAggregateAndProof` that has been fully verified for propagation on the gossip
@@ -314,10 +350,10 @@ impl<T: BeaconChainTypes> VerifiedAggregatedAttestation<'_, T> {
 
 /// Wraps an `Attestation` that has been fully verified for propagation on the gossip network.
 pub struct VerifiedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
-    attestation: AttestationRef<'a, T::EthSpec>,
+    single_attestation: &'a SingleAttestation,
+    attestation: Attestation<T::EthSpec>,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     subnet_id: SubnetId,
-    validator_index: usize,
 }
 
 impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'_, T> {
@@ -325,13 +361,8 @@ impl<T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'_, T> {
         self.indexed_attestation
     }
 
-    pub fn single_attestation(&self) -> Option<SingleAttestation> {
-        Some(SingleAttestation {
-            committee_index: self.attestation.committee_index()?,
-            attester_index: self.validator_index as u64,
-            data: self.attestation.data().clone(),
-            signature: self.attestation.signature().clone(),
-        })
+    pub fn single_attestation(&self) -> &SingleAttestation {
+        self.single_attestation
     }
 }
 
@@ -343,7 +374,6 @@ impl<T: BeaconChainTypes> Clone for IndexedUnaggregatedAttestation<'_, T> {
             attestation: self.attestation,
             indexed_attestation: self.indexed_attestation.clone(),
             subnet_id: self.subnet_id,
-            validator_index: self.validator_index,
         }
     }
 }
@@ -375,7 +405,7 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttestati
 
 impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregatedAttestation<'_, T> {
     fn attestation(&self) -> AttestationRef<T::EthSpec> {
-        self.attestation
+        self.attestation.to_ref()
     }
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
@@ -389,6 +419,8 @@ pub enum AttestationSlashInfo<'a, T: BeaconChainTypes, TErr> {
     SignatureNotChecked(AttestationRef<'a, T::EthSpec>, TErr),
     /// As for `SignatureNotChecked`, but we know the `IndexedAttestation`.
     SignatureNotCheckedIndexed(IndexedAttestation<T::EthSpec>, TErr),
+    /// SingleAttestation which has not had its signature checked.
+    SignatureNotCheckedSingle(&'a SingleAttestation, TErr),
     /// The attestation's signature is invalid, so it will never be slashable.
     SignatureInvalid(TErr),
     /// The signature is valid but the attestation is invalid in some other way.
@@ -429,6 +461,21 @@ fn process_slash_info<T: BeaconChainTypes>(
                 }
             }
             SignatureNotCheckedIndexed(indexed, err) => (indexed, true, err),
+            SignatureNotCheckedSingle(single, err) => {
+                match single.to_indexed_attestation(&chain.spec) {
+                    Ok(indexed) => (indexed, true, err),
+                    Err(e) => {
+                        // This should never happen: the `attesting_indices` should always be able
+                        // to fit 1 validator index.
+                        error!(
+                            chain.log,
+                            "Indexing failed for SingleAttestation";
+                            "error" => ?e
+                        );
+                        return err;
+                    }
+                }
+            }
             SignatureInvalid(e) => return e,
             SignatureValid(indexed, err) => (indexed, false, err),
         };
@@ -452,6 +499,7 @@ fn process_slash_info<T: BeaconChainTypes>(
         match slash_info {
             SignatureNotChecked(_, e)
             | SignatureNotCheckedIndexed(_, e)
+            | SignatureNotCheckedSingle(_, e)
             | SignatureInvalid(e)
             | SignatureValid(_, e) => e,
         }
@@ -485,7 +533,11 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
+        verify_propagation_slot_range::<_, T::EthSpec>(
+            &chain.slot_clock,
+            attestation.data(),
+            &chain.spec,
+        )?;
 
         // Check the attestation's epoch matches its target.
         if attestation.data().slot.epoch(T::EthSpec::slots_per_epoch())
@@ -548,7 +600,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         //
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
-        let head_block = verify_head_block_is_known(chain, attestation, None)?;
+        let head_block = verify_head_block_is_known(chain, attestation.data(), None)?;
 
         // Check the attestation target root is consistent with the head root.
         //
@@ -557,7 +609,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         //
         // Whilst this attestation *technically* could be used to add value to a block, it is
         // invalid in the spirit of the protocol. Here we choose safety over profit.
-        verify_attestation_target_root::<T::EthSpec>(&head_block, attestation)?;
+        verify_attestation_target_root::<T::EthSpec>(&head_block, attestation.data())?;
 
         // Ensure that the attestation has participants.
         if attestation.is_aggregation_bits_zero() {
@@ -648,7 +700,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         let attestation = signed_aggregate.message().aggregate();
         let indexed_attestation = match map_attestation_committees(
             chain,
-            attestation,
+            attestation.data(),
             get_indexed_attestation_with_committee,
         ) {
             Ok(indexed_attestation) => indexed_attestation,
@@ -800,16 +852,16 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
 impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
     /// Run the checks that happen before an indexed attestation is constructed.
     pub fn verify_early_checks(
-        attestation: AttestationRef<T::EthSpec>,
+        attestation: &SingleAttestation,
         chain: &BeaconChain<T>,
     ) -> Result<(), Error> {
-        let attestation_epoch = attestation.data().slot.epoch(T::EthSpec::slots_per_epoch());
+        let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
 
         // Check the attestation's epoch matches its target.
-        if attestation_epoch != attestation.data().target.epoch {
+        if attestation_epoch != attestation.data.target.epoch {
             return Err(Error::InvalidTargetEpoch {
-                slot: attestation.data().slot,
-                epoch: attestation.data().target.epoch,
+                slot: attestation.data.slot,
+                epoch: attestation.data.target.epoch,
             });
         }
 
@@ -817,77 +869,53 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
+        verify_propagation_slot_range::<_, T::EthSpec>(
+            &chain.slot_clock,
+            &attestation.data,
+            &chain.spec,
+        )?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
+        // FIXME(sproul): ensure this check is in the conversion step
+        /*
         let num_aggregation_bits = attestation.num_set_aggregation_bits();
         if num_aggregation_bits != 1 {
             return Err(Error::NotExactlyOneAggregationBitSet(num_aggregation_bits));
         }
-
-        // [New in Electra:EIP7549]
-        verify_committee_index(attestation)?;
+        */
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
         //
         // Enforce a maximum skip distance for unaggregated attestations.
-        let head_block =
-            verify_head_block_is_known(chain, attestation, chain.config.import_max_skip_slots)?;
+        let head_block = verify_head_block_is_known(
+            chain,
+            &attestation.data,
+            chain.config.import_max_skip_slots,
+        )?;
 
         // Check the attestation target root is consistent with the head root.
-        verify_attestation_target_root::<T::EthSpec>(&head_block, attestation)?;
-
-        Ok(())
-    }
-
-    /// Run the checks that apply to the indexed attestation before the signature is checked.
-    pub fn verify_middle_checks(
-        attestation: AttestationRef<T::EthSpec>,
-        indexed_attestation: &IndexedAttestation<T::EthSpec>,
-        committees_per_slot: u64,
-        subnet_id: Option<SubnetId>,
-        chain: &BeaconChain<T>,
-    ) -> Result<(u64, SubnetId), Error> {
-        let expected_subnet_id = SubnetId::compute_subnet_for_attestation::<T::EthSpec>(
-            attestation,
-            committees_per_slot,
-            &chain.spec,
-        )
-        .map_err(BeaconChainError::from)?;
-
-        // If a subnet was specified, ensure that subnet is correct.
-        if let Some(subnet_id) = subnet_id {
-            if subnet_id != expected_subnet_id {
-                return Err(Error::InvalidSubnetId {
-                    received: subnet_id,
-                    expected: expected_subnet_id,
-                });
-            }
-        };
-
-        let validator_index = *indexed_attestation
-            .attesting_indices_first()
-            .ok_or(Error::NotExactlyOneAggregationBitSet(0))?;
+        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation.data)?;
 
         /*
          * The attestation is the first valid attestation received for the participating validator
          * for the slot, attestation.data.slot.
          */
+        let validator_index = attestation.attester_index;
         if chain
             .observed_gossip_attesters
             .read()
-            .validator_has_been_observed(attestation.data().target.epoch, validator_index as usize)
+            .validator_has_been_observed(attestation.data.target.epoch, validator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
                 validator_index,
-                epoch: attestation.data().target.epoch,
+                epoch: attestation.data.target.epoch,
             });
         }
 
-        Ok((validator_index, expected_subnet_id))
+        Ok(())
     }
 
     /// Returns `Ok(Self)` if the `attestation` is valid to be (re)published on the gossip
@@ -896,11 +924,11 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
     /// `subnet_id` is the subnet from which we received this attestation. This function will
     /// verify that it was received on the correct subnet.
     pub fn verify(
-        attestation: &'a Attestation<T::EthSpec>,
+        attestation: &'a SingleAttestation,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
-        Self::verify_slashable(attestation.to_ref(), subnet_id, chain)
+        Self::verify_slashable(attestation, subnet_id, chain)
             .inspect(|verified_unaggregated| {
                 if let Some(slasher) = chain.slasher.as_ref() {
                     slasher.accept_attestation(verified_unaggregated.indexed_attestation.clone());
@@ -911,40 +939,28 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
     pub fn verify_slashable(
-        attestation: AttestationRef<'a, T::EthSpec>,
+        attestation: &'a SingleAttestation,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, AttestationSlashInfo<'a, T, Error>> {
         use AttestationSlashInfo::*;
 
         if let Err(e) = Self::verify_early_checks(attestation, chain) {
-            return Err(SignatureNotChecked(attestation, e));
+            return Err(SignatureNotCheckedSingle(attestation, e));
         }
 
-        let (indexed_attestation, committees_per_slot) =
-            match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
-                Ok(x) => x,
-                Err(e) => {
-                    return Err(SignatureNotChecked(attestation, e));
-                }
-            };
-
-        let (validator_index, expected_subnet_id) = match Self::verify_middle_checks(
-            attestation,
-            &indexed_attestation,
-            committees_per_slot,
-            subnet_id,
-            chain,
-        ) {
-            Ok(t) => t,
-            Err(e) => return Err(SignatureNotCheckedIndexed(indexed_attestation, e)),
+        // Cheap conversion from `SingleAttestation` to `IndexedAttestation`.
+        // The correctness of this indexed attestation is checked later, after signature
+        // verification.
+        let indexed_attestation = match attestation.to_indexed_attestation(&chain.spec) {
+            Ok(indexed) => indexed,
+            Err(e) => return Err(SignatureNotCheckedSingle(attestation, Error::Invalid2(e))),
         };
 
         Ok(Self {
             attestation,
             indexed_attestation,
-            subnet_id: expected_subnet_id,
-            validator_index,
+            subnet_id,
         })
     }
 
@@ -960,10 +976,36 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
     /// Run the checks that apply after the signature has been checked.
     fn verify_late_checks(
-        attestation: AttestationRef<T::EthSpec>,
+        attestation: &SingleAttestation,
         validator_index: u64,
+        subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<(), Error> {
+        let committees_per_slot =
+            match check_single_attestation_and_get_committees_per_slot(chain, attestation) {
+                Ok(x) => x,
+                Err(e) => {
+                    return Err(SignatureCheckedIndexed(attestation, e));
+                }
+            };
+
+        let expected_subnet_id = SubnetId::compute_subnet_for_attestation::<T::EthSpec>(
+            attestation,
+            committees_per_slot,
+            &chain.spec,
+        )
+        .map_err(BeaconChainError::from)?;
+
+        // If a subnet was specified, ensure that subnet is correct.
+        if let Some(subnet_id) = subnet_id {
+            if subnet_id != expected_subnet_id {
+                return Err(Error::InvalidSubnetId {
+                    received: subnet_id,
+                    expected: expected_subnet_id,
+                });
+            }
+        }
+
         // Now that the attestation has been fully verified, store that we have received a valid
         // attestation from this validator.
         //
@@ -981,6 +1023,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
                 epoch: attestation.data().target.epoch,
             });
         }
+
         Ok(())
     }
 
@@ -1025,7 +1068,6 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             attestation,
             indexed_attestation,
             subnet_id,
-            validator_index,
         } = attestation;
 
         match check_signature {
@@ -1037,7 +1079,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             CheckAttestationSignature::No => (),
         };
 
-        if let Err(e) = Self::verify_late_checks(attestation, validator_index, chain) {
+        if let Err(e) = Self::verify_late_checks(attestation, subnet_id, chain) {
             return Err(SignatureValid(indexed_attestation, e));
         }
 
@@ -1045,7 +1087,6 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             attestation,
             indexed_attestation,
             subnet_id,
-            validator_index: validator_index as usize,
         })
     }
 
@@ -1085,13 +1126,13 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
 /// already finalized.
 fn verify_head_block_is_known<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    attestation: AttestationRef<T::EthSpec>,
+    attestation: &AttestationData,
     max_skip_slots: Option<u64>,
 ) -> Result<ProtoBlock, Error> {
     let block_opt = chain
         .canonical_head
         .fork_choice_read_lock()
-        .get_block(&attestation.data().beacon_block_root)
+        .get_block(&attestation.beacon_block_root)
         .or_else(|| {
             chain
                 .early_attester_cache
@@ -1101,7 +1142,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
     if let Some(block) = block_opt {
         // Reject any block that exceeds our limit on skipped slots.
         if let Some(max_skip_slots) = max_skip_slots {
-            if attestation.data().slot > block.slot + max_skip_slots {
+            if attestation.slot > block.slot + max_skip_slots {
                 return Err(Error::TooManySkippedSlots {
                     head_block_slot: block.slot,
                     attestation_slot: attestation.data().slot,
@@ -1110,9 +1151,9 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         }
 
         Ok(block)
-    } else if chain.is_pre_finalization_block(attestation.data().beacon_block_root)? {
+    } else if chain.is_pre_finalization_block(attestation.beacon_block_root)? {
         Err(Error::HeadBlockFinalized {
-            beacon_block_root: attestation.data().beacon_block_root,
+            beacon_block_root: attestation.beacon_block_root,
         })
     } else {
         // The block is either:
@@ -1122,7 +1163,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         // 2) A post-finalization block that we don't know about yet. We'll queue
         //    the attestation until the block becomes available (or we time out).
         Err(Error::UnknownHeadBlock {
-            beacon_block_root: attestation.data().beacon_block_root,
+            beacon_block_root: attestation.beacon_block_root,
         })
     }
 }
@@ -1133,10 +1174,10 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
 pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     slot_clock: &S,
-    attestation: AttestationRef<E>,
+    attestation: &AttestationData,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let attestation_slot = attestation.data().slot;
+    let attestation_slot = attestation.slot;
     let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;
@@ -1214,11 +1255,11 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
 /// `attestation.data.beacon_block_root`.
 pub fn verify_attestation_target_root<E: EthSpec>(
     head_block: &ProtoBlock,
-    attestation: AttestationRef<E>,
+    attestation: &AttestationData,
 ) -> Result<(), Error> {
     // Check the attestation target root.
     let head_block_epoch = head_block.slot.epoch(E::slots_per_epoch());
-    let attestation_epoch = attestation.data().slot.epoch(E::slots_per_epoch());
+    let attestation_epoch = attestation.slot.epoch(E::slots_per_epoch());
     if head_block_epoch > attestation_epoch {
         // The epoch references an invalid head block from a future epoch.
         //
@@ -1231,7 +1272,7 @@ pub fn verify_attestation_target_root<E: EthSpec>(
         // Reference:
         // https://github.com/ethereum/eth2.0-specs/pull/2001#issuecomment-699246659
         return Err(Error::InvalidTargetRoot {
-            attestation: attestation.data().target.root,
+            attestation: attestation.target.root,
             // It is not clear what root we should expect in this case, since the attestation is
             // fundamentally invalid.
             expected: None,
@@ -1250,9 +1291,9 @@ pub fn verify_attestation_target_root<E: EthSpec>(
         };
 
         // Reject any attestation with an invalid target root.
-        if target_root != attestation.data().target.root {
+        if target_root != attestation.target.root {
             return Err(Error::InvalidTargetRoot {
-                attestation: attestation.data().target.root,
+                attestation: attestation.target.root,
                 expected: Some(target_root),
             });
         }
@@ -1345,6 +1386,49 @@ pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Res
 /// Assists in readability.
 type CommitteesPerSlot = u64;
 
+/// Checks the `SingleAttestation` against its committee.
+///
+pub fn obtain_generic_attestation_and_committees_per_slot<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    single_attestation: &SingleAttestation,
+) -> Result<(Attestation<T::EthSpec>, CommitteesPerSlot), Error> {
+    map_attestation_committees(
+        chain,
+        &single_attestation.data,
+        |(committees, committees_per_slot)| {
+            let attester_index = single_attestation.attester_index;
+            let committee_index = single_attestation.committee_index;
+            let slot = single_attestation.data.slot;
+
+            let committee = committees.get(committee_index).ok_or_else(|_| {
+                Error::NoCommitteeForSlotAndIndex {
+                    slot,
+                    index: committee_index,
+                }
+            })?;
+
+            /*
+             *[REJECT] The attester is a member of the committee -- i.e. attestation.attester_index in
+             * get_beacon_committee(state, attestation.data.slot, index).
+             *
+             */
+            if !committee.contains(&attester_index) {
+                return Err(Error::AttesterNotInComittee {
+                    attester_index,
+                    committee_index,
+                    slot,
+                });
+            }
+
+            let attestation = single_attestation
+                .to_attestation(committee, &chain.spec)
+                .map_err(Error::Invalid)?;
+
+            Ok((attestation, committees_per_slot))
+        },
+    )
+}
+
 /// Returns the `indexed_attestation` and committee count per slot for the `attestation` using the
 /// public keys cached in the `chain`.
 pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
@@ -1378,7 +1462,10 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
                 attesting_indices_electra::get_indexed_attestation(&committees, att)
                     .map(|attestation| (attestation, committees_per_slot))
                     .map_err(|e| {
-                        if let BlockOperationError::BeaconStateError(NoCommitteeFound(index)) = e {
+                        if let BlockOperationError::BeaconStateError(
+                            BeaconStateError::NoCommitteeFound(index),
+                        ) = e
+                        {
                             Error::NoCommitteeForSlotAndIndex {
                                 slot: att.data.slot,
                                 index,
@@ -1405,15 +1492,15 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
 /// Committees are sorted by ascending index order 0..committees_per_slot
 fn map_attestation_committees<T, F, R>(
     chain: &BeaconChain<T>,
-    attestation: AttestationRef<T::EthSpec>,
+    attestation: &AttestationData,
     map_fn: F,
 ) -> Result<R, Error>
 where
     T: BeaconChainTypes,
     F: Fn((Vec<BeaconCommittee>, CommitteesPerSlot)) -> Result<R, Error>,
 {
-    let attestation_epoch = attestation.data().slot.epoch(T::EthSpec::slots_per_epoch());
-    let target = &attestation.data().target;
+    let attestation_epoch = attestation.slot.epoch(T::EthSpec::slots_per_epoch());
+    let target = &attestation.target;
 
     // Attestation target must be for a known block.
     //
@@ -1436,12 +1523,13 @@ where
             let committees_per_slot = committee_cache.committees_per_slot();
 
             Ok(committee_cache
-                .get_beacon_committees_at_slot(attestation.data().slot)
+                .get_beacon_committees_at_slot(attestation.slot)
                 .map(|committees| map_fn((committees, committees_per_slot)))
                 .unwrap_or_else(|_| {
                     Err(Error::NoCommitteeForSlotAndIndex {
-                        slot: attestation.data().slot,
-                        index: attestation.committee_index().unwrap_or(0),
+                        slot: attestation.slot,
+                        // FIXME(sproul): this committee index is bullshit
+                        index: attestation.index,
                     })
                 }))
         })

@@ -229,7 +229,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub fn process_gossip_attestation_batch(
         self: Arc<Self>,
-        packages: Vec<GossipAttestationPackage<T::EthSpec>>,
+        packages: Vec<GossipAttestationPackage<SingleAttestation>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
         let attestations_and_subnets = packages

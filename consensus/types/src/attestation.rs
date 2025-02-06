@@ -13,7 +13,8 @@ use tree_hash_derive::TreeHash;
 
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, CommitteeIndex, Domain, EthSpec, Fork,
-    SecretKey, Signature, SignedRoot,
+    IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra, SecretKey, Signature,
+    SignedRoot, VariableList,
 };
 
 #[derive(Debug, PartialEq)]
@@ -588,7 +589,11 @@ pub struct SingleAttestation {
 }
 
 impl SingleAttestation {
-    pub fn to_attestation<E: EthSpec>(&self, committee: &[usize]) -> Result<Attestation<E>, Error> {
+    pub fn to_attestation<E: EthSpec>(
+        &self,
+        committee: &[usize],
+        spec: &ChainSpec,
+    ) -> Result<Attestation<E>, Error> {
         let aggregation_bit = committee
             .iter()
             .enumerate()
@@ -600,22 +605,58 @@ impl SingleAttestation {
             })
             .ok_or(Error::AttesterNotInCommittee(self.attester_index))?;
 
-        let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
-        committee_bits
-            .set(self.committee_index as usize, true)
-            .map_err(|_| Error::InvalidCommitteeIndex)?;
+        let fork_name = spec.fork_name_at_slot::<E>(self.data.slot);
 
-        let mut aggregation_bits =
-            BitList::with_capacity(committee.len()).map_err(|_| Error::InvalidCommitteeLength)?;
+        if fork_name.electra_enabled() {
+            let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
+            committee_bits
+                .set(self.committee_index as usize, true)
+                .map_err(|_| Error::InvalidCommitteeIndex)?;
 
-        aggregation_bits.set(aggregation_bit, true)?;
+            let mut aggregation_bits = BitList::with_capacity(committee.len())
+                .map_err(|_| Error::InvalidCommitteeLength)?;
 
-        Ok(Attestation::Electra(AttestationElectra {
-            aggregation_bits,
-            committee_bits,
-            data: self.data.clone(),
-            signature: self.signature.clone(),
-        }))
+            aggregation_bits.set(aggregation_bit, true)?;
+
+            Ok(Attestation::Electra(AttestationElectra {
+                aggregation_bits,
+                committee_bits,
+                data: self.data.clone(),
+                signature: self.signature.clone(),
+            }))
+        } else {
+            let mut aggregation_bits = BitList::with_capacity(committee.len())
+                .map_err(|_| Error::InvalidCommitteeLength)?;
+            aggregation_bits.set(aggregation_bit, true)?;
+
+            Ok(Attestation::Base(AttestationBase {
+                aggregation_bits,
+                data: self.data.clone(),
+                signature: self.signature.clone(),
+            }))
+        }
+    }
+
+    pub fn to_indexed_attestation<E: EthSpec>(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<IndexedAttestation<E>, Error> {
+        let fork_name = spec.fork_name_at_slot::<E>(self.data.slot);
+        if fork_name.electra_enabled() {
+            let attesting_indices = VariableList::new(vec![self.attester_index])?;
+            Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
+                attesting_indices,
+                data: self.data.clone(),
+                signature: self.signature.clone(),
+            }))
+        } else {
+            let attesting_indices = VariableList::new(vec![self.attester_index])?;
+            Ok(IndexedAttestation::Base(IndexedAttestationBase {
+                attesting_indices,
+                data: self.data.clone(),
+                signature: self.signature.clone(),
+            }))
+        }
     }
 }
 

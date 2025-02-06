@@ -12,7 +12,7 @@ use types::{
     InconsistentFork, IndexedAttestation, IndexedAttestationRef, ProposerSlashing, PublicKey,
     PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
-    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
+    SigningData, SingleAttestation, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -296,6 +296,37 @@ where
     let message = indexed_attestation.data().signing_root(domain);
 
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
+}
+
+/// Returns the signature set for the given `SingleAttestation`.
+pub fn single_attestation_signature_set<'a, E, F>(
+    state: &'a BeaconState<E>,
+    get_pubkey: F,
+    single_attestation: &'a SingleAttestation,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let validator_index = single_attestation.attester_index;
+    let pubkey =
+        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?;
+
+    let domain = spec.get_domain(
+        single_attestation.data.target.epoch,
+        Domain::BeaconAttester,
+        &state.fork(),
+        state.genesis_validators_root(),
+    );
+
+    let message = single_attestation.data.signing_root(domain);
+
+    Ok(SignatureSet::single_pubkey(
+        &single_attestation.signature,
+        pubkey,
+        message,
+    ))
 }
 
 /// Returns the signature set for the given `indexed_attestation` but pubkeys are supplied directly

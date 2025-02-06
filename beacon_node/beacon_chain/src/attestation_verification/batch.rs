@@ -136,12 +136,13 @@ pub fn batch_verify_unaggregated_attestations<'a, T, I>(
 ) -> Result<Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, Error>>, Error>
 where
     T: BeaconChainTypes,
-    I: Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)> + ExactSizeIterator,
+    I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
 {
     let mut num_partially_verified = 0;
     let mut num_failed = 0;
 
     // Perform partial verification of all attestations, collecting the results.
+    // TODO(electra): we will refactor this so it doesn't do committee calculations
     let partial_results = attestations
         .map(|(attn, subnet_opt)| {
             let result = IndexedUnaggregatedAttestation::verify(attn, subnet_opt, chain);

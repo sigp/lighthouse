@@ -2062,7 +2062,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         AttestationError,
     >
     where
-        I: Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)> + ExactSizeIterator,
+        I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
     {
         batch_verify_unaggregated_attestations(attestations, self)
     }
