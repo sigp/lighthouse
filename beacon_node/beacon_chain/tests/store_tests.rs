@@ -50,8 +50,8 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, Beacon
     let store_config = StoreConfig {
         prune_payloads: false,
         ..StoreConfig::default()
-    };  
-    get_store_generic(db_path, StoreConfig::default(), test_spec::<E>())
+    };
+    get_store_generic(db_path, store_config, test_spec::<E>())
 }
 
 fn get_store_generic(
