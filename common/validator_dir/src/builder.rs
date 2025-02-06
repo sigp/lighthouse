@@ -1,7 +1,6 @@
 use crate::{Error as DirError, ValidatorDir};
 use bls::get_withdrawal_credentials;
 use deposit_contract::{encode_eth1_tx_data, Error as DepositError};
-use directory::ensure_dir_exists;
 use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
 use filesystem::create_with_600_perms;
 use rand::{distributions::Alphanumeric, Rng};
@@ -42,7 +41,7 @@ pub enum Error {
     #[cfg(feature = "insecure_keys")]
     InsecureKeysError(String),
     MissingPasswordDir,
-    UnableToCreatePasswordDir(String),
+    UnableToCreatePasswordDir(io::Error),
 }
 
 impl From<KeystoreError> for Error {
@@ -163,7 +162,7 @@ impl<'a> Builder<'a> {
         }
 
         if let Some(password_dir) = &self.password_dir {
-            ensure_dir_exists(password_dir).map_err(Error::UnableToCreatePasswordDir)?;
+            create_dir_all(password_dir).map_err(Error::UnableToCreatePasswordDir)?;
         }
 
         // The withdrawal keystore must be initialized in order to store it or create an eth1

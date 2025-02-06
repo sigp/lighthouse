@@ -829,7 +829,8 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v5_fulu<E: EthSpec>(
+    // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
+    pub async fn new_payload_v4_fulu<E: EthSpec>(
         &self,
         new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
@@ -844,7 +845,7 @@ impl HttpJsonRpc {
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
-                ENGINE_NEW_PAYLOAD_V5,
+                ENGINE_NEW_PAYLOAD_V4,
                 params,
                 ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -959,6 +960,19 @@ impl HttpJsonRpc {
                     )
                     .await?;
                 JsonGetPayloadResponse::V4(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
+            // TODO(fulu): remove when v5 method is ready.
+            ForkName::Fulu => {
+                let response: JsonGetPayloadResponseV5<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V4,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                JsonGetPayloadResponse::V5(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -1263,10 +1277,11 @@ impl HttpJsonRpc {
                 }
             }
             NewPayloadRequest::Fulu(new_payload_request_fulu) => {
-                if engine_capabilities.new_payload_v5 {
-                    self.new_payload_v5_fulu(new_payload_request_fulu).await
+                // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
+                if engine_capabilities.new_payload_v4 {
+                    self.new_payload_v4_fulu(new_payload_request_fulu).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
             }
         }
@@ -1305,8 +1320,9 @@ impl HttpJsonRpc {
                 }
             }
             ForkName::Fulu => {
-                if engine_capabilities.get_payload_v5 {
-                    self.get_payload_v5(fork_name, payload_id).await
+                // TODO(fulu): switch to v5 when the EL is ready
+                if engine_capabilities.get_payload_v4 {
+                    self.get_payload_v4(fork_name, payload_id).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
                 }

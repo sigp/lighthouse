@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
 
@@ -31,8 +31,12 @@ pub enum SyncRequestId {
     SingleBlob { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
     DataColumnsByRoot(DataColumnsByRootRequestId),
-    /// Range request that is composed by both a block range request and a blob range request.
-    RangeBlockAndBlobs { id: Id },
+    /// Blocks by range request
+    BlocksByRange(BlocksByRangeRequestId),
+    /// Blobs by range request
+    BlobsByRange(BlobsByRangeRequestId),
+    /// Data columns by range request
+    DataColumnsByRange(DataColumnsByRangeRequestId),
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
@@ -44,9 +48,57 @@ pub struct DataColumnsByRootRequestId {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct BlocksByRangeRequestId {
+    /// Id to identify this attempt at a blocks_by_range request for `parent_request_id`
+    pub id: Id,
+    /// The Id of the overall By Range request for block components.
+    pub parent_request_id: ComponentsByRangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct BlobsByRangeRequestId {
+    /// Id to identify this attempt at a blobs_by_range request for `parent_request_id`
+    pub id: Id,
+    /// The Id of the overall By Range request for block components.
+    pub parent_request_id: ComponentsByRangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataColumnsByRangeRequestId {
+    /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
+    pub id: Id,
+    /// The Id of the overall By Range request for block components.
+    pub parent_request_id: ComponentsByRangeRequestId,
+}
+
+/// Block components by range request for range sync. Includes an ID for downstream consumers to
+/// handle retries and tie all their sub requests together.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct ComponentsByRangeRequestId {
+    /// Each `RangeRequestId` may request the same data in a later retry. This Id identifies the
+    /// current attempt.
+    pub id: Id,
+    /// What sync component is issuing a components by range request and expecting data back
+    pub requester: RangeRequestId,
+}
+
+/// Range sync chain or backfill batch
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum RangeRequestId {
+    RangeSync { chain_id: Id, batch_id: Epoch },
+    BackfillSync { batch_id: Epoch },
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRootRequester {
     Sampling(SamplingId),
     Custody(CustodyId),
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum RangeRequester {
+    RangeSync { chain_id: u64, batch_id: Epoch },
+    BackfillSync { batch_id: Epoch },
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]

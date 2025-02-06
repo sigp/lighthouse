@@ -15,7 +15,6 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
-use std::hash::{Hash, Hasher};
 use strum::IntoStaticStr;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
@@ -56,7 +55,7 @@ pub enum RemoveChain {
 pub struct KeepChain;
 
 /// A chain identifier
-pub type ChainId = u64;
+pub type ChainId = Id;
 pub type BatchId = Epoch;
 
 #[derive(Debug, Copy, Clone, IntoStaticStr)]
@@ -127,14 +126,9 @@ pub enum ChainSyncingState {
 }
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
-    pub fn id(target_root: &Hash256, target_slot: &Slot) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        (target_root, target_slot).hash(&mut hasher);
-        hasher.finish()
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        id: Id,
         start_epoch: Epoch,
         target_head_slot: Slot,
         target_head_root: Hash256,
@@ -144,8 +138,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> Self {
         let mut peers = FnvHashMap::default();
         peers.insert(peer_id, Default::default());
-
-        let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
 
         SyncingChain {
             id,
@@ -163,6 +155,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             current_processing_batch: None,
             log: log.new(o!("chain" => id)),
         }
+    }
+
+    /// Returns true if this chain has the same target
+    pub fn has_same_target(&self, target_head_slot: Slot, target_head_root: Hash256) -> bool {
+        self.target_head_slot == target_head_slot && self.target_head_root == target_head_root
     }
 
     /// Check if the chain has peers from which to process batches.
@@ -1258,7 +1255,7 @@ impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         use slog::Value;
-        serializer.emit_u64("id", self.id)?;
+        serializer.emit_u32("id", self.id)?;
         Value::serialize(&self.start_epoch, record, "from", serializer)?;
         Value::serialize(
             &self.target_head_slot.epoch(T::EthSpec::slots_per_epoch()),

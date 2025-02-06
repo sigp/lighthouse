@@ -14,7 +14,8 @@ use state_processing::per_block_processing::errors::{
     AttesterSlashingInvalid, BlockOperationError, ExitInvalid, ProposerSlashingInvalid,
 };
 use std::sync::{Arc, LazyLock};
-use store::{LevelDB, StoreConfig};
+use store::database::interface::BeaconNodeBackend;
+use store::StoreConfig;
 use tempfile::{tempdir, TempDir};
 use types::*;
 
@@ -26,7 +27,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
-type HotColdDB = store::HotColdDB<E, LevelDB<E>, LevelDB<E>>;
+type HotColdDB = store::HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
     let spec = Arc::new(test_spec::<E>());

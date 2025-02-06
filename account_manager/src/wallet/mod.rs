@@ -4,8 +4,8 @@ pub mod recover;
 
 use crate::WALLETS_DIR_FLAG;
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
-use directory::{ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
+use directory::{parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 pub const CMD: &str = "wallet";
@@ -14,16 +14,6 @@ pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Manage wallets, from which validator keys can be derived.")
         .display_order(0)
-        .arg(
-            Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
-            .global(true)
-        )
         .arg(
             Arg::new(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)
@@ -44,7 +34,7 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     } else {
         parse_path_or_default_with_flag(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
     };
-    ensure_dir_exists(&wallet_base_dir)?;
+    create_dir_all(&wallet_base_dir).map_err(|_| "Could not create wallet base dir")?;
 
     eprintln!("wallet-dir path: {:?}", wallet_base_dir);
 

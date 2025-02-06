@@ -3,10 +3,10 @@ use crate::*;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    bit::B0, UInt, U0, U1, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U134217728,
-    U16, U16777216, U2, U2048, U256, U262144, U32, U4, U4096, U512, U625, U64, U65536, U8, U8192,
+    bit::B0, UInt, U0, U1, U10, U1024, U1048576, U1073741824, U1099511627776, U128, U131072,
+    U134217728, U16, U16777216, U17, U2, U2048, U256, U262144, U32, U4, U4096, U512, U625, U64,
+    U65536, U8, U8192,
 };
-use ssz_types::typenum::{U17, U9};
 use std::fmt::{self, Debug};
 use std::str::FromStr;
 
@@ -431,7 +431,7 @@ impl EthSpec for MainnetEthSpec {
     type PendingDepositsLimit = U134217728;
     type PendingPartialWithdrawalsLimit = U134217728;
     type PendingConsolidationsLimit = U262144;
-    type MaxConsolidationRequestsPerPayload = U1;
+    type MaxConsolidationRequestsPerPayload = U2;
     type MaxDepositRequestsPerPayload = U8192;
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
@@ -466,8 +466,8 @@ impl EthSpec for MinimalEthSpec {
     type MaxWithdrawalsPerPayload = U4;
     type FieldElementsPerBlob = U4096;
     type BytesPerBlob = U131072;
-    type MaxBlobCommitmentsPerBlock = U16;
-    type KzgCommitmentInclusionProofDepth = U9;
+    type MaxBlobCommitmentsPerBlock = U32;
+    type KzgCommitmentInclusionProofDepth = U10;
     type PendingPartialWithdrawalsLimit = U64;
     type PendingConsolidationsLimit = U64;
     type MaxDepositRequestsPerPayload = U4;
@@ -558,7 +558,7 @@ impl EthSpec for GnosisEthSpec {
     type PendingDepositsLimit = U134217728;
     type PendingPartialWithdrawalsLimit = U134217728;
     type PendingConsolidationsLimit = U262144;
-    type MaxConsolidationRequestsPerPayload = U1;
+    type MaxConsolidationRequestsPerPayload = U2;
     type MaxDepositRequestsPerPayload = U8192;
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;

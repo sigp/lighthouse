@@ -23,7 +23,7 @@ pub fn build_block_contents<E: EthSpec>(
                 } = block;
 
                 let Some((kzg_proofs, blobs)) = blob_items else {
-                    return Err(warp_utils::reject::block_production_error(
+                    return Err(warp_utils::reject::unhandled_error(
                         BlockProductionError::MissingBlobs,
                     ));
                 };
