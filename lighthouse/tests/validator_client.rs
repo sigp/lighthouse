@@ -136,7 +136,7 @@ fn beacon_nodes_tls_certs_flag() {
         .flag(
             "beacon-nodes-tls-certs",
             Some(
-                vec![
+                [
                     dir.path().join("certificate.crt").to_str().unwrap(),
                     dir.path().join("certificate2.crt").to_str().unwrap(),
                 ]
@@ -205,7 +205,7 @@ fn graffiti_file_with_pk_flag() {
     let mut file = File::create(dir.path().join("graffiti.txt")).expect("Unable to create file");
     let new_key = Keypair::random();
     let pubkeybytes = PublicKeyBytes::from(new_key.pk);
-    let contents = format!("{}:nice-graffiti", pubkeybytes.to_string());
+    let contents = format!("{}:nice-graffiti", pubkeybytes);
     file.write_all(contents.as_bytes())
         .expect("Unable to write to file");
     CommandLineTest::new()
@@ -344,6 +344,34 @@ fn http_store_keystore_passwords_in_secrets_dir_present() {
         .with_config(|config| assert!(config.http_api.store_passwords_in_secrets_dir));
 }
 
+#[test]
+fn http_token_path_flag_present() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("http-token-path", dir.path().join("api-token.txt").to_str())
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.http_api.http_token_path,
+                dir.path().join("api-token.txt")
+            );
+        });
+}
+
+#[test]
+fn http_token_path_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.http_api.http_token_path,
+                config.validator_dir.join("api-token.txt")
+            );
+        });
+}
+
 // Tests for Metrics flags.
 #[test]
 fn metrics_flag() {
@@ -379,6 +407,13 @@ fn metrics_port_flag() {
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
 }
 #[test]
+fn metrics_port_flag_default() {
+    CommandLineTest::new()
+        .flag("metrics", None)
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_port, 5064));
+}
+#[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
         .flag("metrics", None)
@@ -404,13 +439,13 @@ pub fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
         .run()
-        .with_config(|config| assert_eq!(config.http_metrics.allocator_metrics_enabled, false));
+        .with_config(|config| assert!(!config.http_metrics.allocator_metrics_enabled));
 }
 #[test]
 pub fn malloc_tuning_default() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert_eq!(config.http_metrics.allocator_metrics_enabled, true));
+        .with_config(|config| assert!(config.http_metrics.allocator_metrics_enabled));
 }
 #[test]
 fn doppelganger_protection_flag() {
@@ -430,7 +465,7 @@ fn no_doppelganger_protection_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.validator_store.gas_limit.is_none()));
+        .with_config(|config| assert!(config.validator_store.gas_limit == Some(30_000_000)));
 }
 #[test]
 fn gas_limit_flag() {
@@ -532,7 +567,7 @@ fn broadcast_flag() {
         });
     // Other valid variants
     CommandLineTest::new()
-        .flag("broadcast", Some("blocks, subscriptions"))
+        .flag("broadcast", Some("blocks,subscriptions"))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -577,7 +612,7 @@ fn beacon_nodes_sync_tolerances_flag() {
 }
 
 #[test]
-#[should_panic(expected = "Unknown API topic")]
+#[should_panic(expected = "invalid value")]
 fn wrong_broadcast_flag() {
     CommandLineTest::new()
         .flag("broadcast", Some("foo, subscriptions"))

@@ -194,7 +194,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         });
 
         let outbound_request_limiter: SelfRateLimiter<Id, E> =
-            SelfRateLimiter::new(outbound_rate_limiter_config, log.clone())
+            SelfRateLimiter::new(outbound_rate_limiter_config, fork_context.clone(), log.clone())
                 .expect("Configuration parameters are valid");
 
         RPC {

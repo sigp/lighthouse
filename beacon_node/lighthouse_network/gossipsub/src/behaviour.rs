@@ -679,9 +679,15 @@ where
                 // Gossipsub peers
                 None => {
                     tracing::debug!(topic=%topic_hash, "Topic not in the mesh");
+                    // `fanout_peers` is always non-empty if it's `Some`.
+                    let fanout_peers = self
+                        .fanout
+                        .get(&topic_hash)
+                        .map(|peers| if peers.is_empty() { None } else { Some(peers) })
+                        .unwrap_or(None);
                     // If we have fanout peers add them to the map.
-                    if self.fanout.contains_key(&topic_hash) {
-                        for peer in self.fanout.get(&topic_hash).expect("Topic must exist") {
+                    if let Some(peers) = fanout_peers {
+                        for peer in peers {
                             recipient_peers.insert(*peer);
                         }
                     } else {
@@ -1764,8 +1770,7 @@ where
         // reject messages claiming to be from ourselves but not locally published
         let self_published = !self.config.allow_self_origin()
             && if let Some(own_id) = self.publish_config.get_own_id() {
-                own_id != propagation_source
-                    && raw_message.source.as_ref().map_or(false, |s| s == own_id)
+                own_id != propagation_source && raw_message.source.as_ref() == Some(own_id)
             } else {
                 self.published_message_ids.contains(msg_id)
             };
@@ -1836,6 +1841,30 @@ where
                 peer_score.duplicated_message(propagation_source, &msg_id, &message.topic);
             }
             self.mcache.observe_duplicate(&msg_id, propagation_source);
+            // track metrics for the source of the duplicates
+            if let Some(metrics) = self.metrics.as_mut() {
+                if self
+                    .mesh
+                    .get(&message.topic)
+                    .is_some_and(|peers| peers.contains(propagation_source))
+                {
+                    // duplicate was received from a mesh peer
+                    metrics.mesh_duplicates(&message.topic);
+                } else if self
+                    .gossip_promises
+                    .contains_peer(&msg_id, propagation_source)
+                {
+                    // duplicate was received from an iwant request
+                    metrics.iwant_duplicates(&message.topic);
+                } else {
+                    tracing::warn!(
+                        messsage=%msg_id,
+                        peer=%propagation_source,
+                        topic=%message.topic,
+                        "Peer should not have sent message"
+                    );
+                }
+            }
             return;
         }
 

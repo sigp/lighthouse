@@ -65,8 +65,7 @@ jobs:
       - name: Install dependencies
         run: apt update && apt install -y cmake libclang-dev
       - name: Check for deadlocks
-        run: |
-          cargo lockbud -k deadlock -b -l tokio_util
+        run: ./scripts/ci/check-lockbud.sh
 
   target-branch-check:
     name: target-branch-check
@@ -350,7 +349,7 @@ jobs:
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
     - name: Lint code for quality and style with Clippy
-      run: make lint
+      run: make lint-full
     - name: Certify Cargo.lock freshness
       run: git diff --exit-code Cargo.lock
     - name: Typecheck benchmark code without running it
@@ -363,6 +362,8 @@ jobs:
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
     - name: Markdown-linter
       run: make mdlint
+    - name: Spell-check
+      uses: rojopolis/spellcheck-github-actions@v0
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
@@ -390,6 +391,10 @@ jobs:
           cache: false
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Fetch libssl1.1
+      run: wget https://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb
+    - name: Install libssl1.1
+      run: sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2_amd64.deb
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config
@@ -426,6 +431,21 @@ jobs:
         cache-target: release
     - name: Run Makefile to trigger the bash script
       run: make cli-local
+  cargo-sort:
+    name: cargo-sort
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+        cache-target: release
+        bins: cargo-sort
+    - name: Run cargo sort to check if Cargo.toml files are sorted
+      run: cargo sort --check --workspace
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
   test-suite-success:
@@ -453,6 +473,7 @@ jobs:
       'compile-with-beta-compiler',
       'cli-check',
       'lockbud',
+      'cargo-sort',
     ]
     steps:
       - uses: actions/checkout@v4

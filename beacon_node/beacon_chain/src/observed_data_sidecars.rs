@@ -24,7 +24,7 @@ pub trait ObservableDataSidecar {
     fn slot(&self) -> Slot;
     fn block_proposer_index(&self) -> u64;
     fn index(&self) -> u64;
-    fn max_num_of_items(spec: &ChainSpec) -> usize;
+    fn max_num_of_items(spec: &ChainSpec, slot: Slot) -> usize;
 }
 
 impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
@@ -40,8 +40,8 @@ impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
         self.index
     }
 
-    fn max_num_of_items(_spec: &ChainSpec) -> usize {
-        E::max_blobs_per_block()
+    fn max_num_of_items(spec: &ChainSpec, slot: Slot) -> usize {
+        spec.max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize
     }
 }
 
@@ -58,8 +58,8 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
         self.index
     }
 
-    fn max_num_of_items(spec: &ChainSpec) -> usize {
-        spec.number_of_columns
+    fn max_num_of_items(spec: &ChainSpec, _slot: Slot) -> usize {
+        spec.number_of_columns as usize
     }
 }
 
@@ -103,7 +103,9 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
                 slot: data_sidecar.slot(),
                 proposer: data_sidecar.block_proposer_index(),
             })
-            .or_insert_with(|| HashSet::with_capacity(T::max_num_of_items(&self.spec)));
+            .or_insert_with(|| {
+                HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
+            });
         let did_not_exist = data_indices.insert(data_sidecar.index());
 
         Ok(!did_not_exist)
@@ -118,12 +120,12 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
                 slot: data_sidecar.slot(),
                 proposer: data_sidecar.block_proposer_index(),
             })
-            .map_or(false, |indices| indices.contains(&data_sidecar.index()));
+            .is_some_and(|indices| indices.contains(&data_sidecar.index()));
         Ok(is_known)
     }
 
     fn sanitize_data_sidecar(&self, data_sidecar: &T) -> Result<(), Error> {
-        if data_sidecar.index() >= T::max_num_of_items(&self.spec) as u64 {
+        if data_sidecar.index() >= T::max_num_of_items(&self.spec, data_sidecar.slot()) as u64 {
             return Err(Error::InvalidDataIndex(data_sidecar.index()));
         }
         let finalized_slot = self.finalized_slot;
@@ -179,7 +181,7 @@ mod tests {
     use crate::test_utils::test_spec;
     use bls::Hash256;
     use std::sync::Arc;
-    use types::MainnetEthSpec;
+    use types::{Epoch, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -333,7 +335,7 @@ mod tests {
     #[test]
     fn simple_observations() {
         let spec = Arc::new(test_spec::<E>());
-        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec);
+        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec.clone());
 
         // Slot 0, index 0
         let proposer_index_a = 420;
@@ -489,7 +491,7 @@ mod tests {
         );
 
         // Try adding an out of bounds index
-        let invalid_index = E::max_blobs_per_block() as u64;
+        let invalid_index = spec.max_blobs_per_block(Epoch::new(0));
         let sidecar_d = get_blob_sidecar(0, proposer_index_a, invalid_index);
         assert_eq!(
             cache.observe_sidecar(&sidecar_d),

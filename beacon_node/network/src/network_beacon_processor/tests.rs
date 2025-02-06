@@ -15,7 +15,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::discovery::ConnectionId;
-use lighthouse_network::rpc::methods::BlobsByRangeRequest;
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};
 use lighthouse_network::rpc::{RequestId, SubstreamId};
 use lighthouse_network::{
     discv5::enr::{self, CombinedKey},
@@ -198,11 +198,21 @@ impl TestRig {
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
-        let meta_data = MetaData::V2(MetaDataV2 {
-            seq_number: SEQ_NUMBER,
-            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
-        });
+        let meta_data = if spec.is_peer_das_scheduled() {
+            MetaData::V3(MetaDataV3 {
+                seq_number: SEQ_NUMBER,
+                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+                custody_group_count: spec.custody_requirement,
+            })
+        } else {
+            MetaData::V2(MetaDataV2 {
+                seq_number: SEQ_NUMBER,
+                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+            })
+        };
+
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = enr::Enr::builder().build(&enr_key).unwrap();
         let network_config = Arc::new(NetworkConfig::default());
@@ -259,7 +269,7 @@ impl TestRig {
         assert!(beacon_processor.is_ok());
         let block = next_block_tuple.0;
         let blob_sidecars = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
-            Some(BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap())
+            Some(BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap())
         } else {
             None
         };
@@ -342,15 +352,16 @@ impl TestRig {
             )
             .unwrap();
     }
+
     pub fn enqueue_single_lookup_rpc_blobs(&self) {
         if let Some(blobs) = self.next_blobs.clone() {
-            let blobs = FixedBlobSidecarList::from(blobs.into_iter().map(Some).collect::<Vec<_>>());
+            let blobs = FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
             self.network_beacon_processor
                 .send_rpc_blobs(
                     self.next_block.canonical_root(),
                     blobs,
                     std::time::Duration::default(),
-                    BlockProcessType::SingleBlock { id: 1 },
+                    BlockProcessType::SingleBlob { id: 1 },
                 )
                 .unwrap();
         }
@@ -527,7 +538,7 @@ impl TestRig {
         self.assert_event_journal(
             &expected
                 .iter()
-                .map(|ev| Into::<&'static str>::into(ev))
+                .map(Into::<&'static str>::into)
                 .chain(std::iter::once(WORKER_FREED))
                 .chain(std::iter::once(NOTHING_TO_DO))
                 .collect::<Vec<_>>(),
@@ -1130,7 +1141,12 @@ async fn test_blobs_by_range() {
             .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
             .unwrap();
         blob_count += root
-            .map(|root| rig.chain.get_blobs(&root).unwrap_or_default().len())
+            .map(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .map(|list| list.len())
+                    .unwrap_or(0)
+            })
             .unwrap_or(0);
     }
     let mut actual_count = 0;

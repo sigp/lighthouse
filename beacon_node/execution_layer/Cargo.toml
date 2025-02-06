@@ -2,54 +2,53 @@
 name = "execution_layer"
 version = "0.1.0"
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+alloy-consensus = { workspace = true }
 alloy-primitives = { workspace = true }
-types = { workspace = true }
-tokio = { workspace = true }
-slog = { workspace = true }
-logging = { workspace = true }
-sensitive_url = { workspace = true }
-reqwest = { workspace = true }
-ethereum_serde_utils = { workspace = true }
-serde_json = { workspace = true }
-serde = { workspace = true }
-warp = { workspace = true }
-jsonwebtoken = "9"
+alloy-rlp = { workspace = true }
+arc-swap = "1.6.0"
+builder_client = { path = "../builder_client" }
 bytes = { workspace = true }
-task_executor = { workspace = true }
-hex = { workspace = true }
-ethereum_ssz = { workspace = true }
-ssz_types = { workspace = true }
 eth2 = { workspace = true }
+eth2_network_config = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethers-core = { workspace = true }
+fixed_bytes = { workspace = true }
+fork_choice = { workspace = true }
+hash-db = "0.15.2"
+hash256-std-hasher = "0.15.2"
+hex = { workspace = true }
+jsonwebtoken = "9"
+keccak-hash = "0.10.0"
 kzg = { workspace = true }
-state_processing = { workspace = true }
-superstruct = { workspace = true }
+lighthouse_version = { workspace = true }
+logging = { workspace = true }
 lru = { workspace = true }
+metrics = { workspace = true }
+parking_lot = { workspace = true }
+pretty_reqwest_error = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+sensitive_url = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+slog = { workspace = true }
+slot_clock = { workspace = true }
+ssz_types = { workspace = true }
+state_processing = { workspace = true }
+strum = { workspace = true }
+superstruct = { workspace = true }
+task_executor = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
-parking_lot = { workspace = true }
-slot_clock = { workspace = true }
-tempfile = { workspace = true }
-rand = { workspace = true }
-zeroize = { workspace = true }
-metrics = { workspace = true }
-ethers-core = { workspace = true }
-builder_client = { path = "../builder_client" }
-fork_choice = { workspace = true }
-tokio-stream = { workspace = true }
-strum = { workspace = true }
-keccak-hash = "0.10.0"
-hash256-std-hasher = "0.15.2"
 triehash = "0.8.4"
-hash-db = "0.15.2"
-pretty_reqwest_error = { workspace = true }
-arc-swap = "1.6.0"
-eth2_network_config = { workspace = true }
-alloy-rlp = { workspace = true }
-alloy-consensus = { workspace = true }
-lighthouse_version = { workspace = true }
-fixed_bytes = { workspace = true }
-sha2 = { workspace = true }
+types = { workspace = true }
+warp = { workspace = true }
+zeroize = { workspace = true }

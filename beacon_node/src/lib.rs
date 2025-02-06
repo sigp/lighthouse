@@ -2,7 +2,6 @@ mod cli;
 mod config;
 
 pub use beacon_chain;
-use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
 };
@@ -16,11 +15,19 @@ use slasher::{DatabaseBackendOverride, Slasher};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
+use store::database::interface::BeaconNodeBackend;
 use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-pub type ProductionClient<E> =
-    Client<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, LevelDB<E>, LevelDB<E>>>;
+pub type ProductionClient<E> = Client<
+    Witness<
+        SystemTimeSlotClock,
+        CachingEth1Backend<E>,
+        E,
+        BeaconNodeBackend<E>,
+        BeaconNodeBackend<E>,
+    >,
+>;
 
 /// The beacon node `Client` that will be used in production.
 ///
@@ -238,6 +245,7 @@ mod test {
         spec.bellatrix_fork_epoch = Some(Epoch::new(256));
         spec.deneb_fork_epoch = Some(Epoch::new(257));
         spec.electra_fork_epoch = None;
+        spec.fulu_fork_epoch = None;
         let result = validator_fork_epochs(&spec);
         assert_eq!(
             result,

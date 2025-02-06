@@ -7,7 +7,6 @@ use crate::Client;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
 use beacon_chain::graffiti_calculator::start_engine_version_cache_refresh_service;
-use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
@@ -15,7 +14,7 @@ use beacon_chain::{
     eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
-    store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
+    store::{HotColdDB, ItemStore, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
@@ -37,12 +36,12 @@ use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
-use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
@@ -362,10 +361,11 @@ where
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
                 let anchor_blobs = if anchor_block.message().body().has_blobs() {
+                    let max_blobs_len = spec.max_blobs_per_block(anchor_block.epoch()) as usize;
                     let anchor_blobs_bytes = anchor_blobs_bytes
                         .ok_or("Blobs for checkpoint must be provided using --checkpoint-blobs")?;
                     Some(
-                        BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes)
+                        BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes, max_blobs_len)
                             .map_err(|e| format!("Unable to parse weak subj blobs SSZ: {e:?}"))?,
                     )
                 } else {
@@ -911,7 +911,7 @@ where
                         .forkchoice_update_parameters();
                     if params
                         .head_hash
-                        .map_or(false, |hash| hash != ExecutionBlockHash::zero())
+                        .is_some_and(|hash| hash != ExecutionBlockHash::zero())
                     {
                         // Spawn a new task to update the EE without waiting for it to complete.
                         let inner_chain = beacon_chain.clone();
@@ -970,7 +970,6 @@ where
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
-            start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
             start_availability_cache_maintenance_service(
                 runtime_context.executor.clone(),
                 beacon_chain.clone(),
@@ -1032,7 +1031,7 @@ where
 }
 
 impl<TSlotClock, TEth1Backend, E>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, LevelDB<E>, LevelDB<E>>>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>
 where
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<E> + 'static,

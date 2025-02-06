@@ -116,7 +116,8 @@ pub struct Config {
     pub network_load: u8,
 
     /// Indicates if the user has set the network to be in private mode. Currently this
-    /// prevents sending client identifying information over identify.
+    /// prevents sending client identifying information over identify and prevents
+    /// EIP-7636 indentifiable information being provided in the ENR.
     pub private: bool,
 
     /// Shutdown beacon node after sync is completed.
@@ -166,7 +167,7 @@ impl Config {
             tcp_port,
         });
         self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), disc_port);
-        self.discv5_config.table_filter = |enr| enr.ip4().as_ref().map_or(false, is_global_ipv4)
+        self.discv5_config.table_filter = |enr| enr.ip4().as_ref().is_some_and(is_global_ipv4)
     }
 
     /// Sets the listening address to use an ipv6 address. The discv5 ip_mode and table filter is
@@ -187,7 +188,7 @@ impl Config {
         });
 
         self.discv5_config.listen_config = discv5::ListenConfig::from_ip(addr.into(), disc_port);
-        self.discv5_config.table_filter = |enr| enr.ip6().as_ref().map_or(false, is_global_ipv6)
+        self.discv5_config.table_filter = |enr| enr.ip6().as_ref().is_some_and(is_global_ipv6)
     }
 
     /// Sets the listening address to use both an ipv4 and ipv6 address. The discv5 ip_mode and
@@ -317,7 +318,7 @@ impl Default for Config {
             .filter_rate_limiter(filter_rate_limiter)
             .filter_max_bans_per_ip(Some(5))
             .filter_max_nodes_per_ip(Some(10))
-            .table_filter(|enr| enr.ip4().map_or(false, |ip| is_global_ipv4(&ip))) // Filter non-global IPs
+            .table_filter(|enr| enr.ip4().is_some_and(|ip| is_global_ipv4(&ip))) // Filter non-global IPs
             .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
