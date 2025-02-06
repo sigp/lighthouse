@@ -910,17 +910,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     return Ok(KeepChain);
                 }
                 Err(e) => match e {
-                    RpcRequestSendError::NoPeer(no_peer) => {
-                        // Not possible to reach this condition with NoPeer::BlockPeer. For this
-                        // case the chain should have 0 peers and would be dropped already
-                        debug!(self.log, "Error sending batch no peers"; "epoch" => batch_id, &batch, "no_peer" => ?no_peer);
-                        // Set batch in stale state
-                        // What to return here?
-                        // Not necessary to return a `RemoveChain::EmptyPeerPool` here. If the
-                        // chain actually has 0 peers it will be removed on the remove_peer call
-                        return Ok(KeepChain);
-                    }
-                    RpcRequestSendError::InternalError(e) => {
+                    // TODO(das): Handle the NoPeer case explicitly and don't drop the batch. For
+                    // sync to work properly it must be okay to have "stalled" batches in
+                    // AwaitingDownload state. Currently it will error with invalid state if
+                    // that happens. Sync manager must periodicatlly prune stalled batches like
+                    // we do for lookup sync. Then we can deprecate the redundant
+                    // `good_peers_on_sampling_subnets` checks.
+                    e
+                    @ (RpcRequestSendError::NoPeer(_) | RpcRequestSendError::InternalError(_)) => {
                         // NOTE: under normal conditions this shouldn't happen but we handle it anyway
                         warn!(self.log, "Could not send batch request";
                         "batch_id" => batch_id, "error" => ?e, &batch);

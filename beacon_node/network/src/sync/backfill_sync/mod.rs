@@ -858,7 +858,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 Err(e) => match e {
                     RpcRequestSendError::NoPeer(no_peer) => {
                         // If we are here the chain has no more synced peers
-                        info!(self.log, "Backfill sync paused"; "reason" => ?no_peer);
+                        info!(self.log, "Backfill sync paused"; "reason" => format!("insufficient_synced_peers({no_peer:?})"));
                         self.set_state(BackFillState::Paused);
                         return Err(BackFillError::Paused);
                     }

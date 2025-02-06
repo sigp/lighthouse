@@ -420,7 +420,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .min()
             .map(|(_, _, _, peer)| *peer)
         else {
-            // TODO(das): is it safe to error here?
+            // Backfill and forward sync handle this condition gracefully.
+            // - Backfill sync: will pause waiting for more peers to join
+            // - Forward sync: can never happen as the chain is dropped when removing the last peer.
             return Err(RpcRequestSendError::NoPeer(NoPeerError::BlockPeer));
         };
 
@@ -530,9 +532,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .min()
                 .map(|(_, _, peer)| *peer)
             else {
-                // TODO(das): is it safe to error here?
                 // TODO(das): this will be pretty bad UX. To improve we should:
-                // - Attempt to fetch custody requests first, before requesting blocks
                 // - Handle the no peers case gracefully, maybe add some timeout and give a few
                 //   minutes / seconds to the peer manager to locate peers on this subnet before
                 //   abandoing progress on the chain completely.
@@ -882,8 +882,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 CustodyRequestError::NoPeer(column_index) => {
                     RpcRequestSendError::NoPeer(NoPeerError::CustodyPeer(column_index))
                 }
-                // - TooManyFailures: `request` has just been created, it's count of download_failures
-                //   is 0 here
+                // - TooManyFailures: Should never happen, `request` has just been created, it's
+                //   count of download_failures is 0 here
                 // - BadState: Should never happen, a bad state can only happen when handling a
                 //   network response
                 // - UnexpectedRequestId: Never happens: this Err is only constructed handling a
