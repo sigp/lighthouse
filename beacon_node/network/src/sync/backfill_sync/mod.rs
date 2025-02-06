@@ -302,6 +302,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
+        peer_id: &PeerId,
         request_id: Id,
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
@@ -314,7 +315,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 return Ok(());
             }
             debug!(self.log, "Batch failed"; "batch_epoch" => batch_id, "error" => "rpc_error");
-            match batch.download_failed(true) {
+            match batch.download_failed(Some(*peer_id)) {
                 Err(e) => self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0)),
                 Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
                     self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))
@@ -848,15 +849,17 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .collect::<HashSet<_>>();
 
             let (request, is_blob_batch) = batch.to_blocks_by_range_request();
+            let failed_peers = batch.failed_peers();
             match network.block_components_by_range_request(
                 is_blob_batch,
                 request,
                 RangeRequestId::BackfillSync { batch_id },
                 &synced_peers,
+                &failed_peers,
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request
-                    if let Err(e) = batch.start_downloading_from_peer(request_id) {
+                    if let Err(e) = batch.start_downloading(request_id) {
                         return self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0));
                     }
                     debug!(self.log, "Requesting batch"; "epoch" => batch_id, &batch);
@@ -875,11 +878,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         warn!(self.log, "Could not send batch request";
                         "batch_id" => batch_id, "error" => ?e, &batch);
                         // register the failed download and check if the batch can be retried
-                        if let Err(e) = batch.start_downloading_from_peer(1) {
+                        if let Err(e) = batch.start_downloading(1) {
                             return self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0));
                         }
 
-                        match batch.download_failed(true) {
+                        match batch.download_failed(None) {
                             Err(e) => {
                                 self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?
                             }

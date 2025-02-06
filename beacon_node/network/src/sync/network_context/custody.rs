@@ -57,7 +57,6 @@ pub enum Error {
 }
 
 struct ActiveBatchColumnsRequest {
-    peer_id: PeerId,
     indices: Vec<ColumnIndex>,
 }
 
@@ -239,13 +238,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 // only query the peers on that fork. Should this case be handled? How to handle it?
                 let custodial_peers = cx.get_custodial_peers(*column_index);
 
-                let mut active_requests_by_peer = HashMap::<PeerId, usize>::new();
-                for batch_request in self.active_batch_columns_requests.values() {
-                    *active_requests_by_peer
-                        .entry(batch_request.peer_id)
-                        .or_default() += 1;
-                }
-
                 // We draw from the total set of peers, but prioritize those peers who we have
                 // received an attestation / status / block message claiming to have imported the
                 // lookup. The frequency of those messages is low, so drawing only from lookup_peers
@@ -321,7 +313,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     }
 
                     self.active_batch_columns_requests
-                        .insert(req_id, ActiveBatchColumnsRequest { indices, peer_id });
+                        .insert(req_id, ActiveBatchColumnsRequest { indices });
                 }
                 LookupRequestResult::NoRequestNeeded(_) => unreachable!(),
                 LookupRequestResult::Pending(_) => unreachable!(),

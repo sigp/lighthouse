@@ -104,7 +104,7 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// Number of processing attempts that have failed but we do not count.
     non_faulty_processing_attempts: u8,
     /// The number of download retries this batch has undergone due to a failed request.
-    failed_download_attempts: usize,
+    failed_download_attempts: Vec<Option<PeerId>>,
     /// State of the batch.
     state: BatchState<E>,
     /// Whether this batch contains all blocks or all blocks and blobs.
@@ -164,7 +164,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             start_slot,
             end_slot,
             failed_processing_attempts: Vec::new(),
-            failed_download_attempts: 0,
+            failed_download_attempts: Vec::new(),
             non_faulty_processing_attempts: 0,
             state: BatchState::AwaitingDownload,
             batch_type,
@@ -174,18 +174,27 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
 
     /// Gives a list of peers from which this batch has had a failed download or processing
     /// attempt.
-    pub fn failed_processing_peers(&self) -> HashSet<PeerId> {
-        self.failed_processing_attempts
-            .iter()
-            .map(|attempt| attempt.peer_id)
-            .collect()
+    pub fn failed_peers(&self) -> HashSet<PeerId> {
+        let mut peers = HashSet::with_capacity(
+            self.failed_processing_attempts.len() + self.failed_download_attempts.len(),
+        );
+
+        for attempt in &self.failed_processing_attempts {
+            peers.insert(attempt.peer_id);
+        }
+
+        for peer in self.failed_download_attempts.iter().flatten() {
+            peers.insert(*peer);
+        }
+
+        peers
     }
 
     /// Return the number of times this batch has failed downloading and failed processing, in this
     /// order.
     pub fn failed_attempts(&self) -> (usize, usize) {
         (
-            self.failed_download_attempts,
+            self.failed_download_attempts.len(),
             self.failed_processing_attempts.len(),
         )
     }
@@ -240,7 +249,8 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         match self.state {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             BatchState::Failed => BatchOperationOutcome::Failed {
-                blacklist: self.failed_processing_attempts.len() > self.failed_download_attempts,
+                blacklist: self.failed_processing_attempts.len()
+                    > self.failed_download_attempts.len(),
             },
             _ => BatchOperationOutcome::Continue,
         }
@@ -266,7 +276,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         Result<(Slot, Slot, BatchOperationOutcome), WrongState>,
     > {
         match self.state.poison() {
-            BatchState::Downloading(_request_id) => {
+            BatchState::Downloading(_) => {
                 let received = blocks.len();
                 self.state = BatchState::AwaitingProcessing(peer, blocks, Instant::now());
                 Ok(received)
@@ -290,21 +300,21 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     #[must_use = "Batch may have failed"]
     pub fn download_failed(
         &mut self,
-        mark_failed: bool,
+        peer: Option<PeerId>,
     ) -> Result<BatchOperationOutcome, WrongState> {
         match self.state.poison() {
-            BatchState::Downloading(_request_id) => {
+            BatchState::Downloading(_) => {
                 // register the attempt and check if the batch can be tried again
-                if mark_failed {
-                    self.failed_download_attempts += 1;
-                }
-                self.state =
-                    if self.failed_download_attempts >= B::max_batch_download_attempts() as usize {
-                        BatchState::Failed
-                    } else {
-                        // drop the blocks
-                        BatchState::AwaitingDownload
-                    };
+                self.failed_download_attempts.push(peer);
+
+                self.state = if self.failed_download_attempts.len()
+                    >= B::max_batch_download_attempts() as usize
+                {
+                    BatchState::Failed
+                } else {
+                    // drop the blocks
+                    BatchState::AwaitingDownload
+                };
                 Ok(self.outcome())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
@@ -318,7 +328,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         }
     }
 
-    pub fn start_downloading_from_peer(&mut self, request_id: Id) -> Result<(), WrongState> {
+    pub fn start_downloading(&mut self, request_id: Id) -> Result<(), WrongState> {
         match self.state.poison() {
             BatchState::AwaitingDownload => {
                 self.state = BatchState::Downloading(request_id);
@@ -468,7 +478,7 @@ impl<E: EthSpec, B: BatchConfig> slog::KV for BatchInfo<E, B> {
             "end_slot",
             serializer,
         )?;
-        serializer.emit_usize("downloaded", self.failed_download_attempts)?;
+        serializer.emit_usize("downloaded", self.failed_download_attempts.len())?;
         serializer.emit_usize("processed", self.failed_processing_attempts.len())?;
         serializer.emit_u8("processed_no_penalty", self.non_faulty_processing_attempts)?;
         serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;

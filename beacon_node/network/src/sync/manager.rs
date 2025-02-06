@@ -1303,7 +1303,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                     RangeRequestId::BackfillSync { batch_id } => match self
                         .backfill_sync
-                        .inject_error(&mut self.network, batch_id, range_request_id.id)
+                        .inject_error(&mut self.network, batch_id, &peer_id, range_request_id.id)
                     {
                         Ok(_) => {}
                         Err(_) => self.update_sync_state(),

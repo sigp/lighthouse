@@ -401,6 +401,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request: BlocksByRangeRequest,
         requester: RangeRequestId,
         peers: &HashSet<PeerId>,
+        peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
         // Create the overall components_by_range request ID before its individual components
         let id = ComponentsByRangeRequestId {
@@ -413,6 +414,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .iter()
             .map(|peer| {
                 (
+                    // If contains -> 1 (order after), not contains -> 0 (order first)
+                    peers_to_deprioritize.contains(peer),
                     // Prefer peers with less overall requests
                     active_request_count_by_peer.get(peer).copied().unwrap_or(0),
                     // Random factor to break ties, otherwise the PeerID breaks ties
@@ -421,7 +424,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 )
             })
             .min()
-            .map(|(_, _, peer)| *peer)
+            .map(|(_, _, _, peer)| *peer)
         else {
             // TODO(das): is it safe to error here?
             return Err(RpcRequestSendError::NoPeer(NoPeerError::BlockPeer));

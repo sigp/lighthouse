@@ -846,7 +846,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 "request_id" => %request_id,
                 "batch_state" => batch_state
             );
-            if let BatchOperationOutcome::Failed { blacklist } = batch.download_failed(true)? {
+            if let BatchOperationOutcome::Failed { blacklist } =
+                batch.download_failed(Some(*peer_id))?
+            {
                 return Err(RemoveChain::ChainFailed {
                     blacklist,
                     failing_batch: batch_id,
@@ -887,6 +889,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
+            let failed_peers = batch.failed_peers();
             match network.block_components_by_range_request(
                 batch_type,
                 request,
@@ -895,10 +898,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     batch_id,
                 },
                 &self.peers,
+                &failed_peers,
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request
-                    batch.start_downloading_from_peer(request_id)?;
+                    batch.start_downloading(request_id)?;
                     if self
                         .optimistic_start
                         .map(|epoch| epoch == batch_id)
@@ -926,8 +930,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         warn!(self.log, "Could not send batch request";
                         "batch_id" => batch_id, "error" => ?e, &batch);
                         // register the failed download and check if the batch can be retried
-                        batch.start_downloading_from_peer(1)?; // fake request_id = 1 is not relevant
-                        match batch.download_failed(true)? {
+                        batch.start_downloading(1)?; // fake request_id = 1 is not relevant
+                        match batch.download_failed(None)? {
                             BatchOperationOutcome::Failed { blacklist } => {
                                 return Err(RemoveChain::ChainFailed {
                                     blacklist,
