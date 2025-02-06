@@ -2583,7 +2583,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 .execution_payload_exists(&block_root)
                 .unwrap(),);
         }
-
         prev_block_root = block_root;
     }
 
