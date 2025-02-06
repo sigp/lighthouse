@@ -1,7 +1,8 @@
+use crate::api_types::GenericResponse;
 use crate::unsupported_version_rejection;
 use crate::version::{add_consensus_version_header, V1, V2};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2::types::{EndpointVersion, Hash256, Slot};
+use eth2::types::{self, EndpointVersion, Hash256, Slot};
 use std::sync::Arc;
 use types::fork_versioned_response::EmptyMetadata;
 use types::{CommitteeIndex, ForkVersionedResponse};
@@ -53,6 +54,7 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
                     e
                 ))
             })?
+            .map(GenericResponse::from)
             .ok_or_else(|| {
                 warp_utils::reject::custom_not_found("no matching aggregate found".to_string())
             })?;
