@@ -712,6 +712,10 @@ impl ChainSpec {
         }
     }
 
+    pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
+        (0..self.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
