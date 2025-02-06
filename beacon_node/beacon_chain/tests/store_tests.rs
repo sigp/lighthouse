@@ -47,7 +47,11 @@ type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
-    get_store_generic(db_path, StoreConfig::default(), test_spec::<E>())
+    let store_config = StoreConfig {
+        prune_payloads: false,
+        ..StoreConfig::default()
+    };
+    get_store_generic(db_path, store_config, test_spec::<E>())
 }
 
 fn get_store_generic(
@@ -2471,15 +2475,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .map(|s| s.beacon_block.clone())
         .collect::<Vec<_>>();
 
-    // If prune_payloads is false, the execution payload should exist in historical blocks
-    if !beacon_chain.store.get_config().prune_payloads {
-        for block in &historical_blocks {
-            let block_root = block.canonical_root();
-            assert!(beacon_chain
-                .store
-                .execution_payload_exists(&block_root)
-                .unwrap());
-        }
+    for block in &historical_blocks {
+        let block_root = block.canonical_root();
+        assert!(beacon_chain
+            .store
+            .execution_payload_exists(&block_root)
+            .unwrap());
     }
 
     let mut available_blocks = vec![];
