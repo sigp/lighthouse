@@ -1,5 +1,5 @@
 use crate::unsupported_version_rejection;
-use crate::version::{V1, V2};
+use crate::version::{add_consensus_version_header, V1, V2};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::{EndpointVersion, Hash256, Slot};
 use std::sync::Arc;
@@ -40,7 +40,10 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
             metadata: EmptyMetadata {},
             data: aggregate_attestation,
         };
-        Ok(warp::reply::json(&fork_versioned_response).into_response())
+        Ok(add_consensus_version_header(
+            warp::reply::json(&fork_versioned_response).into_response(),
+            fork_name,
+        ))
     } else if endpoint_version == V1 {
         let aggregate_attestation = chain
             .get_pre_electra_aggregated_attestation_by_slot_and_root(slot, attestation_data_root)
