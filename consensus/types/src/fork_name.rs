@@ -38,33 +38,8 @@ impl ForkName {
             .into_iter()
             // Skip Base
             .skip(1)
-            .map(|fork| (fork, fork.fork_epoch(spec)))
+            .map(|fork| (fork, spec.fork_epoch(fork)))
             .collect()
-    }
-
-    pub fn fork_epoch(self, spec: &ChainSpec) -> Option<Epoch> {
-        match self {
-            Self::Base => Some(Epoch::new(0)),
-            Self::Altair => spec.altair_fork_epoch,
-            Self::Bellatrix => spec.bellatrix_fork_epoch,
-            Self::Capella => spec.capella_fork_epoch,
-            Self::Deneb => spec.deneb_fork_epoch,
-            Self::Electra => spec.electra_fork_epoch,
-            Self::Fulu => spec.fulu_fork_epoch,
-        }
-    }
-
-    /// Returns the fork version of a fork
-    pub fn fork_version(self, spec: &ChainSpec) -> [u8; 4] {
-        match self {
-            Self::Base => spec.genesis_fork_version,
-            Self::Altair => spec.altair_fork_version,
-            Self::Bellatrix => spec.bellatrix_fork_version,
-            Self::Capella => spec.capella_fork_version,
-            Self::Deneb => spec.deneb_fork_version,
-            Self::Electra => spec.electra_fork_version,
-            Self::Fulu => spec.fulu_fork_version,
-        }
     }
 
     pub fn latest() -> ForkName {
