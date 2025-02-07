@@ -130,10 +130,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 });
             }
 
-            let blinded_block = block.clone_as_blinded();
-            // Store block in the hot database without payload.
-            self.store
-                .blinded_block_as_kv_store_ops(&block_root, &blinded_block, &mut hot_batch);
+            if !self.store.get_config().prune_payloads {
+                // If prune-payloads is set to false, store the block which includes the execution payload
+                self.store
+                    .block_as_kv_store_ops(&block_root, (*block).clone(), &mut hot_batch)?;
+            } else {
+                let blinded_block = block.clone_as_blinded();
+                // Store block in the hot database without payload.
+                self.store.blinded_block_as_kv_store_ops(
+                    &block_root,
+                    &blinded_block,
+                    &mut hot_batch,
+                );
+            }
+
             // Store the blobs too
             if let Some(blobs) = maybe_blobs {
                 new_oldest_blob_slot = Some(block.slot());
