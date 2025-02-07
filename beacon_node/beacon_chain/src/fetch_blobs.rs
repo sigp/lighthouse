@@ -79,7 +79,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         .await
         .map_err(FetchEngineBlobError::RequestFailed)?;
 
-    if response.is_empty() {
+    if response.is_empty() || response.iter().all(|opt| opt.is_none()) {
         debug!(num_expected_blobs, "No blobs fetched from the EL");
         inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
         return Ok(None);

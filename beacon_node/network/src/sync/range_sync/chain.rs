@@ -281,50 +281,21 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        {
-            // A stream termination has been sent. This batch has ended. Process a completed batch.
-            // Remove the request from the peer's active batches
-            self.peers
-                .get_mut(peer_id)
-                .map(|active_requests| active_requests.remove(&batch_id));
+        // A stream termination has been sent. This batch has ended. Process a completed batch.
+        // Remove the request from the peer's active batches
+        self.peers
+            .get_mut(peer_id)
+            .map(|active_requests| active_requests.remove(&batch_id));
 
-            match batch.download_completed(blocks) {
-                Ok(_) => {
-                    let awaiting_batches = batch_id
-                        .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
-                        / EPOCHS_PER_BATCH;
-                    debug!(
-                        epoch = %batch_id,
-                        batch_state = self.visualize_batch_state(),
-                        ?awaiting_batches,
-                        "Batch downloaded"
-                    );
+        let received = batch.download_completed(blocks)?;
+        let awaiting_batches = batch_id
+            .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
+            / EPOCHS_PER_BATCH;
+        debug!(epoch = %batch_id, blocks = received, batch_state = self.visualize_batch_state(), %awaiting_batches,"Batch downloaded");
 
-                    // pre-emptively request more blocks from peers whilst we process current blocks,
-                    self.request_batches(network)?;
-                    self.process_completed_batches(network)
-                }
-                Err(result) => {
-                    let (expected_boundary, received_boundary, outcome) = result?;
-                    warn!(
-                        ?expected_boundary,
-                        ?received_boundary,
-                        %peer_id,
-                        ?batch,
-                        "Batch received out of range blocks"
-                    );
-
-                    if let BatchOperationOutcome::Failed { blacklist } = outcome {
-                        return Err(RemoveChain::ChainFailed {
-                            blacklist,
-                            failing_batch: batch_id,
-                        });
-                    }
-                    // this batch can't be used, so we need to request it again.
-                    self.retry_batch_download(network, batch_id)
-                }
-            }
-        }
+        // pre-emptively request more blocks from peers whilst we process current blocks,
+        self.request_batches(network)?;
+        self.process_completed_batches(network)
     }
 
     /// Processes the batch with the given id.

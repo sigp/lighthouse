@@ -462,29 +462,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 self.request_batches(network)?;
                 self.process_completed_batches(network)
             }
-            Err(result) => {
-                let (expected_boundary, received_boundary, outcome) = match result {
-                    Err(e) => {
-                        self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
-                        return Ok(ProcessResult::Successful);
-                    }
-                    Ok(v) => v,
-                };
-                warn!(
-                    %expected_boundary,
-                    %received_boundary,
-                    %peer_id,
-                    %batch,
-                    "Batch received out of range blocks"
-                );
-
-                if let BatchOperationOutcome::Failed { blacklist: _ } = outcome {
-                    error!(epoch = %batch_id, %received_boundary, %expected_boundary, "Backfill failed");
-                    self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))?;
-                    return Ok(ProcessResult::Successful);
-                }
-                // this batch can't be used, so we need to request it again.
-                self.retry_batch_download(network, batch_id)?;
+            Err(e) => {
+                self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
                 Ok(ProcessResult::Successful)
             }
         }
