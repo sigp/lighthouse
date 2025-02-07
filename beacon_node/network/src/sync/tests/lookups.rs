@@ -27,6 +27,7 @@ use beacon_chain::{
     PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
+use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
     rpc::{RPCError, RequestType, RpcErrorResponse},
     service::api_types::{
@@ -115,7 +116,9 @@ impl TestRig {
 
         let spec = chain.spec.clone();
 
-        let rng = XorShiftRng::from_seed([42; 16]);
+        // deterministic seed
+        let rng = ChaCha20Rng::from_seed([0u8; 32]);
+
         TestRig {
             beacon_processor_rx,
             beacon_processor_rx_queue: vec![],
@@ -367,17 +370,23 @@ impl TestRig {
     }
 
     pub fn new_connected_peer(&mut self) -> PeerId {
+        let key = self.determinstic_key();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec)
+            .__add_connected_peer_testing_only(false, &self.harness.spec, key)
     }
 
     pub fn new_connected_supernode_peer(&mut self) -> PeerId {
+        let key = self.determinstic_key();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(true, &self.harness.spec)
+            .__add_connected_peer_testing_only(true, &self.harness.spec, key)
+    }
+
+    fn determinstic_key(&mut self) -> CombinedKey {
+        k256::ecdsa::SigningKey::random(&mut self.rng).into()
     }
 
     pub fn new_connected_peers_for_peerdas(&mut self) {

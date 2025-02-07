@@ -590,8 +590,8 @@ fn finalized_sync_not_enough_custody_peers_on_start() {
     let advanced_epochs: u64 = 2;
     let remote_info = r.finalized_remote_info_advanced_by(advanced_epochs.into());
 
-    // Unikely that the single peer we added has enough columns for us. Find a way to make this test
-    // deterministic.
+    // Unikely that the single peer we added has enough columns for us. Tests are determinstic and
+    // this error should never be hit
     r.add_random_peer_not_supernode(remote_info.clone());
     r.assert_state(RangeSyncType::Finalized);
 
