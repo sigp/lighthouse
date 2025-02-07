@@ -85,12 +85,6 @@ pub static BLOCK_PROCESSING_COMMITTEE: LazyLock<Result<Histogram>> = LazyLock::n
         "Time spent building/obtaining committees for block processing.",
     )
 });
-pub static BLOCK_PROCESSING_SIGNATURE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_block_processing_signature_seconds",
-        "Time spent doing signature verification for a block.",
-    )
-});
 pub static BLOCK_PROCESSING_CORE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_block_processing_core_seconds",
@@ -591,12 +585,6 @@ pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = La
         exponential_buckets(1e-3, 4.0, 7),
     )
 });
-pub static FORK_CHOICE_SET_HEAD_LAG_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_fork_choice_set_head_lag_times",
-        "Time taken between finding the head and setting the canonical head value",
-    )
-});
 pub static BALANCES_CACHE_HITS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_balances_cache_hits_total",
@@ -651,12 +639,6 @@ pub static DEFAULT_ETH1_VOTES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
 /*
  * Chain Head
  */
-pub static UPDATE_HEAD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_update_head_seconds",
-        "Time taken to update the canonical head",
-    )
-});
 pub static HEAD_STATE_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_head_state_slot",
@@ -1547,20 +1529,6 @@ pub static SYNC_CONTRIBUTION_PROCESSING_APPLY_TO_OP_POOL: LazyLock<Result<Histog
             "Time spent applying a sync contribution to the block inclusion pool",
         )
     });
-pub static SYNC_CONTRIBUTION_PROCESSING_SIGNATURE_SETUP_TIMES: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-        "beacon_sync_contribution_processing_signature_setup_seconds",
-        "Time spent on setting up for the signature verification of sync contribution processing"
-    )
-    });
-pub static SYNC_CONTRIBUTION_PROCESSING_SIGNATURE_TIMES: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "beacon_sync_contribution_processing_signature_seconds",
-            "Time spent on the signature verification of sync contribution processing",
-        )
-    });
 
 /*
  * General Sync Committee Contribution Processing
@@ -1688,13 +1656,6 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
         try_create_histogram(
             "beacon_data_column_sidecar_gossip_verification_seconds",
             "Full runtime of data column sidecars gossip verification",
-        )
-    });
-pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
-    LazyLock::new(|| {
-        try_create_int_counter(
-            "beacon_data_column_sidecar_processing_successes_total",
-            "Number of data column sidecars verified for gossip",
         )
     });
 
@@ -1873,15 +1834,6 @@ pub static BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: LazyLock<Result<Histogram>
     )
     },
 );
-/*
- * Availability related metrics
- */
-pub static BLOCK_AVAILABILITY_DELAY: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "block_availability_delay",
-        "Duration between start of the slot and the time at which all components of the block are available.",
-    )
-});
 
 /*
  * Data Availability cache metrics
@@ -1898,13 +1850,6 @@ pub static DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE: LazyLock<Result<I
         try_create_int_gauge(
             "data_availability_overflow_memory_state_cache_size",
             "Number of entries in the data availability overflow state memory cache.",
-        )
-    });
-pub static DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE: LazyLock<Result<IntGauge>> =
-    LazyLock::new(|| {
-        try_create_int_gauge(
-            "data_availability_overflow_store_cache_size",
-            "Number of entries in the data availability overflow store cache.",
         )
     });
 pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
