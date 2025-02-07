@@ -4,7 +4,7 @@ mod common;
 
 use common::Protocol;
 use lighthouse_network::rpc::{methods::*, RequestType};
-use lighthouse_network::service::api_types::{AppRequestId, SyncRequestId};
+use lighthouse_network::service::api_types::{AppRequestId, SingleLookupReqId, SyncRequestId};
 use lighthouse_network::{rpc::max_rpc_size, rpc::RPCError, NetworkEvent, ReportSource, Response};
 use slog::{debug, error, warn, Level};
 use ssz::Encode;
@@ -1331,7 +1331,7 @@ fn test_request_too_large() {
 
         // RPC requests that triggers RPC error on the receiver side.
         let max_request_blocks_count = spec.max_request_blocks(ForkName::Base) as u64;
-        let max_request_blobs_count = spec.max_request_blob_sidecars / E::max_blobs_per_block() as u64;
+        let max_request_blobs_count = spec.max_request_blob_sidecars(ForkName::Base) as u64 / spec.max_blobs_per_block_by_fork(ForkName::Base);
         let mut rpc_requests = vec![
             RequestType::BlocksByRange(OldBlocksByRangeRequest::new(
                 0,
@@ -1354,7 +1354,7 @@ fn test_request_too_large() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         let request = rpc_requests.pop().unwrap();
                         debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
-                        sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id: request_id }), request).unwrap();
+                        sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::SingleBlock { id: SingleLookupReqId { lookup_id: request_id, req_id: request_id }}), request).unwrap();
                     }
                     NetworkEvent::ResponseReceived { id, response, .. } => {
                         debug!(log, "Received response"; "request_id" => ?id, "response" => ?response);
@@ -1373,7 +1373,7 @@ fn test_request_too_large() {
                         if let Some(request) = rpc_requests.pop() {
                             request_id += 1;
                             debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
-                            sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id: request_id }), request).unwrap();
+                            sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::SingleBlock { id: SingleLookupReqId { lookup_id: request_id, req_id: request_id }}), request).unwrap();
                         } else {
                             assert_eq!(failed_request_ids.len(), requests_to_be_failed);
                             // End the test.
