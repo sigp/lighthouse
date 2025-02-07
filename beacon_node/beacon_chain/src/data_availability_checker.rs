@@ -27,8 +27,8 @@ mod overflow_lru_cache;
 mod state_lru_cache;
 
 use crate::data_column_verification::{
-    verify_kzg_for_data_column, verify_kzg_for_data_column_list, CustodyDataColumn,
-    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+    verify_kzg_for_data_column_list_with_scoring, CustodyDataColumn, GossipVerifiedDataColumn,
+    KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
@@ -230,19 +230,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // TODO(das): report which column is invalid for proper peer scoring
-        // TODO(das): batch KZG verification here, but fallback into checking each column
-        // individually to report which column(s) are invalid.
-        let verified_custody_columns = custody_columns
+        // Attributes fault to the specific peer that sent an invalid column
+        let kzg_verified_columns = KzgVerifiedDataColumn::from_batch(custody_columns, &self.kzg)
+            .map_err(AvailabilityCheckError::InvalidColumn)?;
+
+        let verified_custody_columns = kzg_verified_columns
             .into_iter()
-            .map(|column| {
-                let index = column.index;
-                Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::new(column, &self.kzg)
-                        .map_err(|e| AvailabilityCheckError::InvalidColumn(index, e))?,
-                ))
-            })
-            .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
+            .map(KzgVerifiedCustodyDataColumn::from_asserted_custody)
+            .collect::<Vec<_>>();
 
         self.availability_cache.put_kzg_verified_data_columns(
             block_root,
@@ -365,7 +360,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .iter()
                         .map(|custody_column| custody_column.as_data_column()),
                     &self.kzg,
-                )?;
+                )
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
@@ -432,8 +428,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
-            // TODO: Need to also attribute which specific block is faulty
-            verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)?;
+            // Attributes fault to the specific peer that sent an invalid column
+            verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
         for block in blocks {
@@ -714,32 +711,6 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
             }
         };
     }
-}
-
-fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
-    data_column_iter: I,
-    kzg: &'a Kzg,
-) -> Result<(), AvailabilityCheckError>
-where
-    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
-{
-    let Err(batch_err) = verify_kzg_for_data_column_list(data_column_iter.clone(), kzg) else {
-        return Ok(());
-    };
-
-    let data_columns = data_column_iter.collect::<Vec<_>>();
-    // Find which column is invalid. If len is 1 or 0 continue to default case below.
-    // If len > 1 at least one column MUST fail.
-    if data_columns.len() > 1 {
-        for data_column in data_columns {
-            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
-                return Err(AvailabilityCheckError::InvalidColumn(data_column.index, e));
-            }
-        }
-    }
-
-    // len 0 should never happen
-    Err(AvailabilityCheckError::InvalidColumn(0, batch_err))
 }
 
 /// A fully available block that is ready to be imported into fork choice.

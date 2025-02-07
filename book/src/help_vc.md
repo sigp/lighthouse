@@ -18,16 +18,16 @@ Options:
           certificate path.
       --broadcast <API_TOPICS>
           Comma-separated list of beacon API topics to broadcast to all beacon
-          nodes. Possible values are: none, attestations, blocks, subscriptions,
-          sync-committee. Default (when flag is omitted) is to broadcast
-          subscriptions only.
+          nodes. Default (when flag is omitted) is to broadcast subscriptions
+          only. [possible values: none, attestations, blocks, subscriptions,
+          sync-committee]
       --builder-boost-factor <UINT64>
           Defines the boost factor, a percentage multiplier to apply to the
           builder's payload value when choosing between a builder payload header
           and payload from the local execution node.
-      --builder-registration-timestamp-override <builder-registration-timestamp-override>
+      --builder-registration-timestamp-override <UNIX-TIMESTAMP>
           This flag takes a unix timestamp value that will be used to override
-          the timestamp used in the builder api registration
+          the timestamp used in the builder api registration.
   -d, --datadir <DIR>
           Used to specify a custom root data directory for lighthouse keys and
           databases. Defaults to $HOME/.lighthouse/{network} where network is
@@ -41,7 +41,7 @@ Options:
           The gas limit to be used in all builder proposals for all validators
           managed by this validator client. Note this will not necessarily be
           used if the gas limit set here moves too far from the previous block's
-          gas limit. [default: 30,000,000]
+          gas limit. [default: 30000000]
       --genesis-state-url <URL>
           A URL of a beacon-API compatible server from which to download the
           genesis state. Checkpoint sync server URLs can generally be used with
@@ -68,7 +68,8 @@ Options:
           is supplied, the CORS allowed origin is set to the listen address of
           this server (e.g., http://localhost:5062).
       --http-port <PORT>
-          Set the listen TCP port for the RESTful HTTP API server.
+          Set the listen TCP port for the RESTful HTTP API server. [default:
+          5062]
       --http-token-path <HTTP_TOKEN_PATH>
           Path to file containing the HTTP API token for validator client
           authentication. If not specified, defaults to
@@ -96,6 +97,7 @@ Options:
           set to 0, background file logging is disabled. [default: 200]
       --metrics-address <ADDRESS>
           Set the listen address for the Prometheus metrics HTTP server.
+          [default: 127.0.0.1]
       --metrics-allow-origin <ORIGIN>
           Set the value of the Access-Control-Allow-Origin response HTTP header.
           Use * to allow any origin (not recommended in production). If no value
@@ -103,6 +105,7 @@ Options:
           this server (e.g., http://localhost:5064).
       --metrics-port <PORT>
           Set the listen TCP port for the Prometheus metrics HTTP server.
+          [default: 5064]
       --monitoring-endpoint <ADDRESS>
           Enables the monitoring service for sending system metrics to a remote
           endpoint. This can be used to monitor your setup on certain services
@@ -113,7 +116,7 @@ Options:
           provide an untrusted URL.
       --monitoring-endpoint-period <SECONDS>
           Defines how many seconds to wait between each message sent to the
-          monitoring-endpoint. Default: 60s
+          monitoring-endpoint. [default: 60]
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
           values: mainnet, gnosis, chiado, sepolia, holesky]
@@ -145,8 +148,8 @@ Options:
           each validator along with the common slashing protection database and
           the validator_definitions.yml
       --web3-signer-keep-alive-timeout <MILLIS>
-          Keep-alive timeout for each web3signer connection. Set to 'null' to
-          never timeout [default: 20000]
+          Keep-alive timeout for each web3signer connection. Set to '0' to never
+          timeout. [default: 20000]
       --web3-signer-max-idle-connections <COUNT>
           Maximum number of idle connections to maintain per web3signer host.
           Default is unlimited.

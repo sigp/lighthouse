@@ -1430,7 +1430,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                 if let Some(modified_queue_id) = modified_queue_id {
                     let queue_len = match modified_queue_id {
-                        WorkType::GossipAttestation => aggregate_queue.len(),
+                        WorkType::GossipAttestation => attestation_queue.len(),
                         WorkType::UnknownBlockAttestation => unknown_block_attestation_queue.len(),
                         WorkType::GossipAttestationBatch => 0, // No queue
                         WorkType::GossipAggregate => aggregate_queue.len(),

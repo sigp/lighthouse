@@ -36,6 +36,7 @@ use beacon_chain::data_availability_checker::{
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::RequestState;
 use fnv::FnvHashMap;
+use itertools::Itertools;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
@@ -644,8 +645,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             // but future errors may follow the same pattern. Generalize this
                             // pattern with https://github.com/sigp/lighthouse/pull/6321
                             BlockError::AvailabilityCheck(
-                                AvailabilityCheckError::InvalidColumn(index, _),
-                            ) => peer_group.of_index(index as usize).collect(),
+                                AvailabilityCheckError::InvalidColumn(errors),
+                            ) => errors
+                                .iter()
+                                // Collect all peers that sent a column that was invalid. Must
+                                // run .unique as a single peer can send multiple invalid
+                                // columns. Penalize once to avoid insta-bans
+                                .flat_map(|(index, _)| peer_group.of_index((*index) as usize))
+                                .unique()
+                                .collect(),
                             _ => peer_group.all().collect(),
                         };
                         for peer in peers_to_penalize {

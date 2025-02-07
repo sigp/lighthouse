@@ -178,7 +178,9 @@ pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
 pub use crate::fork_name::{ForkName, InconsistentFork};
-pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedResponse};
+pub use crate::fork_versioned_response::{
+    ForkVersionDecode, ForkVersionDeserialize, ForkVersionedResponse,
+};
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::{

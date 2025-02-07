@@ -14,7 +14,10 @@ use lighthouse_network::rpc::methods::{
     OldBlocksByRangeRequestV2,
 };
 use lighthouse_network::rpc::{RequestType, StatusMessage};
-use lighthouse_network::service::api_types::{AppRequestId, Id, SyncRequestId};
+use lighthouse_network::service::api_types::{
+    AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
+    SyncRequestId,
+};
 use lighthouse_network::{PeerId, SyncInfo};
 use std::time::Duration;
 use types::{
@@ -31,8 +34,8 @@ pub(crate) enum DataSidecars<E: EthSpec> {
 
 enum ByRangeDataRequestIds {
     PreDeneb,
-    PrePeerDAS(Id, PeerId),
-    PostPeerDAS(Vec<(Id, PeerId)>),
+    PrePeerDAS(BlobsByRangeRequestId, PeerId),
+    PostPeerDAS(Vec<(DataColumnsByRangeRequestId, PeerId)>),
 }
 
 /// Sync tests are usually written in the form:
@@ -196,7 +199,7 @@ impl TestRig {
     fn find_blocks_by_range_request(
         &mut self,
         request_filter: RequestFilter,
-    ) -> ((Id, PeerId), ByRangeDataRequestIds) {
+    ) -> ((BlocksByRangeRequestId, PeerId), ByRangeDataRequestIds) {
         let filter_f = |peer: PeerId, start_slot: u64| {
             if let Some(expected_epoch) = request_filter.epoch {
                 let epoch = Slot::new(start_slot).epoch(E::slots_per_epoch()).as_u64();
@@ -220,7 +223,7 @@ impl TestRig {
                         RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(
                             OldBlocksByRangeRequestV2 { start_slot, .. },
                         )),
-                    request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                    request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
                 } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                 _ => None,
             })
@@ -237,7 +240,7 @@ impl TestRig {
                         RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
                             start_slot, ..
                         }),
-                    request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                    request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
                 } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                 _ => None,
             }) {
@@ -253,7 +256,7 @@ impl TestRig {
                     NetworkMessage::SendRequest {
                         peer_id,
                         request: RequestType::BlobsByRange(BlobsByRangeRequest { start_slot, .. }),
-                        request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                        request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
                     } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                     _ => None,
                 })
@@ -275,18 +278,12 @@ impl TestRig {
         let ((blocks_req_id, block_peer), by_range_data_request_ids) =
             self.find_blocks_by_range_request(request_filter);
 
-        // Retrieve the RangeRequestId before completing the request
-        let range_request_id = self
-            .sync_manager
-            .resolve_range_block_components_requests(blocks_req_id)
-            .expect("no range_block_components_requests for block id");
-
         // Complete the request with a single stream termination
         self.log(&format!(
-            "Completing BlocksByRange request {blocks_req_id} with empty stream"
+            "Completing BlocksByRange request {blocks_req_id:?} with empty stream"
         ));
         self.send_sync_message(SyncMessage::RpcBlock {
-            request_id: SyncRequestId::RangeBlockAndBlobs { id: blocks_req_id },
+            request_id: SyncRequestId::BlocksByRange(blocks_req_id),
             peer_id: block_peer,
             beacon_block: None,
             seen_timestamp: D,
@@ -297,10 +294,10 @@ impl TestRig {
             ByRangeDataRequestIds::PrePeerDAS(id, peer_id) => {
                 // Complete the request with a single stream termination
                 self.log(&format!(
-                    "Completing BlobsByRange request {id} with empty stream"
+                    "Completing BlobsByRange request {id:?} with empty stream"
                 ));
                 self.send_sync_message(SyncMessage::RpcBlob {
-                    request_id: SyncRequestId::RangeBlockAndBlobs { id },
+                    request_id: SyncRequestId::BlobsByRange(id),
                     peer_id,
                     blob_sidecar: None,
                     seen_timestamp: D,
@@ -310,10 +307,10 @@ impl TestRig {
                 // Complete the request with a single stream termination
                 for (id, peer_id) in data_column_req_ids {
                     self.log(&format!(
-                        "Completing DataColumnsByRange request {id} with empty stream"
+                        "Completing DataColumnsByRange request {id:?} with empty stream"
                     ));
                     self.send_sync_message(SyncMessage::RpcDataColumn {
-                        request_id: SyncRequestId::RangeBlockAndBlobs { id },
+                        request_id: SyncRequestId::DataColumnsByRange(id),
                         peer_id,
                         data_column: None,
                         seen_timestamp: D,
@@ -322,7 +319,7 @@ impl TestRig {
             }
         }
 
-        range_request_id
+        blocks_req_id.parent_request_id.requester
     }
 
     fn find_and_complete_processing_chain_segment(&mut self, id: ChainSegmentProcessId) {
