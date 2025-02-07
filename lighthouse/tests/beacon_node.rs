@@ -2522,13 +2522,24 @@ fn light_client_server_enabled() {
 }
 
 #[test]
-fn light_client_http_server_enabled() {
+fn light_client_server_disabled() {
     CommandLineTest::new()
-        .flag("http", None)
-        .flag("light-client-server", None)
+        .flag("disable-light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.http_api.enable_light_client_server);
+            assert!(!config.network.enable_light_client_server);
+            assert!(!config.chain.enable_light_client_server);
+        });
+}
+
+#[test]
+fn light_client_http_server_disabled() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("disable-light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.http_api.enable_light_client_server);
         });
 }
 

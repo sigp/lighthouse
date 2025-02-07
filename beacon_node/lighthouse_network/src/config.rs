@@ -354,7 +354,7 @@ impl Default for Config {
             topics: Vec::new(),
             proposer_only: false,
             metrics_enabled: false,
-            enable_light_client_server: false,
+            enable_light_client_server: true,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
