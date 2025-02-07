@@ -7,6 +7,7 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
+    single_attestation::single_attestation_to_attestation,
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
     BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
@@ -1133,7 +1134,8 @@ where
         let single_attestation =
             attestation.to_single_attestation_with_attester_index(attester_index as u64)?;
 
-        let attestation: Attestation<E> = single_attestation.to_attestation(committee.committee)?;
+        let attestation: Attestation<E> =
+            single_attestation_to_attestation(&single_attestation, committee.committee).unwrap();
 
         assert_eq!(
             single_attestation.committee_index,
