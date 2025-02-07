@@ -280,7 +280,7 @@ impl<E: EthSpec> RateLimiterItem for (super::RpcResponse<E>, Protocol) {
         self.1
     }
 
-    fn max_responses(&self) -> u64 {
+    fn max_responses(&self, _current_fork: ForkName, _spec: &ChainSpec) -> u64 {
         // A response chunk consumes one token of the rate limiter.
         1
     }

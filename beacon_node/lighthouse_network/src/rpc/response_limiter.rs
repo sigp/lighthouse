@@ -7,10 +7,11 @@ use libp2p::swarm::ConnectionId;
 use slog::{crit, debug, Logger};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio_util::time::DelayQueue;
-use types::EthSpec;
+use types::{EthSpec, ForkContext};
 
 /// A response that was rate limited or waiting on rate limited responses for the same peer and
 /// protocol.
@@ -36,14 +37,18 @@ pub(super) struct ResponseLimiter<E: EthSpec> {
 
 impl<E: EthSpec> ResponseLimiter<E> {
     /// Creates a new [`ResponseLimiter`] based on configuration values.
-    pub fn new(config: InboundRateLimiterConfig, log: Logger) -> Self {
-        ResponseLimiter {
-            limiter: RPCRateLimiter::new_with_config(config.0)
-                .expect("Inbound limiter configuration parameters are valid"),
+    pub fn new(
+        config: InboundRateLimiterConfig,
+        fork_context: Arc<ForkContext>,
+        log: Logger,
+    ) -> Result<Self, &'static str> {
+        Ok(ResponseLimiter {
+            limiter: RPCRateLimiter::new_with_config(config.0, fork_context)?,
+            // .expect("Inbound limiter configuration parameters are valid"),
             delayed_responses: HashMap::new(),
             next_response: DelayQueue::new(),
             log,
-        }
+        })
     }
 
     /// Checks if the rate limiter allows the response. When not allowed, the response is delayed

@@ -190,12 +190,16 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
         let response_limiter = inbound_rate_limiter_config.clone().map(|config| {
             debug!(log, "Using response rate limiting params"; "config" => ?config);
-            ResponseLimiter::new(config, log.clone())
+            ResponseLimiter::new(config, fork_context.clone(), log.clone())
+                .expect("Inbound limiter configuration parameters are valid")
         });
 
-        let outbound_request_limiter: SelfRateLimiter<Id, E> =
-            SelfRateLimiter::new(outbound_rate_limiter_config, fork_context.clone(), log.clone())
-                .expect("Configuration parameters are valid");
+        let outbound_request_limiter: SelfRateLimiter<Id, E> = SelfRateLimiter::new(
+            outbound_rate_limiter_config,
+            fork_context.clone(),
+            log.clone(),
+        )
+        .expect("Outbound limiter configuration parameters are valid");
 
         RPC {
             response_limiter,
@@ -303,10 +307,10 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             | Protocol::BlocksByRoot
             | Protocol::BlobsByRoot
             | Protocol::DataColumnsByRoot => false,
-            Protocol::BlocksByRange => request.max_responses() > self.fork_context.spec.max_request_blocks(self.fork_context.current_fork()) as u64,
-            Protocol::BlobsByRange => request.max_responses() > self.fork_context.spec.max_request_blob_sidecars,
-            Protocol::DataColumnsByRange => request.max_responses() > self.fork_context.spec.max_request_data_column_sidecars,
-            Protocol::LightClientUpdatesByRange => request.max_responses() > MAX_REQUEST_LIGHT_CLIENT_UPDATES,
+            Protocol::BlocksByRange => request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec) > self.fork_context.spec.max_request_blocks(self.fork_context.current_fork()) as u64,
+            Protocol::BlobsByRange => request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec) > self.fork_context.spec.max_request_blob_sidecars(self.fork_context.current_fork()) as u64,
+            Protocol::DataColumnsByRange => request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec) > self.fork_context.spec.max_request_data_column_sidecars,
+            Protocol::LightClientUpdatesByRange => request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec) > MAX_REQUEST_LIGHT_CLIENT_UPDATES,
         }
     }
 }

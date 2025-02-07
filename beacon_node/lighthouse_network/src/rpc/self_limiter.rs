@@ -363,15 +363,23 @@ mod tests {
     #[tokio::test]
     async fn test_next_peer_request_ready_concurrent_requests() {
         let log = logging::test_logger();
+        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Hash256::ZERO,
+            &MainnetEthSpec::default_spec(),
+        ));
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(None, log).unwrap();
+            SelfRateLimiter::new(None, fork_context, log).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {
             let result = limiter.allows(
                 peer_id,
-                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                    id: i,
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    id: SingleLookupReqId {
+                        lookup_id: i,
+                        req_id: i,
+                    },
                 })),
                 RequestType::Ping(Ping { data: i as u64 }),
             );
@@ -428,9 +436,9 @@ mod tests {
 
             assert!(matches!(
                 request_id,
-                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                    id
-                })) if *id == i
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    id: SingleLookupReqId { req_id, .. },
+                })) if *req_id == i
             ));
         }
     }
@@ -438,8 +446,13 @@ mod tests {
     #[tokio::test]
     async fn test_peer_disconnected() {
         let log = logging::test_logger();
+        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Hash256::ZERO,
+            &MainnetEthSpec::default_spec(),
+        ));
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(None, log).unwrap();
+            SelfRateLimiter::new(None, fork_context, log).unwrap();
         let peer1 = PeerId::random();
         let peer2 = PeerId::random();
 
@@ -447,8 +460,11 @@ mod tests {
             for i in 1..=5u32 {
                 let result = limiter.allows(
                     peer,
-                    RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                        id: i,
+                    RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                        id: SingleLookupReqId {
+                            lookup_id: i,
+                            req_id: i,
+                        },
                     })),
                     RequestType::Ping(Ping { data: i as u64 }),
                 );
@@ -477,9 +493,9 @@ mod tests {
             let (request_id, _) = failed_requests.remove(0);
             assert!(matches!(
                 request_id,
-                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                    id
-                })) if id == i
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                        id: SingleLookupReqId { req_id, .. },
+                })) if req_id == i
             ));
         }
 
