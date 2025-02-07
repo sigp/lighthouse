@@ -340,7 +340,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_type: BlockProcessType,
     ) {
         // custody_columns must always have at least one element
-        let Some(slot) = custody_columns.iter().map(|d| d.slot()).next() else {
+        let Some(slot) = custody_columns.first().map(|d| d.slot()) else {
             return;
         };
 
