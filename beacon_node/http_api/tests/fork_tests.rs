@@ -5,7 +5,7 @@ use beacon_chain::{
 };
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
 use execution_layer::test_utils::generate_genesis_header;
-use genesis::{bls_withdrawal_credentials, interop_genesis_state_with_withdrawal_credentials};
+use genesis::{bls_withdrawal_credentials, InteropGenesisBuilder};
 use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
@@ -346,35 +346,46 @@ fn assert_server_indexed_error(error: eth2::Error, status_code: u16, indices: Ve
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bls_to_execution_changes_update_all_around_capella_fork() {
-    let validator_count = 128;
+    const VALIDATOR_COUNT: usize = 128;
     let fork_epoch = Epoch::new(2);
     let spec = capella_spec(fork_epoch);
     let max_bls_to_execution_changes = E::max_bls_to_execution_changes();
 
     // Use a genesis state with entirely BLS withdrawal credentials.
-    // Offset keypairs by `validator_count` to create keys distinct from the signing keys.
-    let validator_keypairs = generate_deterministic_keypairs(validator_count);
-    let withdrawal_keypairs = (0..validator_count)
-        .map(|i| Some(generate_deterministic_keypair(i + validator_count)))
+    // Offset keypairs by `VALIDATOR_COUNT` to create keys distinct from the signing keys.
+    let validator_keypairs = generate_deterministic_keypairs(VALIDATOR_COUNT);
+    let withdrawal_keypairs = (0..VALIDATOR_COUNT)
+        .map(|i| Some(generate_deterministic_keypair(i + VALIDATOR_COUNT)))
         .collect::<Vec<_>>();
-    let withdrawal_credentials = withdrawal_keypairs
-        .iter()
-        .map(|keypair| bls_withdrawal_credentials(&keypair.as_ref().unwrap().pk, &spec))
-        .collect::<Vec<_>>();
+
+    fn withdrawal_credentials_fn<'a>(
+        index: usize,
+        _: &'a types::PublicKey,
+        spec: &'a ChainSpec,
+    ) -> Hash256 {
+        // It is a bit inefficient to regenerate the whole keypair here, but this is a workaround.
+        // `InteropGenesisBuilder` requires the `withdrawal_credentials_fn` to have
+        // a `'static` lifetime.
+        let keypair = generate_deterministic_keypair(index + VALIDATOR_COUNT);
+        bls_withdrawal_credentials(&keypair.pk, spec)
+    }
+
     let header = generate_genesis_header(&spec, true);
-    let genesis_state = interop_genesis_state_with_withdrawal_credentials(
-        &validator_keypairs,
-        &withdrawal_credentials,
-        HARNESS_GENESIS_TIME,
-        Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-        header,
-        &spec,
-    )
-    .unwrap();
+
+    let genesis_state = InteropGenesisBuilder::new()
+        .set_opt_execution_payload_header(header)
+        .set_withdrawal_credentials_fn(Box::new(withdrawal_credentials_fn))
+        .build_genesis_state(
+            &validator_keypairs,
+            HARNESS_GENESIS_TIME,
+            Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            &spec,
+        )
+        .unwrap();
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec.clone()),
-        validator_count,
+        VALIDATOR_COUNT,
         Some(Box::new(|harness_builder| {
             harness_builder
                 .keypairs(validator_keypairs)
@@ -421,7 +432,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
             let pubkey = &harness.get_withdrawal_keypair(validator_index).pk;
             // And the wrong secret key.
             let secret_key = &harness
-                .get_withdrawal_keypair((validator_index + 1) % validator_count as u64)
+                .get_withdrawal_keypair((validator_index + 1) % VALIDATOR_COUNT as u64)
                 .sk;
             harness.make_bls_to_execution_change_with_keys(
                 validator_index,
@@ -433,7 +444,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         .collect::<Vec<_>>();
 
     // Submit some changes before Capella. Just enough to fill two blocks.
-    let num_pre_capella = validator_count / 4;
+    let num_pre_capella = VALIDATOR_COUNT / 4;
     let blocks_filled_pre_capella = 2;
     assert_eq!(
         num_pre_capella,
@@ -488,7 +499,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
     );
 
     // Add Capella blocks which should be full of BLS to execution changes.
-    for i in 0..validator_count / max_bls_to_execution_changes {
+    for i in 0..VALIDATOR_COUNT / max_bls_to_execution_changes {
         let head_block_root = harness.extend_slots(1).await;
         let head_block = harness
             .chain
@@ -534,7 +545,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
             assert_server_indexed_error(
                 error,
                 400,
-                (validator_count..3 * validator_count).collect(),
+                (VALIDATOR_COUNT..3 * VALIDATOR_COUNT).collect(),
             );
         }
     }
