@@ -25,11 +25,11 @@ impl ForkContext {
         let fork_to_digest: HashMap<ForkName, [u8; 4]> = ForkName::list_all()
             .into_iter()
             .filter_map(|fork| {
-                if fork.fork_epoch(spec).is_some() {
+                if spec.fork_epoch(fork).is_some() {
                     Some((
                         fork,
                         ChainSpec::compute_fork_digest(
-                            ForkName::fork_version(fork, spec),
+                            spec.fork_version_for_name(fork),
                             genesis_validators_root,
                         ),
                     ))
