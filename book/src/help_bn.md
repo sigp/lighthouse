@@ -458,6 +458,8 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
+      --disable-light-client-server
+          Disables light client support on the p2p network
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
@@ -511,8 +513,7 @@ Flags:
           already-subscribed subnets, use with --subscribe-all-subnets to ensure
           all attestations are received for import.
       --light-client-server
-          Act as a full node supporting light clients on the p2p network
-          [experimental]
+          DEPRECATED
       --log-color
           Force outputting colors when emitting logs to the terminal.
       --logfile-compress

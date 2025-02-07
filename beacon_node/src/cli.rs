@@ -1502,8 +1502,8 @@ pub fn cli_app() -> Command {
         )
         .arg(
             Arg::new("disable-light-client-server")
-                .long("light-client-server")
-                .help("DEPRECATED")
+                .long("disable-light-client-server")
+                .help("Disables light client support on the p2p network")
                 .action(ArgAction::SetTrue)
 
                 .help_heading(FLAG_HEADER)
