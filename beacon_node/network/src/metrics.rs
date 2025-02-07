@@ -387,19 +387,6 @@ pub static PEERS_PER_CUSTODY_COLUMN_SUBNET: LazyLock<Result<IntGaugeVec>> = Lazy
         &["subnet_id"],
     )
 });
-pub static COLUMN_SUBNETS_WITH_ZERO_PEERS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "sync_column_subnets_with_zero_peers",
-        "Current count of total column subnets with zero peers",
-    )
-});
-pub static CUSTODY_COLUMN_SUBNETS_WITH_ZERO_PEERS: LazyLock<Result<IntGauge>> =
-    LazyLock::new(|| {
-        try_create_int_gauge(
-            "sync_custody_column_subnets_with_zero_peers",
-            "Current count of custody column subnets of this node with zero peers",
-        )
-    });
 pub static SYNCING_CHAINS_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(
         "sync_range_chains",
@@ -787,7 +774,7 @@ pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>)
     let custody_column_subnets = network_globals.sampling_subnets.iter();
 
     // Iterate all subnet values to set to zero the empty entries in peers_per_column_subnet
-    for subnet in all_column_subnets.clone() {
+    for subnet in all_column_subnets {
         set_gauge_entry(
             &PEERS_PER_COLUMN_SUBNET,
             &[&format!("{subnet}")],
@@ -798,27 +785,11 @@ pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>)
     // Registering this metric is a duplicate for supernodes but helpful for fullnodes. This way
     // operators can monitor the health of only the subnets of their interest without complex
     // Grafana queries.
-    for subnet in custody_column_subnets.clone() {
+    for subnet in custody_column_subnets {
         set_gauge_entry(
             &PEERS_PER_CUSTODY_COLUMN_SUBNET,
             &[&format!("{subnet}")],
             peers_per_column_subnet.get(subnet).copied().unwrap_or(0),
         );
     }
-
-    // Out the total count of custody columns, count how many have zero peers
-    set_gauge(
-        &COLUMN_SUBNETS_WITH_ZERO_PEERS,
-        all_column_subnets
-            .filter(|subnet| peers_per_column_subnet.get(subnet).copied().unwrap_or(0) == 0)
-            .count() as i64,
-    );
-
-    // Out of the subnets this node needs to custody, count how many have zero peers
-    set_gauge(
-        &CUSTODY_COLUMN_SUBNETS_WITH_ZERO_PEERS,
-        custody_column_subnets
-            .filter(|subnet| peers_per_column_subnet.get(subnet).copied().unwrap_or(0) == 0)
-            .count() as i64,
-    );
 }
