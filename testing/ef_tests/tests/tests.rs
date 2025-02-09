@@ -283,6 +283,12 @@ mod ssz_static {
     }
 
     #[test]
+    fn single_attestation() {
+        SszStaticHandler::<SingleAttestation, MinimalEthSpec>::electra_and_later().run();
+        SszStaticHandler::<SingleAttestation, MainnetEthSpec>::electra_and_later().run();
+    }
+
+    #[test]
     fn attester_slashing() {
         SszStaticHandler::<AttesterSlashingBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra()
             .run();
@@ -878,6 +884,12 @@ fn fork_choice_should_override_forkchoice_update() {
 fn fork_choice_get_proposer_head() {
     ForkChoiceHandler::<MinimalEthSpec>::new("get_proposer_head").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("get_proposer_head").run();
+}
+
+#[test]
+fn fork_choice_deposit_with_reorg() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("deposit_with_reorg").run();
+    // There is no mainnet variant for this test.
 }
 
 #[test]
