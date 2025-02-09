@@ -79,7 +79,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
       $ENCLAVE_NAME $service_name $LH_IMAGE_NAME -- lighthouse \
       vc \
       --debug-level debug \
-      --testnet-dir= bootstrap_nodes.yaml \
+      --testnet-dir=bootstrap_nodes.yaml \
       --validators-dir=/validator_keys/keys \
       --secrets-dir=/validator_keys/secrets \
       --init-slashing-protection \
@@ -115,7 +115,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
           $ENCLAVE_NAME $service_name $LH_IMAGE_NAME -- lighthouse \
           vc \
           --debug-level debug \
-          --testnet-dir= bootstrap_nodes.yaml \
+          --testnet-dir=bootstrap_nodes.yaml \
           --validators-dir=/validator_keys/keys \
           --secrets-dir=/validator_keys/secrets \
           --init-slashing-protection \
