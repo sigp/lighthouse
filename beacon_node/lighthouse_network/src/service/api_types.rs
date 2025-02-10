@@ -36,6 +36,8 @@ pub enum SyncRequestId {
     BlobsByRange(BlobsByRangeRequestId),
     /// Data columns by range request
     DataColumnsByRange(DataColumnsByRangeRequestId),
+    /// Status Request
+    Status,
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
@@ -125,17 +127,10 @@ pub struct CustodyId {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodyRequester(pub SingleLookupReqId);
 
-/// Application level requests sent to the network.
-#[derive(Debug, Clone, Copy)]
-pub enum AppRequestId {
-    Sync(SyncRequestId),
-    Router,
-}
-
 /// Global identifier of a request.
 #[derive(Debug, Clone, Copy)]
 pub enum RequestId {
-    Application(AppRequestId),
+    Application(SyncRequestId),
     Internal,
 }
 

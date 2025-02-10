@@ -12,6 +12,7 @@ use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
 use lighthouse_network::rpc::{RequestId, RequestType};
+use lighthouse_network::service::api_types::SyncRequestId;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
@@ -20,7 +21,6 @@ use lighthouse_network::{
     Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Response, Subnet,
 };
 use lighthouse_network::{
-    service::api_types::AppRequestId,
     types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
@@ -60,7 +60,7 @@ pub enum NetworkMessage<E: EthSpec> {
     SendRequest {
         peer_id: PeerId,
         request: RequestType<E>,
-        request_id: AppRequestId,
+        request_id: SyncRequestId,
     },
     /// Send a successful Response to the libp2p service.
     SendResponse {

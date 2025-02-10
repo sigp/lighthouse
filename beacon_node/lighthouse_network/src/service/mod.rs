@@ -21,7 +21,7 @@ use crate::types::{
 use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use api_types::{AppRequestId, PeerRequestId, RequestId, Response};
+use api_types::{PeerRequestId, RequestId, Response, SyncRequestId};
 use futures::stream::StreamExt;
 use gossipsub::{
     IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
@@ -66,7 +66,7 @@ pub enum NetworkEvent<E: EthSpec> {
     /// An RPC Request that was sent failed.
     RPCFailed {
         /// The id of the failed request.
-        id: AppRequestId,
+        id: SyncRequestId,
         /// The peer to which this request was sent.
         peer_id: PeerId,
         /// The error of the failed request.
@@ -84,7 +84,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// Peer that sent the response.
         peer_id: PeerId,
         /// Id of the request to which the peer is responding.
-        id: AppRequestId,
+        id: SyncRequestId,
         /// Response the peer sent.
         response: Response<E>,
     },
@@ -965,9 +965,9 @@ impl<E: EthSpec> Network<E> {
     pub fn send_request(
         &mut self,
         peer_id: PeerId,
-        request_id: AppRequestId,
+        request_id: SyncRequestId,
         request: RequestType<E>,
-    ) -> Result<(), (AppRequestId, RPCError)> {
+    ) -> Result<(), (SyncRequestId, RPCError)> {
         // Check if the peer is connected before sending an RPC request
         if !self.swarm.is_connected(&peer_id) {
             return Err((request_id, RPCError::Disconnected));

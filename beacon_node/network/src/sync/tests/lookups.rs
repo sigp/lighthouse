@@ -31,8 +31,8 @@ use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
     rpc::{RPCError, RequestType, RpcErrorResponse},
     service::api_types::{
-        AppRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
-        SamplingRequester, SingleLookupReqId, SyncRequestId,
+        DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SamplingRequester,
+        SingleLookupReqId, SyncRequestId,
     },
     types::SyncState,
     NetworkConfig, NetworkGlobals, PeerId,
@@ -804,7 +804,7 @@ impl TestRig {
         while let Ok(request_id) = self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id,
-                request_id: AppRequestId::Sync(id),
+                request_id: id,
                 ..
             } if *peer_id == disconnected_peer_id => Some(*id),
             _ => None,
@@ -895,7 +895,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlocksByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
+                request_id: SyncRequestId::SingleBlock { id },
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
@@ -915,7 +915,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlobsByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
+                request_id: SyncRequestId::SingleBlob { id },
             } if request
                 .blob_ids
                 .to_vec()
@@ -940,7 +940,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlocksByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
+                request_id: SyncRequestId::SingleBlock { id },
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
@@ -962,7 +962,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlobsByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
+                request_id: SyncRequestId::SingleBlob { id },
             } if request
                 .blob_ids
                 .to_vec()
@@ -990,7 +990,7 @@ impl TestRig {
                     NetworkMessage::SendRequest {
                         peer_id: _,
                         request: RequestType::DataColumnsByRoot(request),
-                        request_id: AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
+                        request_id: id @ SyncRequestId::DataColumnsByRoot { .. },
                     } if request
                         .data_column_ids
                         .to_vec()
