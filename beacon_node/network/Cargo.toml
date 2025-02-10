@@ -10,8 +10,10 @@ eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 genesis = { workspace = true }
 gossipsub = { workspace = true }
+k256 = "0.13.4"
 kzg = { workspace = true }
 matches = "0.1.8"
+rand_chacha = "0.3.1"
 serde_json = { workspace = true }
 slog-async = { workspace = true }
 slog-term = { workspace = true }
