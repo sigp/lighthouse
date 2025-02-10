@@ -5365,6 +5365,7 @@ dependencies = [
  "libp2p",
  "libp2p-mplex",
  "lighthouse_version",
+ "local-ip-address",
  "logging",
  "lru",
  "lru_cache",
@@ -5442,6 +5443,18 @@ dependencies = [
  "cc",
  "libc",
  "pkg-config",
+]
+
+[[package]]
+name = "local-ip-address"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3669cf5561f8d27e8fc84cc15e58350e70f557d4d65f70e3154e54cd2f8e1782"
+dependencies = [
+ "libc",
+ "neli",
+ "thiserror 1.0.69",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5885,6 +5898,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "neli"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93062a0dce6da2517ea35f301dfc88184ce18d3601ec786a727a87bf535deca9"
+dependencies = [
+ "byteorder",
+ "libc",
+ "log",
+ "neli-proc-macros",
+]
+
+[[package]]
+name = "neli-proc-macros"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c8034b7fbb6f9455b2a96c19e6edf8dc9fc34c70449938d8ee3b4df363f61fe"
+dependencies = [
+ "either",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "netlink-packet-core"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5972,6 +6010,7 @@ dependencies = [
  "hex",
  "igd-next 0.16.0",
  "itertools 0.10.5",
+ "k256 0.13.4",
  "kzg",
  "lighthouse_network",
  "logging",
@@ -5981,6 +6020,7 @@ dependencies = [
  "operation_pool",
  "parking_lot 0.12.3",
  "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "serde_json",
  "slot_clock",
  "smallvec",

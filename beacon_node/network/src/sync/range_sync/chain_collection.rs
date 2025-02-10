@@ -473,7 +473,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             .find(|(_, chain)| chain.has_same_target(target_head_slot, target_head_root))
         {
             Some((&id, chain)) => {
-                debug!(peer_id = %peer, ?sync_type, %chain, "Adding peer to known chain");
+                debug!(peer_id = %peer, ?sync_type, id, "Adding peer to known chain");
                 debug_assert_eq!(chain.target_head_root, target_head_root);
                 debug_assert_eq!(chain.target_head_slot, target_head_slot);
                 if let Err(remove_reason) = chain.add_peer(network, peer) {

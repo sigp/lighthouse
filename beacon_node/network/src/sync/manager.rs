@@ -338,6 +338,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
+    pub(crate) fn range_sync_state(&self) -> super::range_sync::SyncChainStatus {
+        self.range_sync.state()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn __range_failed_chains(&mut self) -> Vec<Hash256> {
+        self.range_sync.__failed_chains()
+    }
+
+    #[cfg(test)]
     pub(crate) fn get_failed_chains(&mut self) -> Vec<Hash256> {
         self.block_lookups.get_failed_chains()
     }
@@ -359,11 +369,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         index: &ColumnIndex,
     ) -> Option<super::peer_sampling::Status> {
         self.sampling.get_request_status(block_root, index)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn range_sync_state(&self) -> super::range_sync::SyncChainStatus {
-        self.range_sync.state()
     }
 
     #[cfg(test)]
