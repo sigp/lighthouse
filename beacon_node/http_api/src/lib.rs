@@ -171,7 +171,7 @@ impl Default for Config {
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
-            enable_light_client_server: false,
+            enable_light_client_server: true,
             target_peers: 100,
         }
     }

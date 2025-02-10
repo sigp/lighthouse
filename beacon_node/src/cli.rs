@@ -1494,9 +1494,18 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("light-client-server")
                 .long("light-client-server")
-                .help("Act as a full node supporting light clients on the p2p network \
-                       [experimental]")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
+
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-light-client-server")
+                .long("disable-light-client-server")
+                .help("Disables light client support on the p2p network")
+                .action(ArgAction::SetTrue)
+
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )

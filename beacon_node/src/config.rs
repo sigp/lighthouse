@@ -176,11 +176,19 @@ pub fn get_config<E: EthSpec>(
             parse_required(cli_args, "http-duplicate-block-status")?;
 
         client_config.http_api.enable_light_client_server =
-            cli_args.get_flag("light-client-server");
+            !cli_args.get_flag("disable-light-client-server");
     }
 
     if cli_args.get_flag("light-client-server") {
-        client_config.chain.enable_light_client_server = true;
+        warn!(
+            log,
+            "The --light-client-server flag is deprecated. The light client server is enabled \
+             by default"
+        );
+    }
+
+    if cli_args.get_flag("disable-light-client-server") {
+        client_config.chain.enable_light_client_server = false;
     }
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
@@ -1419,7 +1427,7 @@ pub fn set_network_config(
     }
 
     // Light client server config.
-    config.enable_light_client_server = parse_flag(cli_args, "light-client-server");
+    config.enable_light_client_server = !parse_flag(cli_args, "disable-light-client-server");
 
     // The self limiter is enabled by default. If the `self-limiter-protocols` flag is not provided,
     // the default params will be used.
