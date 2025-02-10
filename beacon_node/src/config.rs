@@ -179,6 +179,14 @@ pub fn get_config<E: EthSpec>(
             !cli_args.get_flag("disable-light-client-server");
     }
 
+    if cli_args.get_flag("light-client-server") {
+        warn!(
+            log,
+            "The --light-client-server flag is deprecated. The light client server is enabled \
+             by default"
+        );
+    }
+
     if cli_args.get_flag("disable-light-client-server") {
         client_config.chain.enable_light_client_server = false;
     }
