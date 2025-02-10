@@ -361,3 +361,20 @@ pub enum DatabaseBackend {
     #[cfg(feature = "redb")]
     Redb,
 }
+
+impl Default for DatabaseBackend {
+    fn default() -> Self {
+        #[cfg(feature = "leveldb")]
+        {
+            DatabaseBackend::LevelDb
+        }
+        #[cfg(all(not(feature = "leveldb"), feature = "redb"))]
+        {
+            DatabaseBackend::Redb
+        }
+        #[cfg(all(not(feature = "leveldb"), not(feature = "redb")))]
+        {
+            compile_error!("No database backend enabled. You must enable at least one")
+        }
+    }
+}

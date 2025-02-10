@@ -275,7 +275,7 @@ slasher = { path = "slasher", default-features = false }
 slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
 state_processing = { path = "consensus/state_processing" }
-store = { path = "beacon_node/store" }
+store = { path = "beacon_node/store", default-features = false }
 swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
 system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
