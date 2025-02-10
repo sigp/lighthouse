@@ -1,4 +1,5 @@
 //! A collection of variables that are accessible outside of the network thread itself.
+use super::TopicConfig;
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV3};
 use crate::types::{BackFillState, SyncState};
@@ -183,6 +184,14 @@ impl<E: EthSpec> NetworkGlobals<E> {
             .collect::<Vec<_>>()
     }
 
+    /// Returns the TopicConfig to compute the set of Gossip topics for a given fork
+    pub fn as_topic_config(&self) -> TopicConfig {
+        TopicConfig {
+            subscribe_all_data_column_subnets: self.config.subscribe_all_data_column_subnets,
+            sampling_subnets: &self.sampling_subnets,
+        }
+    }
+
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
     pub fn new_test_globals(
         trusted_peers: Vec<PeerId>,
@@ -223,7 +232,7 @@ mod test {
     fn test_sampling_subnets() {
         let log = logging::test_logger();
         let mut spec = E::default_spec();
-        spec.eip7594_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
 
         let custody_group_count = spec.number_of_custody_groups / 2;
         let subnet_sampling_size = spec.sampling_size(custody_group_count).unwrap();
@@ -247,7 +256,7 @@ mod test {
     fn test_sampling_columns() {
         let log = logging::test_logger();
         let mut spec = E::default_spec();
-        spec.eip7594_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
 
         let custody_group_count = spec.number_of_custody_groups / 2;
         let subnet_sampling_size = spec.sampling_size(custody_group_count).unwrap();

@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -90,6 +90,7 @@ impl<T: BeaconChainTypes> Router<T> {
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
+        fork_context: Arc<ForkContext>,
         log: slog::Logger,
     ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
         let message_handler_log = log.new(o!("service"=> "router"));
@@ -122,6 +123,7 @@ impl<T: BeaconChainTypes> Router<T> {
             network_send.clone(),
             network_beacon_processor.clone(),
             sync_recv,
+            fork_context,
             sync_logger,
         );
 
@@ -622,7 +624,7 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::RangeBlockAndBlobs { .. } => id,
+                id @ SyncRequestId::BlocksByRange { .. } => id,
                 other => {
                     crit!(self.log, "BlocksByRange response on incorrect request"; "request" => ?other);
                     return;

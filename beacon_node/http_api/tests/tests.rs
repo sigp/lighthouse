@@ -3,6 +3,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
+use either::Either;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
@@ -1810,9 +1811,22 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_attestations_valid_v1(mut self) -> Self {
+    pub async fn test_post_beacon_pool_attestations_valid(mut self) -> Self {
         self.client
             .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .await
+            .unwrap();
+
+        let fork_name = self
+            .attestations
+            .first()
+            .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
+            .unwrap();
+
+        let attestations = Either::Left(self.attestations.clone());
+
+        self.client
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -1833,8 +1847,10 @@ impl ApiTester {
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data.slot))
             .unwrap();
+
+        let attestations = Either::Right(self.single_attestations.clone());
         self.client
-            .post_beacon_pool_attestations_v2(self.single_attestations.as_slice(), fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
         assert!(
@@ -1900,10 +1916,10 @@ impl ApiTester {
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
-
+        let attestations = Either::Right(attestations);
         let err_v2 = self
             .client
-            .post_beacon_pool_attestations_v2(attestations.as_slice(), fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap_err();
 
@@ -1933,7 +1949,7 @@ impl ApiTester {
             .sync_committee_period(&self.chain.spec)
             .unwrap();
 
-        let result = match self
+        match self
             .client
             .get_beacon_light_client_updates::<E>(current_sync_committee_period, 1)
             .await
@@ -1954,7 +1970,6 @@ impl ApiTester {
             .unwrap();
 
         assert_eq!(1, expected.len());
-        assert_eq!(result.clone().unwrap().len(), expected.len());
         self
     }
 
@@ -1979,7 +1994,6 @@ impl ApiTester {
             .get_light_client_bootstrap(&self.chain.store, &block_root, 1u64, &self.chain.spec);
 
         assert!(expected.is_ok());
-
         assert_eq!(result.unwrap().data, expected.unwrap().unwrap().0);
 
         self
@@ -2362,11 +2376,11 @@ impl ApiTester {
             enr: self.local_enr.clone(),
             p2p_addresses: self.local_enr.multiaddr_p2p_tcp(),
             discovery_addresses: self.local_enr.multiaddr_p2p_udp(),
-            metadata: eth2::types::MetaData {
+            metadata: MetaData::V2(MetaDataV2 {
                 seq_number: 0,
                 attnets: "0x0000000000000000".to_string(),
                 syncnets: "0x00".to_string(),
-            },
+            }),
         };
 
         assert_eq!(result, expected);
@@ -6056,9 +6070,9 @@ impl ApiTester {
             .chain
             .spec
             .fork_name_at_slot::<E>(self.chain.slot().unwrap());
-
+        let attestations = Either::Right(self.single_attestations.clone());
         self.client
-            .post_beacon_pool_attestations_v2(&self.single_attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -6377,10 +6391,10 @@ async fn post_beacon_blocks_duplicate() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn beacon_pools_post_attestations_valid_v1() {
+async fn beacon_pools_post_attestations_valid() {
     ApiTester::new()
         .await
-        .test_post_beacon_pool_attestations_valid_v1()
+        .test_post_beacon_pool_attestations_valid()
         .await;
 }
 

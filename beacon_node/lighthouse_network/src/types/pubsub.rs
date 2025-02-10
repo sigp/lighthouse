@@ -283,27 +283,15 @@ impl<E: EthSpec> PubsubMessage<E> {
                     }
                     GossipKind::DataColumnSidecar(subnet_id) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            // TODO(das): Remove Deneb fork
-                            Some(fork) if fork.deneb_enabled() => {
+                            Some(fork) if fork.fulu_enabled() => {
                                 let col_sidecar = Arc::new(
                                     DataColumnSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 );
-                                let peer_das_enabled =
-                                    fork_context.spec.is_peer_das_enabled_for_epoch(
-                                        col_sidecar.slot().epoch(E::slots_per_epoch()),
-                                    );
-                                if peer_das_enabled {
-                                    Ok(PubsubMessage::DataColumnSidecar(Box::new((
-                                        *subnet_id,
-                                        col_sidecar,
-                                    ))))
-                                } else {
-                                    Err(format!(
-                                        "data_column_sidecar topic invalid for given fork digest {:?}",
-                                        gossip_topic.fork_digest
-                                    ))
-                                }
+                                Ok(PubsubMessage::DataColumnSidecar(Box::new((
+                                    *subnet_id,
+                                    col_sidecar,
+                                ))))
                             }
                             Some(_) | None => Err(format!(
                                 "data_column_sidecar topic invalid for given fork digest {:?}",

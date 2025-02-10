@@ -186,7 +186,7 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     .map_err(DataColumnSidecarError::BuildSidecarFailed)
 }
 
-fn build_data_column_sidecars<E: EthSpec>(
+pub(crate) fn build_data_column_sidecars<E: EthSpec>(
     kzg_commitments: KzgCommitments<E>,
     kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
     signed_block_header: SignedBeaconBlockHeader,

@@ -161,7 +161,7 @@ pub enum Error {
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
-    NonExecutionAddresWithdrawalCredential,
+    NonExecutionAddressWithdrawalCredential,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
     InvalidSelectionProof {
@@ -2214,7 +2214,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     // ******* Electra accessors *******
 
-    /// Return the churn limit for the current epoch.
+    /// Return the churn limit for the current epoch.
     pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         let total_active_balance = self.get_total_active_balance()?;
         let churn = std::cmp::max(
@@ -2329,21 +2329,12 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Electra(_) => {
-                let state = self.as_electra_mut()?;
-
+            BeaconState::Electra(_) | BeaconState::Fulu(_) => {
                 // Consume the balance and update state variables
-                state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
-                state.earliest_exit_epoch = earliest_exit_epoch;
-                Ok(state.earliest_exit_epoch)
-            }
-            BeaconState::Fulu(_) => {
-                let state = self.as_fulu_mut()?;
-
-                // Consume the balance and update state variables
-                state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
-                state.earliest_exit_epoch = earliest_exit_epoch;
-                Ok(state.earliest_exit_epoch)
+                *self.exit_balance_to_consume_mut()? =
+                    exit_balance_to_consume.safe_sub(exit_balance)?;
+                *self.earliest_exit_epoch_mut()? = earliest_exit_epoch;
+                self.earliest_exit_epoch()
             }
         }
     }
@@ -2385,23 +2376,12 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Electra(_) => {
-                let state = self.as_electra_mut()?;
-
+            BeaconState::Electra(_) | BeaconState::Fulu(_) => {
                 // Consume the balance and update state variables.
-                state.consolidation_balance_to_consume =
+                *self.consolidation_balance_to_consume_mut()? =
                     consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
-                state.earliest_consolidation_epoch = earliest_consolidation_epoch;
-                Ok(state.earliest_consolidation_epoch)
-            }
-            BeaconState::Fulu(_) => {
-                let state = self.as_fulu_mut()?;
-
-                // Consume the balance and update state variables.
-                state.consolidation_balance_to_consume =
-                    consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
-                state.earliest_consolidation_epoch = earliest_consolidation_epoch;
-                Ok(state.earliest_consolidation_epoch)
+                *self.earliest_consolidation_epoch_mut()? = earliest_consolidation_epoch;
+                self.earliest_consolidation_epoch()
             }
         }
     }

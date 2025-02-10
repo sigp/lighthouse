@@ -15,12 +15,12 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
-use types::ForkName;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
     Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
+use types::{ForkContext, ForkName};
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
@@ -411,6 +411,27 @@ impl OldBlocksByRangeRequest {
     }
 }
 
+impl From<BlocksByRangeRequest> for OldBlocksByRangeRequest {
+    fn from(req: BlocksByRangeRequest) -> Self {
+        match req {
+            BlocksByRangeRequest::V1(ref req) => {
+                OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                })
+            }
+            BlocksByRangeRequest::V2(ref req) => {
+                OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                })
+            }
+        }
+    }
+}
+
 /// Request a number of beacon block bodies from a peer.
 #[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
 #[derive(Clone, Debug, PartialEq)]
@@ -420,15 +441,19 @@ pub struct BlocksByRootRequest {
 }
 
 impl BlocksByRootRequest {
-    pub fn new(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
-        let block_roots =
-            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
+    pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+        let max_request_blocks = fork_context
+            .spec
+            .max_request_blocks(fork_context.current_fork());
+        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
         Self::V2(BlocksByRootRequestV2 { block_roots })
     }
 
-    pub fn new_v1(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
-        let block_roots =
-            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
+    pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+        let max_request_blocks = fork_context
+            .spec
+            .max_request_blocks(fork_context.current_fork());
+        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
         Self::V1(BlocksByRootRequestV1 { block_roots })
     }
 }
@@ -441,9 +466,11 @@ pub struct BlobsByRootRequest {
 }
 
 impl BlobsByRootRequest {
-    pub fn new(blob_ids: Vec<BlobIdentifier>, spec: &ChainSpec) -> Self {
-        let blob_ids =
-            RuntimeVariableList::from_vec(blob_ids, spec.max_request_blob_sidecars as usize);
+    pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Self {
+        let max_request_blob_sidecars = fork_context
+            .spec
+            .max_request_blob_sidecars(fork_context.current_fork());
+        let blob_ids = RuntimeVariableList::from_vec(blob_ids, max_request_blob_sidecars);
         Self { blob_ids }
     }
 }

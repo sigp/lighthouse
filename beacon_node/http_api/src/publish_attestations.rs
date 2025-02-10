@@ -36,14 +36,15 @@
 //! attestations and there's no immediate cause for concern.
 use crate::task_spawner::{Priority, TaskSpawner};
 use beacon_chain::{
-    validator_monitor::timestamp_now, AttestationError, BeaconChain, BeaconChainError,
-    BeaconChainTypes,
+    single_attestation::single_attestation_to_attestation, validator_monitor::timestamp_now,
+    AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
 use either::Either;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
+use serde_json::Value;
 use slog::{debug, error, warn, Logger};
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -52,11 +53,11 @@ use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
     oneshot,
 };
-use types::{Attestation, EthSpec, SingleAttestation};
+use types::{Attestation, EthSpec, ForkName, SingleAttestation};
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     Validation(AttestationError),
     Publication,
     ForkChoice(#[allow(dead_code)] BeaconChainError),
@@ -64,6 +65,7 @@ enum Error {
     ReprocessDisabled,
     ReprocessFull,
     ReprocessTimeout,
+    InvalidJson(#[allow(dead_code)] serde_json::Error),
     FailedConversion(#[allow(dead_code)] BeaconChainError),
 }
 
@@ -72,6 +74,36 @@ enum PublishAttestationResult {
     AlreadyKnown,
     Reprocessing(oneshot::Receiver<Result<(), Error>>),
     Failure(Error),
+}
+
+#[allow(clippy::type_complexity)]
+pub fn deserialize_attestation_payload<T: BeaconChainTypes>(
+    payload: Value,
+    fork_name: Option<ForkName>,
+    log: &Logger,
+) -> Result<Vec<Either<Attestation<T::EthSpec>, SingleAttestation>>, Error> {
+    if fork_name.is_some_and(|fork_name| fork_name.electra_enabled()) || fork_name.is_none() {
+        if fork_name.is_none() {
+            warn!(
+                log,
+                "No Consensus Version header specified.";
+            );
+        }
+
+        Ok(serde_json::from_value::<Vec<SingleAttestation>>(payload)
+            .map_err(Error::InvalidJson)?
+            .into_iter()
+            .map(Either::Right)
+            .collect())
+    } else {
+        Ok(
+            serde_json::from_value::<Vec<Attestation<T::EthSpec>>>(payload)
+                .map_err(Error::InvalidJson)?
+                .into_iter()
+                .map(Either::Left)
+                .collect(),
+        )
+    }
 }
 
 fn verify_and_publish_attestation<T: BeaconChainTypes>(
@@ -151,10 +183,10 @@ fn convert_to_attestation<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     attestation: &'a Either<Attestation<T::EthSpec>, SingleAttestation>,
 ) -> Result<Cow<'a, Attestation<T::EthSpec>>, Error> {
-    let a = match attestation {
-        Either::Left(a) => Cow::Borrowed(a),
-        Either::Right(single_attestation) => chain
-            .with_committee_cache(
+    match attestation {
+        Either::Left(a) => Ok(Cow::Borrowed(a)),
+        Either::Right(single_attestation) => {
+            let conversion_result = chain.with_committee_cache(
                 single_attestation.data.target.root,
                 single_attestation
                     .data
@@ -163,26 +195,35 @@ fn convert_to_attestation<'a, T: BeaconChainTypes>(
                 |committee_cache, _| {
                     let Some(committee) = committee_cache.get_beacon_committee(
                         single_attestation.data.slot,
-                        single_attestation.committee_index as u64,
+                        single_attestation.committee_index,
                     ) else {
-                        return Err(BeaconChainError::AttestationError(
-                            types::AttestationError::NoCommitteeForSlotAndIndex {
-                                slot: single_attestation.data.slot,
-                                index: single_attestation.committee_index as u64,
-                            },
-                        ));
+                        return Ok(Err(AttestationError::NoCommitteeForSlotAndIndex {
+                            slot: single_attestation.data.slot,
+                            index: single_attestation.committee_index,
+                        }));
                     };
 
-                    let attestation =
-                        single_attestation.to_attestation::<T::EthSpec>(committee.committee)?;
-
-                    Ok(Cow::Owned(attestation))
+                    Ok(single_attestation_to_attestation::<T::EthSpec>(
+                        single_attestation,
+                        committee.committee,
+                    )
+                    .map(Cow::Owned))
                 },
-            )
-            .map_err(Error::FailedConversion)?,
-    };
-
-    Ok(a)
+            );
+            match conversion_result {
+                Ok(Ok(attestation)) => Ok(attestation),
+                Ok(Err(e)) => Err(Error::Validation(e)),
+                // Map the error returned by `with_committee_cache` for unknown blocks into the
+                // `UnknownHeadBlock` error that is gracefully handled.
+                Err(BeaconChainError::MissingBeaconBlock(beacon_block_root)) => {
+                    Err(Error::Validation(AttestationError::UnknownHeadBlock {
+                        beacon_block_root,
+                    }))
+                }
+                Err(e) => Err(Error::FailedConversion(e)),
+            }
+        }
+    }
 }
 
 pub async fn publish_attestations<T: BeaconChainTypes>(
@@ -199,7 +240,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
         .iter()
         .map(|att| match att {
             Either::Left(att) => (att.data().slot, att.committee_index()),
-            Either::Right(att) => (att.data.slot, Some(att.committee_index as u64)),
+            Either::Right(att) => (att.data.slot, Some(att.committee_index)),
         })
         .collect::<Vec<_>>();
 

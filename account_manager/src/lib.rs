@@ -29,6 +29,7 @@ pub enum AccountManagerSubcommand {
     Validator(validator::cli::Validator),
 }
 
+
 /// Run the account manager, returning an error if the operation did not succeed.
 pub fn run<E: EthSpec>(
     account_manager: &AccountManager,
