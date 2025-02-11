@@ -22,6 +22,7 @@ hex = { workspace = true }
 itertools = { workspace = true }
 libp2p-mplex = "0.43"
 lighthouse_version = { workspace = true }
+local-ip-address = "0.6"
 lru = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }

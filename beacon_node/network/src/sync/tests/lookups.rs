@@ -27,6 +27,7 @@ use beacon_chain::{
     PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
+use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
     rpc::{RPCError, RequestType, RpcErrorResponse},
     service::api_types::{
@@ -39,18 +40,16 @@ use lighthouse_network::{
 use slog::info;
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
-use types::ForkContext;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkName, Hash256,
-    MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, ForkName,
+    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
 const PARENT_FAIL_TOLERANCE: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
 const SAMPLING_REQUIRED_SUCCESSES: usize = 2;
-
 type DCByRootIds = Vec<DCByRootId>;
 type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
@@ -117,7 +116,9 @@ impl TestRig {
 
         let spec = chain.spec.clone();
 
-        let rng = XorShiftRng::from_seed([42; 16]);
+        // deterministic seed
+        let rng = ChaCha20Rng::from_seed([0u8; 32]);
+
         TestRig {
             beacon_processor_rx,
             beacon_processor_rx_queue: vec![],
@@ -154,7 +155,7 @@ impl TestRig {
         }
     }
 
-    fn test_setup_after_fulu() -> Option<Self> {
+    pub fn test_setup_after_fulu() -> Option<Self> {
         let r = Self::test_setup();
         if r.fork_name.fulu_enabled() {
             Some(r)
@@ -369,20 +370,26 @@ impl TestRig {
     }
 
     pub fn new_connected_peer(&mut self) -> PeerId {
+        let key = self.determinstic_key();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec)
+            .__add_connected_peer_testing_only(false, &self.harness.spec, key)
     }
 
     pub fn new_connected_supernode_peer(&mut self) -> PeerId {
+        let key = self.determinstic_key();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(true, &self.harness.spec)
+            .__add_connected_peer_testing_only(true, &self.harness.spec, key)
     }
 
-    fn new_connected_peers_for_peerdas(&mut self) {
+    fn determinstic_key(&mut self) -> CombinedKey {
+        k256::ecdsa::SigningKey::random(&mut self.rng).into()
+    }
+
+    pub fn new_connected_peers_for_peerdas(&mut self) {
         // Enough sampling peers with few columns
         for _ in 0..100 {
             self.new_connected_peer();
@@ -706,7 +713,6 @@ impl TestRig {
         self.complete_data_columns_by_root_request(id, data_columns);
 
         // Expect work event
-        // TODO(das): worth it to append sender id to the work event for stricter assertion?
         self.expect_rpc_sample_verify_work_event();
 
         // Respond with valid result
@@ -748,7 +754,6 @@ impl TestRig {
         }
 
         // Expect work event
-        // TODO(das): worth it to append sender id to the work event for stricter assertion?
         self.expect_rpc_custody_column_work_event();
 
         // Respond with valid result
@@ -1113,7 +1118,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_empty_network(&mut self) {
+    pub fn expect_empty_network(&mut self) {
         self.drain_network_rx();
         if !self.network_rx_queue.is_empty() {
             let n = self.network_rx_queue.len();

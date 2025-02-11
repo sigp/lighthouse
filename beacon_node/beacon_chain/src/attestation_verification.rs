@@ -60,9 +60,9 @@ use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationRef, BeaconCommittee, BeaconStateError::NoCommitteeFound, ChainSpec,
-    CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, SelectionProof,
-    SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
+    Attestation, AttestationData, AttestationRef, BeaconCommittee,
+    BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
+    IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -115,6 +115,17 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     AggregatorNotInCommittee { aggregator_index: u64 },
+    /// The `attester_index` for a `SingleAttestation` is not a member of the committee defined
+    /// by its `beacon_block_root`, `committee_index` and `slot`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    AttesterNotInCommittee {
+        attester_index: u64,
+        committee_index: u64,
+        slot: Slot,
+    },
     /// The aggregator index refers to a validator index that we have not seen.
     ///
     /// ## Peer scoring
@@ -485,7 +496,11 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
+        verify_propagation_slot_range::<_, T::EthSpec>(
+            &chain.slot_clock,
+            attestation.data(),
+            &chain.spec,
+        )?;
 
         // Check the attestation's epoch matches its target.
         if attestation.data().slot.epoch(T::EthSpec::slots_per_epoch())
@@ -817,7 +832,11 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
+        verify_propagation_slot_range::<_, T::EthSpec>(
+            &chain.slot_clock,
+            attestation.data(),
+            &chain.spec,
+        )?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
@@ -1133,10 +1152,10 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
 pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     slot_clock: &S,
-    attestation: AttestationRef<E>,
+    attestation: &AttestationData,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let attestation_slot = attestation.data().slot;
+    let attestation_slot = attestation.slot;
     let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;

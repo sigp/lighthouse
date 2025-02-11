@@ -96,15 +96,6 @@ impl<E: EthSpec> PendingComponents<E> {
             .unwrap_or(false)
     }
 
-    /// Checks if a data column of a given index exists in the cache.
-    ///
-    /// Returns:
-    /// - `true` if a data column for the given index exists.
-    /// - `false` otherwise.
-    fn data_column_exists(&self, data_column_index: u64) -> bool {
-        self.get_cached_data_column(data_column_index).is_some()
-    }
-
     /// Returns the indices of cached custody columns
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
         self.verified_data_columns
@@ -163,8 +154,7 @@ impl<E: EthSpec> PendingComponents<E> {
         kzg_verified_data_columns: I,
     ) -> Result<(), AvailabilityCheckError> {
         for data_column in kzg_verified_data_columns {
-            // TODO(das): Add equivalent checks for data columns if necessary
-            if !self.data_column_exists(data_column.index()) {
+            if self.get_cached_data_column(data_column.index()).is_none() {
                 self.verified_data_columns.push(data_column);
             }
         }
