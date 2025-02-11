@@ -10,6 +10,7 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Default directory name for the freezer database under the top-level data dir.
@@ -82,6 +83,7 @@ pub struct Config {
     pub genesis_state_url: Option<String>,
     pub genesis_state_url_timeout: Duration,
     pub allow_insecure_genesis_sync: bool,
+    pub enable_light_client_server: Arc<bool>,
 }
 
 impl Default for Config {
@@ -115,6 +117,7 @@ impl Default for Config {
             // This default value should always be overwritten by the CLI default value.
             genesis_state_url_timeout: Duration::from_secs(60),
             allow_insecure_genesis_sync: false,
+            enable_light_client_server: Arc::new(true),
         }
     }
 }

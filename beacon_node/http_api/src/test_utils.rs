@@ -249,7 +249,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
             enabled: true,
             listen_port: port,
             data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
-            enable_light_client_server: true,
+            enable_light_client_server: Arc::new(true),
             ..http_config
         },
         chain: Some(chain),

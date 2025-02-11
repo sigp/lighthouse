@@ -225,7 +225,7 @@ where
             builder
         };
 
-        let builder = if config.network.enable_light_client_server {
+        let builder = if *config.network.enable_light_client_server {
             let (tx, rv) = futures::channel::mpsc::channel::<LightClientProducerEvent<E>>(
                 LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
             );

@@ -134,7 +134,7 @@ pub struct Config {
     pub metrics_enabled: bool,
 
     /// Whether light client protocols should be enabled.
-    pub enable_light_client_server: bool,
+    pub enable_light_client_server: Arc<bool>,
 
     /// Configuration for the outbound rate limiter (requests made by this node).
     pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
@@ -367,7 +367,7 @@ impl Default for Config {
             topics: Vec::new(),
             proposer_only: false,
             metrics_enabled: false,
-            enable_light_client_server: true,
+            enable_light_client_server: Arc::new(true),
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,

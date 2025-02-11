@@ -155,7 +155,7 @@ pub struct Config {
     pub enable_beacon_processor: bool,
     #[serde(with = "eth2::types::serde_status_code")]
     pub duplicate_block_status_code: StatusCode,
-    pub enable_light_client_server: bool,
+    pub enable_light_client_server: Arc<bool>,
     pub target_peers: usize,
 }
 
@@ -171,7 +171,7 @@ impl Default for Config {
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
-            enable_light_client_server: true,
+            enable_light_client_server: Arc::new(true),
             target_peers: 100,
         }
     }
@@ -4724,19 +4724,19 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_block_rewards)
                 .uor(get_lighthouse_attestation_performance)
                 .uor(
-                    enable(ctx.config.enable_light_client_server)
+                    enable(*ctx.config.enable_light_client_server)
                         .and(get_beacon_light_client_optimistic_update),
                 )
                 .uor(
-                    enable(ctx.config.enable_light_client_server)
+                    enable(*ctx.config.enable_light_client_server)
                         .and(get_beacon_light_client_finality_update),
                 )
                 .uor(
-                    enable(ctx.config.enable_light_client_server)
+                    enable(*ctx.config.enable_light_client_server)
                         .and(get_beacon_light_client_bootstrap),
                 )
                 .uor(
-                    enable(ctx.config.enable_light_client_server)
+                    enable(*ctx.config.enable_light_client_server)
                         .and(get_beacon_light_client_updates),
                 )
                 .uor(get_lighthouse_block_packing_efficiency)

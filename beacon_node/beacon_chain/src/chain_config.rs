@@ -1,5 +1,6 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 use types::{Checkpoint, Epoch};
 
@@ -83,7 +84,7 @@ pub struct ChainConfig {
     /// Number of epochs between each migration of data from the hot database to the freezer.
     pub epochs_per_migration: u64,
     /// When set to true Light client server computes and caches state proofs for serving updates
-    pub enable_light_client_server: bool,
+    pub enable_light_client_server: Arc<bool>,
     /// The number of data columns to withhold / exclude from publishing when proposing a block.
     pub malicious_withhold_count: usize,
     /// Enable peer sampling on blocks.
@@ -124,7 +125,7 @@ impl Default for ChainConfig {
             genesis_backfill: false,
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
-            enable_light_client_server: true,
+            enable_light_client_server: Arc::new(true),
             malicious_withhold_count: 0,
             enable_sampling: false,
             blob_publication_batches: 4,

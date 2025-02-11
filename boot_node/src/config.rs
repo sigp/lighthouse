@@ -10,6 +10,7 @@ use lighthouse_network::{
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
@@ -55,7 +56,14 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
         let logger = slog_scope::logger();
 
-        set_network_config(&mut network_config, matches, &data_dir, &logger)?;
+        // Light client server is disabled for boot nodes
+        set_network_config(
+            &mut network_config,
+            matches,
+            &data_dir,
+            &logger,
+            Arc::new(false),
+        )?;
 
         // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {

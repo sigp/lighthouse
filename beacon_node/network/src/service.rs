@@ -354,7 +354,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             gossipsub_parameter_update,
             fork_context,
             log: network_log,
-            enable_light_client_server: config.enable_light_client_server,
+            enable_light_client_server: *config.enable_light_client_server,
         };
 
         Ok((network_service, network_globals, network_senders))

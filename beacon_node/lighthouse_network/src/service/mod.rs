@@ -355,7 +355,7 @@ impl<E: EthSpec> Network<E> {
         };
         let eth2_rpc = RPC::new(
             ctx.fork_context.clone(),
-            config.enable_light_client_server,
+            *config.enable_light_client_server,
             config.inbound_rate_limiter_config.clone(),
             config.outbound_rate_limiter_config.clone(),
             log.clone(),

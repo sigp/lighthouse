@@ -41,10 +41,10 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
     beacon_config.network.target_peers =
         network_params.node_count + network_params.proposer_nodes + network_params.extra_nodes - 1;
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
-    beacon_config.network.enable_light_client_server = true;
+    beacon_config.network.enable_light_client_server = Arc::new(true);
     beacon_config.network.discv5_config.enable_packet_filter = false;
-    beacon_config.chain.enable_light_client_server = true;
-    beacon_config.http_api.enable_light_client_server = true;
+    beacon_config.chain.enable_light_client_server = Arc::new(true);
+    beacon_config.http_api.enable_light_client_server = Arc::new(true);
     beacon_config.chain.optimistic_finalized_sync = false;
     beacon_config.trusted_setup = serde_json::from_reader(get_trusted_setup().as_slice())
         .expect("Trusted setup bytes should be valid");

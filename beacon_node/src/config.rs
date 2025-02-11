@@ -28,6 +28,7 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
@@ -107,12 +108,26 @@ pub fn get_config<E: EthSpec>(
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
 
     /*
+     * Light client server
+     */
+
+    let enable_light_client_server = Arc::new(!cli_args.get_flag("disable-light-client-server"));
+    client_config.enable_light_client_server = enable_light_client_server.clone();
+    client_config.chain.enable_light_client_server = enable_light_client_server.clone();
+
+    /*
      * Networking
      */
 
     let data_dir_ref = client_config.data_dir().clone();
 
-    set_network_config(&mut client_config.network, cli_args, &data_dir_ref, log)?;
+    set_network_config(
+        &mut client_config.network,
+        cli_args,
+        &data_dir_ref,
+        log,
+        enable_light_client_server,
+    )?;
 
     /*
      * Staking flag
@@ -176,7 +191,7 @@ pub fn get_config<E: EthSpec>(
             parse_required(cli_args, "http-duplicate-block-status")?;
 
         client_config.http_api.enable_light_client_server =
-            !cli_args.get_flag("disable-light-client-server");
+            client_config.enable_light_client_server.clone();
     }
 
     if cli_args.get_flag("light-client-server") {
@@ -185,10 +200,6 @@ pub fn get_config<E: EthSpec>(
             "The --light-client-server flag is deprecated. The light client server is enabled \
              by default"
         );
-    }
-
-    if cli_args.get_flag("disable-light-client-server") {
-        client_config.chain.enable_light_client_server = false;
     }
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
@@ -1146,6 +1157,7 @@ pub fn set_network_config(
     cli_args: &ArgMatches,
     data_dir: &Path,
     log: &Logger,
+    enable_light_client_server: Arc<bool>,
 ) -> Result<(), String> {
     // If a network dir has been specified, override the `datadir` definition.
     if let Some(dir) = cli_args.get_one::<String>("network-dir") {
@@ -1439,7 +1451,7 @@ pub fn set_network_config(
     }
 
     // Light client server config.
-    config.enable_light_client_server = !parse_flag(cli_args, "disable-light-client-server");
+    config.enable_light_client_server = enable_light_client_server;
 
     // The self limiter is enabled by default. If the `self-limiter-protocols` flag is not provided,
     // the default params will be used.

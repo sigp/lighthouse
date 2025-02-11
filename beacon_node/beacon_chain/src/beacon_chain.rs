@@ -4035,7 +4035,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // compute state proofs for light client updates before inserting the state into the
         // snapshot cache.
-        if self.config.enable_light_client_server {
+        if *self.config.enable_light_client_server {
             self.light_client_server_cache
                 .cache_state_data(
                     &self.spec, block, block_root,
@@ -4415,7 +4415,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Do not trigger light_client server update producer for old blocks, to extra work
         // during sync.
-        if self.config.enable_light_client_server
+        if *self.config.enable_light_client_server
             && block_delay_total < self.slot_clock.slot_duration() * 32
         {
             if let Some(mut light_client_server_tx) = self.light_client_server_tx.clone() {
