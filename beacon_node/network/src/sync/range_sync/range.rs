@@ -103,11 +103,6 @@ where
         self.failed_chains.keys().copied().collect()
     }
 
-    #[cfg(test)]
-    pub(crate) fn __failed_chains(&mut self) -> Vec<Hash256> {
-        self.failed_chains.keys().copied().collect()
-    }
-
     #[instrument(parent = None,
         level = "info",
         fields(component = "range_sync"),
