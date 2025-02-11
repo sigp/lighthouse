@@ -289,7 +289,7 @@ impl<E: EthSpec> Network<E> {
                 }
             });
 
-            let max_topics_by_fork = current_and_future_forks
+            let all_topics_for_forks = current_and_future_forks
                 .map(|(fork, fork_digest)| {
                     all_topics_at_fork::<E>(fork, &ctx.chain_spec)
                         .into_iter()
@@ -307,11 +307,11 @@ impl<E: EthSpec> Network<E> {
 
             // For simplicity find the fork with the most individual topics and assume all forks
             // have the same topic count
-            let max_topics_at_any_fork = max_topics_by_fork
+            let max_topics_at_any_fork = all_topics_for_forks
                 .iter()
                 .map(|topics| topics.len())
                 .max()
-                .unwrap_or(0);
+                .expect("each fork has at least 5 hardcoded core topics");
 
             let possible_fork_digests = ctx.fork_context.all_fork_digests();
             let filter = gossipsub::MaxCountSubscriptionFilter {
@@ -356,7 +356,7 @@ impl<E: EthSpec> Network<E> {
             // If we are using metrics, then register which topics we want to make sure to keep
             // track of
             if ctx.libp2p_registry.is_some() {
-                for topics in max_topics_by_fork {
+                for topics in all_topics_for_forks {
                     gossipsub.register_topics_for_metrics(topics);
                 }
             }
@@ -734,8 +734,6 @@ impl<E: EthSpec> Network<E> {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
-
-        // TODO(das): unsubscribe from blob topics at the Fulu fork
 
         // Already registered all possible gossipsub topics for metrics
     }

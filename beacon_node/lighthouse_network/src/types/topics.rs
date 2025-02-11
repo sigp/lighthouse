@@ -33,7 +33,7 @@ pub struct TopicConfig<'a> {
     pub sampling_subnets: &'a HashSet<DataColumnSubnetId>,
 }
 
-/// Returns all the topics the node should subscribe at `epoch`
+/// Returns all the topics the node should subscribe at `fork_name`
 pub fn core_topics_to_subscribe<E: EthSpec>(
     fork_name: ForkName,
     opts: &TopicConfig,
@@ -557,5 +557,33 @@ mod tests {
             core_topics_to_subscribe::<E>(ForkName::Fulu, &topic_config, &spec)
                 .contains(&GossipKind::DataColumnSidecar(0.into()))
         );
+    }
+
+    #[test]
+    fn test_core_topics_to_subscribe() {
+        let spec = get_spec();
+        let s = HashSet::from_iter([1, 2].map(DataColumnSubnetId::new));
+        let topic_config = get_topic_config(&s);
+        let latest_fork = *ForkName::list_all().last().unwrap();
+        let topics = core_topics_to_subscribe::<E>(latest_fork, &topic_config, &spec);
+
+        let mut expected_topics = vec![
+            GossipKind::BeaconBlock,
+            GossipKind::BeaconAggregateAndProof,
+            GossipKind::VoluntaryExit,
+            GossipKind::ProposerSlashing,
+            GossipKind::AttesterSlashing,
+            GossipKind::SignedContributionAndProof,
+            GossipKind::LightClientFinalityUpdate,
+            GossipKind::LightClientOptimisticUpdate,
+            GossipKind::BlsToExecutionChange,
+        ];
+        for subnet in s {
+            expected_topics.push(GossipKind::DataColumnSidecar(subnet));
+        }
+        // Need to check all the topics exist in an order independent manner
+        for expected_topic in expected_topics {
+            assert!(topics.contains(&expected_topic));
+        }
     }
 }
