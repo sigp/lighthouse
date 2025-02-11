@@ -6,7 +6,7 @@ use common::Protocol;
 use lighthouse_network::rpc::{methods::*, RequestType};
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
-    RangeRequestId, SyncRequestId,
+    DataColumnsByRangeRequestId, RangeRequestId, SyncRequestId,
 };
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Response};
 use slog::{debug, warn, Level};
@@ -1179,7 +1179,7 @@ fn test_request_too_large_blocks_by_range() {
         // Due to the invalid request, the receiver does not respond and closes the stream.
         // On the sender's side, the handler sends an end-of-stream to the application because the
         // stream has been closed. Therefore, we expect `BlocksByRange(None)` in this test.
-        Response::BlocksByRange(None),
+        Some(Response::BlocksByRange(None)),
     );
 }
 
@@ -1207,14 +1207,41 @@ fn test_request_too_large_blobs_by_range() {
         // Due to the invalid request, the receiver does not respond and closes the stream.
         // On the sender's side, the handler sends an end-of-stream to the application because the
         // stream has been closed. Therefore, we expect `BlobsByRange(None)` in this test.
-        Response::BlobsByRange(None),
+        Some(Response::BlobsByRange(None)),
+    );
+}
+
+#[test]
+fn test_request_too_large_data_columns_by_range() {
+    let spec = Arc::new(E::default_spec());
+
+    test_request_too_large(
+        AppRequestId::Sync(SyncRequestId::DataColumnsByRange(
+            DataColumnsByRangeRequestId {
+                id: 1,
+                parent_request_id: ComponentsByRangeRequestId {
+                    id: 1,
+                    requester: RangeRequestId::RangeSync {
+                        chain_id: 1,
+                        batch_id: Epoch::new(1),
+                    },
+                },
+            },
+        )),
+        RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 0,
+            // exceeds the max request defined in the spec.
+            columns: vec![0; spec.number_of_columns as usize + 1],
+        }),
+        None,
     );
 }
 
 fn test_request_too_large(
     app_request_id: AppRequestId,
     request: RequestType<E>,
-    expected_response: Response<E>,
+    expected_response: Option<Response<E>>,
 ) {
     let rt = Arc::new(Runtime::new().unwrap());
     let log = logging::test_logger();
@@ -1241,8 +1268,12 @@ fn test_request_too_large(
                     }
                     NetworkEvent::ResponseReceived { id, response, .. } => {
                         debug!(log, "Received response"; "request_id" => ?id, "response" => ?response);
-                        assert_eq!(response, expected_response);
-                        is_response_received = true;
+                        if let Some(r) = &expected_response {
+                            assert_eq!(&response, r);
+                            is_response_received = true;
+                        } else {
+                            unreachable!();
+                        }
                     }
                     NetworkEvent::RPCFailed { .. } => {
                         // This variant should be unreachable, as the receiver doesn't respond with an error when a request exceeds the limit.
@@ -1252,7 +1283,9 @@ fn test_request_too_large(
                         // The receiver should disconnect as a result of the invalid request.
                         debug!(log, "Peer disconnected"; "peer_id" => %peer_id);
                         // End the test.
-                        assert!(is_response_received);
+                        if expected_response.is_some() {
+                            assert!(is_response_received);
+                        }
                         return;
                     }
                     _ => {}

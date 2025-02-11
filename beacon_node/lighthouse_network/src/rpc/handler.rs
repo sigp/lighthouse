@@ -837,6 +837,22 @@ where
             ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
                 self.on_dial_upgrade_error(info, error)
             }
+            ConnectionEvent::ListenUpgradeError(e) => {
+                match e.error {
+                    RPCError::InvalidData(_) => {
+                        let inbound_substream_id = self.current_inbound_substream_id;
+                        self.current_inbound_substream_id.0 += 1;
+
+                        self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                            id: inbound_substream_id,
+                            proto: Protocol::DataColumnsByRange, // FIXME: replace this hardcoded protocol
+                            error: e.error,
+                        }));
+                        self.shutdown(None);
+                    }
+                    _ => {}
+                }
+            }
             _ => {
                 // NOTE: ConnectionEvent is a non exhaustive enum so updates should be based on
                 // release notes more than compiler feedback
