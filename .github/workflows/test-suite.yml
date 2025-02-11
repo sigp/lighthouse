@@ -27,7 +27,8 @@ env:
   # Disable incremental compilation
   CARGO_INCREMENTAL: 0
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
-  TEST_FEATURES: portable
+  # Enable LevelDB as it is now excluded from default features at the dependency level
+  TEST_FEATURES: portable,store/leveldb
 jobs:
   check-labels:
     runs-on: ubuntu-latest
