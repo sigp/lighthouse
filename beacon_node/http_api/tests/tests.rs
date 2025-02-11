@@ -3555,44 +3555,42 @@ impl ApiTester {
     }
 
     #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
-    pub async fn test_get_validator_aggregate_attestation(self) -> Self {
-        if self
+    pub async fn test_get_validator_aggregate_attestation_v2(self) -> Self {
+        let attestation = self
             .chain
-            .spec
-            .fork_name_at_slot::<E>(self.chain.slot().unwrap())
-            .electra_enabled()
-        {
-            for attestation in self.chain.naive_aggregation_pool.read().iter() {
-                let result = self
-                    .client
-                    .get_validator_aggregate_attestation_v2(
-                        attestation.data().slot,
-                        attestation.data().tree_hash_root(),
-                        attestation.committee_index().expect("committee index"),
-                    )
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .data;
-                let expected = attestation;
+            .head_beacon_block()
+            .message()
+            .body()
+            .attestations()
+            .next()
+            .unwrap()
+            .clone_as_attestation();
+        let result = self
+            .client
+            .get_validator_aggregate_attestation_v1(
+                attestation.data().slot,
+                attestation.data().tree_hash_root(),
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .data;
+        let expected = attestation;
 
-                assert_eq!(&result, expected);
-            }
-        } else {
-            let attestation = self
-                .chain
-                .head_beacon_block()
-                .message()
-                .body()
-                .attestations()
-                .next()
-                .unwrap()
-                .clone_as_attestation();
+        assert_eq!(result, expected);
+
+        self
+    }
+
+    #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
+    pub async fn test_get_validator_aggregate_attestation_v2(self) -> Self {
+        for attestation in self.chain.naive_aggregation_pool.read().iter() {
             let result = self
                 .client
-                .get_validator_aggregate_attestation_v1(
+                .get_validator_aggregate_attestation_v2(
                     attestation.data().slot,
                     attestation.data().tree_hash_root(),
+                    attestation.committee_index().expect("committee index"),
                 )
                 .await
                 .unwrap()
@@ -3600,9 +3598,8 @@ impl ApiTester {
                 .data;
             let expected = attestation;
 
-            assert_eq!(result, expected);
+            assert_eq!(&result, expected);
         }
-
         self
     }
 

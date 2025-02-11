@@ -19,22 +19,41 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
 ) -> Result<Response<Body>, warp::reject::Rejection> {
     if endpoint_version == V2 {
-        let Some(committee_index) = committee_index else {
-            return Err(warp_utils::reject::custom_bad_request(
-                "missing committee index".to_string(),
-            ));
+        let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+        let aggregate_attestation = if fork_name.electra_enabled() {
+            let Some(committee_index) = committee_index else {
+                return Err(warp_utils::reject::custom_bad_request(
+                    "missing committee index".to_string(),
+                ));
+            };
+            chain
+                .get_aggregated_attestation_electra(slot, attestation_data_root, committee_index)
+                .map_err(|e| {
+                    warp_utils::reject::custom_bad_request(format!(
+                        "unable to fetch aggregate: {:?}",
+                        e
+                    ))
+                })?
+                .ok_or_else(|| {
+                    warp_utils::reject::custom_not_found("no matching aggregate found".to_string())
+                })?
+        } else {
+            chain
+                .get_pre_electra_aggregated_attestation_by_slot_and_root(
+                    slot,
+                    attestation_data_root,
+                )
+                .map_err(|e| {
+                    warp_utils::reject::custom_bad_request(format!(
+                        "unable to fetch aggregate: {:?}",
+                        e
+                    ))
+                })?
+                .ok_or_else(|| {
+                    warp_utils::reject::custom_not_found("no matching aggregate found".to_string())
+                })?
         };
-        let aggregate_attestation = chain
-            .get_aggregated_attestation_electra(slot, attestation_data_root, committee_index)
-            .map_err(|e| {
-                warp_utils::reject::custom_bad_request(format!(
-                    "unable to fetch aggregate: {:?}",
-                    e
-                ))
-            })?
-            .ok_or_else(|| {
-                warp_utils::reject::custom_not_found("no matching aggregate found".to_string())
-            })?;
+
         let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
         let fork_versioned_response = ForkVersionedResponse {
             version: Some(fork_name),
