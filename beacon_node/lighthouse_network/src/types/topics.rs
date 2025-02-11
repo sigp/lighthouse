@@ -563,7 +563,8 @@ mod tests {
     fn test_core_topics_to_subscribe() {
         let spec = get_spec();
         let s = HashSet::from_iter([1, 2].map(DataColumnSubnetId::new));
-        let topic_config = get_topic_config(&s);
+        let mut topic_config = get_topic_config(&s);
+        topic_config.enable_light_client_server = true;
         let latest_fork = *ForkName::list_all().last().unwrap();
         let topics = core_topics_to_subscribe::<E>(latest_fork, &topic_config, &spec);
 
@@ -583,7 +584,11 @@ mod tests {
         }
         // Need to check all the topics exist in an order independent manner
         for expected_topic in expected_topics {
-            assert!(topics.contains(&expected_topic));
+            assert!(
+                topics.contains(&expected_topic),
+                "Should contain {:?}",
+                expected_topic
+            );
         }
     }
 }
