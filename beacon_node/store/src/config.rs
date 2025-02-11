@@ -352,29 +352,24 @@ mod test {
 }
 
 #[derive(
-    Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Display, EnumString, EnumVariantNames,
+    Debug,
+    Clone,
+    Copy,
+    Eq,
+    PartialEq,
+    Default,
+    Serialize,
+    Deserialize,
+    Display,
+    EnumString,
+    EnumVariantNames,
 )]
 #[strum(serialize_all = "lowercase")]
 pub enum DatabaseBackend {
     #[cfg(feature = "leveldb")]
+    #[cfg_attr(feature = "leveldb", default)]
     LevelDb,
     #[cfg(feature = "redb")]
+    #[cfg_attr(all(feature = "redb", not(feature = "leveldb")), default)]
     Redb,
-}
-
-impl Default for DatabaseBackend {
-    fn default() -> Self {
-        #[cfg(feature = "leveldb")]
-        {
-            DatabaseBackend::LevelDb
-        }
-        #[cfg(all(not(feature = "leveldb"), feature = "redb"))]
-        {
-            DatabaseBackend::Redb
-        }
-        #[cfg(all(not(feature = "leveldb"), not(feature = "redb")))]
-        {
-            compile_error!("No database backend enabled. You must enable at least one")
-        }
-    }
 }
