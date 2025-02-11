@@ -8,8 +8,8 @@ use beacon_chain::{
 use execution_layer::{
     http::{
         ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_V2,
-        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V2,
-        ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
+        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
+        ENGINE_NEW_PAYLOAD_V4,
     },
     EngineCapabilities,
 };
@@ -534,11 +534,12 @@ fn methods_required_for_fork(
             }
         }
         ForkName::Fulu => {
-            if !capabilities.get_payload_v5 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V5);
+            // TODO(fulu) switch to v5 when the EL is ready
+            if !capabilities.get_payload_v4 {
+                missing_methods.push(ENGINE_GET_PAYLOAD_V4);
             }
-            if !capabilities.new_payload_v5 {
-                missing_methods.push(ENGINE_NEW_PAYLOAD_V5);
+            if !capabilities.new_payload_v4 {
+                missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
             }
         }
     }
