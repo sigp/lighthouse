@@ -712,8 +712,9 @@ impl<E: EthSpec> PeerManager<E> {
     }
 
     /// Received a metadata response from a peer.
-    pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<E>) {
+    pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<E>) -> bool {
         let mut invalid_meta_data = false;
+        let mut updated_cgc = false;
 
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data() {
@@ -732,12 +733,16 @@ impl<E: EthSpec> PeerManager<E> {
                     "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
             }
 
+            let known_custody_group_count = peer_info
+                .meta_data()
+                .and_then(|meta_data| meta_data.custody_group_count().copied().ok());
+
             let custody_group_count_opt = meta_data.custody_group_count().copied().ok();
             peer_info.set_meta_data(meta_data);
 
             if self.network_globals.spec.is_peer_das_scheduled() {
-                // Gracefully ignore metadata/v2 peers. Potentially downscore after PeerDAS to
-                // prioritize PeerDAS peers.
+                // Gracefully ignore metadata/v2 peers.
+                // TODO(das) Potentially downscore after PeerDAS to prioritize PeerDAS peers.
                 if let Some(custody_group_count) = custody_group_count_opt {
                     match self.compute_peer_custody_groups(peer_id, custody_group_count) {
                         Ok(custody_groups) => {
@@ -759,6 +764,8 @@ impl<E: EthSpec> PeerManager<E> {
                                 })
                                 .collect();
                             peer_info.set_custody_subnets(custody_subnets);
+
+                            updated_cgc = Some(custody_group_count) != known_custody_group_count;
                         }
                         Err(err) => {
                             debug!(self.log, "Unable to compute peer custody groups from metadata";
@@ -781,6 +788,8 @@ impl<E: EthSpec> PeerManager<E> {
         if invalid_meta_data {
             self.goodbye_peer(peer_id, GoodbyeReason::Fault, ReportSource::PeerManager)
         }
+
+        updated_cgc
     }
 
     /// Updates the gossipsub scores for all known peers in gossipsub.

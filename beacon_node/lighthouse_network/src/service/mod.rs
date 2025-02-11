@@ -1600,9 +1600,11 @@ impl<E: EthSpec> Network<E> {
                         None
                     }
                     RpcSuccessResponse::MetaData(meta_data) => {
-                        self.peer_manager_mut()
-                            .meta_data_response(&peer_id, meta_data);
-                        None
+                        let updated_cgc = self
+                            .peer_manager_mut()
+                            .meta_data_response(&peer_id, meta_data.clone());
+                        // Send event after calling into peer_manager so the PeerDB is updated
+                        self.build_response(id, peer_id, Response::MetaData(meta_data, updated_cgc))
                     }
                     /* Network propagated protocols */
                     RpcSuccessResponse::Status(msg) => {
