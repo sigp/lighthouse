@@ -1419,15 +1419,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 crit!(error = %e, "Internal block gossip validation error. Availability check during gossip validation");
                 return None;
             }
-            Err(e @ BlockError::InternalError(_)) => {
+            // BlobNotRequired is unreachable. Only constructed in `process_gossip_blob`
+            Err(e @ BlockError::InternalError(_)) | Err(e @ BlockError::BlobNotRequired(_)) => {
                 error!(error = %e, "Internal block gossip validation error");
-                return None;
-            }
-            Err(e @ BlockError::BlobNotRequired(_)) => {
-                // TODO(das): penalty not implemented yet as other clients may still send us blobs
-                // during early stage of implementation.
-                debug!(error = %e, %peer_id, "Received blobs for slot after PeerDAS epoch from peer");
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
         };
@@ -1537,9 +1531,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
-        // TODO(das) Might be too early to issue a request here. We haven't checked that the block
-        // actually includes blob transactions and thus has data. A peer could send a block is
-        // garbage commitments, and make us trigger sampling for a block that does not have data.
+        // Note: okay to issue sampling request before the block is execution verified. If the
+        // proposer sends us a block with invalid blob transactions it can trigger us to issue
+        // sampling queries that will never resolve. This attack is equivalent to withholding data.
+        // Dismissed proposal to move this block to post-execution: https://github.com/sigp/lighthouse/pull/6492
         if block.num_expected_blobs() > 0 {
             // Trigger sampling for block not yet execution valid. At this point column custodials are
             // unlikely to have received their columns. Triggering sampling so early is only viable with

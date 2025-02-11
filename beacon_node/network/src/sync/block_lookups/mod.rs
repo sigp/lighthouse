@@ -536,8 +536,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // continue_request will send for  processing as the request state is AwaitingProcessing
             }
             Err(e) => {
-                // TODO(das): is it okay to not log the peer source of request failures? Then we
-                // should log individual requests failures in the SyncNetworkContext
+                // No need to log peer source here. When sending a DataColumnsByRoot request we log
+                // the peer and the request ID which is linked to this `id` value here.
                 debug!(
                     ?block_root,
                     ?id,
