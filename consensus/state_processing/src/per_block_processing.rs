@@ -1,7 +1,7 @@
 use crate::consensus_context::ConsensusContext;
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
 use rayon::prelude::*;
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::{ArithError, SafeArith, SafeArithIter};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
@@ -509,7 +509,7 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
 
 /// Compute the next batch of withdrawals which should be included in a block.
 ///
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#new-get_expected_withdrawals
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/electra/beacon-chain.md#new-get_expected_withdrawals
 pub fn get_expected_withdrawals<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
@@ -522,18 +522,18 @@ pub fn get_expected_withdrawals<E: EthSpec>(
 
     // [New in Electra:EIP7251]
     // Consume pending partial withdrawals
-    let partial_withdrawals_count =
-        if let Ok(partial_withdrawals) = state.pending_partial_withdrawals() {
-            let mut partial_withdrawals_count = 0;
-            for withdrawal in partial_withdrawals {
+    let processed_partial_withdrawals_count =
+        if let Ok(pending_partial_withdrawals) = state.pending_partial_withdrawals() {
+            let mut processed_partial_withdrawals_count = 0;
+            for withdrawal in pending_partial_withdrawals {
                 if withdrawal.withdrawable_epoch > epoch
                     || withdrawals.len() == spec.max_pending_partials_per_withdrawals_sweep as usize
                 {
                     break;
                 }
 
-                let withdrawal_balance = state.get_balance(withdrawal.index as usize)?;
-                let validator = state.get_validator(withdrawal.index as usize)?;
+                let withdrawal_balance = state.get_balance(withdrawal.validator_index as usize)?;
+                let validator = state.get_validator(withdrawal.validator_index as usize)?;
 
                 let has_sufficient_effective_balance =
                     validator.effective_balance >= spec.min_activation_balance;
@@ -549,17 +549,17 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     );
                     withdrawals.push(Withdrawal {
                         index: withdrawal_index,
-                        validator_index: withdrawal.index,
+                        validator_index: withdrawal.validator_index,
                         address: validator
                             .get_execution_withdrawal_address(spec)
-                            .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?,
+                            .ok_or(BeaconStateError::NonExecutionAddressWithdrawalCredential)?,
                         amount: withdrawable_balance,
                     });
                     withdrawal_index.safe_add_assign(1)?;
                 }
-                partial_withdrawals_count.safe_add_assign(1)?;
+                processed_partial_withdrawals_count.safe_add_assign(1)?;
             }
-            Some(partial_withdrawals_count)
+            Some(processed_partial_withdrawals_count)
         } else {
             None
         };
@@ -570,10 +570,20 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     );
     for _ in 0..bound {
         let validator = state.get_validator(validator_index as usize)?;
-        let balance = *state.balances().get(validator_index as usize).ok_or(
-            BeaconStateError::BalancesOutOfBounds(validator_index as usize),
-        )?;
-        if validator.is_fully_withdrawable_at(balance, epoch, spec, fork_name) {
+        let partially_withdrawn_balance = withdrawals
+            .iter()
+            .filter_map(|withdrawal| {
+                (withdrawal.validator_index == validator_index).then_some(withdrawal.amount)
+            })
+            .safe_sum()?;
+        let balance = state
+            .balances()
+            .get(validator_index as usize)
+            .ok_or(BeaconStateError::BalancesOutOfBounds(
+                validator_index as usize,
+            ))?
+            .safe_sub(partially_withdrawn_balance)?;
+        if validator.is_fully_withdrawable_validator(balance, epoch, spec, fork_name) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
@@ -590,9 +600,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 address: validator
                     .get_execution_withdrawal_address(spec)
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
-                amount: balance.safe_sub(
-                    validator.get_max_effective_balance(spec, state.fork_name_unchecked()),
-                )?,
+                amount: balance.safe_sub(validator.get_max_effective_balance(spec, fork_name))?,
             });
             withdrawal_index.safe_add_assign(1)?;
         }
@@ -604,7 +612,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
             .safe_rem(state.validators().len() as u64)?;
     }
 
-    Ok((withdrawals.into(), partial_withdrawals_count))
+    Ok((withdrawals.into(), processed_partial_withdrawals_count))
 }
 
 /// Apply withdrawals to the state.
@@ -614,7 +622,7 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if state.fork_name_unchecked().capella_enabled() {
-        let (expected_withdrawals, partial_withdrawals_count) =
+        let (expected_withdrawals, processed_partial_withdrawals_count) =
             get_expected_withdrawals(state, spec)?;
         let expected_root = expected_withdrawals.tree_hash_root();
         let withdrawals_root = payload.withdrawals_root()?;
@@ -635,14 +643,10 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
         }
 
         // Update pending partial withdrawals [New in Electra:EIP7251]
-        if let Some(partial_withdrawals_count) = partial_withdrawals_count {
-            // TODO(electra): Use efficient pop_front after milhouse release https://github.com/sigp/milhouse/pull/38
-            let new_partial_withdrawals = state
-                .pending_partial_withdrawals()?
-                .iter_from(partial_withdrawals_count)?
-                .cloned()
-                .collect::<Vec<_>>();
-            *state.pending_partial_withdrawals_mut()? = List::new(new_partial_withdrawals)?;
+        if let Some(processed_partial_withdrawals_count) = processed_partial_withdrawals_count {
+            state
+                .pending_partial_withdrawals_mut()?
+                .pop_front(processed_partial_withdrawals_count)?;
         }
 
         // Update the next withdrawal index if this block contained withdrawals

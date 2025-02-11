@@ -5,7 +5,7 @@ use eth2::types::{Epoch, ValidatorStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use warp_utils::reject::beacon_chain_error;
+use warp_utils::reject::unhandled_error;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorCountResponse {
@@ -58,7 +58,7 @@ pub fn get_validator_count<T: BeaconChainTypes>(
             }
             Ok::<(), BeaconChainError>(())
         })
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error)?;
 
     Ok(ValidatorCountResponse {
         active_ongoing,
@@ -101,7 +101,7 @@ pub fn get_validator_info<T: BeaconChainTypes>(
     request_data: ValidatorInfoRequestData,
     chain: Arc<BeaconChain<T>>,
 ) -> Result<ValidatorInfoResponse, warp::Rejection> {
-    let current_epoch = chain.epoch().map_err(beacon_chain_error)?;
+    let current_epoch = chain.epoch().map_err(unhandled_error)?;
 
     let epochs = current_epoch.saturating_sub(HISTORIC_EPOCHS).as_u64()..=current_epoch.as_u64();
 

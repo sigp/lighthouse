@@ -8,9 +8,6 @@ edition = { workspace = true }
 name = "validator_client"
 path = "src/lib.rs"
 
-[dev-dependencies]
-tokio = { workspace = true }
-
 [dependencies]
 account_utils = { workspace = true }
 beacon_node_fallback = { workspace = true }

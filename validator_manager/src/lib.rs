@@ -1,5 +1,5 @@
-use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::{get_color_style, FLAG_HEADER};
+use clap::{ArgMatches, Command};
+use clap_utils::get_color_style;
 use common::write_to_json_file;
 use environment::Environment;
 use serde::Serialize;
@@ -46,16 +46,6 @@ pub fn cli_app() -> Command {
         .display_order(0)
         .styles(get_color_style())
         .about("Utilities for managing a Lighthouse validator client via the HTTP API.")
-        .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER)
-                .global(true),
-        )
         .subcommand(create_validators::cli_app())
         .subcommand(import_validators::cli_app())
         .subcommand(move_validators::cli_app())

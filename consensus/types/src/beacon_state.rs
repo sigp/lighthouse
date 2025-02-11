@@ -46,6 +46,7 @@ mod tests;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
+const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
 
 pub type Validators<E> = List<Validator, <E as EthSpec>::ValidatorRegistryLimit>;
 pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
@@ -160,7 +161,7 @@ pub enum Error {
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
-    NonExecutionAddresWithdrawalCredential,
+    NonExecutionAddressWithdrawalCredential,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
     InvalidSelectionProof {
@@ -916,6 +917,11 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
+            MAX_RANDOM_VALUE
+        } else {
+            MAX_RANDOM_BYTE
+        };
 
         let mut i = 0;
         loop {
@@ -929,14 +935,27 @@ impl<E: EthSpec> BeaconState<E> {
             let candidate_index = *indices
                 .get(shuffled_index)
                 .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
-            let random_byte = Self::shuffling_random_byte(i, seed)?;
+            let random_value = self.shuffling_random_value(i, seed)?;
             let effective_balance = self.get_effective_balance(candidate_index)?;
-            if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= max_effective_balance.safe_mul(u64::from(random_byte))?
+            if effective_balance.safe_mul(max_random_value)?
+                >= max_effective_balance.safe_mul(random_value)?
             {
                 return Ok(candidate_index);
             }
             i.safe_add_assign(1)?;
+        }
+    }
+
+    /// Fork-aware abstraction for the shuffling.
+    ///
+    /// In Electra and later, the random value is a 16-bit integer stored in a `u64`.
+    ///
+    /// Prior to Electra, the random value is an 8-bit integer stored in a `u64`.
+    fn shuffling_random_value(&self, i: usize, seed: &[u8]) -> Result<u64, Error> {
+        if self.fork_name_unchecked().electra_enabled() {
+            Self::shuffling_random_u16_electra(i, seed).map(u64::from)
+        } else {
+            Self::shuffling_random_byte(i, seed).map(u64::from)
         }
     }
 
@@ -951,6 +970,21 @@ impl<E: EthSpec> BeaconState<E> {
             .get(index)
             .copied()
             .ok_or(Error::ShuffleIndexOutOfBounds(index))
+    }
+
+    /// Get two random bytes from the given `seed`.
+    ///
+    /// This is used in place of `shuffling_random_byte` from Electra onwards.
+    fn shuffling_random_u16_electra(i: usize, seed: &[u8]) -> Result<u16, Error> {
+        let mut preimage = seed.to_vec();
+        preimage.append(&mut int_to_bytes8(i.safe_div(16)? as u64));
+        let offset = i.safe_rem(16)?.safe_mul(2)?;
+        hash(&preimage)
+            .get(offset..offset.safe_add(2)?)
+            .ok_or(Error::ShuffleIndexOutOfBounds(offset))?
+            .try_into()
+            .map(u16::from_le_bytes)
+            .map_err(|_| Error::ShuffleIndexOutOfBounds(offset))
     }
 
     /// Convenience accessor for the `execution_payload_header` as an `ExecutionPayloadHeaderRef`.
@@ -1120,6 +1154,11 @@ impl<E: EthSpec> BeaconState<E> {
 
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
         let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
+            MAX_RANDOM_VALUE
+        } else {
+            MAX_RANDOM_BYTE
+        };
 
         let mut i = 0;
         let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
@@ -1134,10 +1173,10 @@ impl<E: EthSpec> BeaconState<E> {
             let candidate_index = *active_validator_indices
                 .get(shuffled_index)
                 .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
-            let random_byte = Self::shuffling_random_byte(i, seed.as_slice())?;
+            let random_value = self.shuffling_random_value(i, seed.as_slice())?;
             let effective_balance = self.get_validator(candidate_index)?.effective_balance;
-            if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= max_effective_balance.safe_mul(u64::from(random_byte))?
+            if effective_balance.safe_mul(max_random_value)?
+                >= max_effective_balance.safe_mul(random_value)?
             {
                 sync_committee_indices.push(candidate_index);
             }
@@ -2175,7 +2214,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     // ******* Electra accessors *******
 
-    /// Return the churn limit for the current epoch.
+    /// Return the churn limit for the current epoch.
     pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         let total_active_balance = self.get_total_active_balance()?;
         let churn = std::cmp::max(
@@ -2205,7 +2244,7 @@ impl<E: EthSpec> BeaconState<E> {
         for withdrawal in self
             .pending_partial_withdrawals()?
             .iter()
-            .filter(|withdrawal| withdrawal.index as usize == validator_index)
+            .filter(|withdrawal| withdrawal.validator_index as usize == validator_index)
         {
             pending_balance.safe_add_assign(withdrawal.amount)?;
         }
@@ -2290,21 +2329,12 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Electra(_) => {
-                let state = self.as_electra_mut()?;
-
+            BeaconState::Electra(_) | BeaconState::Fulu(_) => {
                 // Consume the balance and update state variables
-                state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
-                state.earliest_exit_epoch = earliest_exit_epoch;
-                Ok(state.earliest_exit_epoch)
-            }
-            BeaconState::Fulu(_) => {
-                let state = self.as_fulu_mut()?;
-
-                // Consume the balance and update state variables
-                state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
-                state.earliest_exit_epoch = earliest_exit_epoch;
-                Ok(state.earliest_exit_epoch)
+                *self.exit_balance_to_consume_mut()? =
+                    exit_balance_to_consume.safe_sub(exit_balance)?;
+                *self.earliest_exit_epoch_mut()? = earliest_exit_epoch;
+                self.earliest_exit_epoch()
             }
         }
     }
@@ -2346,23 +2376,12 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Electra(_) => {
-                let state = self.as_electra_mut()?;
-
+            BeaconState::Electra(_) | BeaconState::Fulu(_) => {
                 // Consume the balance and update state variables.
-                state.consolidation_balance_to_consume =
+                *self.consolidation_balance_to_consume_mut()? =
                     consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
-                state.earliest_consolidation_epoch = earliest_consolidation_epoch;
-                Ok(state.earliest_consolidation_epoch)
-            }
-            BeaconState::Fulu(_) => {
-                let state = self.as_fulu_mut()?;
-
-                // Consume the balance and update state variables.
-                state.consolidation_balance_to_consume =
-                    consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
-                state.earliest_consolidation_epoch = earliest_consolidation_epoch;
-                Ok(state.earliest_consolidation_epoch)
+                *self.earliest_consolidation_epoch_mut()? = earliest_consolidation_epoch;
+                self.earliest_consolidation_epoch()
             }
         }
     }
