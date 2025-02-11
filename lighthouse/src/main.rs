@@ -589,7 +589,7 @@ fn run<E: EthSpec>(
             logfile_format: logfile_format.map(String::from),
             logfile_color,
             disable_log_timestamp,
-            max_log_size: logfile_max_size * 1_024 * 1_024,
+            max_log_size: logfile_max_size,
             max_log_number: logfile_max_number,
             compression: logfile_compress,
             is_restricted: logfile_restricted,

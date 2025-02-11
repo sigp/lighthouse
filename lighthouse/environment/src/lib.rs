@@ -13,13 +13,13 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 use logging::tracing_logging_layer::LoggingLayer;
 use logging::SSELoggingComponents;
+use logroller::{Compression, LogRollerBuilder, Rotation, RotationSize};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use tracing::{error, info, warn};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::filter::LevelFilter;
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 
@@ -216,13 +216,20 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
         let file_logging_layer = {
             if let Some(path) = config.path {
-                match RollingFileAppender::builder()
-                    .rotation(Rotation::DAILY)
-                    .max_log_files(config.max_log_number)
-                    .filename_prefix(filename_prefix)
-                    .filename_suffix("log")
-                    .build(path.clone())
-                {
+                let mut appender = LogRollerBuilder::new(
+                    path.clone(),
+                    PathBuf::from(format!("{}.log", filename_prefix)),
+                )
+                .rotation(Rotation::SizeBased(RotationSize::MB(config.max_log_size)))
+                .max_keep_files(config.max_log_number.try_into().unwrap_or_else(|e| {
+                    eprintln!("Failed to convert max_log_number to u64: {}", e);
+                    10
+                }));
+
+                if config.compression {
+                    appender = appender.compression(Compression::Gzip);
+                }
+                match appender.build() {
                     Ok(file_appender) => {
                         #[cfg(target_family = "unix")]
                         set_logfile_permissions(&path, filename_prefix, file_mode);
