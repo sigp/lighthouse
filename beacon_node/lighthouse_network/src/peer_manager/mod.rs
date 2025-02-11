@@ -742,7 +742,7 @@ impl<E: EthSpec> PeerManager<E> {
 
             if self.network_globals.spec.is_peer_das_scheduled() {
                 // Gracefully ignore metadata/v2 peers.
-                // TODO(das) Potentially downscore after PeerDAS to prioritize PeerDAS peers.
+                // We only send metadata v3 requests when PeerDAS is scheduled
                 if let Some(custody_group_count) = custody_group_count_opt {
                     match self.compute_peer_custody_groups(peer_id, custody_group_count) {
                         Ok(custody_groups) => {

@@ -491,6 +491,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         for (id, result) in self.network.continue_custody_by_root_requests() {
             self.on_custody_by_root_result(id, result);
         }
+
+        // Attempt to resume range sync too
+        self.range_sync.resume(&mut self.network);
     }
 
     /// Handles RPC errors related to requests that were emitted from the sync manager.
