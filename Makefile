@@ -20,10 +20,10 @@ CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc,beacon-
 CROSS_PROFILE ?= release
 
 # List of features to use when running EF tests.
-EF_TEST_FEATURES ?=
+EF_TEST_FEATURES ?= store/leveldb
 
 # List of features to use when running CI tests.
-TEST_FEATURES ?=
+TEST_FEATURES ?= store/leveldb
 
 # Cargo profile for regular builds.
 PROFILE ?= release
