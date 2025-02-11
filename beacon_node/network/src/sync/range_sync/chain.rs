@@ -1,7 +1,6 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
 use crate::metrics;
-use crate::metrics::PEERS_PER_COLUMN_SUBNET;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
@@ -10,7 +9,6 @@ use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
-use metrics::set_int_gauge;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use slog::{crit, debug, o, warn};
@@ -1106,11 +1104,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .good_custody_subnet_peer(*subnet_id)
                         .count();
 
-                    set_int_gauge(
-                        &PEERS_PER_COLUMN_SUBNET,
-                        &[&subnet_id.to_string()],
-                        peer_count as i64,
-                    );
                     peer_count > 0
                 });
             peers_on_all_custody_subnets
