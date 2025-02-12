@@ -221,13 +221,6 @@ impl<E: EthSpec> PendingComponents<E> {
                     return Err(AvailabilityCheckError::Unexpected("too many blobs"));
                 }
                 Ordering::Equal => {
-                    let blobs_available_timestamp = self
-                        .verified_blobs
-                        .iter()
-                        .flatten()
-                        .map(|blob| blob.seen_timestamp())
-                        .max();
-                    // TODO(das): Should do something special if `num_received_blobs > num_expected_blobs`?
                     let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
                     let blobs_vec = self
                         .verified_blobs
@@ -237,7 +230,7 @@ impl<E: EthSpec> PendingComponents<E> {
                         .collect::<Vec<_>>();
                     let blobs = RuntimeVariableList::new(blobs_vec, max_blobs)
                         .map_err(|_| AvailabilityCheckError::Unexpected("over max_blobs"))?;
-                    Some(AvailableBlockData::Blobs(blobs, blobs_available_timestamp))
+                    Some(AvailableBlockData::Blobs(blobs))
                 }
                 Ordering::Less => {
                     // Not enough blobs received yet
@@ -255,7 +248,12 @@ impl<E: EthSpec> PendingComponents<E> {
 
         let blobs_available_timestamp = match available_data {
             AvailableBlockData::NoData => None,
-            AvailableBlockData::Blobs(_, blobs_available_timestamp) => blobs_available_timestamp,
+            AvailableBlockData::Blobs(_) => self
+                .verified_blobs
+                .iter()
+                .flatten()
+                .map(|blob| blob.seen_timestamp())
+                .max(),
             // TODO(das): To be fixed with https://github.com/sigp/lighthouse/pull/6850
             AvailableBlockData::DataColumns(_) => None,
             AvailableBlockData::DataColumnsRecv(_) => None,

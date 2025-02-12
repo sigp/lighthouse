@@ -72,7 +72,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
 
         let (blobs, data_columns) = match block.data() {
             AvailableBlockData::NoData => (None, None),
-            AvailableBlockData::Blobs(blobs, _) => (Some(blobs.clone()), None),
+            AvailableBlockData::Blobs(blobs) => (Some(blobs.clone()), None),
             AvailableBlockData::DataColumns(data_columns) => (None, Some(data_columns.clone())),
             // TODO(das): Once the columns are received, they will not be available in
             // the early attester cache. If someone does a query to us via RPC we

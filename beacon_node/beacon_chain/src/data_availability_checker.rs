@@ -356,7 +356,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
-                    data: AvailableBlockData::Blobs(blob_list, None),
+                    data: AvailableBlockData::Blobs(blob_list),
                     blobs_available_timestamp: None,
                     spec: self.spec.clone(),
                 }))
@@ -457,7 +457,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
-                        data: AvailableBlockData::Blobs(blobs, None),
+                        data: AvailableBlockData::Blobs(blobs),
                         blobs_available_timestamp: None,
                         spec: self.spec.clone(),
                     })
@@ -731,7 +731,7 @@ pub enum AvailableBlockData<E: EthSpec> {
     /// Block is pre-Deneb or has zero blobs
     NoData,
     /// Block is post-Deneb, pre-PeerDAS and has more than zero blobs
-    Blobs(BlobSidecarList<E>, Option<Duration>),
+    Blobs(BlobSidecarList<E>),
     /// Block is post-PeerDAS and has more than zero blobs
     DataColumns(DataColumnSidecarList<E>),
     /// Block is post-PeerDAS, has more than zero blobs and we recomputed the columns from the EL's
@@ -808,9 +808,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             block: self.block.clone(),
             data: match &self.data {
                 AvailableBlockData::NoData => AvailableBlockData::NoData,
-                AvailableBlockData::Blobs(blobs, seen_timestamp) => {
-                    AvailableBlockData::Blobs(blobs.clone(), *seen_timestamp)
-                }
+                AvailableBlockData::Blobs(blobs) => AvailableBlockData::Blobs(blobs.clone()),
                 AvailableBlockData::DataColumns(data_columns) => {
                     AvailableBlockData::DataColumns(data_columns.clone())
                 }

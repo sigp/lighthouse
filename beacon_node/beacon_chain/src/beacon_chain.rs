@@ -7230,7 +7230,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match block_data {
             AvailableBlockData::NoData => Ok(None),
-            AvailableBlockData::Blobs(blobs, _) => {
+            AvailableBlockData::Blobs(blobs) => {
                 debug!(
                     self.log, "Writing blobs to store";
                     "block_root" => %block_root,
