@@ -147,7 +147,7 @@ impl DepositContract {
         self.deposit(deposit).await
     }
 
-    /// Perfoms a blocking deposit.
+    /// Performs a blocking deposit.
     pub async fn deposit(&self, deposit_data: DepositData) -> Result<(), String> {
         self.deposit_async(deposit_data)
             .await
