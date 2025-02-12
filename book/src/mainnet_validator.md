@@ -1,9 +1,9 @@
 # Become an Ethereum Consensus Mainnet Validator
 
 [launchpad]: https://launchpad.ethereum.org/
-[advanced-datadir]: ./advanced-datadir.md
+[advanced-datadir]: ./advanced_datadir.md
 [license]: https://github.com/sigp/lighthouse/blob/stable/LICENSE
-[slashing]: ./slashing-protection.md
+[slashing]: ./validator_slashing_protection.md
 [discord]: https://discord.gg/cyAszAh
 
 Becoming an Ethereum consensus validator is rewarding, but it's not for the faint of heart. You'll need to be
@@ -54,7 +54,7 @@ and follow the instructions to generate the keys. When prompted for a network, s
 
 Upon completing this step, the files `deposit_data-*.json` and `keystore-m_*.json` will be created. The keys that are generated from staking-deposit-cli can be easily loaded into a Lighthouse validator client (`lighthouse vc`) in [Step 3](#step-3-import-validator-keys-to-lighthouse). In fact, both of these programs are designed to work with each other.
 
-> Lighthouse also supports creating validator keys, see [Key management](./key-management.md) for more info.
+> Lighthouse also supports creating validator keys, see [Validator Manager Create](./validator_manager_create.md) for more info.
 
 ### Step 2. Start an execution client and Lighthouse beacon node
 
@@ -99,7 +99,7 @@ Enter the keystore password, or press enter to omit it:
 ```
 
 The user can choose whether or not they'd like to store the validator password
-in the [`validator_definitions.yml`](./validator-management.md) file. If the
+in the [`validator_definitions.yml`](./validator_management.md) file. If the
 password is *not* stored here, the validator client (`lighthouse vc`)
 application will ask for the password each time it starts. This might be nice
 for some users from a security perspective (i.e., if it is a shared computer),
@@ -179,7 +179,7 @@ After the validator is running and performing its duties, it is important to kee
 
 The next important thing is to stay up to date with updates to Lighthouse and the execution client. Updates are released from time to time, typically once or twice a month. For Lighthouse updates, you can subscribe to notifications on [Github](https://github.com/sigp/lighthouse) by clicking on `Watch`. If you only want to receive notification on new releases, select `Custom`, then `Releases`. You could also join [Lighthouse Discord](https://discord.gg/cyAszAh) where we will make an announcement when there is a new release.
 
-You may also want to try out [Siren](./lighthouse-ui.md), a UI developed by Lighthouse to monitor validator performance.
+You may also want to try out [Siren](./ui.md), a UI developed by Lighthouse to monitor validator performance.
 
 Once you are familiar with running a validator and server maintenance, you'll find that running Lighthouse is easy. Install it, start it, monitor it and keep it updated. You shouldn't need to interact with it on a day-to-day basis. Happy staking!
 

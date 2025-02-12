@@ -69,7 +69,7 @@ lighthouse \
 > Be sure to remove `./validators.json` after the import is successful since it
 > contains unencrypted validator keystores.
 
-> Note: To import validators with validator-manager using keystore files created using the staking deposit CLI, refer to [Managing Validators](./validator-manager-api.md#import).
+> Note: To import validators with validator-manager using keystore files created using the staking deposit CLI, refer to [Managing Validators](./validator_manager_api.md#import).
 
 ## Detailed Guide
 
@@ -179,7 +179,7 @@ INFO Modified key_cache saved successfully
 
 The WARN message means that the `validators.json` file does not contain the slashing protection data. This is normal if you are starting a new validator. The flag `--enable-doppelganger-protection` will also protect users from potential slashing risk.
 The validators will now go through 2-3 epochs of [doppelganger
-protection](./validator-doppelganger.md) and will automatically start performing
+protection](./validator_doppelganger.md) and will automatically start performing
 their duties when they are deposited and activated.
 
 If the host VC contains the same public key as the `validators.json` file, an error will be shown and the `import` process will stop:

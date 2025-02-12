@@ -82,7 +82,7 @@ validator client in order for the execution node to be given adequate notice of 
 
 ## Setting the fee recipient dynamically using the keymanager API
 
-When the [validator client API](api-vc.md) is enabled, the
+When the [validator client API](api_vc.md) is enabled, the
 [standard keymanager API](https://ethereum.github.io/keymanager-APIs/) includes an endpoint
 for setting the fee recipient dynamically for a given public key. When used, the fee recipient
 will be saved in `validator_definitions.yml` so that it persists across restarts of the validator
@@ -92,7 +92,7 @@ client.
 |-------------------|--------------------------------------------|
 | Path              | `/eth/v1/validator/{pubkey}/feerecipient`  |
 | Method            | POST                                       |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 202, 404                                   |
 
 ### Example Request Body
@@ -117,7 +117,7 @@ curl -X POST \
     http://localhost:5062/eth/v1/validator/${PUBKEY}/feerecipient | jq
 ```
 
-Note that an authorization header is required to interact with the API. This is specified with the header `-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)"` which read the API token to supply the authentication. Refer to [Authorization Header](./api-vc-auth-header.md) for more information. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
+Note that an authorization header is required to interact with the API. This is specified with the header `-H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)"` which read the API token to supply the authentication. Refer to [Authorization Header](./api_vc_auth_header.md) for more information. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
 
 #### Successful Response (202)
 
@@ -135,7 +135,7 @@ The same path with a `GET` request can be used to query the fee recipient for a 
 |-------------------|--------------------------------------------|
 | Path              | `/eth/v1/validator/{pubkey}/feerecipient`  |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200, 404                                   |
 
 Command:
@@ -170,7 +170,7 @@ This is useful if you want the fee recipient to fall back to the validator clien
 |-------------------|--------------------------------------------|
 | Path              | `/eth/v1/validator/{pubkey}/feerecipient`  |
 | Method            | DELETE                                     |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 204, 404                                   |
 
 Command:

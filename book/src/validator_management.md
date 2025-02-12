@@ -13,7 +13,7 @@ standard directories and do not start their `lighthouse vc` with the
 this document. However, users with more complex needs may find this document
 useful.
 
-The [lighthouse validator-manager](./validator-manager.md) command can be used
+The [lighthouse validator-manager](./validator_manager.md) command can be used
 to create and import validators to a Lighthouse VC. It can also be used to move
 validators between two Lighthouse VCs.
 
@@ -54,7 +54,7 @@ Each permitted field of the file is listed below for reference:
 - `enabled`: A `true`/`false` indicating if the validator client should consider this
  validator "enabled".
 - `voting_public_key`: A validator public key.
-- `type`: How the validator signs messages (this can be `local_keystore` or `web3signer` (see [Web3Signer](./validator-web3signer.md))).
+- `type`: How the validator signs messages (this can be `local_keystore` or `web3signer` (see [Web3Signer](./advanced_web3signer.md))).
 - `voting_keystore_path`: The path to a EIP-2335 keystore.
 - `voting_keystore_password_path`: The path to the password for the EIP-2335 keystore.
 - `voting_keystore_password`: The password to the EIP-2335 keystore.

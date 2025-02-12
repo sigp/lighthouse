@@ -14,7 +14,7 @@ the merge:
 2. If your Lighthouse node has validators attached you *must* nominate an Ethereum address to
    receive transactions tips from blocks proposed by your validators. These changes should
    be made to your `lighthouse vc` configuration, and are covered on the
-   [Suggested fee recipient](./suggested-fee-recipient.md) page.
+   [Suggested fee recipient](./validator_fee_recipient.md) page.
 
 Additionally, you *must* update Lighthouse to v3.0.0 (or later), and must update your execution
 engine to a merge-ready version.

@@ -22,9 +22,9 @@ and carefully to keep your validators safe. See the [Troubleshooting](#troublesh
 The database will be automatically created, and your validators registered with it when:
 
 * Importing keys from another source (e.g. [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/releases), Lodestar, Nimbus, Prysm, Teku, [ethdo](https://github.com/wealdtech/ethdo)).
-  See [import validator keys](./mainnet-validator.md#step-3-import-validator-keys-to-lighthouse).
+  See [import validator keys](./mainnet_validator.md#step-3-import-validator-keys-to-lighthouse).
 * Creating keys using Lighthouse itself (`lighthouse account validator create`)
-* Creating keys via the [validator client API](./api-vc.md).
+* Creating keys via the [validator client API](./api_vc.md).
 
 ## Avoiding Slashing
 
@@ -79,7 +79,7 @@ lighthouse account validator slashing-protection import filename.json
 ```
 
 When importing an interchange file, you still need to import the validator keystores themselves
-separately, using the instructions for [import validator keys](./mainnet-validator.md#step-3-import-validator-keys-to-lighthouse).
+separately, using the instructions for [import validator keys](./mainnet_validator.md#step-3-import-validator-keys-to-lighthouse).
 
 ---
 

@@ -12,7 +12,7 @@ lighthouse --network mainnet --datadir /var/lib/my-custom-dir bn --staking
 lighthouse --network mainnet --datadir /var/lib/my-custom-dir vc
 ```
 
-The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator-management.md).
+The first step creates a `validators` directory under `/var/lib/my-custom-dir` which contains the imported keys and [`validator_definitions.yml`](./validator_management.md).
 After that, we simply run the beacon chain and validator client with the custom dir path.
 
 ## Relative Paths

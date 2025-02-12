@@ -81,7 +81,7 @@ WARN Slasher backend override failed    advice: delete old MDBX database or enab
 
 In this case you should either obtain a Lighthouse binary with the MDBX backend enabled, or delete
 the files for the old backend. The pre-built Lighthouse binaries and Docker images have MDBX enabled,
-or if you're [building from source](./installation-source.md) you can enable the `slasher-mdbx` feature.
+or if you're [building from source](./installation_source.md) you can enable the `slasher-mdbx` feature.
 
 To delete the files, use the `path` from the `WARN` log, and then delete the `mbdx.dat` and
 `mdbx.lck` files.

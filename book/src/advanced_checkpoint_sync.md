@@ -134,7 +134,7 @@ Important information to be aware of:
 * It is safe to interrupt state reconstruction by gracefully terminating the node – it will pick up
   from where it left off when it restarts.
 * You can start reconstruction from the HTTP API, and view its progress. See the
-  [`/lighthouse/database`](./api-lighthouse.md) APIs.
+  [`/lighthouse/database`](./api_lighthouse.md) APIs.
 
 For more information on historic state storage see the
 [Database Configuration](./advanced_database.md) page.

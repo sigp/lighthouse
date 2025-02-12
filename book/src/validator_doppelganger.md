@@ -1,7 +1,7 @@
 # Doppelganger Protection
 
 [doppelgänger]: https://en.wikipedia.org/wiki/Doppelg%C3%A4nger
-[Slashing Protection]: ./slashing-protection.md
+[Slashing Protection]: ./validator_slashing_protection.md
 [VC HTTP API]: ./api-vc.md
 
 From Lighthouse `v1.5.0`, the *Doppelganger Protection* feature is available for the Validator

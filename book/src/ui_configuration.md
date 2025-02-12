@@ -29,7 +29,7 @@ We recommend running Siren's container next to your beacon node (on the same ser
     cd Siren
     ```
 
- 1. Create a configuration file in the `Siren` directory: `nano .env` and insert the following fields to the `.env` file. The field values are given here as an example, modify the fields as necessary. For example, the `API_TOKEN` can be obtained from [`Validator Client Authorization Header`](./api-vc-auth-header.md)
+ 1. Create a configuration file in the `Siren` directory: `nano .env` and insert the following fields to the `.env` file. The field values are given here as an example, modify the fields as necessary. For example, the `API_TOKEN` can be obtained from [`Validator Client Authorization Header`](./api_vc_auth_header.md)
 
     A full example with all possible configuration options can be found [here](https://github.com/sigp/siren/blob/stable/.env.example).  
 

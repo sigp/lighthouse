@@ -347,11 +347,11 @@ curl -X GET "http://localhost:5052/lighthouse/proto_array" -H  "accept: applicat
 
 ## `/lighthouse/validator_inclusion/{epoch}/{validator_id}`
 
-See [Validator Inclusion APIs](./validator-inclusion.md).
+See [Validator Inclusion APIs](./api_validator_inclusion.md).
 
 ## `/lighthouse/validator_inclusion/{epoch}/global`
 
-See [Validator Inclusion APIs](./validator-inclusion.md).
+See [Validator Inclusion APIs](./api_validator_inclusion.md).
 
 ## `/lighthouse/eth1/syncing`
 
@@ -565,7 +565,7 @@ For archive nodes, the `anchor` will be:
 
 indicating that all states with slots `>= 0` are available, i.e., full state history. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
-Sync](./checkpoint-sync.md#reconstructing-states).
+Sync](./advanced_checkpoint_sync.md#reconstructing-states).
 
 ## `/lighthouse/merge_readiness`
 

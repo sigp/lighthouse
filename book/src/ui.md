@@ -21,11 +21,11 @@ The UI is currently in active development. It resides in the
 See the following Siren specific topics for more context-specific
 information:
 
-- [Configuration Guide](./ui-configuration.md) - Explanation of how to setup
+- [Configuration Guide](./ui_configuration.md) - Explanation of how to setup
  and configure Siren.
-- [Authentication Guide](./ui-authentication.md) - Explanation of how Siren authentication works and protects validator actions.
-- [Usage](./ui-usage.md) - Details various Siren components.
-- [FAQs](./ui-faqs.md) - Frequently Asked Questions.
+- [Authentication Guide](./ui_authentication.md) - Explanation of how Siren authentication works and protects validator actions.
+- [Usage](./ui_usage.md) - Details various Siren components.
+- [FAQs](./ui_faqs.md) - Frequently Asked Questions.
 
 ## Contributing
 

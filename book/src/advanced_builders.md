@@ -83,11 +83,11 @@ is something afoot.
 
 To update gas limit per-validator you can use the [standard key manager API][gas-limit-api].
 
-Alternatively, you can use the [lighthouse API](api-vc-endpoints.md). See below for an example.
+Alternatively, you can use the [lighthouse API](api_vc_endpoints.md). See below for an example.
 
 ### Enable/Disable builder proposals via HTTP
 
-Use the [lighthouse API](api-vc-endpoints.md) to enable/disable use of the builder API on a per-validator basis.
+Use the [lighthouse API](api_vc_endpoints.md) to enable/disable use of the builder API on a per-validator basis.
 You can also update the configured gas limit with these requests.
 
 #### `PATCH /lighthouse/validators/:voting_pubkey`
@@ -98,7 +98,7 @@ You can also update the configured gas limit with these requests.
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/validators/:voting_pubkey`    |
 | Method            | PATCH                                      |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200, 400                                   |
 
 #### Example Path
@@ -246,7 +246,7 @@ INFO Chain is unhealthy, using local payload
 
 ## Information for block builders and relays
 
-Block builders and relays can query beacon node events from the [Events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream). An example of querying the payload attributes in the Events API is outlined in [Beacon node API - Events API](./api-bn.md#events-api)
+Block builders and relays can query beacon node events from the [Events API](https://ethereum.github.io/beacon-APIs/#/Events/eventstream). An example of querying the payload attributes in the Events API is outlined in [Beacon node API - Events API](./api_bn.md#events-api)
 
 [mev-rs]: https://github.com/ralexstokes/mev-rs
 [mev-boost]: https://github.com/flashbots/mev-boost

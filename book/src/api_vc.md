@@ -6,10 +6,10 @@ of validators and keys.
 The API includes all of the endpoints from the [standard keymanager
 API](https://ethereum.github.io/keymanager-APIs/) that is implemented by other clients and remote
 signers. It also includes some Lighthouse-specific endpoints which are described in
-[Endpoints](./api-vc-endpoints.md).
+[Endpoints](./api_vc_endpoints.md).
 
 > Note: All requests to the HTTP server must supply an
-> [`Authorization`](./api-vc-auth-header.md) header. All responses contain a
+> [`Authorization`](./api_vc_auth_header.md) header. All responses contain a
 > [`Signature`](./api-vc-sig-header.md) header for optional verification.
 
 ## Starting the server

@@ -68,7 +68,7 @@ The specification for the monitoring endpoint can be found here:
 
 - <https://github.com/gobitfly/eth2-client-metrics>
 
-_Note: the similarly named [Validator Monitor](./validator-monitoring.md) feature is entirely
+_Note: the similarly named [Validator Monitor](./validator_monitoring.md) feature is entirely
 independent of remote metric monitoring_.
 
 ### Update Period

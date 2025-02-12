@@ -56,7 +56,7 @@ these nodes for added security).
 
 The intended set-up to take advantage of this mechanism is to run one (or more)
 normal beacon nodes in conjunction with one (or more) proposer-only beacon
-nodes. See the [Redundancy](./redundancy.md) section for more information about
+nodes. See the [Redundancy](./advanced_redundancy.md) section for more information about
 setting up redundant beacon nodes. The proposer-only beacon nodes should be
 setup to use a different IP address than the primary (non proposer-only) nodes.
 For added security, the IP addresses of the proposer-only nodes should be

@@ -5,7 +5,7 @@ Generally users will want to use this function to track their own validators, ho
 used for any validator, regardless of who controls it.
 
 _Note: If you are looking for remote metric monitoring, please see the docs on
-[Prometheus Metrics](./advanced_metrics.md)_.
+[Prometheus Metrics](./api_metrics.md)_.
 
 ## Monitoring is in the Beacon Node
 
@@ -64,7 +64,7 @@ lighthouse bn --validator-monitor-pubkeys 0x933ad9491b62059dd065b560d256d8957a8c
 Enrolling a validator for additional monitoring results in:
 
 - Additional logs to be printed during BN operation.
-- Additional [Prometheus metrics](./advanced_metrics.md) from the BN.
+- Additional [Prometheus metrics](./api_metrics.md) from the BN.
 
 ### Logging
 

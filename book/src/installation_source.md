@@ -217,7 +217,7 @@ Rust Version (MSRV) which is listed under the `rust-version` key in Lighthouse's
 
 If compilation fails with `(signal: 9, SIGKILL: kill)`, this could mean your machine ran out of
 memory during compilation. If you are on a resource-constrained device you can
-look into [cross compilation](./cross-compiling.md), or use a [pre-built
+look into [cross compilation](./installation_cross_compiling.md), or use a [pre-built
 binary](https://github.com/sigp/lighthouse/releases).
 
 If compilation fails with `error: linking with cc failed: exit code: 1`, try running `cargo clean`.

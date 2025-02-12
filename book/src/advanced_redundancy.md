@@ -9,7 +9,7 @@ There are three places in Lighthouse where redundancy is notable:
 We mention (3) since it is unsafe and should not be confused with the other two
 uses of redundancy. **Running the same validator keypair in more than one
 validator client (Lighthouse, or otherwise) will eventually lead to slashing.**
-See [Slashing Protection](./slashing-protection.md) for more information.
+See [Slashing Protection](./validator_slashing_protection.md) for more information.
 
 From this paragraph, this document will *only* refer to the first two items (1, 2). We
 *never* recommend that users implement redundancy for validator keypairs.
@@ -58,8 +58,8 @@ following flags:
 
  > Note: You could also use `--http-address 0.0.0.0`, but this allows *any* external IP address to access the HTTP server. As such, a firewall should be configured to deny unauthorized access to port `5052`.
 
-- `--execution-endpoint`: see [Merge Migration](./merge-migration.md).
-- `--execution-jwt`: see [Merge Migration](./merge-migration.md).
+- `--execution-endpoint`: see [Merge Migration](./archived_merge_migration.md).
+- `--execution-jwt`: see [Merge Migration](./archived_merge_migration.md).
 
 For example one could use the following command to provide a backup beacon node:
 
@@ -107,7 +107,7 @@ The default is `--broadcast subscriptions`. To also broadcast blocks for example
 Lighthouse previously supported redundant execution nodes for fetching data from the deposit
 contract. On merged networks *this is no longer supported*. Each Lighthouse beacon node must be
 configured in a 1:1 relationship with an execution node. For more information on the rationale
-behind this decision please see the [Merge Migration](./merge-migration.md) documentation.
+behind this decision please see the [Merge Migration](./archived_merge_migration.md) documentation.
 
 To achieve redundancy we recommend configuring [Redundant beacon nodes](#redundant-beacon-nodes)
 where each has its own execution engine.

@@ -7,7 +7,7 @@ Tested on:
 - Raspberry Pi 4 Model B (4GB)
 - `Ubuntu 20.04 LTS (GNU/Linux 5.4.0-1011-raspi aarch64)`
 
-*Note: [Lighthouse supports cross-compiling](./cross-compiling.md) to target a
+*Note: [Lighthouse supports cross-compiling](./installation_cross_compiling.md) to target a
 Raspberry Pi (`aarch64`). Compiling on a faster machine (i.e., `x86_64`
 desktop) may be convenient.*
 
@@ -58,7 +58,7 @@ make
 >
 > Compiling Lighthouse can take up to an hour. The safety guarantees provided by the Rust language
 unfortunately result in a lengthy compilation time on a low-spec CPU like a Raspberry Pi. For faster
-compilation on low-spec hardware, try [cross-compiling](./cross-compiling.md) on a more powerful
+compilation on low-spec hardware, try [cross-compiling](./installation)cross_compiling.md) on a more powerful
 computer (e.g., compile for RasPi from your desktop computer).
 
 Once installation has finished, confirm Lighthouse is installed by viewing the

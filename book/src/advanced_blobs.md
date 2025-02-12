@@ -38,4 +38,4 @@ In the Deneb network upgrade, one of the changes is the implementation of EIP-48
    curl "http://localhost:5052/lighthouse/database/info" | jq
    ```
 
-   Refer to [Lighthouse API](./api-lighthouse.md#lighthousedatabaseinfo) for an example response.
+   Refer to [Lighthouse API](./api_lighthouse.md#lighthousedatabaseinfo) for an example response.

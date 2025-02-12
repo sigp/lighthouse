@@ -19,7 +19,7 @@
 | [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators. |
 | [`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs |
 
-The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api-vc-auth-header.md).
+The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api_vc_auth_header.md).
 
 In addition to the above endpoints Lighthouse also supports all of the [standard keymanager APIs](https://ethereum.github.io/keymanager-APIs/).
 
@@ -33,7 +33,7 @@ Returns the software version and `git` commit hash for the Lighthouse binary.
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/version`                      |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
 
 Command:
@@ -71,7 +71,7 @@ Returns information regarding the health of the host machine.
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/health`                       |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
 
 *Note: this endpoint is presently only available on Linux.*
@@ -132,7 +132,7 @@ Returns information regarding the health of the host machine.
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/ui/health`                       |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
 
 Command:
@@ -178,7 +178,7 @@ Returns the graffiti that will be used for the next block proposal of each valid
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/ui/graffiti`                    |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
 
 Command:
@@ -210,7 +210,7 @@ Returns the Ethereum proof-of-stake consensus specification loaded for this vali
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/spec`                         |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
 
 Command:
@@ -326,7 +326,7 @@ Example Response Body
 
 ## `GET /lighthouse/auth`
 
-Fetch the filesystem path of the [authorization token](./api-vc-auth-header.md).
+Fetch the filesystem path of the [authorization token](./api_vc_auth_header.md).
 Unlike the other endpoints this may be called *without* providing an authorization token.
 
 This API is intended to be called from the same machine as the validator client, so that the token
@@ -365,7 +365,7 @@ Lists all validators managed by this validator client.
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/validators`                   |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
 
 Command:
@@ -409,7 +409,7 @@ Get a validator by their `voting_pubkey`.
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/validators/:voting_pubkey`    |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200, 400                                   |
 
 Command:
@@ -441,7 +441,7 @@ and `graffiti`.  The following example updates a validator from `enabled: true` 
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/validators/:voting_pubkey`    |
 | Method            | PATCH                                      |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200, 400                                   |
 
 Example Request Body
@@ -491,7 +491,7 @@ Validators are generated from the mnemonic according to
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/validators`                   |
 | Method            | POST                                       |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
 
 ### Example Request Body
@@ -580,7 +580,7 @@ Import a keystore into the validator client.
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/validators/keystore`          |
 | Method            | POST                                       |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
 
 ### Example Request Body
@@ -676,7 +676,7 @@ generated with the path `m/12381/3600/i/42`.
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/validators/mnemonic`          |
 | Method            | POST                                       |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200                                        |
 
 ### Example Request Body
@@ -739,7 +739,7 @@ Create any number of new validators, all of which will refer to a
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/validators/web3signer`        |
 | Method            | POST                                       |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200, 400                                   |
 
 ### Example Request Body
