@@ -93,7 +93,7 @@ fn operations_withdrawals() {
 }
 
 #[test]
-fn operations_withdrawal_reqeusts() {
+fn operations_withdrawal_requests() {
     OperationsHandler::<MinimalEthSpec, WithdrawalRequest>::default().run();
     OperationsHandler::<MainnetEthSpec, WithdrawalRequest>::default().run();
 }
