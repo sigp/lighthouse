@@ -838,19 +838,17 @@ where
                 self.on_dial_upgrade_error(info, error)
             }
             ConnectionEvent::ListenUpgradeError(e) => {
-                match e.error {
-                    RPCError::InvalidData(_) => {
-                        let inbound_substream_id = self.current_inbound_substream_id;
-                        self.current_inbound_substream_id.0 += 1;
+                if matches!(e.error, RPCError::InvalidData(_)) {
+                    // Peer is not complying with the protocol. Notify the application and disconnect.
+                    let inbound_substream_id = self.current_inbound_substream_id;
+                    self.current_inbound_substream_id.0 += 1;
 
-                        self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
-                            id: inbound_substream_id,
-                            proto: Protocol::DataColumnsByRange, // FIXME: replace this hardcoded protocol
-                            error: e.error,
-                        }));
-                        self.shutdown(None);
-                    }
-                    _ => {}
+                    self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                        id: inbound_substream_id,
+                        proto: Protocol::DataColumnsByRange, // FIXME: replace this hardcoded protocol
+                        error: e.error,
+                    }));
+                    self.shutdown(None);
                 }
             }
             _ => {
