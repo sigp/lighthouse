@@ -106,7 +106,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
             warn!(self.log,
                 "Received custody column response for unrequested index";
-                "id" => ?self.custody_id,
                 "block_root" => ?self.block_root,
                 "req_id" => %req_id,
             );
@@ -117,7 +116,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             Ok((data_columns, seen_timestamp)) => {
                 debug!(self.log,
                     "Custody column download success";
-                    "id" => ?self.custody_id,
                     "block_root" => ?self.block_root,
                     "req_id" => %req_id,
                     "peer" => %peer_id,
@@ -165,7 +163,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     // Note: Batch logging that columns are missing to not spam logger
                     debug!(self.log,
                         "Custody column peer claims to not have some data";
-                        "id" => ?self.custody_id,
                         "block_root" => ?self.block_root,
                         "req_id" => %req_id,
                         "peer" => %peer_id,
@@ -179,7 +176,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             Err(err) => {
                 debug!(self.log,
                     "Custody column download error";
-                    "id" => ?self.custody_id,
                     "block_root" => ?self.block_root,
                     "req_id" => %req_id,
                     "peer" => %peer_id,

@@ -486,6 +486,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             let request = entry.remove();
             let blocks = request
                 .into_responses(&self.chain.spec)
+                .inspect_err(|e| {
+                    debug!(
+                        self.log,
+                        "Failed to convert range block components into RpcBlock";
+                        "id" => %id,
+                        "error" => e
+                    )
+                })
                 .map_err(RpcResponseError::BlockComponentCouplingError);
             Some(blocks)
         } else {
