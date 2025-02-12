@@ -558,11 +558,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<DataColumnReconstructionResult<T::EthSpec>, AvailabilityCheckError> {
-        let pending_components = match self
+        let verified_data_columns = match self
             .availability_cache
             .check_and_set_reconstruction_started(block_root)
         {
-            ReconstructColumnsDecision::Yes(pending_components) => pending_components,
+            ReconstructColumnsDecision::Yes(verified_data_columns) => verified_data_columns,
             ReconstructColumnsDecision::No(reason) => {
                 return Ok(DataColumnReconstructionResult::NotStarted(reason));
             }
@@ -573,7 +573,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
             &self.kzg,
-            &pending_components.verified_data_columns,
+            &verified_data_columns,
             &self.spec,
         )
         .map_err(|e| {

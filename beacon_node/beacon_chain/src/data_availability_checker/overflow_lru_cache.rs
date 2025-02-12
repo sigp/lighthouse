@@ -40,19 +40,6 @@ pub struct PendingComponents<E: EthSpec> {
 }
 
 impl<E: EthSpec> PendingComponents<E> {
-    /// Clones the `PendingComponent` without cloning `data_column_recv`, as `Receiver` is not cloneable.
-    /// This should only be used when the receiver is no longer needed.
-    pub fn clone_without_column_recv(&self) -> Self {
-        PendingComponents {
-            block_root: self.block_root,
-            verified_blobs: self.verified_blobs.clone(),
-            verified_data_columns: self.verified_data_columns.clone(),
-            executed_block: self.executed_block.clone(),
-            reconstruction_started: self.reconstruction_started,
-            data_column_recv: None,
-        }
-    }
-
     /// Returns an immutable reference to the cached block.
     pub fn get_cached_block(&self) -> &Option<DietAvailabilityPendingExecutedBlock<E>> {
         &self.executed_block
@@ -373,7 +360,7 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
 // the current usage, as it's deconstructed immediately.
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
-    Yes(PendingComponents<E>),
+    Yes(Vec<KzgVerifiedCustodyDataColumn<E>>),
     No(&'static str),
 }
 
@@ -655,7 +642,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
 
         pending_components.reconstruction_started = true;
-        ReconstructColumnsDecision::Yes(pending_components.clone_without_column_recv())
+        ReconstructColumnsDecision::Yes(pending_components.verified_data_columns.clone())
     }
 
     /// This could mean some invalid data columns made it through to the `DataAvailabilityChecker`.
