@@ -812,9 +812,15 @@ Checks if the ports are open.
 curl -X GET "http://localhost:5052/lighthouse/nat" | jq
 ```
 
-An open port will return:
+An example of response:
 
 ```json
 {
-  "data": true
+  "data": {
+    "discv5_ipv4": true,
+    "discv5_ipv6": false,
+    "libp2p_ipv4": true,
+    "libp2p_ipv6": false
+  }
 }
+```
