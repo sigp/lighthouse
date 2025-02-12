@@ -11,6 +11,7 @@ use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::RwLock;
 use slog::{debug, Logger};
+use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -187,49 +188,61 @@ impl<E: EthSpec> PendingComponents<E> {
         let available_data = if num_expected_blobs == 0 {
             Some(AvailableBlockData::NoData)
         } else if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            if self.verified_data_columns.len() >= custody_column_count {
-                // Block is post-peerdas, and we got enough columns
-
-                // TODO(das) get only the columns that we need, filter the rest
-
-                let data_columns = self
-                    .verified_data_columns
-                    .iter()
-                    .map(|d| d.clone().into_inner())
-                    .collect::<Vec<_>>();
-                Some(AvailableBlockData::DataColumns(data_columns))
-            } else {
-                // The data_columns_recv is an infallible promise that we will receive all expected
-                // columns, so we consider the block available
-                self.data_column_recv
-                    .take()
-                    .map(AvailableBlockData::DataColumnsRecv)
+            match self.verified_data_columns.len().cmp(&custody_column_count) {
+                Ordering::Greater => {
+                    // Should never happen
+                    return Err(AvailabilityCheckError::Unexpected("too many columns"));
+                }
+                Ordering::Equal => {
+                    // Block is post-peerdas, and we got enough columns
+                    let data_columns = self
+                        .verified_data_columns
+                        .iter()
+                        .map(|d| d.clone().into_inner())
+                        .collect::<Vec<_>>();
+                    Some(AvailableBlockData::DataColumns(data_columns))
+                }
+                Ordering::Less => {
+                    // The data_columns_recv is an infallible promise that we will receive all expected
+                    // columns, so we consider the block available.
+                    // We take the receiver as it can't be cloned, and make_available should never
+                    // be called again once it returns `Some`.
+                    self.data_column_recv
+                        .take()
+                        .map(AvailableBlockData::DataColumnsRecv)
+                }
             }
         } else {
             // Before PeerDAS, blobs
             let num_received_blobs = self.verified_blobs.iter().flatten().count();
-            if num_received_blobs >= num_expected_blobs {
-                let blobs_available_timestamp = self
-                    .verified_blobs
-                    .iter()
-                    .flatten()
-                    .map(|blob| blob.seen_timestamp())
-                    .max();
-                // TODO(das): Should do something special if `num_received_blobs > num_expected_blobs`?
-                let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
-                let blobs_vec = self
-                    .verified_blobs
-                    .iter()
-                    .flatten()
-                    .map(|blob| blob.clone().to_blob())
-                    .take(max_blobs)
-                    .collect::<Vec<_>>();
-                let blobs = RuntimeVariableList::new(blobs_vec, max_blobs)
-                    .expect("blobs_vec is less <= max_blobs because of take(max_blobs)");
-                Some(AvailableBlockData::Blobs(blobs, blobs_available_timestamp))
-            } else {
-                // Not enough blobs received yet
-                None
+            match num_received_blobs.cmp(&num_expected_blobs) {
+                Ordering::Greater => {
+                    // Should never happen
+                    return Err(AvailabilityCheckError::Unexpected("too many blobs"));
+                }
+                Ordering::Equal => {
+                    let blobs_available_timestamp = self
+                        .verified_blobs
+                        .iter()
+                        .flatten()
+                        .map(|blob| blob.seen_timestamp())
+                        .max();
+                    // TODO(das): Should do something special if `num_received_blobs > num_expected_blobs`?
+                    let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
+                    let blobs_vec = self
+                        .verified_blobs
+                        .iter()
+                        .flatten()
+                        .map(|blob| blob.clone().to_blob())
+                        .collect::<Vec<_>>();
+                    let blobs = RuntimeVariableList::new(blobs_vec, max_blobs)
+                        .map_err(|_| AvailabilityCheckError::Unexpected("over max_blobs"))?;
+                    Some(AvailableBlockData::Blobs(blobs, blobs_available_timestamp))
+                }
+                Ordering::Less => {
+                    // Not enough blobs received yet
+                    None
+                }
             }
         };
 
@@ -454,7 +467,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .map(|verified_blob| verified_blob.as_blob().epoch())
         else {
             // Verified blobs list should be non-empty.
-            return Err(AvailabilityCheckError::Unexpected);
+            return Err(AvailabilityCheckError::Unexpected("empty blobs"));
         };
 
         let mut fixed_blobs =
@@ -516,7 +529,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .map(|verified_blob| verified_blob.as_data_column().epoch())
         else {
             // Verified data_columns list should be non-empty.
-            return Err(AvailabilityCheckError::Unexpected);
+            return Err(AvailabilityCheckError::Unexpected("empty columns"));
         };
 
         let mut write_lock = self.critical.write();
