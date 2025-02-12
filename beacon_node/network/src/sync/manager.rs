@@ -1217,12 +1217,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         requester: CustodyRequester,
         response: CustodyByRootResult<T::EthSpec>,
     ) {
-        // TODO(das): get proper timestamp
-        let seen_timestamp = timestamp_now();
         self.block_lookups
             .on_download_response::<CustodyRequestState<T::EthSpec>>(
                 requester.0,
-                response.map(|(columns, peer_group)| (columns, peer_group, seen_timestamp)),
+                response,
                 &mut self.network,
             );
     }
