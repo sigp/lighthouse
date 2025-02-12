@@ -172,22 +172,34 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns Some if the block has received all its required data for import. The return value
     /// must be persisted in the DB along with the block.
-    pub fn is_available(
+    ///
+    /// Verifies an `SignedBeaconBlock` against a set of KZG verified blobs.
+    /// This does not check whether a block *should* have blobs, these checks should have been
+    /// completed when producing the `AvailabilityPendingBlock`.
+    ///
+    /// WARNING: This function can potentially take a lot of time if the state needs to be
+    /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
+    pub fn make_available<R>(
         &mut self,
         custody_column_count: usize,
         spec: &Arc<ChainSpec>,
-    ) -> Option<AvailableBlockData<E>> {
-        let Some(block) = self.get_cached_block() else {
+        recover: R,
+    ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError>
+    where
+        R: FnOnce(
+            DietAvailabilityPendingExecutedBlock<E>,
+        ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
+    {
+        let Some(block) = &self.executed_block else {
             // Block not available yet
-            return None;
+            return Ok(None);
         };
 
         let num_expected_blobs = block.num_blobs_expected();
-        if num_expected_blobs == 0 {
-            return Some(AvailableBlockData::NoData);
-        }
 
-        if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+        let available_data = if num_expected_blobs == 0 {
+            Some(AvailableBlockData::NoData)
+        } else if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             if self.verified_data_columns.len() >= custody_column_count {
                 // Block is post-peerdas, and we got enough columns
 
@@ -198,16 +210,14 @@ impl<E: EthSpec> PendingComponents<E> {
                     .iter()
                     .map(|d| d.clone().into_inner())
                     .collect::<Vec<_>>();
-                return Some(AvailableBlockData::DataColumns(data_columns));
-            }
-
-            if let Some(data_columns_recv) = self.data_column_recv.take() {
+                Some(AvailableBlockData::DataColumns(data_columns))
+            } else {
                 // The data_columns_recv is an infallible promise that we will receive all expected
                 // columns, so we consider the block available
-                return Some(AvailableBlockData::DataColumnsRecv(data_columns_recv));
+                self.data_column_recv
+                    .take()
+                    .map(AvailableBlockData::DataColumnsRecv)
             }
-
-            None
         } else {
             // Before PeerDAS, blobs
             let num_received_blobs = self.verified_blobs.iter().flatten().count();
@@ -234,7 +244,41 @@ impl<E: EthSpec> PendingComponents<E> {
                 // Not enough blobs received yet
                 None
             }
-        }
+        };
+
+        // Block's data not available yet
+        let Some(available_data) = available_data else {
+            return Ok(None);
+        };
+
+        // Block is available, construct `AvailableExecutedBlock`
+
+        let blobs_available_timestamp = match available_data {
+            AvailableBlockData::NoData => None,
+            AvailableBlockData::Blobs(_, blobs_available_timestamp) => blobs_available_timestamp,
+            // TODO(das): To be fixed with https://github.com/sigp/lighthouse/pull/6850
+            AvailableBlockData::DataColumns(_) => None,
+            AvailableBlockData::DataColumnsRecv(_) => None,
+        };
+
+        let AvailabilityPendingExecutedBlock {
+            block,
+            import_data,
+            payload_verification_outcome,
+        } = recover(block.clone())?;
+
+        let available_block = AvailableBlock {
+            block_root: self.block_root,
+            block,
+            data: available_data,
+            blobs_available_timestamp,
+            spec: spec.clone(),
+        };
+        Ok(Some(AvailableExecutedBlock::new(
+            available_block,
+            import_data,
+            payload_verification_outcome,
+        )))
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
@@ -247,61 +291,6 @@ impl<E: EthSpec> PendingComponents<E> {
             reconstruction_started: false,
             data_column_recv: None,
         }
-    }
-
-    /// Verifies an `SignedBeaconBlock` against a set of KZG verified blobs.
-    /// This does not check whether a block *should* have blobs, these checks should have been
-    /// completed when producing the `AvailabilityPendingBlock`.
-    ///
-    /// WARNING: This function can potentially take a lot of time if the state needs to be
-    /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R>(
-        self,
-        spec: &Arc<ChainSpec>,
-        available_data: AvailableBlockData<E>,
-        recover: R,
-    ) -> Result<Availability<E>, AvailabilityCheckError>
-    where
-        R: FnOnce(
-            DietAvailabilityPendingExecutedBlock<E>,
-        ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
-    {
-        let Self {
-            block_root,
-            executed_block,
-            ..
-        } = self;
-
-        let blobs_available_timestamp = match available_data {
-            AvailableBlockData::NoData => None,
-            AvailableBlockData::Blobs(_, blobs_available_timestamp) => blobs_available_timestamp,
-            // TODO(das): To be fixed with https://github.com/sigp/lighthouse/pull/6850
-            AvailableBlockData::DataColumns(_) => None,
-            AvailableBlockData::DataColumnsRecv(_) => None,
-        };
-
-        let Some(diet_executed_block) = executed_block else {
-            return Err(AvailabilityCheckError::Unexpected);
-        };
-
-        let executed_block = recover(diet_executed_block)?;
-
-        let AvailabilityPendingExecutedBlock {
-            block,
-            import_data,
-            payload_verification_outcome,
-        } = executed_block;
-
-        let available_block = AvailableBlock {
-            block_root,
-            block,
-            data: available_data,
-            blobs_available_timestamp,
-            spec: spec.clone(),
-        };
-        Ok(Availability::Available(Box::new(
-            AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),
-        )))
     }
 
     /// Returns the epoch of the block if it is cached, otherwise returns the epoch of the first blob.
@@ -509,16 +498,16 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
         );
 
-        if let Some(available_data) =
-            pending_components.is_available(self.sampling_column_count, &self.spec)
+        if let Some(available_block) =
+            pending_components.make_available(self.sampling_column_count, &self.spec, |block| {
+                self.state_cache.recover_pending_executed_block(block)
+            })?
         {
             // We keep the pending components in the availability cache during block import (#5845).
             // `data_column_recv` is returned as part of the available block and is no longer needed here.
-            write_lock.put(block_root, pending_components.clone_without_column_recv());
+            write_lock.put(block_root, pending_components);
             drop(write_lock);
-            pending_components.make_available(&self.spec, available_data, |diet_block| {
-                self.state_cache.recover_pending_executed_block(diet_block)
-            })
+            Ok(Availability::Available(Box::new(available_block)))
         } else {
             write_lock.put(block_root, pending_components);
             Ok(Availability::MissingComponents(block_root))
@@ -562,16 +551,16 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
         );
 
-        if let Some(available_data) =
-            pending_components.is_available(self.sampling_column_count, &self.spec)
+        if let Some(available_block) =
+            pending_components.make_available(self.sampling_column_count, &self.spec, |block| {
+                self.state_cache.recover_pending_executed_block(block)
+            })?
         {
             // We keep the pending components in the availability cache during block import (#5845).
             // `data_column_recv` is returned as part of the available block and is no longer needed here.
-            write_lock.put(block_root, pending_components.clone_without_column_recv());
+            write_lock.put(block_root, pending_components);
             drop(write_lock);
-            pending_components.make_available(&self.spec, available_data, |diet_block| {
-                self.state_cache.recover_pending_executed_block(diet_block)
-            })
+            Ok(Availability::Available(Box::new(available_block)))
         } else {
             write_lock.put(block_root, pending_components);
             Ok(Availability::MissingComponents(block_root))
@@ -612,16 +601,16 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             "status" => pending_components.status_str(block_epoch, self.sampling_column_count, &self.spec),
         );
 
-        if let Some(available_data) =
-            pending_components.is_available(self.sampling_column_count, &self.spec)
+        if let Some(available_block) =
+            pending_components.make_available(self.sampling_column_count, &self.spec, |block| {
+                self.state_cache.recover_pending_executed_block(block)
+            })?
         {
             // We keep the pending components in the availability cache during block import (#5845).
             // `data_column_recv` is returned as part of the available block and is no longer needed here.
-            write_lock.put(block_root, pending_components.clone_without_column_recv());
+            write_lock.put(block_root, pending_components);
             drop(write_lock);
-            pending_components.make_available(&self.spec, available_data, |diet_block| {
-                self.state_cache.recover_pending_executed_block(diet_block)
-            })
+            Ok(Availability::Available(Box::new(available_block)))
         } else {
             write_lock.put(block_root, pending_components);
             Ok(Availability::MissingComponents(block_root))
@@ -713,16 +702,16 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         );
 
         // Check if we have all components and entire set is consistent.
-        if let Some(available_data) =
-            pending_components.is_available(self.sampling_column_count, &self.spec)
+        if let Some(available_block) =
+            pending_components.make_available(self.sampling_column_count, &self.spec, |block| {
+                self.state_cache.recover_pending_executed_block(block)
+            })?
         {
             // We keep the pending components in the availability cache during block import (#5845).
             // `data_column_recv` is returned as part of the available block and is no longer needed here.
-            write_lock.put(block_root, pending_components.clone_without_column_recv());
+            write_lock.put(block_root, pending_components);
             drop(write_lock);
-            pending_components.make_available(&self.spec, available_data, |diet_block| {
-                self.state_cache.recover_pending_executed_block(diet_block)
-            })
+            Ok(Availability::Available(Box::new(available_block)))
         } else {
             write_lock.put(block_root, pending_components);
             Ok(Availability::MissingComponents(block_root))
