@@ -32,12 +32,12 @@ fn main() {
 fn test_geth() {
     let test_dir = build_utils::prepare_dir();
     geth::build(&test_dir);
-    TestRig::new(GethEngine).perform_tests_blocking();
+    TestRig::new(GethEngine).perform_tests_blocking(true);
     geth::clean(&test_dir);
 }
 
 fn test_nethermind() {
     let test_dir = build_utils::prepare_dir();
     nethermind::build(&test_dir);
-    TestRig::new(NethermindEngine).perform_tests_blocking();
+    TestRig::new(NethermindEngine).perform_tests_blocking(false);
 }

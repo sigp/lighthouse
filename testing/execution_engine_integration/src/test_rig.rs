@@ -3,6 +3,8 @@ use crate::execution_engine::{
 };
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
+use ethers_signers::LocalWallet;
+use ethers_middleware::SignerMiddleware;
 use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
@@ -169,10 +171,10 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         }
     }
 
-    pub fn perform_tests_blocking(&self) {
+    pub fn perform_tests_blocking(&self, use_local_signing: bool) {
         self.runtime
             .handle()
-            .block_on(async { self.perform_tests().await });
+            .block_on(async { self.perform_tests(use_local_signing).await });
     }
 
     pub async fn wait_until_synced(&self) {
@@ -194,18 +196,15 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         }
     }
 
-    pub async fn perform_tests(&self) {
+    pub async fn perform_tests(&self, use_local_signing: bool) {
         self.wait_until_synced().await;
 
-        // Import and unlock all private keys to sign transactions
-        let _ = futures::future::join_all([&self.ee_a, &self.ee_b].iter().map(|ee| {
-            import_and_unlock(
-                ee.execution_engine.http_url(),
-                &PRIVATE_KEYS,
-                KEYSTORE_PASSWORD,
-            )
-        }))
-        .await;
+        // Create a local signer in case we need to sign transactions locally
+        let wallet1: LocalWallet = PRIVATE_KEYS[0].parse().expect("Invalid private key");
+        let signer = SignerMiddleware::new(
+            &self.ee_a.execution_engine.provider,
+            wallet1,
+        );
 
         // We hardcode the accounts here since some EEs start with a default unlocked account
         let account1 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT1).unwrap());
@@ -236,15 +235,38 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         // Submit transactions before getting payload
         let txs = transactions::<MainnetEthSpec>(account1, account2);
         let mut pending_txs = Vec::new();
-        for tx in txs.clone().into_iter() {
-            let pending_tx = self
-                .ee_a
-                .execution_engine
-                .provider
-                .send_transaction(tx, None)
-                .await
-                .unwrap();
-            pending_txs.push(pending_tx);
+
+        if use_local_signing {
+            // Sign locally with the Signer middleware
+            for (i, tx) in txs.clone().into_iter().enumerate() {
+                // The local signer uses eth_sendRawTransaction, so we need to manually set the nonce
+                let mut tx = tx.clone();
+                tx.set_nonce(i as u64);
+                let pending_tx = signer.send_transaction(tx, None).await.unwrap();
+                pending_txs.push(pending_tx);
+            }
+        } else {
+            // Sign on the EE
+            // Import and unlock all private keys to sign transactions on the EE
+            let _ = futures::future::join_all([&self.ee_a, &self.ee_b].iter().map(|ee| {
+                import_and_unlock(
+                    ee.execution_engine.http_url(),
+                    &PRIVATE_KEYS,
+                    KEYSTORE_PASSWORD,
+                )
+            }))
+            .await;
+
+            for tx in txs.clone().into_iter() {
+                let pending_tx =
+                    self.ee_a
+                        .execution_engine
+                        .provider
+                        .send_transaction(tx, None)
+                        .await
+                        .unwrap();
+                pending_txs.push(pending_tx);
+            }
         }
 
         /*

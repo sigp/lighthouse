@@ -8,6 +8,8 @@ async-channel = { workspace = true }
 deposit_contract = { workspace = true }
 ethers-core = { workspace = true }
 ethers-providers = { workspace = true }
+ethers-signers = { workspace = true }
+ethers-middleware = { workspace = true }
 execution_layer = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true }
