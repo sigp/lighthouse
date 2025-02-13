@@ -58,7 +58,7 @@ make
 >
 > Compiling Lighthouse can take up to an hour. The safety guarantees provided by the Rust language
 unfortunately result in a lengthy compilation time on a low-spec CPU like a Raspberry Pi. For faster
-compilation on low-spec hardware, try [cross-compiling](./installation)cross_compiling.md) on a more powerful
+compilation on low-spec hardware, try [cross-compiling](./installation_cross_compiling.md) on a more powerful
 computer (e.g., compile for RasPi from your desktop computer).
 
 Once installation has finished, confirm Lighthouse is installed by viewing the

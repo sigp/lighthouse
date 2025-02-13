@@ -147,7 +147,7 @@ INFO Published validator registrations to the builder network, count: 3, service
 
 ### Fee Recipient
 
-Refer to [suggested fee recipient](suggested-fee-recipient.md) documentation.
+Refer to [suggested fee recipient](validator_fee_recipient.md) documentation.
 
 ### Validator definitions example
 

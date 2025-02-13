@@ -9,8 +9,7 @@ signers. It also includes some Lighthouse-specific endpoints which are described
 [Endpoints](./api_vc_endpoints.md).
 
 > Note: All requests to the HTTP server must supply an
-> [`Authorization`](./api_vc_auth_header.md) header. All responses contain a
-> [`Signature`](./api-vc-sig-header.md) header for optional verification.
+> [`Authorization`](./api_vc_auth_header.md) header.
 
 ## Starting the server
 
