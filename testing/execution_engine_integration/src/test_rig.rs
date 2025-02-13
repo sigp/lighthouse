@@ -2,9 +2,9 @@ use crate::execution_engine::{
     ExecutionEngine, GenericExecutionEngine, ACCOUNT1, ACCOUNT2, KEYSTORE_PASSWORD, PRIVATE_KEYS,
 };
 use crate::transactions::transactions;
+use ethers_middleware::SignerMiddleware;
 use ethers_providers::Middleware;
 use ethers_signers::LocalWallet;
-use ethers_middleware::SignerMiddleware;
 use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
@@ -201,10 +201,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         // Create a local signer in case we need to sign transactions locally
         let wallet1: LocalWallet = PRIVATE_KEYS[0].parse().expect("Invalid private key");
-        let signer = SignerMiddleware::new(
-            &self.ee_a.execution_engine.provider,
-            wallet1,
-        );
+        let signer = SignerMiddleware::new(&self.ee_a.execution_engine.provider, wallet1);
 
         // We hardcode the accounts here since some EEs start with a default unlocked account
         let account1 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT1).unwrap());
@@ -258,13 +255,13 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             .await;
 
             for tx in txs.clone().into_iter() {
-                let pending_tx =
-                    self.ee_a
-                        .execution_engine
-                        .provider
-                        .send_transaction(tx, None)
-                        .await
-                        .unwrap();
+                let pending_tx = self
+                    .ee_a
+                    .execution_engine
+                    .provider
+                    .send_transaction(tx, None)
+                    .await
+                    .unwrap();
                 pending_txs.push(pending_tx);
             }
         }
