@@ -1174,7 +1174,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.parent_request_id,
                 peer_id,
-                RangeBlockComponent::Block(resp),
+                RangeBlockComponent::Block(id, resp),
             );
         }
     }
@@ -1189,7 +1189,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.parent_request_id,
                 peer_id,
-                RangeBlockComponent::Blob(resp),
+                RangeBlockComponent::Blob(id, resp),
             );
         }
     }
@@ -1207,7 +1207,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.parent_request_id,
                 peer_id,
-                RangeBlockComponent::CustodyColumns(resp),
+                RangeBlockComponent::CustodyColumns(id, resp),
             );
         }
     }
