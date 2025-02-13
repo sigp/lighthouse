@@ -23,7 +23,7 @@ The rustup installer provides an easy way to update the Rust compiler, and works
 With Rust installed, follow the instructions below to install dependencies relevant to your
 operating system.
 
-> Note: For Linux OS, general Linux File Systems such as Ext4 or XFS are fine. We recommend to avoid using Btrfs file system as it has been reported to be slow and the node will suffer from performance degradation as a result. 
+> Note: For Linux OS, general Linux File Systems such as Ext4 or XFS are fine. We recommend to avoid using Btrfs file system as it has been reported to be slow and the node will suffer from performance degradation as a result.
 
 ### Ubuntu
 
