@@ -15,7 +15,7 @@ pull_request_rules:
 
   - name: Approve trivial maintainer PRs
     conditions:
-      - base=unstable
+      - base!=stable
       - label=trivial
       - author=@sigp/lighthouse
       - -conflict
@@ -26,7 +26,7 @@ pull_request_rules:
   - name: Add ready-to-merge labeled PRs to merge queue
     conditions:
       # All branch protection rules are implicit: https://docs.mergify.com/conditions/#about-branch-protection
-      - base=unstable
+      - base!=stable
       - label=ready-for-merge
       - label!=do-not-merge
     actions:
