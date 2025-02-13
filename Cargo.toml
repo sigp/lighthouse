@@ -9,11 +9,13 @@ members = [
     "beacon_node/client",
     "beacon_node/eth1",
     "beacon_node/execution_layer",
+    "beacon_node/genesis",
     "beacon_node/http_api",
     "beacon_node/http_metrics",
     "beacon_node/lighthouse_network",
     "beacon_node/lighthouse_network/gossipsub",
     "beacon_node/network",
+    "beacon_node/operation_pool",
     "beacon_node/store",
     "beacon_node/timer",
 
@@ -30,6 +32,8 @@ members = [
     "common/eth2_interop_keypairs",
     "common/eth2_network_config",
     "common/eth2_wallet_manager",
+    "common/filesystem",
+    "common/health_metrics",
     "common/lighthouse_version",
     "common/lockfile",
     "common/logging",
@@ -48,14 +52,16 @@ members = [
     "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
+
     "consensus/fixed_bytes",
     "consensus/fork_choice",
-
     "consensus/int_to_bytes",
+    "consensus/merkle_proof",
     "consensus/proto_array",
     "consensus/safe_arith",
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
+    "consensus/types",
 
     "crypto/bls",
     "crypto/eth2_key_derivation",
@@ -80,7 +86,9 @@ members = [
     "testing/simulator",
     "testing/state_transition_vectors",
     "testing/test-test_logger",
+    "testing/validator_test_rig",
     "testing/web3signer_tests",
+
 
     "validator_client",
     "validator_client/beacon_node_fallback",
@@ -126,14 +134,7 @@ delay_map = "0.4"
 derivative = "2"
 dirs = "3"
 either = "1.9"
-# TODO: rust_eth_kzg is pinned for now while a perf regression is investigated
-# The crate_crypto_* dependencies can be removed from this file completely once we update
-rust_eth_kzg = "=0.5.1"
-crate_crypto_internal_eth_kzg_bls12_381 = "=0.5.1"
-crate_crypto_internal_eth_kzg_erasure_codes = "=0.5.1"
-crate_crypto_internal_eth_kzg_maybe_rayon = "=0.5.1"
-crate_crypto_internal_eth_kzg_polynomial = "=0.5.1"
-crate_crypto_kzg_multi_open_fk20 = "=0.5.1"
+rust_eth_kzg = "0.5.3"
 discv5 = { version = "0.9", features = ["libp2p"] }
 env_logger = "0.9"
 ethereum_hashing = "0.7.0"
@@ -156,6 +157,7 @@ log = "0.4"
 lru = "0.12"
 maplit = "1"
 milhouse = "0.3"
+mockito = "1.5.0"
 num_cpus = "1"
 parking_lot = "0.12"
 paste = "1"
@@ -247,6 +249,7 @@ filesystem = { path = "common/filesystem" }
 fork_choice = { path = "consensus/fork_choice" }
 genesis = { path = "beacon_node/genesis" }
 gossipsub = { path = "beacon_node/lighthouse_network/gossipsub/" }
+health_metrics = { path = "common/health_metrics" }
 http_api = { path = "beacon_node/http_api" }
 initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
@@ -261,6 +264,7 @@ malloc_utils = { path = "common/malloc_utils" }
 merkle_proof = { path = "consensus/merkle_proof" }
 monitoring_api = { path = "common/monitoring_api" }
 network = { path = "beacon_node/network" }
+node_test_rig = { path = "testing/node_test_rig" }
 operation_pool = { path = "beacon_node/operation_pool" }
 pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 proto_array = { path = "consensus/proto_array" }
@@ -283,6 +287,7 @@ validator_http_api = { path = "validator_client/http_api" }
 validator_http_metrics = { path = "validator_client/http_metrics" }
 validator_metrics = { path = "validator_client/validator_metrics" }
 validator_store = { path = "validator_client/validator_store" }
+validator_test_rig = { path = "testing/validator_test_rig" }
 warp_utils = { path = "common/warp_utils" }
 xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "50d63cdf1878e5cf3538e9aae5eed34a22c64e4a" }
 zstd = "0.13"

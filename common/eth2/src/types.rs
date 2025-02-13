@@ -584,12 +584,20 @@ pub struct IdentityData {
     pub metadata: MetaData,
 }
 
+#[superstruct(
+    variants(V2, V3),
+    variant_attributes(derive(Clone, Debug, PartialEq, Serialize, Deserialize))
+)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub struct MetaData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub seq_number: u64,
     pub attnets: String,
     pub syncnets: String,
+    #[superstruct(only(V3))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub custody_group_count: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1078,6 +1086,9 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
             ForkName::Electra => serde_json::from_value(value)
                 .map(Self::V3)
                 .map_err(serde::de::Error::custom),
+            ForkName::Fulu => serde_json::from_value(value)
+                .map(Self::V3)
+                .map_err(serde::de::Error::custom),
             ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
                 "SsePayloadAttributes deserialization for {fork_name} not implemented"
             ))),
@@ -1110,6 +1121,7 @@ impl ForkVersionDeserialize for SseExtendedPayloadAttributes {
 #[serde(bound = "E: EthSpec", untagged)]
 pub enum EventKind<E: EthSpec> {
     Attestation(Box<Attestation<E>>),
+    SingleAttestation(Box<SingleAttestation>),
     Block(SseBlock),
     BlobSidecar(SseBlobSidecar),
     FinalizedCheckpoint(SseFinalizedCheckpoint),
@@ -1136,6 +1148,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::Block(_) => "block",
             EventKind::BlobSidecar(_) => "blob_sidecar",
             EventKind::Attestation(_) => "attestation",
+            EventKind::SingleAttestation(_) => "single_attestation",
             EventKind::VoluntaryExit(_) => "voluntary_exit",
             EventKind::FinalizedCheckpoint(_) => "finalized_checkpoint",
             EventKind::ChainReorg(_) => "chain_reorg",
@@ -1158,6 +1171,11 @@ impl<E: EthSpec> EventKind<E> {
             "attestation" => Ok(EventKind::Attestation(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Attestation: {:?}", e)),
             )?)),
+            "single_attestation" => Ok(EventKind::SingleAttestation(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("SingleAttestation: {:?}", e))
+                })?,
+            )),
             "block" => Ok(EventKind::Block(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block: {:?}", e)),
             )?)),
@@ -1252,6 +1270,7 @@ pub enum EventTopic {
     Block,
     BlobSidecar,
     Attestation,
+    SingleAttestation,
     VoluntaryExit,
     FinalizedCheckpoint,
     ChainReorg,
@@ -1277,6 +1296,7 @@ impl FromStr for EventTopic {
             "block" => Ok(EventTopic::Block),
             "blob_sidecar" => Ok(EventTopic::BlobSidecar),
             "attestation" => Ok(EventTopic::Attestation),
+            "single_attestation" => Ok(EventTopic::SingleAttestation),
             "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
             "finalized_checkpoint" => Ok(EventTopic::FinalizedCheckpoint),
             "chain_reorg" => Ok(EventTopic::ChainReorg),
@@ -1303,6 +1323,7 @@ impl fmt::Display for EventTopic {
             EventTopic::Block => write!(f, "block"),
             EventTopic::BlobSidecar => write!(f, "blob_sidecar"),
             EventTopic::Attestation => write!(f, "attestation"),
+            EventTopic::SingleAttestation => write!(f, "single_attestation"),
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
             EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
             EventTopic::ChainReorg => write!(f, "chain_reorg"),
@@ -1643,7 +1664,7 @@ impl<E: EthSpec> FullBlockContents<E> {
     }
 
     /// SSZ decode with fork variant determined by slot.
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, DecodeError> {
         let slot_len = <Slot as Decode>::ssz_fixed_len();
         let slot_bytes = bytes
             .get(0..slot_len)
@@ -1657,10 +1678,7 @@ impl<E: EthSpec> FullBlockContents<E> {
     }
 
     /// SSZ decode with fork variant passed in explicitly.
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
@@ -1815,7 +1833,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
     }
 
     /// SSZ decode with fork variant determined by `fork_name`.
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
             builder.register_anonymous_variable_length_item()?;
@@ -1824,7 +1842,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 
             let mut decoder = builder.build()?;
             let block = decoder.decode_next_with(|bytes| {
-                SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+                SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, fork_name)
             })?;
             let kzg_proofs = decoder.decode_next()?;
             let blobs = decoder.decode_next()?;
@@ -1833,7 +1851,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
                 Some((kzg_proofs, blobs)),
             ))
         } else {
-            SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+            SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, fork_name)
                 .map(|block| PublishBlockRequest::Block(Arc::new(block)))
         }
     }
@@ -1861,14 +1879,10 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 impl<E: EthSpec> TryFrom<Arc<SignedBeaconBlock<E>>> for PublishBlockRequest<E> {
     type Error = &'static str;
     fn try_from(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, Self::Error> {
-        match *block {
-            SignedBeaconBlock::Base(_)
-            | SignedBeaconBlock::Altair(_)
-            | SignedBeaconBlock::Bellatrix(_)
-            | SignedBeaconBlock::Capella(_) => Ok(PublishBlockRequest::Block(block)),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => Err(
-                "post-Deneb block contents cannot be fully constructed from just the signed block",
-            ),
+        if block.message().fork_name_unchecked().deneb_enabled() {
+            Err("post-Deneb block contents cannot be fully constructed from just the signed block")
+        } else {
+            Ok(PublishBlockRequest::Block(block))
         }
     }
 }
@@ -1929,6 +1943,24 @@ pub enum FullPayloadContents<E: EthSpec> {
     PayloadAndBlobs(ExecutionPayloadAndBlobs<E>),
 }
 
+impl<E: EthSpec> ForkVersionDecode for FullPayloadContents<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+        if fork_name.deneb_enabled() {
+            Ok(Self::PayloadAndBlobs(
+                ExecutionPayloadAndBlobs::from_ssz_bytes_by_fork(bytes, fork_name)?,
+            ))
+        } else if fork_name.bellatrix_enabled() {
+            Ok(Self::Payload(ExecutionPayload::from_ssz_bytes_by_fork(
+                bytes, fork_name,
+            )?))
+        } else {
+            Err(ssz::DecodeError::BytesInvalid(format!(
+                "FullPayloadContents decoding for {fork_name} not implemented"
+            )))
+        }
+    }
+}
+
 impl<E: EthSpec> FullPayloadContents<E> {
     pub fn new(
         execution_payload: ExecutionPayload<E>,
@@ -1972,16 +2004,18 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Bellatrix | ForkName::Capella => serde_json::from_value(value)
-                .map(Self::Payload)
-                .map_err(serde::de::Error::custom),
-            ForkName::Deneb | ForkName::Electra => serde_json::from_value(value)
+        if fork_name.deneb_enabled() {
+            serde_json::from_value(value)
                 .map(Self::PayloadAndBlobs)
-                .map_err(serde::de::Error::custom),
-            ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
+                .map_err(serde::de::Error::custom)
+        } else if fork_name.bellatrix_enabled() {
+            serde_json::from_value(value)
+                .map(Self::Payload)
+                .map_err(serde::de::Error::custom)
+        } else {
+            Err(serde::de::Error::custom(format!(
                 "FullPayloadContents deserialization for {fork_name} not implemented"
-            ))),
+            )))
         }
     }
 }
@@ -1991,6 +2025,36 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
 pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub execution_payload: ExecutionPayload<E>,
     pub blobs_bundle: BlobsBundle<E>,
+}
+
+impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadAndBlobs<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<BlobsBundle<E>>()?;
+        let mut decoder = builder.build()?;
+
+        if fork_name.deneb_enabled() {
+            let execution_payload = decoder.decode_next_with(|bytes| {
+                ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
+            })?;
+            let blobs_bundle = decoder.decode_next()?;
+            Ok(Self {
+                execution_payload,
+                blobs_bundle,
+            })
+        } else {
+            Err(DecodeError::BytesInvalid(format!(
+                "ExecutionPayloadAndBlobs decoding for {fork_name} not implemented"
+            )))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ContentType {
+    Json,
+    Ssz,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]

@@ -1057,14 +1057,12 @@ fn process_pending_consolidations<E: EthSpec>(
         }
 
         // Calculate the consolidated balance
-        let max_effective_balance =
-            source_validator.get_max_effective_balance(spec, state_ctxt.fork_name);
         let source_effective_balance = std::cmp::min(
             *state
                 .balances()
                 .get(source_index)
                 .ok_or(BeaconStateError::UnknownValidator(source_index))?,
-            max_effective_balance,
+            source_validator.effective_balance,
         );
 
         // Move active balance to target. Excess balance is withdrawable.
@@ -1077,13 +1075,9 @@ fn process_pending_consolidations<E: EthSpec>(
         next_pending_consolidation.safe_add_assign(1)?;
     }
 
-    let new_pending_consolidations = List::try_from_iter(
-        state
-            .pending_consolidations()?
-            .iter_from(next_pending_consolidation)?
-            .cloned(),
-    )?;
-    *state.pending_consolidations_mut()? = new_pending_consolidations;
+    state
+        .pending_consolidations_mut()?
+        .pop_front(next_pending_consolidation)?;
 
     // the spec tests require we don't perform effective balance updates when testing pending_consolidations
     if !perform_effective_balance_updates {

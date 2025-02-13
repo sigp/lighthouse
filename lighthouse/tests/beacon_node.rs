@@ -1,11 +1,12 @@
-use beacon_node::ClientConfig as Config;
-
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
 };
-use beacon_node::beacon_chain::graffiti_calculator::GraffitiOrigin;
+use beacon_node::{
+    beacon_chain::graffiti_calculator::GraffitiOrigin,
+    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config,
+};
 use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
@@ -2503,9 +2504,9 @@ fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.network.enable_light_client_server);
-            assert!(!config.chain.enable_light_client_server);
-            assert!(!config.http_api.enable_light_client_server);
+            assert!(config.network.enable_light_client_server);
+            assert!(config.chain.enable_light_client_server);
+            assert!(config.http_api.enable_light_client_server);
         });
 }
 
@@ -2521,13 +2522,26 @@ fn light_client_server_enabled() {
 }
 
 #[test]
-fn light_client_http_server_enabled() {
+fn light_client_server_disabled() {
     CommandLineTest::new()
-        .flag("http", None)
-        .flag("light-client-server", None)
+        .flag("disable-light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.http_api.enable_light_client_server);
+            assert!(!config.network.enable_light_client_server);
+            assert!(!config.chain.enable_light_client_server);
+        });
+}
+
+#[test]
+fn light_client_http_server_disabled() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("disable-light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.http_api.enable_light_client_server);
+            assert!(!config.network.enable_light_client_server);
+            assert!(!config.chain.enable_light_client_server);
         });
 }
 
@@ -2689,5 +2703,15 @@ fn genesis_state_url_value() {
                 Some("http://genesis.com")
             );
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
+        });
+}
+
+#[test]
+fn beacon_node_backend_override() {
+    CommandLineTest::new()
+        .flag("beacon-node-backend", Some("leveldb"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.backend, BeaconNodeBackend::LevelDb);
         });
 }

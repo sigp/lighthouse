@@ -94,6 +94,11 @@ where
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn __failed_chains(&mut self) -> Vec<Hash256> {
+        self.failed_chains.keys().copied().collect()
+    }
+
     pub fn state(&self) -> SyncChainStatus {
         self.chains.state()
     }

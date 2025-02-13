@@ -124,7 +124,7 @@ impl Default for ChainConfig {
             genesis_backfill: false,
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
-            enable_light_client_server: false,
+            enable_light_client_server: true,
             malicious_withhold_count: 0,
             enable_sampling: false,
             blob_publication_batches: 4,

@@ -19,15 +19,6 @@ pub fn cli_app() -> Command {
          * Configuration directory locations.
          */
         .arg(
-            Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
-        )
-        .arg(
             Arg::new("network-dir")
                 .long("network-dir")
                 .value_name("DIR")
@@ -156,16 +147,16 @@ pub fn cli_app() -> Command {
                 .long("listen-address")
                 .value_name("ADDRESS")
                 .help("The address lighthouse will listen for UDP and TCP connections. To listen \
-                      over IpV4 and IpV6 set this flag twice with the different values.\n\
+                      over IPv4 and IPv6 set this flag twice with the different values.\n\
                       Examples:\n\
                       - --listen-address '0.0.0.0' will listen over IPv4.\n\
                       - --listen-address '::' will listen over IPv6.\n\
                       - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
                       IPv4 and IPv6. The order of the given addresses is not relevant. However, \
-                      multiple IPv4, or multiple IPv6 addresses will not be accepted.")
+                      multiple IPv4, or multiple IPv6 addresses will not be accepted. \
+                      If omitted, Lighthouse will listen on all interfaces, for both IPv4 and IPv6.")
                 .action(ArgAction::Append)
                 .num_args(0..=2)
-                .default_value("0.0.0.0")
                 .display_order(0)
         )
         .arg(
@@ -185,8 +176,7 @@ pub fn cli_app() -> Command {
                 .long("port6")
                 .value_name("PORT")
                 .help("The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and \
-                      IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.")
-                .default_value("9090")
+                      IPv6. Defaults to --port. The Quic UDP port will be set to this value + 1.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1504,9 +1494,18 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("light-client-server")
                 .long("light-client-server")
-                .help("Act as a full node supporting light clients on the p2p network \
-                       [experimental]")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
+
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-light-client-server")
+                .long("disable-light-client-server")
+                .help("Disables light client support on the p2p network")
+                .action(ArgAction::SetTrue)
+
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
@@ -1588,6 +1587,15 @@ pub fn cli_app() -> Command {
                        increase CPU usage in an unhealthy or hostile network.")
                 .hide(true)
                 .default_value("64")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("beacon-node-backend")
+                .long("beacon-node-backend")
+                .value_name("DATABASE")
+                .value_parser(store::config::DatabaseBackend::VARIANTS.to_vec())
+                .help("Set the database backend to be used by the beacon node.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
