@@ -1260,7 +1260,14 @@ fn test_request_too_large(
         // Build the sender future
         let sender_future = async {
             let mut is_response_received = false;
+            let mut is_disconnected = false;
             loop {
+                if (expected_response.is_none() || (expected_response.is_some() && is_response_received))
+                    && is_disconnected {
+                    // End the test.
+                    return;
+                }
+
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         debug!(log, "Sending RPC request"; "request" => ?request, "peer_id" => %peer_id);
@@ -1282,11 +1289,7 @@ fn test_request_too_large(
                     NetworkEvent::PeerDisconnected(peer_id) => {
                         // The receiver should disconnect as a result of the invalid request.
                         debug!(log, "Peer disconnected"; "peer_id" => %peer_id);
-                        // End the test.
-                        if expected_response.is_some() {
-                            assert!(is_response_received);
-                        }
-                        return;
+                        is_disconnected = true;
                     }
                     _ => {}
                 }
