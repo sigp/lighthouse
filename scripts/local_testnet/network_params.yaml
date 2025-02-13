@@ -10,10 +10,8 @@ participants:
 network_params:
   deneb_fork_epoch: 0
   seconds_per_slot: 3
-  shard_committee_period: 5
 global_log_level: debug
 snooper_enabled: false
-keymanager_enabled: true
 additional_services:
   - dora
   - prometheus_grafana
