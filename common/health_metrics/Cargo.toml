@@ -1,0 +1,12 @@
+[package]
+name = "health_metrics"
+version = "0.1.0"
+edition = { workspace = true }
+
+[dependencies]
+eth2 = { workspace = true }
+metrics = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+psutil = "3.3.0"
+procfs = "0.15.1"

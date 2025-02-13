@@ -239,6 +239,18 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_data_column(data_column, kzg)
     }
+
+    pub fn from_batch(
+        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+        kzg: &Kzg,
+    ) -> Result<Vec<Self>, Vec<(ColumnIndex, KzgError)>> {
+        verify_kzg_for_data_column_list_with_scoring(data_columns.iter(), kzg)?;
+        Ok(data_columns
+            .into_iter()
+            .map(|column| Self { data: column })
+            .collect())
+    }
+
     pub fn to_data_column(self) -> Arc<DataColumnSidecar<E>> {
         self.data
     }
@@ -378,6 +390,38 @@ where
     Ok(())
 }
 
+/// Complete kzg verification for a list of `DataColumnSidecar`s.
+///
+/// If there's at least one invalid column, it re-verifies all columns individually to identify the
+/// first column that is invalid. This is necessary to attribute fault to the specific peer that
+/// sent bad data. The re-verification cost should not be significant. If a peer sends invalid data it
+/// will be quickly banned.
+pub fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
+    data_column_iter: I,
+    kzg: &'a Kzg,
+) -> Result<(), Vec<(ColumnIndex, KzgError)>>
+where
+    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
+{
+    if verify_kzg_for_data_column_list(data_column_iter.clone(), kzg).is_ok() {
+        return Ok(());
+    };
+
+    // Find all columns that are invalid and identify by index. If we hit this condition there
+    // should be at least one invalid column
+    let errors = data_column_iter
+        .filter_map(|data_column| {
+            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
+                Some((data_column.index, e))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Err(errors)
+}
+
 pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: u64,
@@ -423,7 +467,7 @@ fn verify_data_column_sidecar<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
     spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
-    if data_column.index >= spec.number_of_columns as u64 {
+    if data_column.index >= spec.number_of_columns {
         return Err(GossipDataColumnError::InvalidColumnIndex(data_column.index));
     }
     if data_column.kzg_commitments.is_empty() {
@@ -611,7 +655,7 @@ fn verify_index_matches_subnet<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
     let expected_subnet: u64 =
-        DataColumnSubnetId::from_column_index::<E>(data_column.index as usize, spec).into();
+        DataColumnSubnetId::from_column_index(data_column.index, spec).into();
     if expected_subnet != subnet {
         return Err(GossipDataColumnError::InvalidSubnetId {
             received: subnet,
@@ -699,7 +743,7 @@ mod test {
 
     #[tokio::test]
     async fn empty_data_column_sidecars_fails_validation() {
-        let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.into())
             .deterministic_keypairs(64)

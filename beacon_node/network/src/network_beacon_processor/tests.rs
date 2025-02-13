@@ -15,7 +15,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::discovery::ConnectionId;
-use lighthouse_network::rpc::methods::BlobsByRangeRequest;
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};
 use lighthouse_network::rpc::{RequestId, SubstreamId};
 use lighthouse_network::{
     discv5::enr::{self, CombinedKey},
@@ -198,11 +198,21 @@ impl TestRig {
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
-        let meta_data = MetaData::V2(MetaDataV2 {
-            seq_number: SEQ_NUMBER,
-            attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
-        });
+        let meta_data = if spec.is_peer_das_scheduled() {
+            MetaData::V3(MetaDataV3 {
+                seq_number: SEQ_NUMBER,
+                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+                custody_group_count: spec.custody_requirement,
+            })
+        } else {
+            MetaData::V2(MetaDataV2 {
+                seq_number: SEQ_NUMBER,
+                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+            })
+        };
+
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = enr::Enr::builder().build(&enr_key).unwrap();
         let network_config = Arc::new(NetworkConfig::default());
@@ -342,6 +352,7 @@ impl TestRig {
             )
             .unwrap();
     }
+
     pub fn enqueue_single_lookup_rpc_blobs(&self) {
         if let Some(blobs) = self.next_blobs.clone() {
             let blobs = FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
@@ -350,7 +361,7 @@ impl TestRig {
                     self.next_block.canonical_root(),
                     blobs,
                     std::time::Duration::default(),
-                    BlockProcessType::SingleBlock { id: 1 },
+                    BlockProcessType::SingleBlob { id: 1 },
                 )
                 .unwrap();
         }

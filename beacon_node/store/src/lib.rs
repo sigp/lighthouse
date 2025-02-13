@@ -19,7 +19,6 @@ pub mod hdiff;
 pub mod historic_state_cache;
 pub mod hot_cold_store;
 mod impls;
-mod leveldb_store;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
@@ -27,13 +26,13 @@ pub mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 
+pub mod database;
 pub mod iter;
 
 pub use self::blob_sidecar_list_from_root::BlobSidecarListFromRoot;
 pub use self::config::StoreConfig;
 pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
-pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;
 pub use errors::Error;
@@ -41,8 +40,9 @@ pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
+use std::collections::HashSet;
 use std::sync::Arc;
-use strum::{EnumString, IntoStaticStr};
+use strum::{EnumIter, EnumString, IntoStaticStr};
 pub use types::*;
 
 const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
@@ -50,18 +50,18 @@ const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
 pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
 pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 
-pub type RawEntryIter<'a> = Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>;
-pub type RawKeyIter<'a> = Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>;
+pub type RawEntryIter<'a> =
+    Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
-    fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
+    fn get_bytes(&self, column: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
 
     /// Store some `value` in `column`, indexed with `key`.
-    fn put_bytes(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
+    fn put_bytes(&self, column: DBColumn, key: &[u8], value: &[u8]) -> Result<(), Error>;
 
     /// Same as put_bytes() but also force a flush to disk
-    fn put_bytes_sync(&self, column: &str, key: &[u8], value: &[u8]) -> Result<(), Error>;
+    fn put_bytes_sync(&self, column: DBColumn, key: &[u8], value: &[u8]) -> Result<(), Error>;
 
     /// Flush to disk.  See
     /// https://chromium.googlesource.com/external/leveldb/+/HEAD/doc/index.md#synchronous-writes
@@ -69,10 +69,10 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn sync(&self) -> Result<(), Error>;
 
     /// Return `true` if `key` exists in `column`.
-    fn key_exists(&self, column: &str, key: &[u8]) -> Result<bool, Error>;
+    fn key_exists(&self, column: DBColumn, key: &[u8]) -> Result<bool, Error>;
 
     /// Removes `key` from `column`.
-    fn key_delete(&self, column: &str, key: &[u8]) -> Result<(), Error>;
+    fn key_delete(&self, column: DBColumn, key: &[u8]) -> Result<(), Error>;
 
     /// Execute either all of the operations in `batch` or none at all, returning an error.
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error>;
@@ -105,17 +105,21 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
-    /// Iterate through all keys and values in a column from a given starting point.
+    /// Iterate through all keys and values in a column from a given starting point that fulfill the given predicate.
     fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
 
-    fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
-        Box::new(std::iter::empty())
-    }
-
-    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter;
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
 
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
+    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K>;
+
+    fn delete_batch(&self, column: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error>;
+
+    fn delete_if(
+        &self,
+        column: DBColumn,
+        f: impl FnMut(&[u8]) -> Result<bool, Error>,
+    ) -> Result<(), Error>;
 }
 
 pub trait Key: Sized + 'static {
@@ -138,7 +142,7 @@ impl Key for Vec<u8> {
     }
 }
 
-pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
+pub fn get_key_for_col(column: DBColumn, key: &[u8]) -> Vec<u8> {
     let mut result = column.as_bytes().to_vec();
     result.extend_from_slice(key);
     result
@@ -176,14 +180,18 @@ pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Er
 #[must_use]
 #[derive(Clone)]
 pub enum KeyValueStoreOp {
-    PutKeyValue(Vec<u8>, Vec<u8>),
-    DeleteKey(Vec<u8>),
+    // Indicate that a PUT operation should be made
+    // to the db store for a (Column, Key, Value)
+    PutKeyValue(DBColumn, Vec<u8>, Vec<u8>),
+    // Indicate that a DELETE operation should be made
+    // to the db store for a (Column, Key)
+    DeleteKey(DBColumn, Vec<u8>),
 }
 
 pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
     /// Store an item in `Self`.
     fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
-        let column = I::db_column().into();
+        let column = I::db_column();
         let key = key.as_slice();
 
         self.put_bytes(column, key, &item.as_store_bytes())
@@ -191,7 +199,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     }
 
     fn put_sync<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
-        let column = I::db_column().into();
+        let column = I::db_column();
         let key = key.as_slice();
 
         self.put_bytes_sync(column, key, &item.as_store_bytes())
@@ -200,7 +208,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
     /// Retrieve an item from `Self`.
     fn get<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
-        let column = I::db_column().into();
+        let column = I::db_column();
         let key = key.as_slice();
 
         match self.get_bytes(column, key)? {
@@ -211,7 +219,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
     /// Returns `true` if the given key represents an item in `Self`.
     fn exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
-        let column = I::db_column().into();
+        let column = I::db_column();
         let key = key.as_slice();
 
         self.key_exists(column, key)
@@ -219,7 +227,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
     /// Remove an item from `Self`.
     fn delete<I: StoreItem>(&self, key: &Hash256) -> Result<(), Error> {
-        let column = I::db_column().into();
+        let column = I::db_column();
         let key = key.as_slice();
 
         self.key_delete(column, key)
@@ -247,7 +255,7 @@ pub enum StoreOp<'a, E: EthSpec> {
 }
 
 /// A unique column identifier.
-#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString, EnumIter)]
 pub enum DBColumn {
     /// For data related to the database itself.
     #[strum(serialize = "bma")]
@@ -351,6 +359,9 @@ pub enum DBColumn {
     /// For helping persist eagerly computed light client bootstrap data
     #[strum(serialize = "scm")]
     SyncCommittee,
+    /// The dummy table is used to force the db to sync
+    #[strum(serialize = "dmy")]
+    Dummy,
 }
 
 /// A block from the database, which might have an execution payload or not.
@@ -401,7 +412,8 @@ impl DBColumn {
             | Self::BeaconStateDiff
             | Self::SyncCommittee
             | Self::SyncCommitteeBranch
-            | Self::LightClientUpdate => 8,
+            | Self::LightClientUpdate
+            | Self::Dummy => 8,
             Self::BeaconDataColumn => DATA_COLUMN_DB_KEY_SIZE,
         }
     }
@@ -421,13 +433,18 @@ pub trait StoreItem: Sized {
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
     fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
-        let db_key = get_key_for_col(Self::db_column().into(), key.as_slice());
-        KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
+        KeyValueStoreOp::PutKeyValue(
+            Self::db_column(),
+            key.as_slice().to_vec(),
+            self.as_store_bytes(),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::database::interface::BeaconNodeBackend;
+
     use super::*;
     use ssz::{Decode, Encode};
     use ssz_derive::{Decode, Encode};
@@ -477,7 +494,7 @@ mod tests {
     fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = LevelDB::open(path).unwrap();
+        let store = BeaconNodeBackend::open(&StoreConfig::default(), path).unwrap();
 
         test_impl(store);
     }
@@ -508,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_get_col_from_key() {
-        let key = get_key_for_col(DBColumn::BeaconBlock.into(), &[1u8; 32]);
+        let key = get_key_for_col(DBColumn::BeaconBlock, &[1u8; 32]);
         let col = get_col_from_key(&key).unwrap();
         assert_eq!(col, "blk");
     }

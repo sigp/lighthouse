@@ -15,6 +15,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
+use tokio::sync::oneshot;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
@@ -26,8 +27,8 @@ mod overflow_lru_cache;
 mod state_lru_cache;
 
 use crate::data_column_verification::{
-    verify_kzg_for_data_column, verify_kzg_for_data_column_list, CustodyDataColumn,
-    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+    verify_kzg_for_data_column_list_with_scoring, CustodyDataColumn, GossipVerifiedDataColumn,
+    KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
@@ -116,21 +117,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Result<Self, AvailabilityCheckError> {
-        let custody_subnet_count = if import_all_data_columns {
-            spec.data_column_sidecar_subnet_count as usize
-        } else {
-            spec.custody_requirement as usize
-        };
-
-        let subnet_sampling_size =
-            std::cmp::max(custody_subnet_count, spec.samples_per_slot as usize);
-        let sampling_column_count =
-            subnet_sampling_size.saturating_mul(spec.data_columns_per_subnet());
+        let custody_group_count = spec.custody_group_count(import_all_data_columns);
+        // This should only panic if the chain spec contains invalid values.
+        let sampling_size = spec
+            .sampling_size(custody_group_count)
+            .expect("should compute node sampling size from valid chain spec");
 
         let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY,
             store,
-            sampling_column_count,
+            sampling_size as usize,
             spec.clone(),
         )?;
         Ok(Self {
@@ -147,7 +143,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     pub(crate) fn is_supernode(&self) -> bool {
-        self.get_sampling_column_count() == self.spec.number_of_columns
+        self.get_sampling_column_count() == self.spec.number_of_columns as usize
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -223,7 +219,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         .map_err(AvailabilityCheckError::InvalidBlobs)?;
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs, &self.log)
+            .put_kzg_verified_blobs(block_root, verified_blobs, None, &self.log)
     }
 
     /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
@@ -234,19 +230,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // TODO(das): report which column is invalid for proper peer scoring
-        // TODO(das): batch KZG verification here, but fallback into checking each column
-        // individually to report which column(s) are invalid.
-        let verified_custody_columns = custody_columns
+        // Attributes fault to the specific peer that sent an invalid column
+        let kzg_verified_columns = KzgVerifiedDataColumn::from_batch(custody_columns, &self.kzg)
+            .map_err(AvailabilityCheckError::InvalidColumn)?;
+
+        let verified_custody_columns = kzg_verified_columns
             .into_iter()
-            .map(|column| {
-                let index = column.index;
-                Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::new(column, &self.kzg)
-                        .map_err(|e| AvailabilityCheckError::InvalidColumn(index, e))?,
-                ))
-            })
-            .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
+            .map(KzgVerifiedCustodyDataColumn::from_asserted_custody)
+            .collect::<Vec<_>>();
 
         self.availability_cache.put_kzg_verified_data_columns(
             block_root,
@@ -263,6 +254,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
+        data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let seen_timestamp = self
             .slot_clock
@@ -272,8 +264,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let verified_blobs =
             KzgVerifiedBlobList::from_verified(blobs.iter().flatten().cloned(), seen_timestamp);
 
-        self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs, &self.log)
+        self.availability_cache.put_kzg_verified_blobs(
+            block_root,
+            verified_blobs,
+            data_column_recv,
+            &self.log,
+        )
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -288,6 +284,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.put_kzg_verified_blobs(
             gossip_blob.block_root(),
             vec![gossip_blob.into_inner()],
+            None,
             &self.log,
         )
     }
@@ -363,7 +360,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         .iter()
                         .map(|custody_column| custody_column.as_data_column()),
                     &self.kzg,
-                )?;
+                )
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
@@ -426,12 +424,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(CustodyDataColumn::into_inner)
             .collect::<Vec<_>>();
         let all_data_columns =
-            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns);
+            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns as usize);
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
-            // TODO: Need to also attribute which specific block is faulty
-            verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)?;
+            // Attributes fault to the specific peer that sent an invalid column
+            verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
         for block in blocks {
@@ -714,32 +713,6 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     }
 }
 
-fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
-    data_column_iter: I,
-    kzg: &'a Kzg,
-) -> Result<(), AvailabilityCheckError>
-where
-    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
-{
-    let Err(batch_err) = verify_kzg_for_data_column_list(data_column_iter.clone(), kzg) else {
-        return Ok(());
-    };
-
-    let data_columns = data_column_iter.collect::<Vec<_>>();
-    // Find which column is invalid. If len is 1 or 0 continue to default case below.
-    // If len > 1 at least one column MUST fail.
-    if data_columns.len() > 1 {
-        for data_column in data_columns {
-            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
-                return Err(AvailabilityCheckError::InvalidColumn(data_column.index, e));
-            }
-        }
-    }
-
-    // len 0 should never happen
-    Err(AvailabilityCheckError::InvalidColumn(0, batch_err))
-}
-
 /// A fully available block that is ready to be imported into fork choice.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AvailableBlock<E: EthSpec> {
@@ -803,7 +776,6 @@ impl<E: EthSpec> AvailableBlock<E> {
             block,
             blobs,
             data_columns,
-            blobs_available_timestamp: _,
             ..
         } = self;
         (block_root, block, blobs, data_columns)

@@ -2,7 +2,6 @@ use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, Hash256, Slot};
 use crate::{Checkpoint, ForkVersionDeserialize};
 use derivative::Derivative;
-use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
@@ -20,7 +19,6 @@ use super::{
 pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
-    SubnetCountIsZero(ArithError),
     IncorrectStateVariant,
     InvalidCommitteeLength,
     InvalidCommitteeIndex,
@@ -231,6 +229,16 @@ impl<E: EthSpec> Attestation<E> {
             Attestation::Electra(att) => att.aggregation_bits.get(index),
         }
     }
+
+    pub fn to_single_attestation_with_attester_index(
+        &self,
+        attester_index: u64,
+    ) -> Result<SingleAttestation, Error> {
+        match self {
+            Self::Base(_) => Err(Error::IncorrectStateVariant),
+            Self::Electra(attn) => attn.to_single_attestation_with_attester_index(attester_index),
+        }
+    }
 }
 
 impl<E: EthSpec> AttestationRef<'_, E> {
@@ -285,6 +293,14 @@ impl<E: EthSpec> AttestationRef<'_, E> {
 impl<E: EthSpec> AttestationElectra<E> {
     pub fn committee_index(&self) -> Option<u64> {
         self.get_committee_indices().first().cloned()
+    }
+
+    pub fn get_aggregation_bits(&self) -> Vec<u64> {
+        self.aggregation_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
     }
 
     pub fn get_committee_indices(&self) -> Vec<u64> {
@@ -349,6 +365,22 @@ impl<E: EthSpec> AttestationElectra<E> {
 
             Ok(())
         }
+    }
+
+    pub fn to_single_attestation_with_attester_index(
+        &self,
+        attester_index: u64,
+    ) -> Result<SingleAttestation, Error> {
+        let Some(committee_index) = self.committee_index() else {
+            return Err(Error::InvalidCommitteeIndex);
+        };
+
+        Ok(SingleAttestation {
+            committee_index,
+            attester_index,
+            data: self.data.clone(),
+            signature: self.signature.clone(),
+        })
     }
 }
 
@@ -525,6 +557,28 @@ impl<E: EthSpec> ForkVersionDeserialize for Vec<Attestation<E>> {
                 .collect::<Vec<_>>())
         }
     }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Decode,
+    Encode,
+    TestRandom,
+    Derivative,
+    arbitrary::Arbitrary,
+    TreeHash,
+    PartialEq,
+)]
+pub struct SingleAttestation {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub committee_index: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub attester_index: u64,
+    pub data: AttestationData,
+    pub signature: AggregateSignature,
 }
 
 #[cfg(test)]

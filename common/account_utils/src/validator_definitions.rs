@@ -4,13 +4,12 @@
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
 use crate::{default_keystore_password_path, read_password_string, write_file_via_temporary};
-use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs::{self, create_dir_all, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use types::{graffiti::GraffitiString, Address, PublicKey};
@@ -229,7 +228,7 @@ impl From<Vec<ValidatorDefinition>> for ValidatorDefinitions {
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
-        ensure_dir_exists(validators_dir.as_ref()).map_err(|_| {
+        create_dir_all(validators_dir.as_ref()).map_err(|_| {
             Error::UnableToCreateValidatorDir(PathBuf::from(validators_dir.as_ref()))
         })?;
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
