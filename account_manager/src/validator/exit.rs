@@ -169,7 +169,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
     };
 
     // Sign the voluntary exit. We sign ahead of the prompt as that step is only important for the broadcast
-    let signed_voluntary_exit = voluntary_exit.sign(&keypair.sk, genesis_data.genesis_validators_root, spec);
+    let signed_voluntary_exit =
+        voluntary_exit.sign(&keypair.sk, genesis_data.genesis_validators_root, spec);
     if presign {
         eprintln!(
             "Successfully pre-signed voluntary exit for validator {}. Not publishing.",
@@ -187,7 +188,6 @@ async fn publish_voluntary_exit<E: EthSpec>(
     eprintln!(
         "Publishing a voluntary exit for validator: {} \n",
         keypair.pk
-
     );
     if !no_confirmation {
         eprintln!("WARNING: THIS IS AN IRREVERSIBLE OPERATION\n");
