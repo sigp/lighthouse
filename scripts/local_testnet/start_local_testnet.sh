@@ -64,7 +64,9 @@ fi
 
 if [ "$CI" = true ]; then
   yq eval '.additional_services = ["assertoor"]' -i $NETWORK_PARAMS_FILE
-  yq eval '.assertoor_params = {"run_stability_check": true}' -i $NETWORK_PARAMS_FILE
+  # The available tests can be found in the `assertoor_params` section:
+  # https://github.com/ethpandaops/ethereum-package?tab=readme-ov-file#configuration
+  yq eval '.assertoor_params = {"run_stability_check": true, "run_block_proposal_check": true, "run_transaction_test": true, "run_blob_transaction_test": true}' -i $NETWORK_PARAMS_FILE
   echo "Running with Assertoor (CI mode)."
 fi
 
