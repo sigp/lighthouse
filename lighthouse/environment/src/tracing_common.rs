@@ -20,8 +20,12 @@ pub fn construct_logger<E: EthSpec>(
     LoggerConfig,
     FilterFn,
 ) {
-    let libp2p_discv5_layer =
-        logging::create_libp2p_discv5_tracing_layer(logger_config.path.clone());
+    let libp2p_discv5_layer = logging::create_libp2p_discv5_tracing_layer(
+        logger_config.path.clone(),
+        logger_config.max_log_size,
+        logger_config.compression,
+        logger_config.max_log_number,
+    );
 
     let logfile_prefix = matches.subcommand_name().unwrap_or("lighthouse");
 
