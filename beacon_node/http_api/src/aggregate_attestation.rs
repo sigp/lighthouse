@@ -18,13 +18,14 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     endpoint_version: EndpointVersion,
     chain: Arc<BeaconChain<T>>,
 ) -> Result<Response<Body>, warp::reject::Rejection> {
-    if endpoint_version == V2 {
+    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+    let aggregate_attestation = if fork_name.electra_enabled() {
         let Some(committee_index) = committee_index else {
             return Err(warp_utils::reject::custom_bad_request(
                 "missing committee index".to_string(),
             ));
         };
-        let aggregate_attestation = chain
+        chain
             .get_aggregated_attestation_electra(slot, attestation_data_root, committee_index)
             .map_err(|e| {
                 warp_utils::reject::custom_bad_request(format!(
@@ -34,8 +35,22 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
             })?
             .ok_or_else(|| {
                 warp_utils::reject::custom_not_found("no matching aggregate found".to_string())
-            })?;
-        let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+            })?
+    } else {
+        chain
+            .get_pre_electra_aggregated_attestation_by_slot_and_root(slot, attestation_data_root)
+            .map_err(|e| {
+                warp_utils::reject::custom_bad_request(format!(
+                    "unable to fetch aggregate: {:?}",
+                    e
+                ))
+            })?
+            .ok_or_else(|| {
+                warp_utils::reject::custom_not_found("no matching aggregate found".to_string())
+            })?
+    };
+
+    if endpoint_version == V2 {
         let fork_versioned_response = ForkVersionedResponse {
             version: Some(fork_name),
             metadata: EmptyMetadata {},
@@ -46,19 +61,7 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
             fork_name,
         ))
     } else if endpoint_version == V1 {
-        let aggregate_attestation = chain
-            .get_pre_electra_aggregated_attestation_by_slot_and_root(slot, attestation_data_root)
-            .map_err(|e| {
-                warp_utils::reject::custom_bad_request(format!(
-                    "unable to fetch aggregate: {:?}",
-                    e
-                ))
-            })?
-            .map(GenericResponse::from)
-            .ok_or_else(|| {
-                warp_utils::reject::custom_not_found("no matching aggregate found".to_string())
-            })?;
-        Ok(warp::reply::json(&aggregate_attestation).into_response())
+        Ok(warp::reply::json(&GenericResponse::from(aggregate_attestation)).into_response())
     } else {
         return Err(unsupported_version_rejection(endpoint_version));
     }
