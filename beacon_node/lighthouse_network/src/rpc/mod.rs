@@ -38,7 +38,6 @@ pub use methods::{
     ResponseTermination, RpcErrorResponse, StatusMessage,
 };
 pub use protocol::{max_rpc_size, Protocol, RPCError};
-use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 
 pub(crate) mod codec;
 pub mod config;
@@ -293,26 +292,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         trace!(self.log, "Sending Ping"; "peer_id" => %peer_id);
         self.send_request(peer_id, id, RequestType::Ping(ping));
     }
-
-    fn is_request_size_too_large(&self, request: &RequestType<E>) -> bool {
-        match request.protocol() {
-            Protocol::Status
-            | Protocol::Goodbye
-            | Protocol::Ping
-            | Protocol::MetaData
-            | Protocol::LightClientBootstrap
-            | Protocol::LightClientOptimisticUpdate
-            | Protocol::LightClientFinalityUpdate
-            // The RuntimeVariable ssz list ensures that we don't get more requests than the max specified in the config.
-            | Protocol::BlocksByRoot
-            | Protocol::BlobsByRoot
-            | Protocol::DataColumnsByRoot => false,
-            Protocol::BlocksByRange => request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec) > self.fork_context.spec.max_request_blocks(self.fork_context.current_fork()) as u64,
-            Protocol::BlobsByRange => request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec) > self.fork_context.spec.max_request_blob_sidecars(self.fork_context.current_fork()) as u64,
-            Protocol::DataColumnsByRange => request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec) > self.fork_context.spec.max_request_data_column_sidecars,
-            Protocol::LightClientUpdatesByRange => request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec) > MAX_REQUEST_LIGHT_CLIENT_UPDATES,
-        }
-    }
 }
 
 impl<Id, E> NetworkBehaviour for RPC<Id, E>
@@ -501,23 +480,6 @@ where
                             RpcErrorResponse::RateLimited,
                             "Rate limited. There is an active request with the same protocol"
                                 .into(),
-                        ),
-                    );
-                    return;
-                }
-
-                if self.is_request_size_too_large(&request.r#type) {
-                    // The request requires responses greater than the number defined in the spec.
-                    debug!(self.log, "Request too large to process"; "request" => %request.r#type, "protocol" => %request.r#type.versioned_protocol().protocol());
-                    // Send an error code to the peer.
-                    // The handler upon receiving the error code will send it back to the behaviour
-                    self.send_response(
-                        peer_id,
-                        (conn_id, substream_id),
-                        id,
-                        RpcResponse::Error(
-                            RpcErrorResponse::InvalidRequest,
-                            "The request requires responses greater than the number defined in the spec.".into(),
                         ),
                     );
                     return;

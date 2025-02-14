@@ -4,8 +4,8 @@ mod common;
 
 use common::Protocol;
 use lighthouse_network::rpc::{methods::*, RequestType};
-use lighthouse_network::service::api_types::{AppRequestId, SingleLookupReqId, SyncRequestId};
-use lighthouse_network::{rpc::max_rpc_size, rpc::RPCError, NetworkEvent, ReportSource, Response};
+use lighthouse_network::service::api_types::AppRequestId;
+use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Response};
 use slog::{debug, error, warn, Level};
 use ssz::Encode;
 use ssz_types::VariableList;
@@ -1305,103 +1305,6 @@ fn test_delayed_rpc_response() {
             }
         }
     })
-}
-
-// Test that the receiver sends an RPC error when the request is too large.
-#[test]
-fn test_request_too_large() {
-    let rt = Arc::new(Runtime::new().unwrap());
-    let log = logging::test_logger();
-    let spec = Arc::new(E::default_spec());
-
-    rt.block_on(async {
-        let (mut sender, mut receiver) = common::build_node_pair(
-            Arc::downgrade(&rt),
-            &log,
-            ForkName::Base,
-            spec.clone(),
-            Protocol::Tcp,
-            // In this test, many RPC errors occur (which are expected). Disabling peer scoring to
-            // avoid banning a peer and to ensure we can test that the receiver sends RPC errors to
-            // the sender.
-            true,
-            None,
-        )
-        .await;
-
-        // RPC requests that triggers RPC error on the receiver side.
-        let max_request_blocks_count = spec.max_request_blocks(ForkName::Base) as u64;
-        let max_request_blobs_count = spec.max_request_blob_sidecars(ForkName::Base) as u64 / spec.max_blobs_per_block_by_fork(ForkName::Base);
-        let mut rpc_requests = vec![
-            RequestType::BlocksByRange(OldBlocksByRangeRequest::new(
-                0,
-                max_request_blocks_count + 1, // exceeds the max request defined in the spec.
-                1,
-            )),
-            RequestType::BlobsByRange(BlobsByRangeRequest {
-                start_slot: 0,
-                count: max_request_blobs_count + 1, // exceeds the max request defined in the spec.
-            }),
-        ];
-        let requests_to_be_failed = rpc_requests.len();
-        let mut failed_request_ids = vec![];
-
-        // Build the sender future
-        let sender_future = async {
-            let mut request_id = 1;
-            loop {
-                match sender.next_event().await {
-                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        let request = rpc_requests.pop().unwrap();
-                        debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
-                        sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::SingleBlock { id: SingleLookupReqId { lookup_id: request_id, req_id: request_id }}), request).unwrap();
-                    }
-                    NetworkEvent::ResponseReceived { id, response, .. } => {
-                        debug!(log, "Received response"; "request_id" => ?id, "response" => ?response);
-                        // Handle the response termination.
-                        match response {
-                            Response::BlocksByRange(None) | Response::BlocksByRoot(None) | Response::BlobsByRange(None) | Response::BlobsByRoot(None) => {},
-                            _ => unreachable!(),
-                        }
-                    }
-                    NetworkEvent::RPCFailed { id, peer_id, error } => {
-                        debug!(log, "RPC Failed"; "error" => ?error, "request_id" => ?id);
-                        // Expect `InvalidRequest` since the request requires responses greater than the number defined in the spec.
-                        assert!(matches!(error, RPCError::ErrorResponse(RpcErrorResponse::InvalidRequest, .. )));
-
-                        failed_request_ids.push(id);
-                        if let Some(request) = rpc_requests.pop() {
-                            request_id += 1;
-                            debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
-                            sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::SingleBlock { id: SingleLookupReqId { lookup_id: request_id, req_id: request_id }}), request).unwrap();
-                        } else {
-                            assert_eq!(failed_request_ids.len(), requests_to_be_failed);
-                            // End the test.
-                            return
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        };
-
-        // Build the receiver future
-        let receiver_future = async {
-            loop {
-                if let NetworkEvent::RequestReceived { .. } = receiver.next_event().await {
-                    unreachable!();
-                }
-            }
-        };
-
-        tokio::select! {
-            _ = sender_future => {}
-            _ = receiver_future => {}
-            _ = sleep(Duration::from_secs(30)) => {
-                panic!("Future timed out");
-            }
-        }
-    });
 }
 
 // Test that a rate-limited error doesn't occur even if the sender attempts to send many requests at
