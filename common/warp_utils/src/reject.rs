@@ -140,6 +140,15 @@ pub fn indexed_bad_request(message: String, failures: Vec<Failure>) -> warp::rej
     warp::reject::custom(IndexedBadRequestErrors { message, failures })
 }
 
+#[derive(Debug)]
+pub struct PreElectraNotSupported(pub String);
+
+impl Reject for PreElectraNotSupported {}
+
+pub fn pre_electra_not_supported(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(PreElectraNotSupported(msg))
+}
+
 /// This function receives a `Rejection` and tries to return a custom
 /// value, otherwise simply passes the rejection along.
 pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, Infallible> {
@@ -202,6 +211,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if let Some(e) = err.find::<crate::reject::InvalidAuthorization>() {
         code = StatusCode::FORBIDDEN;
         message = format!("FORBIDDEN: Invalid auth token: {}", e.0);
+    } else if let Some(e) = err.find::<crate::reject::PreElectraNotSupported>() {
+        code = StatusCode::BAD_REQUEST;
+        message = format!("BAD_REQUEST: Pre-Electra not supported: {}", e.0);
     } else if let Some(e) = err.find::<warp::reject::MissingHeader>() {
         if e.name().eq("Authorization") {
             code = StatusCode::UNAUTHORIZED;
