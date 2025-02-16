@@ -7,6 +7,7 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
+    single_attestation::single_attestation_to_attestation,
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
     BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
@@ -30,7 +31,7 @@ use execution_layer::{
     ExecutionLayer,
 };
 use futures::channel::mpsc::Receiver;
-pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
+pub use genesis::{InteropGenesisBuilder, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Kzg, TrustedSetup};
@@ -231,6 +232,7 @@ pub struct Builder<T: BeaconChainTypes> {
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
+    genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
     import_all_data_columns: bool,
     runtime: TestRuntime,
     log: Logger,
@@ -252,16 +254,22 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             )
             .unwrap(),
         );
+        let genesis_state_builder = self.genesis_state_builder.take().unwrap_or_else(|| {
+            // Set alternating withdrawal credentials if no builder is specified.
+            InteropGenesisBuilder::default().set_alternating_eth1_withdrawal_credentials()
+        });
+
         let mutator = move |builder: BeaconChainBuilder<_>| {
             let header = generate_genesis_header::<E>(builder.get_spec(), false);
-            let genesis_state = interop_genesis_state_with_eth1::<E>(
-                &validator_keypairs,
-                HARNESS_GENESIS_TIME,
-                Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                header,
-                builder.get_spec(),
-            )
-            .expect("should generate interop state");
+            let genesis_state = genesis_state_builder
+                .set_opt_execution_payload_header(header)
+                .build_genesis_state(
+                    &validator_keypairs,
+                    HARNESS_GENESIS_TIME,
+                    Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                    builder.get_spec(),
+                )
+                .expect("should generate interop state");
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
@@ -317,16 +325,22 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
             .clone()
             .expect("cannot build without validator keypairs");
 
+        let genesis_state_builder = self.genesis_state_builder.take().unwrap_or_else(|| {
+            // Set alternating withdrawal credentials if no builder is specified.
+            InteropGenesisBuilder::default().set_alternating_eth1_withdrawal_credentials()
+        });
+
         let mutator = move |builder: BeaconChainBuilder<_>| {
             let header = generate_genesis_header::<E>(builder.get_spec(), false);
-            let genesis_state = interop_genesis_state_with_eth1::<E>(
-                &validator_keypairs,
-                HARNESS_GENESIS_TIME,
-                Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-                header,
-                builder.get_spec(),
-            )
-            .expect("should generate interop state");
+            let genesis_state = genesis_state_builder
+                .set_opt_execution_payload_header(header)
+                .build_genesis_state(
+                    &validator_keypairs,
+                    HARNESS_GENESIS_TIME,
+                    Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                    builder.get_spec(),
+                )
+                .expect("should generate interop state");
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
@@ -374,6 +388,7 @@ where
             mock_execution_layer: None,
             testing_slot_clock: None,
             validator_monitor_config: None,
+            genesis_state_builder: None,
             import_all_data_columns: false,
             runtime,
             log,
@@ -556,6 +571,15 @@ where
 
     pub fn testing_slot_clock(mut self, slot_clock: TestingSlotClock) -> Self {
         self.testing_slot_clock = Some(slot_clock);
+        self
+    }
+
+    pub fn with_genesis_state_builder(
+        mut self,
+        f: impl FnOnce(InteropGenesisBuilder<E>) -> InteropGenesisBuilder<E>,
+    ) -> Self {
+        let builder = self.genesis_state_builder.take().unwrap_or_default();
+        self.genesis_state_builder = Some(f(builder));
         self
     }
 
@@ -1133,7 +1157,8 @@ where
         let single_attestation =
             attestation.to_single_attestation_with_attester_index(attester_index as u64)?;
 
-        let attestation: Attestation<E> = single_attestation.to_attestation(committee.committee)?;
+        let attestation: Attestation<E> =
+            single_attestation_to_attestation(&single_attestation, committee.committee).unwrap();
 
         assert_eq!(
             single_attestation.committee_index,

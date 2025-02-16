@@ -680,6 +680,11 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
+        // Deposit tests exist only after Electra.
+        if self.handler_name == "deposit_with_reorg" && !fork_name.electra_enabled() {
+            return false;
+        }
+
         // These tests check block validity (which may include signatures) and there is no need to
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))

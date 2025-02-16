@@ -62,9 +62,9 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use types::{
-    Attestation, BeaconState, ChainSpec, Hash256, RelativeEpoch, SignedAggregateAndProof, SubnetId,
+    Attestation, BeaconState, ChainSpec, EthSpec, Hash256, RelativeEpoch, SignedAggregateAndProof,
+    SingleAttestation, Slot, SubnetId,
 };
-use types::{EthSpec, Slot};
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
     QueuedUnaggregate, ReadyWork,
@@ -109,8 +109,6 @@ pub struct BeaconProcessorQueueLengths {
     gossip_voluntary_exit_queue: usize,
     gossip_proposer_slashing_queue: usize,
     gossip_attester_slashing_queue: usize,
-    finality_update_queue: usize,
-    optimistic_update_queue: usize,
     unknown_light_client_update_queue: usize,
     unknown_block_sampling_request_queue: usize,
     rpc_block_queue: usize,
@@ -132,9 +130,11 @@ pub struct BeaconProcessorQueueLengths {
     dcbroots_queue: usize,
     dcbrange_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
+    lc_gossip_finality_update_queue: usize,
+    lc_gossip_optimistic_update_queue: usize,
     lc_bootstrap_queue: usize,
-    lc_optimistic_update_queue: usize,
-    lc_finality_update_queue: usize,
+    lc_rpc_optimistic_update_queue: usize,
+    lc_rpc_finality_update_queue: usize,
     lc_update_range_queue: usize,
     api_request_p0_queue: usize,
     api_request_p1_queue: usize,
@@ -175,15 +175,13 @@ impl BeaconProcessorQueueLengths {
             gossip_voluntary_exit_queue: 4096,
             gossip_proposer_slashing_queue: 4096,
             gossip_attester_slashing_queue: 4096,
-            finality_update_queue: 1024,
-            optimistic_update_queue: 1024,
-            unknown_block_sampling_request_queue: 16384,
             unknown_light_client_update_queue: 128,
             rpc_block_queue: 1024,
             rpc_blob_queue: 1024,
             // TODO(das): Placeholder values
             rpc_custody_column_queue: 1000,
             rpc_verify_data_column_queue: 1000,
+            unknown_block_sampling_request_queue: 16384,
             sampling_result_queue: 1000,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
@@ -200,9 +198,11 @@ impl BeaconProcessorQueueLengths {
             dcbroots_queue: 1024,
             dcbrange_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
+            lc_gossip_finality_update_queue: 1024,
+            lc_gossip_optimistic_update_queue: 1024,
             lc_bootstrap_queue: 1024,
-            lc_optimistic_update_queue: 512,
-            lc_finality_update_queue: 512,
+            lc_rpc_optimistic_update_queue: 512,
+            lc_rpc_finality_update_queue: 512,
             lc_update_range_queue: 512,
             api_request_p0_queue: 1024,
             api_request_p1_queue: 1024,
@@ -504,10 +504,10 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
 
 /// Items required to verify a batch of unaggregated gossip attestations.
 #[derive(Debug)]
-pub struct GossipAttestationPackage<E: EthSpec> {
+pub struct GossipAttestationPackage<T> {
     pub message_id: MessageId,
     pub peer_id: PeerId,
-    pub attestation: Box<Attestation<E>>,
+    pub attestation: Box<T>,
     pub subnet_id: SubnetId,
     pub should_import: bool,
     pub seen_timestamp: Duration,
@@ -549,21 +549,32 @@ pub enum BlockingOrAsync {
     Blocking(BlockingFn),
     Async(AsyncFn),
 }
+pub type GossipAttestationBatch<E> = Vec<GossipAttestationPackage<Attestation<E>>>;
 
 /// Indicates the type of work to be performed and therefore its priority and
 /// queuing specifics.
 pub enum Work<E: EthSpec> {
     GossipAttestation {
-        attestation: Box<GossipAttestationPackage<E>>,
-        process_individual: Box<dyn FnOnce(GossipAttestationPackage<E>) + Send + Sync>,
-        process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
+        attestation: Box<GossipAttestationPackage<Attestation<E>>>,
+        process_individual: Box<dyn FnOnce(GossipAttestationPackage<Attestation<E>>) + Send + Sync>,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
+    },
+    // Attestation requiring conversion before processing.
+    //
+    // For now this is a `SingleAttestation`, but eventually we will switch this around so that
+    // legacy `Attestation`s are converted and the main processing pipeline operates on
+    // `SingleAttestation`s.
+    GossipAttestationToConvert {
+        attestation: Box<GossipAttestationPackage<SingleAttestation>>,
+        process_individual:
+            Box<dyn FnOnce(GossipAttestationPackage<SingleAttestation>) + Send + Sync>,
     },
     UnknownBlockAttestation {
         process_fn: BlockingFn,
     },
     GossipAttestationBatch {
-        attestations: Vec<GossipAttestationPackage<E>>,
-        process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
+        attestations: GossipAttestationBatch<E>,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
     },
     GossipAggregate {
         aggregate: Box<GossipAggregatePackage<E>>,
@@ -639,6 +650,7 @@ impl<E: EthSpec> fmt::Debug for Work<E> {
 #[strum(serialize_all = "snake_case")]
 pub enum WorkType {
     GossipAttestation,
+    GossipAttestationToConvert,
     UnknownBlockAttestation,
     GossipAttestationBatch,
     GossipAggregate,
@@ -690,6 +702,7 @@ impl<E: EthSpec> Work<E> {
     fn to_type(&self) -> WorkType {
         match self {
             Work::GossipAttestation { .. } => WorkType::GossipAttestation,
+            Work::GossipAttestationToConvert { .. } => WorkType::GossipAttestationToConvert,
             Work::GossipAttestationBatch { .. } => WorkType::GossipAttestationBatch,
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
@@ -849,6 +862,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut aggregate_queue = LifoQueue::new(queue_lengths.aggregate_queue);
         let mut aggregate_debounce = TimeLatch::default();
         let mut attestation_queue = LifoQueue::new(queue_lengths.attestation_queue);
+        let mut attestation_to_convert_queue = LifoQueue::new(queue_lengths.attestation_queue);
         let mut attestation_debounce = TimeLatch::default();
         let mut unknown_block_aggregate_queue =
             LifoQueue::new(queue_lengths.unknown_block_aggregate_queue);
@@ -870,21 +884,16 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut gossip_attester_slashing_queue =
             FifoQueue::new(queue_lengths.gossip_attester_slashing_queue);
 
-        // Using a FIFO queue for light client updates to maintain sequence order.
-        let mut finality_update_queue = FifoQueue::new(queue_lengths.finality_update_queue);
-        let mut optimistic_update_queue = FifoQueue::new(queue_lengths.optimistic_update_queue);
-        let mut unknown_light_client_update_queue =
-            FifoQueue::new(queue_lengths.unknown_light_client_update_queue);
-        let mut unknown_block_sampling_request_queue =
-            FifoQueue::new(queue_lengths.unknown_block_sampling_request_queue);
-
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(queue_lengths.rpc_block_queue);
         let mut rpc_blob_queue = FifoQueue::new(queue_lengths.rpc_blob_queue);
         let mut rpc_custody_column_queue = FifoQueue::new(queue_lengths.rpc_custody_column_queue);
         let mut rpc_verify_data_column_queue =
             FifoQueue::new(queue_lengths.rpc_verify_data_column_queue);
+        // TODO(das): the sampling_request_queue is never read
         let mut sampling_result_queue = FifoQueue::new(queue_lengths.sampling_result_queue);
+        let mut unknown_block_sampling_request_queue =
+            FifoQueue::new(queue_lengths.unknown_block_sampling_request_queue);
         let mut chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let mut backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let mut gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
@@ -903,10 +912,18 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut gossip_bls_to_execution_change_queue =
             FifoQueue::new(queue_lengths.gossip_bls_to_execution_change_queue);
 
+        // Using FIFO queues for light client updates to maintain sequence order.
+        let mut lc_gossip_finality_update_queue =
+            FifoQueue::new(queue_lengths.lc_gossip_finality_update_queue);
+        let mut lc_gossip_optimistic_update_queue =
+            FifoQueue::new(queue_lengths.lc_gossip_optimistic_update_queue);
+        let mut unknown_light_client_update_queue =
+            FifoQueue::new(queue_lengths.unknown_light_client_update_queue);
         let mut lc_bootstrap_queue = FifoQueue::new(queue_lengths.lc_bootstrap_queue);
-        let mut lc_optimistic_update_queue =
-            FifoQueue::new(queue_lengths.lc_optimistic_update_queue);
-        let mut lc_finality_update_queue = FifoQueue::new(queue_lengths.lc_finality_update_queue);
+        let mut lc_rpc_optimistic_update_queue =
+            FifoQueue::new(queue_lengths.lc_rpc_optimistic_update_queue);
+        let mut lc_rpc_finality_update_queue =
+            FifoQueue::new(queue_lengths.lc_rpc_finality_update_queue);
         let mut lc_update_range_queue = FifoQueue::new(queue_lengths.lc_update_range_queue);
 
         let mut api_request_p0_queue = FifoQueue::new(queue_lengths.api_request_p0_queue);
@@ -1180,6 +1197,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     None
                                 }
                             }
+                        // Convert any gossip attestations that need to be converted.
+                        } else if let Some(item) = attestation_to_convert_queue.pop() {
+                            Some(item)
                         // Check sync committee messages after attestations as their rewards are lesser
                         // and they don't influence fork choice.
                         } else if let Some(item) = sync_contribution_queue.pop() {
@@ -1237,11 +1257,19 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = backfill_chain_segment.pop() {
                             Some(item)
                         // Handle light client requests.
+                        } else if let Some(item) = lc_gossip_finality_update_queue.pop() {
+                            Some(item)
+                        } else if let Some(item) = lc_gossip_optimistic_update_queue.pop() {
+                            Some(item)
+                        } else if let Some(item) = unknown_light_client_update_queue.pop() {
+                            Some(item)
                         } else if let Some(item) = lc_bootstrap_queue.pop() {
                             Some(item)
-                        } else if let Some(item) = lc_optimistic_update_queue.pop() {
+                        } else if let Some(item) = lc_rpc_optimistic_update_queue.pop() {
                             Some(item)
-                        } else if let Some(item) = lc_finality_update_queue.pop() {
+                        } else if let Some(item) = lc_rpc_finality_update_queue.pop() {
+                            Some(item)
+                        } else if let Some(item) = lc_update_range_queue.pop() {
                             Some(item)
                             // This statement should always be the final else statement.
                         } else {
@@ -1301,6 +1329,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         match work {
                             _ if can_spawn => self.spawn_worker(work, idle_tx),
                             Work::GossipAttestation { .. } => attestation_queue.push(work),
+                            Work::GossipAttestationToConvert { .. } => {
+                                attestation_to_convert_queue.push(work)
+                            }
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => crit!(
@@ -1342,10 +1373,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 sync_contribution_queue.push(work)
                             }
                             Work::GossipLightClientFinalityUpdate { .. } => {
-                                finality_update_queue.push(work, work_id, &self.log)
+                                lc_gossip_finality_update_queue.push(work, work_id, &self.log)
                             }
                             Work::GossipLightClientOptimisticUpdate { .. } => {
-                                optimistic_update_queue.push(work, work_id, &self.log)
+                                lc_gossip_optimistic_update_queue.push(work, work_id, &self.log)
                             }
                             Work::RpcBlock { .. } | Work::IgnoredRpcBlock { .. } => {
                                 rpc_block_queue.push(work, work_id, &self.log)
@@ -1380,10 +1411,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 lc_bootstrap_queue.push(work, work_id, &self.log)
                             }
                             Work::LightClientOptimisticUpdateRequest { .. } => {
-                                lc_optimistic_update_queue.push(work, work_id, &self.log)
+                                lc_rpc_optimistic_update_queue.push(work, work_id, &self.log)
                             }
                             Work::LightClientFinalityUpdateRequest { .. } => {
-                                lc_finality_update_queue.push(work, work_id, &self.log)
+                                lc_rpc_finality_update_queue.push(work, work_id, &self.log)
                             }
                             Work::LightClientUpdatesByRangeRequest { .. } => {
                                 lc_update_range_queue.push(work, work_id, &self.log)
@@ -1431,6 +1462,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 if let Some(modified_queue_id) = modified_queue_id {
                     let queue_len = match modified_queue_id {
                         WorkType::GossipAttestation => attestation_queue.len(),
+                        WorkType::GossipAttestationToConvert => attestation_to_convert_queue.len(),
                         WorkType::UnknownBlockAttestation => unknown_block_attestation_queue.len(),
                         WorkType::GossipAttestationBatch => 0, // No queue
                         WorkType::GossipAggregate => aggregate_queue.len(),
@@ -1451,9 +1483,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipAttesterSlashing => gossip_attester_slashing_queue.len(),
                         WorkType::GossipSyncSignature => sync_message_queue.len(),
                         WorkType::GossipSyncContribution => sync_contribution_queue.len(),
-                        WorkType::GossipLightClientFinalityUpdate => finality_update_queue.len(),
+                        WorkType::GossipLightClientFinalityUpdate => {
+                            lc_gossip_finality_update_queue.len()
+                        }
                         WorkType::GossipLightClientOptimisticUpdate => {
-                            optimistic_update_queue.len()
+                            lc_gossip_optimistic_update_queue.len()
                         }
                         WorkType::RpcBlock => rpc_block_queue.len(),
                         WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => rpc_blob_queue.len(),
@@ -1474,10 +1508,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         }
                         WorkType::LightClientBootstrapRequest => lc_bootstrap_queue.len(),
                         WorkType::LightClientOptimisticUpdateRequest => {
-                            lc_optimistic_update_queue.len()
+                            lc_rpc_optimistic_update_queue.len()
                         }
                         WorkType::LightClientFinalityUpdateRequest => {
-                            lc_finality_update_queue.len()
+                            lc_rpc_finality_update_queue.len()
                         }
                         WorkType::LightClientUpdatesByRangeRequest => lc_update_range_queue.len(),
                         WorkType::ApiRequestP0 => api_request_p0_queue.len(),
@@ -1560,6 +1594,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 attestation,
                 process_individual,
                 process_batch: _,
+            } => task_spawner.spawn_blocking(move || {
+                process_individual(*attestation);
+            }),
+            Work::GossipAttestationToConvert {
+                attestation,
+                process_individual,
             } => task_spawner.spawn_blocking(move || {
                 process_individual(*attestation);
             }),

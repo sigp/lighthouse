@@ -5,6 +5,7 @@
 //! There are also some additional, non-standard endpoints behind the `/lighthouse/` path which are
 //! used for development.
 
+mod aggregate_attestation;
 mod attestation_performance;
 mod attester_duties;
 mod block_id;
@@ -170,7 +171,7 @@ impl Default for Config {
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
-            enable_light_client_server: false,
+            enable_light_client_server: true,
             target_peers: 100,
         }
     }
@@ -3384,40 +3385,15 @@ pub fn serve<T: BeaconChainTypes>(
              not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
+                task_spawner.blocking_response_task(Priority::P0, move || {
                     not_synced_filter?;
-                    let res = if endpoint_version == V2 {
-                        let Some(committee_index) = query.committee_index else {
-                            return Err(warp_utils::reject::custom_bad_request(
-                                "missing committee index".to_string(),
-                            ));
-                        };
-                        chain.get_aggregated_attestation_electra(
-                            query.slot,
-                            &query.attestation_data_root,
-                            committee_index,
-                        )
-                    } else if endpoint_version == V1 {
-                        // Do nothing
-                        chain.get_pre_electra_aggregated_attestation_by_slot_and_root(
-                            query.slot,
-                            &query.attestation_data_root,
-                        )
-                    } else {
-                        return Err(unsupported_version_rejection(endpoint_version));
-                    };
-                    res.map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "unable to fetch aggregate: {:?}",
-                            e
-                        ))
-                    })?
-                    .map(api_types::GenericResponse::from)
-                    .ok_or_else(|| {
-                        warp_utils::reject::custom_not_found(
-                            "no matching aggregate found".to_string(),
-                        )
-                    })
+                    crate::aggregate_attestation::get_aggregate_attestation(
+                        query.slot,
+                        &query.attestation_data_root,
+                        query.committee_index,
+                        endpoint_version,
+                        chain,
+                    )
                 })
             },
         );
