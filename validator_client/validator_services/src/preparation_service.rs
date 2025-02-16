@@ -460,10 +460,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     }
                 };
 
-                self.validator_registration_cache
-                    .write()
-                    .insert(key, signed_data.clone());
-
                 signed_data
             };
             signed.push(signed_data);
@@ -478,11 +474,20 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     })
                     .await
                 {
-                    Ok(()) => info!(
-                        log,
-                        "Published validator registrations to the builder network";
-                        "count" => batch.len(),
-                    ),
+                    Ok(()) => {
+                        info!(
+                            log,
+                            "Published validator registrations to the builder network";
+                            "count" => batch.len(),
+                        );
+                        let mut guard = self.validator_registration_cache.write();
+                        for signed_data in batch {
+                            guard.insert(
+                                ValidatorRegistrationKey::from(signed_data.message.clone()),
+                                signed_data.clone(),
+                            );
+                        }
+                    }
                     Err(e) => warn!(
                         log,
                         "Unable to publish validator registrations to the builder network";
