@@ -123,9 +123,11 @@ Lighthouse listens for connections, and the parameters used to tell other peers
 how to connect to your node. This distinction is relevant and applies to most
 nodes that do not run directly on a public network.
 
+Since Lighthouse v7.0.0, Lighthouse listens to both IPv4 and IPv6 by default if it detects a globally routable IPv6 address. This means that dual-stack is enabled by default.
+
 ### Configuring Lighthouse to listen over IPv4/IPv6/Dual stack
 
-Since Lighthouse v7.0.0, Lighthouse listens to both IPv4 and IPv6 by default. This means that dual-stack is enabled by default. To disable listening on IPv6, use the `--disable-ipv6` flag.
+To listen over only IPv4 and not IPv6, use the flag `--listen-address 0.0.0.0`.
 
 To listen over only IPv6 use the same parameters as done when listening over
 IPv4 only:
@@ -138,9 +140,24 @@ TCP and UDP.
   If the specified port is 9909, QUIC will use port 9910 for IPv6 UDP connections.
   This can be configured with `--quic-port`.
 
+To listen over both IPv4 and IPv6 and using a different port for IPv6::
+
+- Set two listening addresses using the `--listen-address` flag twice ensuring
+  the two addresses are one IPv4, and the other IPv6. When doing so, the
+  `--port` and `--discovery-port` flags will apply exclusively to IPv4. Note
+  that this behaviour differs from the IPv6 only case described above.
+- If necessary, set the `--port6` flag to configure the port used for TCP and
+  UDP over IPv6. This flag has no effect when listening over IPv6 only.
+- If necessary, set the `--discovery-port6` flag to configure the IPv6 UDP
+  port. This will default to the value given to `--port6` if not set. This flag
+  has no effect when listening over IPv6 only.
+- If necessary, set the `--quic-port6` flag to configure the port used by QUIC for
+  UDP over IPv6. This will default to the value given to `--port6` + 1. This flag
+  has no effect when listening over IPv6 only.
+
 #### Configuration Examples
 
-> When using `--port 9909`, listening will be set up as follows:
+> When using `--listen-address :: --listen-address 0.0.0.0 --port 9909`, listening will be set up as follows:
 >
 > **IPv4**:
 >
@@ -152,7 +169,7 @@ TCP and UDP.
 > It listens on the default value of --port6 (`9000`) for both UDP and TCP.
 > QUIC will use port `9001` for UDP, which is the default `--port6` value (`9000`) + 1.
 
-> When using `--port 9909 --discovery-port6 9999`, listening will be set up as follows:
+> When using `--listen-address :: --listen-address 0.0.0.0 --port 9909 --discovery-port6 9999`, listening will be set up as follows:
 >
 > **IPv4**:
 >
