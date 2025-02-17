@@ -28,7 +28,11 @@ pub async fn compute_light_client_updates<T: BeaconChainTypes>(
         chain
             .recompute_and_cache_light_client_updates(event)
             .unwrap_or_else(|e| {
-                error!(log, "error computing light_client updates {:?}", e);
+                error!(
+                    log,
+                    "Error computing light client updates";
+                    "error" => ?e
+                );
             });
 
         let msg = ReprocessQueueMessage::NewLightClientOptimisticUpdate { parent_root };

@@ -1,6 +1,7 @@
 use crate::{BeaconChain, BeaconChainTypes};
 use derivative::Derivative;
 use eth2::types::Hash256;
+use slog::debug;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
@@ -78,6 +79,12 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
 
         // verify that the gossiped optimistic update is the same as the locally constructed one.
         if latest_optimistic_update != rcv_optimistic_update {
+            debug!(
+                chain.log,
+                "Divergent light client optimistic update";
+                "expected" => ?latest_optimistic_update,
+                "received" => ?rcv_optimistic_update
+            );
             return Err(Error::InvalidLightClientOptimisticUpdate);
         }
 
