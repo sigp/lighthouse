@@ -214,6 +214,16 @@ fn main() {
                 .display_order(0)
         )
         .arg(
+            Arg::new("disable-log-color")
+                .long("disable-log-color")
+                .alias("disable-log-color")
+                .help("Disables colors for logs in terminal.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .global(true)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("logfile-color")
                 .long("logfile-color")
                 .alias("logfile-colour")
@@ -509,6 +519,7 @@ fn run<E: EthSpec>(
 
     let log_format = matches.get_one::<String>("log-format");
 
+    let log_color = !matches.get_flag("disable-log-color");
     let logfile_color = matches.get_flag("logfile-color");
 
     let disable_log_timestamp = matches.get_flag("disable-log-timestamp");
@@ -587,6 +598,7 @@ fn run<E: EthSpec>(
             logfile_debug_level: tracing_common::parse_level(logfile_debug_level),
             log_format: log_format.map(String::from),
             logfile_format: logfile_format.map(String::from),
+            log_color,
             logfile_color,
             disable_log_timestamp,
             max_log_size: logfile_max_size,

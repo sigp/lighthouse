@@ -15,6 +15,7 @@ pub struct LoggingLayer {
     pub non_blocking_writer: NonBlocking,
     pub guard: WorkerGuard,
     pub disable_log_timestamp: bool,
+    pub log_color: bool,
     pub logfile_color: bool,
     pub log_format: Option<String>,
     pub logfile_format: Option<String>,
@@ -29,6 +30,7 @@ impl LoggingLayer {
         non_blocking_writer: NonBlocking,
         guard: WorkerGuard,
         disable_log_timestamp: bool,
+        log_color: bool,
         logfile_color: bool,
         log_format: Option<String>,
         logfile_format: Option<String>,
@@ -39,6 +41,7 @@ impl LoggingLayer {
             non_blocking_writer,
             guard,
             disable_log_timestamp,
+            log_color,
             logfile_color,
             log_format,
             logfile_format,
@@ -192,7 +195,7 @@ where
                 event,
                 &location,
                 color_level_str,
-                self.logfile_color,
+                self.log_color,
                 &mut writer,
             );
         }
@@ -405,7 +408,7 @@ fn build_log_text<'a, S>(
     event: &tracing::Event<'_>,
     location: &str,
     color_level_str: &str,
-    logfile_color: bool,
+    use_color: bool,
     writer: &mut impl Write,
 ) where
     S: Subscriber + for<'lookup> LookupSpan<'lookup>,
@@ -430,7 +433,7 @@ fn build_log_text<'a, S>(
             if i > 0 && !visitor.fields.is_empty() {
                 formatted_spans.push_str(", ");
             }
-            if logfile_color {
+            if use_color {
                 formatted_spans.push_str(&format!(
                     "{}{}{}:{}",
                     bold_start, field_name, bold_end, field_value
@@ -441,7 +444,7 @@ fn build_log_text<'a, S>(
         }
     }
 
-    let level_str = if logfile_color {
+    let level_str = if use_color {
         color_level_str
     } else {
         plain_level_str
@@ -450,14 +453,14 @@ fn build_log_text<'a, S>(
     let fixed_message_width = 44;
     let message_len = visitor.message.len();
 
-    let message_content = if logfile_color {
+    let message_content = if use_color {
         format!("{}{}{}", bold_start, visitor.message, bold_end)
     } else {
         visitor.message.clone()
     };
 
     let padded_message = if message_len < fixed_message_width {
-        let extra_color_len = if logfile_color {
+        let extra_color_len = if use_color {
             bold_start.len() + bold_end.len()
         } else {
             0
@@ -476,7 +479,7 @@ fn build_log_text<'a, S>(
         if i > 0 {
             formatted_fields.push_str(", ");
         }
-        if logfile_color {
+        if use_color {
             formatted_fields.push_str(&format!(
                 "{}{}{}:{}",
                 bold_start, field_name, bold_end, field_value
