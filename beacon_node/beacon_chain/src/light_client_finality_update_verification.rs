@@ -1,6 +1,5 @@
 use crate::{BeaconChain, BeaconChainTypes};
 use derivative::Derivative;
-use slog::debug;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
@@ -65,12 +64,6 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
 
         // verify that the gossiped finality update is the same as the locally constructed one.
         if latest_finality_update != rcv_finality_update {
-            debug!(
-                chain.log,
-                "Divergent light client finality update";
-                "expected" => ?latest_finality_update,
-                "received" => ?rcv_finality_update
-            );
             return Err(Error::InvalidLightClientFinalityUpdate);
         }
 
