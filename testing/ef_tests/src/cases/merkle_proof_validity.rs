@@ -23,7 +23,7 @@ pub struct MerkleProof {
 #[derive(Debug)]
 pub enum GenericMerkleProofValidity<E: EthSpec> {
     BeaconState(BeaconStateMerkleProofValidity<E>),
-    BeaconBlockBody(BeaconBlockBodyMerkleProofValidity<E>),
+    BeaconBlockBody(Box<BeaconBlockBodyMerkleProofValidity<E>>),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,6 +50,7 @@ impl<E: EthSpec> LoadCase for GenericMerkleProofValidity<E> {
                 .map(GenericMerkleProofValidity::BeaconState)
         } else if suite_name == "BeaconBlockBody" {
             BeaconBlockBodyMerkleProofValidity::load_from_dir(path, fork_name)
+                .map(Box::new)
                 .map(GenericMerkleProofValidity::BeaconBlockBody)
         } else {
             panic!("unsupported type for merkle proof test: {:?}", suite_name)
