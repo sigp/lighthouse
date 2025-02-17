@@ -505,9 +505,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::DataColumnsByRange(req_id) => {
                 self.on_data_columns_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
             }
-            SyncRequestId::Status => {
-                unreachable!("Status request doesn't reach sync!");
-            }
+            // Ignore Status requests.
+            SyncRequestId::Status => {}
         }
     }
 
