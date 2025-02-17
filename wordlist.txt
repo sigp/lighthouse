@@ -200,6 +200,7 @@ redb
 reimport
 resync
 roadmap
+routable
 rustfmt
 rustup
 schemas
