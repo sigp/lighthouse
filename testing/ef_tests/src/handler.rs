@@ -1002,30 +1002,6 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct BeaconStateMerkleProofValidityHandler<E>(PhantomData<E>);
-
-impl<E: EthSpec + TypeName> Handler for BeaconStateMerkleProofValidityHandler<E> {
-    type Case = cases::BeaconStateMerkleProofValidity<E>;
-
-    fn config_name() -> &'static str {
-        E::name()
-    }
-
-    fn runner_name() -> &'static str {
-        "light_client"
-    }
-
-    fn handler_name(&self) -> String {
-        "single_merkle_proof/BeaconState".into()
-    }
-
-    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name.altair_enabled()
-    }
-}
-
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
 pub struct KzgInclusionMerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E> {
@@ -1054,10 +1030,10 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct BeaconBlockBodyMerkleProofValidityHandler<E>(PhantomData<E>);
+pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
 
-impl<E: EthSpec + TypeName> Handler for BeaconBlockBodyMerkleProofValidityHandler<E> {
-    type Case = cases::BeaconBlockBodyMerkleProofValidity<E>;
+impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
+    type Case = cases::GenericMerkleProofValidity<E>;
 
     fn config_name() -> &'static str {
         E::name()
@@ -1068,11 +1044,11 @@ impl<E: EthSpec + TypeName> Handler for BeaconBlockBodyMerkleProofValidityHandle
     }
 
     fn handler_name(&self) -> String {
-        "single_merkle_proof/BeaconBlockBody".into()
+        "single_merkle_proof".into()
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name.capella_enabled()
+        fork_name.altair_enabled()
     }
 }
 
