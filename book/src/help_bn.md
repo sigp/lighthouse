@@ -457,6 +457,8 @@ Flags:
           Disables the inbound rate limiter (requests received by this node).
       --disable-light-client-server
           Disables light client support on the p2p network
+      --disable-log-color
+          Disables colors for logs in terminal.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
