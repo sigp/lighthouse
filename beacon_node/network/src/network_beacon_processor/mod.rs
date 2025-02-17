@@ -938,9 +938,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         publish_blobs: bool,
     ) {
+        let is_supernode = self.network_globals.is_supernode();
+
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
-            if publish_blobs {
+            // At the moment non supernodes are not required to publish any columns.
+            // TODO(das): we could experiment with having full nodes publish their custodied
+            // columns here.
+            if publish_blobs && is_supernode {
                 match blobs_or_data_column {
                     BlobsOrDataColumns::Blobs(blobs) => {
                         self_cloned.publish_blobs_gradually(blobs, block_root);

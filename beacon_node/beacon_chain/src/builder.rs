@@ -1008,7 +1008,6 @@ where
                     slot_clock,
                     self.kzg.clone(),
                     store,
-                    self.import_all_data_columns,
                     self.spec,
                     log.new(o!("service" => "data_availability_checker")),
                 )

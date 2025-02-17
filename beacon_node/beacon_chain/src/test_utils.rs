@@ -815,6 +815,11 @@ where
         (0..self.validator_keypairs.len()).collect()
     }
 
+    pub fn get_sampling_column_count(&self) -> usize {
+        // Default column custody count
+        8
+    }
+
     pub fn slots_per_epoch(&self) -> u64 {
         E::slots_per_epoch()
     }
@@ -2375,8 +2380,14 @@ where
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
-                .unwrap()
+            RpcBlock::new_with_custody_columns(
+                Some(block_root),
+                block,
+                custody_columns,
+                self.get_sampling_column_count(),
+                &self.spec,
+            )
+            .unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             RpcBlock::new(Some(block_root), block, blobs).unwrap()
@@ -2391,10 +2402,7 @@ where
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RpcBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let sampling_column_count = self
-                .chain
-                .data_availability_checker
-                .get_sampling_column_count();
+            let sampling_column_count = self.get_sampling_column_count();
 
             if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
@@ -2405,7 +2413,13 @@ where
                     .take(sampling_column_count)
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+                RpcBlock::new_with_custody_columns(
+                    Some(block_root),
+                    block,
+                    columns,
+                    sampling_column_count,
+                    &self.spec,
+                )?
             } else {
                 RpcBlock::new_without_blobs(Some(block_root), block)
             }
@@ -3106,10 +3120,7 @@ where
         let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
         if is_peerdas_enabled {
             let custody_columns = custody_columns_opt.unwrap_or_else(|| {
-                let sampling_column_count = self
-                    .chain
-                    .data_availability_checker
-                    .get_sampling_column_count() as u64;
+                let sampling_column_count = self.get_sampling_column_count() as u64;
                 (0..sampling_column_count).collect()
             });
 
