@@ -35,6 +35,7 @@ pub enum LookupVerifyError {
     UnrequestedSlot(Slot),
     InvalidInclusionProof,
     DuplicatedData(Slot, u64),
+    NotSorted(&'static str),
     InternalError(String),
 }
 

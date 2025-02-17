@@ -122,13 +122,11 @@ impl<E: EthSpec> RpcBlock<E> {
         // Treat empty blob lists as if they are missing.
         let blobs = blobs.filter(|b| !b.is_empty());
 
-        if let (Some(blobs), Ok(block_commitments)) = (
-            blobs.as_ref(),
-            block.message().body().blob_kzg_commitments(),
-        ) {
-            if blobs.len() != block_commitments.len() {
-                return Err(AvailabilityCheckError::MissingBlobs);
-            }
+        if block.num_expected_blobs() != blobs.map(|blobs| blobs.len()).unwrap_or(0) {
+            return Err(AvailabilityCheckError::MissingBlobs);
+        }
+
+        if let Some(blobs) = blobs.as_ref() {
             for (blob, &block_commitment) in blobs.iter().zip(block_commitments.iter()) {
                 let blob_commitment = blob.kzg_commitment;
                 if blob_commitment != block_commitment {

@@ -1,6 +1,6 @@
 use super::{ActiveRequestItems, LookupVerifyError};
 use lighthouse_network::rpc::BlocksByRangeRequest;
-use std::sync::Arc;
+use std::{cmp::Ordering, sync::Arc};
 use types::{EthSpec, SignedBeaconBlock};
 
 /// Accumulates results of a blocks_by_range request. Only returns items after receiving the
@@ -28,13 +28,18 @@ impl<E: EthSpec> ActiveRequestItems for BlocksByRangeRequestItems<E> {
         {
             return Err(LookupVerifyError::UnrequestedSlot(block.slot()));
         }
-        if self
-            .items
-            .iter()
-            .any(|existing| existing.slot() == block.slot())
-        {
-            // DuplicatedData is a common error for all components, default index to 0
-            return Err(LookupVerifyError::DuplicatedData(block.slot(), 0));
+        if let Some(prev) = self.items.last() {
+            // Block slots are not consecutive but must be increasing
+            match block.slot().cmp(&prev.slot()) {
+                Ordering::Greater => {} // ok
+                Ordering::Equal => {
+                    // DuplicatedData is a common error for all components, default index to 0
+                    return Err(LookupVerifyError::DuplicatedData(block.slot(), 0));
+                }
+                Ordering::Less => {
+                    return Err(LookupVerifyError::NotSorted("descending slots"));
+                }
+            }
         }
 
         self.items.push(block);

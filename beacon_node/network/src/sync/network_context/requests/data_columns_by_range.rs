@@ -1,6 +1,6 @@
 use super::{ActiveRequestItems, LookupVerifyError};
 use lighthouse_network::rpc::methods::DataColumnsByRangeRequest;
-use std::sync::Arc;
+use std::{cmp::Ordering, sync::Arc};
 use types::{DataColumnSidecar, EthSpec};
 
 /// Accumulates results of a data_columns_by_range request. Only returns items after receiving the
@@ -34,13 +34,29 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRangeRequestItems<E> {
         if !data_column.verify_inclusion_proof() {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }
-        if self.items.iter().any(|existing| {
-            existing.slot() == data_column.slot() && existing.index == data_column.index
-        }) {
-            return Err(LookupVerifyError::DuplicatedData(
-                data_column.slot(),
-                data_column.index,
-            ));
+        if let Some(prev) = self.items.last() {
+            // Slots are not consecutive but increasing
+            // Column indices are not consecutive but increasing
+            match data_column.slot().cmp(&prev.slot()) {
+                Ordering::Greater => {} // Ok
+                Ordering::Equal => {
+                    match data_column.index.cmp(&prev.index) {
+                        Ordering::Greater => {} // Ok
+                        Ordering::Equal => {
+                            return Err(LookupVerifyError::DuplicatedData(
+                                data_column.slot(),
+                                data_column.index,
+                            ));
+                        }
+                        Ordering::Less => {
+                            return Err(LookupVerifyError::NotSorted("descending indices"));
+                        }
+                    }
+                }
+                Ordering::Less => {
+                    return Err(LookupVerifyError::NotSorted("descending slots"));
+                }
+            }
         }
 
         self.items.push(data_column);

@@ -843,7 +843,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     fn send_data_columns_by_range_request(
         &mut self,
         peer_id: PeerId,
-        request: DataColumnsByRangeRequest,
+        mut request: DataColumnsByRangeRequest,
         parent_request_id: ComponentsByRangeRequestId,
     ) -> Result<DataColumnsByRangeRequestId, RpcRequestSendError> {
         let id = DataColumnsByRangeRequestId {
@@ -860,6 +860,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "peer" => %peer_id,
             "id" => ?id,
         );
+
+        // Send ascending indices so the DataColumnsByRange request handler expects ascending
+        // responses
+        request.columns.sort();
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,

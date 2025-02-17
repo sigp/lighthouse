@@ -1,6 +1,6 @@
 use super::{ActiveRequestItems, LookupVerifyError};
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
-use std::sync::Arc;
+use std::{cmp::Ordering, sync::Arc};
 use types::{BlobSidecar, EthSpec};
 
 /// Accumulates results of a blobs_by_range request. Only returns items after receiving the
@@ -36,12 +36,30 @@ impl<E: EthSpec> ActiveRequestItems for BlobsByRangeRequestItems<E> {
         if !blob.verify_blob_sidecar_inclusion_proof() {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }
-        if self
-            .items
-            .iter()
-            .any(|existing| existing.slot() == blob.slot() && existing.index == blob.index)
-        {
-            return Err(LookupVerifyError::DuplicatedData(blob.slot(), blob.index));
+
+        // Slots are not consecutive but must be increasing
+        // Blob indices are consecutive and increasing
+        if let Some(prev) = self.items.last() {
+            match blob.slot().cmp(&prev.slot()) {
+                Ordering::Greater => {
+                    if blob.index != 0 {
+                        return Err(LookupVerifyError::NotSorted("non-zero index at slot start"));
+                    }
+                }
+                Ordering::Equal => {
+                    if blob.index == prev.index {
+                        return Err(LookupVerifyError::DuplicatedData(blob.slot(), blob.index));
+                    } else if blob.index != prev.index + 1 {
+                        return Err(LookupVerifyError::NotSorted("non-sequential indices"));
+                    }
+                }
+                Ordering::Less => {
+                    return Err(LookupVerifyError::NotSorted("descending slots"));
+                }
+            }
+        } else if blob.index != 0 {
+            // The first blob must be index 0
+            return Err(LookupVerifyError::NotSorted("non-zero index at slot start"));
         }
 
         self.items.push(blob);
