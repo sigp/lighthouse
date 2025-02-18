@@ -1244,20 +1244,20 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             // Handle backfill sync chain segments.
                             } else if let Some(item) = backfill_chain_segment.pop() {
                                 Some(item)
-                            // Handle light client requests.
-                        } else if let Some(item) = lc_gossip_finality_update_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = lc_gossip_optimistic_update_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = unknown_light_client_update_queue.pop() {
-                            Some(item)
+                                // Handle light client requests.
+                            } else if let Some(item) = lc_gossip_finality_update_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = lc_gossip_optimistic_update_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = unknown_light_client_update_queue.pop() {
+                                Some(item)
                             } else if let Some(item) = lc_bootstrap_queue.pop() {
                                 Some(item)
                             } else if let Some(item) = lc_rpc_optimistic_update_queue.pop() {
                                 Some(item)
                             } else if let Some(item) = lc_rpc_finality_update_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = lc_update_range_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = lc_update_range_queue.pop() {
                                 Some(item)
                                 // This statement should always be the final else statement.
                             } else {

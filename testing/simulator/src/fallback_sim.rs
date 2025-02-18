@@ -108,6 +108,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             logfile_debug_level: tracing_common::parse_level(&log_level.clone()),
             log_format: None,
             logfile_format: None,
+            log_color: true,
             logfile_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,

@@ -523,7 +523,10 @@ fn run<E: EthSpec>(
 
     let log_format = matches.get_one::<String>("log-format");
 
-    let log_color = matches.get_one::<bool>("log-color").copied().unwrap_or_else(|| true);
+    let log_color = matches
+        .get_one::<bool>("log-color")
+        .copied()
+        .unwrap_or(true);
 
     let logfile_color = matches.get_flag("logfile-color");
 

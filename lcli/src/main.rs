@@ -655,6 +655,7 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
                     logfile_debug_level: LevelFilter::TRACE,
                     log_format: None,
                     logfile_format: None,
+                    log_color: true,
                     logfile_color: false,
                     disable_log_timestamp: false,
                     max_log_size: 0,
