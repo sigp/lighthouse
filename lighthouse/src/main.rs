@@ -214,11 +214,15 @@ fn main() {
                 .display_order(0)
         )
         .arg(
-            Arg::new("disable-log-color")
-                .long("disable-log-color")
-                .alias("disable-log-color")
-                .help("Disables colors for logs in terminal.")
-                .action(ArgAction::SetTrue)
+            Arg::new("log-color")
+                .long("log-color")
+                .alias("log-color")
+                .help("Enables/Disables colors for logs in terminal. \
+                    Set it to false to disable colors.")
+                .num_args(0..=1)
+                .default_missing_value("true")
+                .default_value("true")
+                .value_parser(clap::value_parser!(bool))
                 .help_heading(FLAG_HEADER)
                 .global(true)
                 .display_order(0)
@@ -519,7 +523,8 @@ fn run<E: EthSpec>(
 
     let log_format = matches.get_one::<String>("log-format");
 
-    let log_color = !matches.get_flag("disable-log-color");
+    let log_color = matches.get_one::<bool>("log-color").copied().unwrap_or_else(|| true);
+
     let logfile_color = matches.get_flag("logfile-color");
 
     let disable_log_timestamp = matches.get_flag("disable-log-timestamp");

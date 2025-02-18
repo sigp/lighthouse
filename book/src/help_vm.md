@@ -76,8 +76,6 @@ Options:
           database.
 
 Flags:
-      --disable-log-color
-          Disables colors for logs in terminal.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
@@ -86,6 +84,9 @@ Flags:
           debugging specific memory allocation issues.
   -h, --help
           Prints help information
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
       --log-extra-info
           If present, show module,file,line in logs
       --logfile-color
