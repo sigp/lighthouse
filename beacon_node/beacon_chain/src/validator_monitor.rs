@@ -1110,7 +1110,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         if !suboptimal_inclusion.is_empty() {
             info!(
                 epoch = %prev_epoch,
-                validators = ?suboptimal_inclusion,
+                // validators = ?suboptimal_inclusion,
                 "Previous epoch attestation(s) had sub-optimal inclusion delay"
             );
         }
