@@ -331,66 +331,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .remove_pending_components(block_root)
     }
 
-    /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
-    /// include the fully available block.
-    ///
-    /// WARNING: This function assumes all required blobs are already present, it does NOT
-    ///          check if there are any missing blobs.
-    pub fn verify_kzg_for_rpc_block(
-        &self,
-        block: RpcBlock<T::EthSpec>,
-    ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
-        let (block_root, block, blobs, data_columns) = block.deconstruct();
-        if self.blobs_required_for_block(&block) {
-            return if let Some(blob_list) = blobs {
-                verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
-                    .map_err(AvailabilityCheckError::InvalidBlobs)?;
-                Ok(MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
-                    blob_data: AvailableBlockData::Blobs(blob_list),
-                    blobs_available_timestamp: None,
-                    spec: self.spec.clone(),
-                }))
-            } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-            };
-        }
-        if self.data_columns_required_for_block(&block) {
-            return if let Some(data_column_list) = data_columns.as_ref() {
-                verify_kzg_for_data_column_list_with_scoring(
-                    data_column_list
-                        .iter()
-                        .map(|custody_column| custody_column.as_data_column()),
-                    &self.kzg,
-                )
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
-                Ok(MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
-                    blob_data: AvailableBlockData::DataColumns(
-                        data_column_list
-                            .into_iter()
-                            .map(|d| d.clone_arc())
-                            .collect(),
-                    ),
-                    blobs_available_timestamp: None,
-                    spec: self.spec.clone(),
-                }))
-            } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-            };
-        }
-
-        Ok(MaybeAvailableBlock::Available(AvailableBlock {
-            block_root,
-            block,
-            blob_data: AvailableBlockData::NoData,
-            blobs_available_timestamp: None,
-            spec: self.spec.clone(),
-        }))
-    }
-
     /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
     /// This is more efficient than calling `verify_kzg_for_rpc_block` in a loop as it does
     /// all kzg verification at once
@@ -825,6 +765,24 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
         match self {
             Self::Available(block) => block.block_cloned(),
             Self::AvailabilityPending { block, .. } => block.clone(),
+        }
+    }
+
+    pub fn from_block(
+        block: Arc<SignedBeaconBlock<E>>,
+        block_root: Hash256,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
+        if block.num_expected_blobs() == 0 {
+            MaybeAvailableBlock::Available(AvailableBlock {
+                block_root,
+                block,
+                blob_data: AvailableBlockData::NoData,
+                blobs_available_timestamp: None,
+                spec,
+            })
+        } else {
+            MaybeAvailableBlock::AvailabilityPending { block_root, block }
         }
     }
 }

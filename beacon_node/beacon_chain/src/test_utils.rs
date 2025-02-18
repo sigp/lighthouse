@@ -2304,27 +2304,10 @@ where
     pub async fn process_block(
         &self,
         slot: Slot,
-        block_root: Hash256,
         block_contents: SignedBlockContentsTuple<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError> {
         self.set_current_slot(slot);
-        let (block, blob_items) = block_contents;
-
-        let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items)?;
-        let block_hash: SignedBeaconBlockHash = self
-            .chain
-            .process_block(
-                block_root,
-                rpc_block,
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::RangeSync,
-                || Ok(()),
-            )
-            .await?
-            .try_into()
-            .expect("block blobs are available");
-        self.chain.recompute_head_at_current_slot().await;
-        Ok(block_hash)
+        self.process_block_result(block_contents).await
     }
 
     pub async fn process_block_result(
@@ -2335,20 +2318,18 @@ where
 
         let block_root = block.canonical_root();
         let rpc_block = self.build_rpc_block_from_blobs(block_root, block, blob_items)?;
-        let block_hash: SignedBeaconBlockHash = self
+        match self
             .chain
-            .process_block(
-                block_root,
-                rpc_block,
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::RangeSync,
-                || Ok(()),
-            )
-            .await?
-            .try_into()
-            .expect("block blobs are available");
+            .process_chain_segment(vec![rpc_block], NotifyExecutionLayer::Yes)
+            .await
+        {
+            crate::ChainSegmentResult::Successful { .. } => {}
+            crate::ChainSegmentResult::Failed { error, .. } => {
+                panic!("block import error {error:?}");
+            }
+        }
         self.chain.recompute_head_at_current_slot().await;
-        Ok(block_hash)
+        Ok(block_root.into())
     }
 
     /// Builds an `Rpc` block from a `SignedBeaconBlock` and blobs or data columns retrieved from
@@ -2486,13 +2467,7 @@ where
         self.set_current_slot(slot);
         let (block_contents, new_state) = self.make_block(state, slot).await;
 
-        let block_hash = self
-            .process_block(
-                slot,
-                block_contents.0.canonical_root(),
-                block_contents.clone(),
-            )
-            .await?;
+        let block_hash = self.process_block_result(block_contents.clone()).await?;
         Ok((block_hash, block_contents, new_state))
     }
 

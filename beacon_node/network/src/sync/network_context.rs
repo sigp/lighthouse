@@ -1209,7 +1209,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         id: Id,
         block_root: Hash256,
-        block: RpcBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self

@@ -310,19 +310,15 @@ async fn test_rewards_base_multi_inclusion() {
     // funky hack: on first try, the state root will mismatch due to our modification
     // thankfully, the correct state root is reported back, so we just take that one :^)
     // there probably is a better way...
-    let Err(BlockError::StateRootMismatch { local, .. }) = harness
-        .process_block(slot, block.0.canonical_root(), block.clone())
-        .await
+    let Err(BlockError::StateRootMismatch { local, .. }) =
+        harness.process_block(slot, block.clone()).await
     else {
         panic!("unexpected match of state root");
     };
     let mut new_block = block.0.message_base().unwrap().clone();
     new_block.state_root = local;
     block.0 = Arc::new(harness.sign_beacon_block(new_block.into(), &harness.get_current_state()));
-    harness
-        .process_block(slot, block.0.canonical_root(), block.clone())
-        .await
-        .unwrap();
+    harness.process_block(slot, block.clone()).await.unwrap();
 
     harness
         .extend_slots(E::slots_per_epoch() as usize * 2 - 4)
