@@ -435,11 +435,11 @@ fn build_log_text<'a, S>(
             }
             if use_color {
                 formatted_spans.push_str(&format!(
-                    "{}{}{}:{}",
+                    "{}{}{}: {}",
                     bold_start, field_name, bold_end, field_value
                 ));
             } else {
-                formatted_spans.push_str(&format!("{}:{}", field_name, field_value));
+                formatted_spans.push_str(&format!("{}: {}", field_name, field_value));
             }
         }
     }
@@ -481,11 +481,11 @@ fn build_log_text<'a, S>(
         }
         if use_color {
             formatted_fields.push_str(&format!(
-                "{}{}{}:{}",
+                "{}{}{}: {}",
                 bold_start, field_name, bold_end, field_value
             ));
         } else {
-            formatted_fields.push_str(&format!("{}:{}", field_name, field_value));
+            formatted_fields.push_str(&format!("{}: {}", field_name, field_value));
         }
         if i == visitor.fields.len() - 1 && !collected_span_fields.is_empty() {
             formatted_fields.push(',');
