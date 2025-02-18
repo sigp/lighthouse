@@ -3170,7 +3170,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // process_engine_blobs is called for both pre and post PeerDAS. However, post PeerDAS
-        // consumers don't expect the blobs event to fire erraticly.
+        // consumers don't expect the blobs event to fire erratically.
         if !self
             .spec
             .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
@@ -7240,7 +7240,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             AvailableBlockData::DataColumns(data_columns) => {
                 debug!(
-                    self.log, "Writing data_columns to store";
+                    self.log, "Writing data columns to store";
                     "block_root" => %block_root,
                     "count" => data_columns.len(),
                 );
@@ -7257,7 +7257,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .blocking_recv()
                     .map_err(|e| format!("Did not receive data columns from sender: {e:?}"))?;
                 debug!(
-                    self.log, "Writing data_columns to store";
+                    self.log, "Writing data columns to store";
                     "block_root" => %block_root,
                     "count" => computed_data_columns.len(),
                 );
