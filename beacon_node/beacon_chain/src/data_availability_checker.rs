@@ -342,15 +342,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if block.num_expected_blobs() == 0 {
-            return Ok(MaybeAvailableBlock::Available(AvailableBlock {
+            Ok(MaybeAvailableBlock::Available(AvailableBlock {
                 block_root,
                 block,
                 data: AvailableBlockData::NoData,
                 blobs_available_timestamp: None,
                 spec: self.spec.clone(),
-            }));
+            }))
         } else if self.blobs_required_for_block(&block) {
-            return if let Some(blob_list) = blobs {
+            if let Some(blob_list) = blobs {
                 verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
                     .map_err(AvailabilityCheckError::InvalidBlobs)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
@@ -362,9 +362,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 }))
             } else {
                 Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-            };
+            }
         } else if self.data_columns_required_for_block(&block) {
-            return if let Some(data_column_list) = data_columns.as_ref() {
+            if let Some(data_column_list) = data_columns.as_ref() {
                 verify_kzg_for_data_column_list_with_scoring(
                     data_column_list
                         .iter()
@@ -386,16 +386,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 }))
             } else {
                 Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-            };
+            }
+        } else {
+            Err(AvailabilityCheckError::Unexpected("unknown block type"))
         }
-
-        Ok(MaybeAvailableBlock::Available(AvailableBlock {
-            block_root,
-            block,
-            blobs_available_timestamp: None,
-            data: AvailableBlockData::NoData,
-            spec: self.spec.clone(),
-        }))
     }
 
     /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
@@ -479,13 +473,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     MaybeAvailableBlock::AvailabilityPending { block_root, block }
                 }
             } else {
-                MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
-                    data: AvailableBlockData::NoData,
-                    blobs_available_timestamp: None,
-                    spec: self.spec.clone(),
-                })
+                return Err(AvailabilityCheckError::Unexpected("unknown block type"));
             };
 
             results.push(maybe_available_block);
