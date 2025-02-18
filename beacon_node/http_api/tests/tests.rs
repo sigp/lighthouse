@@ -1211,9 +1211,7 @@ impl ApiTester {
             }
 
             let state = state_opt.as_mut().expect("result should be none");
-            let expected = state
-                .pending_deposits()
-                .unwrap();
+            let expected = state.pending_deposits().unwrap();
 
             assert_eq!(result.unwrap(), expected.to_vec());
         }
@@ -1240,9 +1238,7 @@ impl ApiTester {
             }
 
             let state = state_opt.as_mut().expect("result should be none");
-            let expected = state
-                .pending_partial_withdrawals()
-                .unwrap();
+            let expected = state.pending_partial_withdrawals().unwrap();
 
             assert_eq!(result.unwrap(), expected.to_vec());
         }
@@ -6389,7 +6385,6 @@ async fn beacon_get_state_info_electra() {
         .test_beacon_states_pending_partial_withdrawals()
         .await;
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_get_blocks() {

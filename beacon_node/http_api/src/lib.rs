@@ -1135,23 +1135,32 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic, finalized| {
                                 if !state.fork_name_unchecked().electra_enabled() {
                                     return Err(warp_utils::reject::pre_electra_not_supported(
-                                        format!("state at epoch {} is not activated for Electra", state.current_epoch())
+                                        format!(
+                                            "state at epoch {} is not activated for Electra",
+                                            state.current_epoch()
+                                        ),
                                     ));
                                 }
 
                                 let Ok(deposits) = state.pending_deposits() else {
-                                    return Err(warp_utils::reject::custom_bad_request("Pending deposits not found".to_string()));
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending deposits not found".to_string(),
+                                    ));
                                 };
 
-                                Ok((deposits.iter().cloned().collect::<Vec<_>>(), execution_optimistic, finalized))
-                            }
+                                Ok((
+                                    deposits.iter().cloned().collect::<Vec<_>>(),
+                                    execution_optimistic,
+                                    finalized,
+                                ))
+                            },
                         )?;
 
-                        Ok(api_types::ExecutionOptimisticFinalizedResponse {
-                            data,
-                            execution_optimistic: Some(execution_optimistic),
-                            finalized: Some(finalized),
-                        })
+                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                        data,
+                        execution_optimistic: Some(execution_optimistic),
+                        finalized: Some(finalized),
+                    })
                 })
             },
         );
@@ -1172,27 +1181,35 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic, finalized| {
                                 if !state.fork_name_unchecked().electra_enabled() {
                                     return Err(warp_utils::reject::pre_electra_not_supported(
-                                        format!("state at epoch {} is not activated for Electra", state.current_epoch())
+                                        format!(
+                                            "state at epoch {} is not activated for Electra",
+                                            state.current_epoch()
+                                        ),
                                     ));
                                 }
 
                                 let Ok(withdrawals) = state.pending_partial_withdrawals() else {
-                                    return Err(warp_utils::reject::custom_bad_request("Pending withdrawals not found".to_string()));
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending withdrawals not found".to_string(),
+                                    ));
                                 };
 
-                                Ok((withdrawals.iter().cloned().collect::<Vec<_>>(), execution_optimistic, finalized))
-                            }
+                                Ok((
+                                    withdrawals.iter().cloned().collect::<Vec<_>>(),
+                                    execution_optimistic,
+                                    finalized,
+                                ))
+                            },
                         )?;
 
-                        Ok(api_types::ExecutionOptimisticFinalizedResponse {
-                            data,
-                            execution_optimistic: Some(execution_optimistic),
-                            finalized: Some(finalized),
-                        })
+                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                        data,
+                        execution_optimistic: Some(execution_optimistic),
+                        finalized: Some(finalized),
+                    })
                 })
             },
         );
-
 
     // GET beacon/headers
     //
