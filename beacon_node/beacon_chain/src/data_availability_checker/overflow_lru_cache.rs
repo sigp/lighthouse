@@ -268,7 +268,7 @@ impl<E: EthSpec> PendingComponents<E> {
         let available_block = AvailableBlock {
             block_root: self.block_root,
             block,
-            data: available_data,
+            blob_data: available_data,
             blobs_available_timestamp,
             spec: spec.clone(),
         };

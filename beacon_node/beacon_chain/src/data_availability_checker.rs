@@ -345,7 +345,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             Ok(MaybeAvailableBlock::Available(AvailableBlock {
                 block_root,
                 block,
-                data: AvailableBlockData::NoData,
+                blob_data: AvailableBlockData::NoData,
                 blobs_available_timestamp: None,
                 spec: self.spec.clone(),
             }))
@@ -356,7 +356,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
-                    data: AvailableBlockData::Blobs(blob_list),
+                    blob_data: AvailableBlockData::Blobs(blob_list),
                     blobs_available_timestamp: None,
                     spec: self.spec.clone(),
                 }))
@@ -375,7 +375,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
-                    data: AvailableBlockData::DataColumns(
+                    blob_data: AvailableBlockData::DataColumns(
                         data_column_list
                             .into_iter()
                             .map(|d| d.clone_arc())
@@ -442,7 +442,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
-                    data: AvailableBlockData::NoData,
+                    blob_data: AvailableBlockData::NoData,
                     blobs_available_timestamp: None,
                     spec: self.spec.clone(),
                 })
@@ -451,7 +451,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
-                        data: AvailableBlockData::Blobs(blobs),
+                        blob_data: AvailableBlockData::Blobs(blobs),
                         blobs_available_timestamp: None,
                         spec: self.spec.clone(),
                     })
@@ -463,7 +463,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
-                        data: AvailableBlockData::DataColumns(
+                        blob_data: AvailableBlockData::DataColumns(
                             data_columns.into_iter().map(|d| d.into_inner()).collect(),
                         ),
                         blobs_available_timestamp: None,
@@ -732,7 +732,7 @@ pub enum AvailableBlockData<E: EthSpec> {
 pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
-    data: AvailableBlockData<E>,
+    blob_data: AvailableBlockData<E>,
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
     pub spec: Arc<ChainSpec>,
@@ -748,7 +748,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         Self {
             block_root,
             block,
-            data,
+            blob_data: data,
             blobs_available_timestamp: None,
             spec,
         }
@@ -766,11 +766,11 @@ impl<E: EthSpec> AvailableBlock<E> {
     }
 
     pub fn data(&self) -> &AvailableBlockData<E> {
-        &self.data
+        &self.blob_data
     }
 
     pub fn has_blobs(&self) -> bool {
-        match self.data {
+        match self.blob_data {
             AvailableBlockData::NoData => false,
             AvailableBlockData::Blobs(..) => true,
             AvailableBlockData::DataColumns(_) => false,
@@ -783,10 +783,10 @@ impl<E: EthSpec> AvailableBlock<E> {
         let AvailableBlock {
             block_root,
             block,
-            data,
+            blob_data,
             ..
         } = self;
-        (block_root, block, data)
+        (block_root, block, blob_data)
     }
 
     /// Only used for testing
@@ -794,7 +794,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         Ok(Self {
             block_root: self.block_root,
             block: self.block.clone(),
-            data: match &self.data {
+            blob_data: match &self.blob_data {
                 AvailableBlockData::NoData => AvailableBlockData::NoData,
                 AvailableBlockData::Blobs(blobs) => AvailableBlockData::Blobs(blobs.clone()),
                 AvailableBlockData::DataColumns(data_columns) => {
