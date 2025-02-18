@@ -162,9 +162,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })
                 })?
             {
-                for op in self.store.convert_to_kv_batch(vec![op])? {
-                    blob_batch.push(op);
-                }
+                blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
