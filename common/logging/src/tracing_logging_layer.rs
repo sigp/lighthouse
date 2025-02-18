@@ -252,7 +252,7 @@ impl tracing_core::field::Visit for LogMessageExtractor {
                 self.message = value.to_string();
             } else {
                 self.fields
-                    .push(("msg".to_string(), format!("\"{}\"", value)));
+                    .push(("msg_id".to_string(), format!("\"{}\"", value)));
             }
         } else if field.name() == "error_type" && value == "crit" {
             self.is_crit = true;
@@ -268,7 +268,7 @@ impl tracing_core::field::Visit for LogMessageExtractor {
                 self.message = format!("{:?}", value);
             } else {
                 self.fields
-                    .push(("msg".to_string(), format!("{:?}", value)));
+                    .push(("msg_id".to_string(), format!("{:?}", value)));
             }
         } else if field.name() == "error_type" && format!("{:?}", value) == "\"crit\"" {
             self.is_crit = true;
