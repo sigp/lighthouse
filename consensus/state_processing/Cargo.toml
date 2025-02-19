@@ -5,30 +5,30 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Michael Sproul <michael@sigmapr
 edition = { workspace = true }
 
 [dev-dependencies]
-env_logger = { workspace = true }
 beacon_chain = { workspace = true }
+env_logger = { workspace = true }
 tokio = { workspace = true }
 
 [dependencies]
+arbitrary = { workspace = true }
 bls = { workspace = true }
-integer-sqrt = "0.1.5"
-itertools = { workspace = true }
+derivative = { workspace = true }
+ethereum_hashing = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-ssz_types = { workspace = true }
+int_to_bytes = { workspace = true }
+integer-sqrt = "0.1.5"
+itertools = { workspace = true }
 merkle_proof = { workspace = true }
+metrics = { workspace = true }
+rand = { workspace = true }
+rayon = { workspace = true }
 safe_arith = { workspace = true }
+smallvec = { workspace = true }
+ssz_types = { workspace = true }
+test_random_derive = { path = "../../common/test_random_derive" }
 tree_hash = { workspace = true }
 types = { workspace = true }
-rayon = { workspace = true }
-ethereum_hashing = { workspace = true }
-int_to_bytes = { workspace = true }
-smallvec = { workspace = true }
-arbitrary = { workspace = true }
-metrics = { workspace = true }
-derivative = { workspace = true }
-test_random_derive = { path = "../../common/test_random_derive" }
-rand = { workspace = true }
 
 [features]
 default = ["legacy-arith"]

@@ -39,6 +39,10 @@ impl<E: EthSpec> LoadCase for GenesisValidity<E> {
 }
 
 impl<E: EthSpec> Case for GenesisValidity<E> {
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name == ForkName::Base
+    }
+
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let spec = &testing_spec::<E>(fork_name);
 

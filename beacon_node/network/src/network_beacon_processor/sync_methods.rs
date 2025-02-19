@@ -1,4 +1,4 @@
-use crate::metrics;
+use crate::metrics::{self, register_process_result_metrics};
 use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
 use crate::sync::BatchProcessResult;
 use crate::sync::{
@@ -163,8 +163,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 NotifyExecutionLayer::Yes,
             )
             .await;
-
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
+        register_process_result_metrics(&result, metrics::BlockSource::Rpc, "block");
 
         // RPC block imported, regardless of process type
         match result.as_ref() {
@@ -286,6 +285,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         let result = self.chain.process_rpc_blobs(slot, block_root, blobs).await;
+        register_process_result_metrics(&result, metrics::BlockSource::Rpc, "blobs");
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(hash)) => {
@@ -336,13 +336,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        _seen_timestamp: Duration,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
+        // custody_columns must always have at least one element
+        let Some(slot) = custody_columns.first().map(|d| d.slot()) else {
+            return;
+        };
+
+        if let Ok(current_slot) = self.chain.slot() {
+            if current_slot == slot {
+                let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
+                metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
+            }
+        }
+
+        let mut indices = custody_columns.iter().map(|d| d.index).collect::<Vec<_>>();
+        indices.sort_unstable();
+        debug!(
+            self.log,
+            "RPC custody data columns received";
+            "indices" => ?indices,
+            "block_root" => %block_root,
+            "slot" => %slot,
+        );
+
         let mut result = self
             .chain
             .process_rpc_custody_columns(custody_columns)
             .await;
+        register_process_result_metrics(&result, metrics::BlockSource::Rpc, "custody_columns");
 
         match &result {
             Ok(availability) => match availability {
@@ -482,6 +505,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         debug!(self.log, "Backfill batch processed";
                             "batch_epoch" => epoch,
                             "first_block_slot" => start_slot,
+                            "keep_execution_payload" => !self.chain.store.get_config().prune_payloads,
                             "last_block_slot" => end_slot,
                             "processed_blocks" => sent_blocks,
                             "processed_blobs" => n_blobs,

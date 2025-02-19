@@ -181,12 +181,13 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
             debug!(log, "Using inbound rate limiting params"; "config" => ?config);
-            RateLimiter::new_with_config(config.0)
+            RateLimiter::new_with_config(config.0, fork_context.clone())
                 .expect("Inbound limiter configuration parameters are valid")
         });
 
         let self_limiter = outbound_rate_limiter_config.map(|config| {
-            SelfRateLimiter::new(config, log.clone()).expect("Configuration parameters are valid")
+            SelfRateLimiter::new(config, fork_context.clone(), log.clone())
+                .expect("Configuration parameters are valid")
         });
 
         RPC {
@@ -231,14 +232,14 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
                 }
             }
         } else {
-            ToSwarm::NotifyHandler {
-                peer_id,
-                handler: NotifyHandler::Any,
-                event: RPCSend::Request(request_id, req),
-            }
+            RPCSend::Request(request_id, req)
         };
 
-        self.events.push(event);
+        self.events.push(BehaviourAction::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::Any,
+            event,
+        });
     }
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This

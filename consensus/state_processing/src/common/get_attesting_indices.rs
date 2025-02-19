@@ -103,14 +103,14 @@ pub mod attesting_indices_electra {
 
         let committee_count_per_slot = committees.len() as u64;
         let mut participant_count = 0;
-        for index in committee_indices {
+        for committee_index in committee_indices {
             let beacon_committee = committees
-                .get(index as usize)
-                .ok_or(Error::NoCommitteeFound(index))?;
+                .get(committee_index as usize)
+                .ok_or(Error::NoCommitteeFound(committee_index))?;
 
             // This check is new to the spec's `process_attestation` in Electra.
-            if index >= committee_count_per_slot {
-                return Err(BeaconStateError::InvalidCommitteeIndex(index));
+            if committee_index >= committee_count_per_slot {
+                return Err(BeaconStateError::InvalidCommitteeIndex(committee_index));
             }
             participant_count.safe_add_assign(beacon_committee.committee.len() as u64)?;
             let committee_attesters = beacon_committee
@@ -126,6 +126,12 @@ pub mod attesting_indices_electra {
                     None
                 })
                 .collect::<HashSet<u64>>();
+
+            // Require at least a single non-zero bit for each attesting committee bitfield.
+            // This check is new to the spec's `process_attestation` in Electra.
+            if committee_attesters.is_empty() {
+                return Err(BeaconStateError::EmptyCommittee);
+            }
 
             attesting_indices.extend(committee_attesters);
             committee_offset.safe_add_assign(beacon_committee.committee.len())?;

@@ -5,41 +5,41 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dev-dependencies]
+operation_pool = { workspace = true }
 serde_yaml = { workspace = true }
 state_processing = { workspace = true }
-operation_pool = { workspace = true }
 tokio = { workspace = true }
 
 [dependencies]
 beacon_chain = { workspace = true }
-store = { workspace = true }
-network = { workspace = true }
-timer = { path = "../timer" }
-lighthouse_network = { workspace = true }
-types = { workspace = true }
-eth2_config = { workspace = true }
-slot_clock = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-slog = { workspace = true }
-tokio = { workspace = true }
-futures = { workspace = true }
+beacon_processor = { workspace = true }
+directory = { workspace = true }
 dirs = { workspace = true }
+environment = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
-kzg = { workspace = true }
-sensitive_url = { workspace = true }
+eth2_config = { workspace = true }
+ethereum_ssz = { workspace = true }
+execution_layer = { workspace = true }
+futures = { workspace = true }
 genesis = { workspace = true }
-task_executor = { workspace = true }
-environment = { workspace = true }
-metrics = { workspace = true }
-time = "0.3.5"
-directory = { workspace = true }
 http_api = { workspace = true }
 http_metrics = { path = "../http_metrics" }
+kzg = { workspace = true }
+lighthouse_network = { workspace = true }
+metrics = { workspace = true }
+monitoring_api = { workspace = true }
+network = { workspace = true }
+sensitive_url = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 slasher = { workspace = true }
 slasher_service = { path = "../../slasher/service" }
-monitoring_api = { workspace = true }
-execution_layer = { workspace = true }
-beacon_processor = { workspace = true }
-ethereum_ssz = { workspace = true }
+slog = { workspace = true }
+slot_clock = { workspace = true }
+store = { workspace = true }
+task_executor = { workspace = true }
+time = "0.3.5"
+timer = { path = "../timer" }
+tokio = { workspace = true }
+types = { workspace = true }

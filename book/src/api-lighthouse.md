@@ -508,23 +508,31 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
 
 ```json
 {
-  "schema_version": 18,
+  "schema_version": 22,
   "config": {
-    "slots_per_restore_point": 8192,
-    "slots_per_restore_point_set_explicitly": false,
     "block_cache_size": 5,
+    "state_cache_size": 128,
+    "compression_level": 1,
     "historic_state_cache_size": 1,
+    "hdiff_buffer_cache_size": 16,
     "compact_on_init": false,
     "compact_on_prune": true,
     "prune_payloads": true,
+    "hierarchy_config": {
+      "exponents": [
+        5,
+        7,
+        11
+      ]
+    },
     "prune_blobs": true,
     "epochs_per_blob_prune": 1,
     "blob_prune_margin_epochs": 0
   },
   "split": {
-    "slot": "7454656",
-    "state_root": "0xbecfb1c8ee209854c611ebc967daa77da25b27f1a8ef51402fdbe060587d7653",
-    "block_root": "0x8730e946901b0a406313d36b3363a1b7091604e1346a3410c1a7edce93239a68"
+    "slot": "10530592",
+    "state_root": "0xd27e6ce699637cf9b5c7ca632118b7ce12c2f5070bb25a27ac353ff2799d4466",
+    "block_root": "0x71509a1cb374773d680cd77148c73ab3563526dacb0ab837bb0c87e686962eae"
   },
   "anchor": {
     "anchor_slot": "7451168",
@@ -543,8 +551,19 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
 For more information about the split point, see the [Database Configuration](./advanced_database.md)
 docs.
 
-The `anchor` will be `null` unless the node has been synced with checkpoint sync and state
-reconstruction has yet to be completed. For more information
+For archive nodes, the `anchor` will be:
+
+```json
+"anchor": {
+    "anchor_slot": "0",
+    "oldest_block_slot": "0",
+    "oldest_block_parent": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "state_upper_limit": "0",
+    "state_lower_limit": "0"
+  },
+```
+
+indicating that all states with slots `>= 0` are available, i.e., full state history. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
 Sync](./checkpoint-sync.md#reconstructing-states).
 

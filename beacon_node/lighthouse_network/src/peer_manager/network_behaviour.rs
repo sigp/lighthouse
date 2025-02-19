@@ -37,7 +37,10 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         // no events from the dummy handler
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Self::ToSwarm, void::Void>> {
+    fn poll(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<ToSwarm<Self::ToSwarm, std::convert::Infallible>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
@@ -140,10 +143,6 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
             }) => {
                 debug!(self.log, "Failed to dial peer"; "peer_id"=> ?peer_id, "error" => %ClearDialError(error));
                 self.on_dial_failure(peer_id);
-            }
-            FromSwarm::ExternalAddrConfirmed(_) => {
-                // We have an external address confirmed, means we are able to do NAT traversal.
-                metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p"], 1);
             }
             _ => {
                 // NOTE: FromSwarm is a non exhaustive enum so updates should be based on release

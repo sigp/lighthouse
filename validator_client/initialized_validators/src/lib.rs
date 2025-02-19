@@ -14,7 +14,6 @@ use account_utils::{
         self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
         CONFIG_FILENAME,
     },
-    ZeroizeString,
 };
 use eth2_keystore::Keystore;
 use lockfile::{Lockfile, LockfileError};
@@ -34,6 +33,7 @@ use types::graffiti::GraffitiString;
 use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
 use validator_dir::Builder as ValidatorDirBuilder;
+use zeroize::Zeroizing;
 
 use key_cache::KeyCache;
 
@@ -74,7 +74,7 @@ pub enum OnDecryptFailure {
 
 pub struct KeystoreAndPassword {
     pub keystore: Keystore,
-    pub password: Option<ZeroizeString>,
+    pub password: Option<Zeroizing<String>>,
 }
 
 #[derive(Debug)]
@@ -262,7 +262,7 @@ impl InitializedValidator {
                                 // If the password is supplied, use it and ignore the path
                                 // (if supplied).
                                 (_, Some(password)) => (
-                                    password.as_ref().to_vec().into(),
+                                    password.as_bytes().to_vec().into(),
                                     keystore
                                         .decrypt_keypair(password.as_ref())
                                         .map_err(Error::UnableToDecryptKeystore)?,
@@ -282,7 +282,7 @@ impl InitializedValidator {
                                         &keystore,
                                         &keystore_path,
                                     )?;
-                                    (password.as_ref().to_vec().into(), keypair)
+                                    (password.as_bytes().to_vec().into(), keypair)
                                 }
                             },
                         )
@@ -455,7 +455,7 @@ fn build_web3_signer_client(
 fn unlock_keystore_via_stdin_password(
     keystore: &Keystore,
     keystore_path: &Path,
-) -> Result<(ZeroizeString, Keypair), Error> {
+) -> Result<(Zeroizing<String>, Keypair), Error> {
     eprintln!();
     eprintln!(
         "The {} file does not contain either of the following fields for {:?}:",
@@ -1172,14 +1172,14 @@ impl InitializedValidators {
                     voting_keystore_path,
                 } => {
                     let pw = if let Some(p) = voting_keystore_password {
-                        p.as_ref().to_vec().into()
+                        p.as_bytes().to_vec().into()
                     } else if let Some(path) = voting_keystore_password_path {
                         read_password(path).map_err(Error::UnableToReadVotingKeystorePassword)?
                     } else {
                         let keystore = open_keystore(voting_keystore_path)?;
                         unlock_keystore_via_stdin_password(&keystore, voting_keystore_path)?
                             .0
-                            .as_ref()
+                            .as_bytes()
                             .to_vec()
                             .into()
                     };
@@ -1425,7 +1425,7 @@ impl InitializedValidators {
     /// This should only be used for testing, it's rather destructive.
     pub fn delete_passwords_from_validator_definitions(
         &mut self,
-    ) -> Result<HashMap<PublicKey, ZeroizeString>, Error> {
+    ) -> Result<HashMap<PublicKey, Zeroizing<String>>, Error> {
         let mut passwords = HashMap::default();
 
         for def in self.definitions.as_mut_slice() {
