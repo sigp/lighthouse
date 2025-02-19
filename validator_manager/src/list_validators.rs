@@ -58,7 +58,7 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     }
 }
 
-async fn run<'a>(config: ListConfig) -> Result<Vec<SingleKeystoreResponse>, String> {
+async fn run(config: ListConfig) -> Result<Vec<SingleKeystoreResponse>, String> {
     let ListConfig {
         vc_url,
         vc_token_path,

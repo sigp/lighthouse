@@ -258,7 +258,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             .slot_clock
             .now()
             .map_or(E::genesis_epoch(), |slot| slot.epoch(E::slots_per_epoch()));
-        spec.bellatrix_fork_epoch.map_or(false, |fork_epoch| {
+        spec.bellatrix_fork_epoch.is_some_and(|fork_epoch| {
             current_epoch + PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS >= fork_epoch
         })
     }

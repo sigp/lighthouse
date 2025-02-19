@@ -134,7 +134,7 @@ validator_monitor_attestation_simulator_source_attester_hit_total
 validator_monitor_attestation_simulator_source_attester_miss_total
 ```
 
-A grafana dashboard to view the metrics for attestation simulator is available [here](https://github.com/sigp/lighthouse-metrics/blob/master/dashboards/AttestationSimulator.json).
+A Grafana dashboard to view the metrics for attestation simulator is available [here](https://github.com/sigp/lighthouse-metrics/blob/master/dashboards/AttestationSimulator.json).
 
 The attestation simulator provides an insight into the attestation performance of a beacon node. It can be used as an indication of how expediently the beacon node has completed importing blocks within the 4s time frame for an attestation to be made.
 

@@ -8,5 +8,5 @@ edition = { workspace = true }
 proc-macro = true
 
 [dependencies]
-syn = { workspace = true }
 quote = { workspace = true }
+syn = { workspace = true }

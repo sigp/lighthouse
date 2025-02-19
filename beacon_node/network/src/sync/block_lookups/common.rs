@@ -9,6 +9,8 @@ use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::service::api_types::Id;
+use parking_lot::RwLock;
+use std::collections::HashSet;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{DataColumnSidecarList, SignedBeaconBlock};
@@ -41,7 +43,7 @@ pub trait RequestState<T: BeaconChainTypes> {
     fn make_request(
         &self,
         id: Id,
-        peer_id: PeerId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         expected_blobs: usize,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError>;
@@ -76,11 +78,11 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
     fn make_request(
         &self,
         id: SingleLookupId,
-        peer_id: PeerId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         _: usize,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
-        cx.block_lookup_request(id, peer_id, self.requested_block_root)
+        cx.block_lookup_request(id, lookup_peers, self.requested_block_root)
             .map_err(LookupRequestError::SendFailedNetwork)
     }
 
@@ -124,11 +126,11 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
     fn make_request(
         &self,
         id: Id,
-        peer_id: PeerId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         expected_blobs: usize,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
-        cx.blob_lookup_request(id, peer_id, self.block_root, expected_blobs)
+        cx.blob_lookup_request(id, lookup_peers, self.block_root, expected_blobs)
             .map_err(LookupRequestError::SendFailedNetwork)
     }
 
@@ -172,12 +174,11 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
     fn make_request(
         &self,
         id: Id,
-        // TODO(das): consider selecting peers that have custody but are in this set
-        _peer_id: PeerId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
         _: usize,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
-        cx.custody_lookup_request(id, self.block_root)
+        cx.custody_lookup_request(id, self.block_root, lookup_peers)
             .map_err(LookupRequestError::SendFailedNetwork)
     }
 

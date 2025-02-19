@@ -1,9 +1,9 @@
-mod cli;
+pub mod cli;
 pub mod config;
 mod latency;
 mod notifier;
 
-pub use cli::cli_app;
+use crate::cli::ValidatorClient;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
 use metrics::set_gauge;
@@ -11,11 +11,10 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
+use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode,
 };
-
-use account_utils::validator_definitions::ValidatorDefinitions;
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
@@ -96,8 +95,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
         cli_args: &ArgMatches,
+        validator_client_config: &ValidatorClient,
     ) -> Result<Self, String> {
-        let config = Config::from_cli(cli_args, context.log())
+        let config = Config::from_cli(cli_args, validator_client_config, context.log())
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
         Self::new(context, config).await
     }
@@ -203,15 +203,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config.initialized_validators.clone(),
             log.clone(),
         )
-        .await
-        .map_err(|e| {
-            match e {
-                UnableToOpenVotingKeystore(err) => {
-                    format!("Unable to initialize validators: {:?}. If you have recently moved the location of your data directory \
+            .await
+            .map_err(|e| {
+                match e {
+                    UnableToOpenVotingKeystore(err) => {
+                        format!("Unable to initialize validators: {:?}. If you have recently moved the location of your data directory \
                     make sure to update the location of voting_keystore_path in your validator_definitions.yml", err)
-                },
-                err => {
-                    format!("Unable to initialize validators: {:?}", err)}
+                    },
+                    err => {
+                        format!("Unable to initialize validators: {:?}", err)}
                 }
             })?;
 
@@ -551,7 +551,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
         let log = self.context.log();
 
-        let api_secret = ApiSecret::create_or_open(&self.config.validator_dir)?;
+        let api_secret = ApiSecret::create_or_open(&self.config.http_api.http_token_path)?;
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx = Arc::new(validator_http_api::Context {

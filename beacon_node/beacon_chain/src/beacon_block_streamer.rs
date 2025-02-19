@@ -15,7 +15,7 @@ use types::{
 };
 use types::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
-    ExecutionPayloadHeader,
+    ExecutionPayloadFulu, ExecutionPayloadHeader,
 };
 
 #[derive(PartialEq)]
@@ -99,6 +99,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
+        ForkName::Fulu => ExecutionPayloadFulu::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
@@ -742,13 +743,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_electra() {
+    async fn check_all_blocks_from_altair_to_fulu() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 10;
+        let num_epochs = 12;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;
         let electra_fork_epoch = 8usize;
+        let fulu_fork_epoch = 10usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
@@ -757,6 +759,7 @@ mod tests {
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
+        spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch as u64));
         let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());

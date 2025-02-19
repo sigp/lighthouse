@@ -8,6 +8,7 @@ use beacon_processor::{
 };
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
+use lighthouse_network::rpc::methods::MetaDataV3;
 use lighthouse_network::{
     discv5::enr::CombinedKey,
     libp2p::swarm::{
@@ -150,11 +151,21 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     let (network_senders, network_receivers) = NetworkSenders::new();
 
     // Default metadata
-    let meta_data = MetaData::V2(MetaDataV2 {
-        seq_number: SEQ_NUMBER,
-        attnets: EnrAttestationBitfield::<T::EthSpec>::default(),
-        syncnets: EnrSyncCommitteeBitfield::<T::EthSpec>::default(),
-    });
+    let meta_data = if chain.spec.is_peer_das_scheduled() {
+        MetaData::V3(MetaDataV3 {
+            seq_number: SEQ_NUMBER,
+            attnets: EnrAttestationBitfield::<T::EthSpec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<T::EthSpec>::default(),
+            custody_group_count: chain.spec.custody_requirement,
+        })
+    } else {
+        MetaData::V2(MetaDataV2 {
+            seq_number: SEQ_NUMBER,
+            attnets: EnrAttestationBitfield::<T::EthSpec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<T::EthSpec>::default(),
+        })
+    };
+
     let enr_key = CombinedKey::generate_secp256k1();
     let enr = Enr::builder().build(&enr_key).unwrap();
     let network_config = Arc::new(NetworkConfig::default());

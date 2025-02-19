@@ -1,4 +1,5 @@
 use super::types::{BeaconProcessMetrics, ValidatorProcessMetrics};
+use health_metrics::observe::Observe;
 use metrics::{MetricFamily, MetricType};
 use serde_json::json;
 use std::collections::HashMap;

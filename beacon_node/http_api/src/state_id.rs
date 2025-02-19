@@ -30,7 +30,7 @@ impl StateId {
                 let (cached_head, execution_status) = chain
                     .canonical_head
                     .head_and_execution_status()
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                    .map_err(warp_utils::reject::unhandled_error)?;
                 return Ok((
                     cached_head.head_state_root(),
                     execution_status.is_optimistic_or_invalid(),
@@ -56,7 +56,7 @@ impl StateId {
                 *slot,
                 chain
                     .is_optimistic_or_invalid_head()
-                    .map_err(warp_utils::reject::beacon_chain_error)?,
+                    .map_err(warp_utils::reject::unhandled_error)?,
                 *slot
                     <= chain
                         .canonical_head
@@ -70,11 +70,11 @@ impl StateId {
                     .store
                     .load_hot_state_summary(root)
                     .map_err(BeaconChainError::DBError)
-                    .map_err(warp_utils::reject::beacon_chain_error)?
+                    .map_err(warp_utils::reject::unhandled_error)?
                 {
                     let finalization_status = chain
                         .state_finalization_and_canonicity(root, hot_summary.slot)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(warp_utils::reject::unhandled_error)?;
                     let finalized = finalization_status.is_finalized();
                     let fork_choice = chain.canonical_head.fork_choice_read_lock();
                     let execution_optimistic = if finalization_status.slot_is_finalized
@@ -94,14 +94,14 @@ impl StateId {
                         fork_choice
                             .is_optimistic_or_invalid_block(&hot_summary.latest_block_root)
                             .map_err(BeaconChainError::ForkChoiceError)
-                            .map_err(warp_utils::reject::beacon_chain_error)?
+                            .map_err(warp_utils::reject::unhandled_error)?
                     };
                     return Ok((*root, execution_optimistic, finalized));
                 } else if let Some(_cold_state_slot) = chain
                     .store
                     .load_cold_state_slot(root)
                     .map_err(BeaconChainError::DBError)
-                    .map_err(warp_utils::reject::beacon_chain_error)?
+                    .map_err(warp_utils::reject::unhandled_error)?
                 {
                     let fork_choice = chain.canonical_head.fork_choice_read_lock();
                     let finalized_root = fork_choice
@@ -111,7 +111,7 @@ impl StateId {
                     let execution_optimistic = fork_choice
                         .is_optimistic_or_invalid_block_no_fallback(&finalized_root)
                         .map_err(BeaconChainError::ForkChoiceError)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(warp_utils::reject::unhandled_error)?;
                     return Ok((*root, execution_optimistic, true));
                 } else {
                     return Err(warp_utils::reject::custom_not_found(format!(
@@ -124,7 +124,7 @@ impl StateId {
 
         let root = chain
             .state_root_at_slot(slot)
-            .map_err(warp_utils::reject::beacon_chain_error)?
+            .map_err(warp_utils::reject::unhandled_error)?
             .ok_or_else(|| {
                 warp_utils::reject::custom_not_found(format!("beacon state at slot {}", slot))
             })?;
@@ -178,7 +178,7 @@ impl StateId {
                 let (cached_head, execution_status) = chain
                     .canonical_head
                     .head_and_execution_status()
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                    .map_err(warp_utils::reject::unhandled_error)?;
                 return Ok((
                     cached_head.snapshot.beacon_state.clone(),
                     execution_status.is_optimistic_or_invalid(),
@@ -191,7 +191,7 @@ impl StateId {
 
         let state = chain
             .get_state(&state_root, slot_opt)
-            .map_err(warp_utils::reject::beacon_chain_error)
+            .map_err(warp_utils::reject::unhandled_error)
             .and_then(|opt| {
                 opt.ok_or_else(|| {
                     warp_utils::reject::custom_not_found(format!(
@@ -224,7 +224,7 @@ impl StateId {
                 let (head, execution_status) = chain
                     .canonical_head
                     .head_and_execution_status()
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                    .map_err(warp_utils::reject::unhandled_error)?;
                 return func(
                     &head.snapshot.beacon_state,
                     execution_status.is_optimistic_or_invalid(),
@@ -273,7 +273,7 @@ pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
     let execution_optimistic = fork_choice
         .is_optimistic_or_invalid_block_no_fallback(root)
         .map_err(BeaconChainError::ForkChoiceError)
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     Ok((slot, execution_optimistic))
 }

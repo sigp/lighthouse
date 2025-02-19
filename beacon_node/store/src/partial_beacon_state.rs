@@ -2,8 +2,8 @@ use crate::chunked_vector::{
     load_variable_list_from_db, load_vector_from_db, BlockRootsChunked, HistoricalRoots,
     HistoricalSummaries, RandaoMixes, StateRootsChunked,
 };
-use crate::{Error, KeyValueStore};
-use ssz::{Decode, DecodeError};
+use crate::{DBColumn, Error, KeyValueStore, KeyValueStoreOp};
+use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::historical_summary::HistoricalSummary;
@@ -16,7 +16,7 @@ use types::*;
 ///
 /// This can be deleted once schema versions prior to V22 are no longer supported.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -68,9 +68,9 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -80,13 +80,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -110,37 +110,42 @@ where
         partial_getter(rename = "latest_execution_payload_header_electra")
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
+    #[superstruct(
+        only(Fulu),
+        partial_getter(rename = "latest_execution_payload_header_fulu")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub historical_summaries: Option<List<HistoricalSummary, E::HistoricalRootsLimit>>,
 
     // Electra
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub deposit_requests_start_index: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub earliest_consolidation_epoch: Epoch,
 
-    #[superstruct(only(Electra))]
-    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
+    pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
+    #[superstruct(only(Electra, Fulu))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 }
 
@@ -165,6 +170,15 @@ impl<E: EthSpec> PartialBeaconState<E> {
             Self,
             <_>::from_ssz_bytes(bytes)?
         ))
+    }
+
+    /// Prepare the partial state for storage in the KV database.
+    pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
+        KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconState,
+            state_root.as_slice().to_vec(),
+            self.as_ssz_bytes(),
+        )
     }
 
     pub fn load_block_roots<S: KeyValueStore<E>>(
@@ -403,7 +417,32 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     earliest_exit_epoch,
                     consolidation_balance_to_consume,
                     earliest_consolidation_epoch,
-                    pending_balance_deposits,
+                    pending_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations
+                ],
+                [historical_summaries]
+            ),
+            PartialBeaconState::Fulu(inner) => impl_try_into_beacon_state!(
+                inner,
+                Fulu,
+                BeaconStateFulu,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index,
+                    deposit_requests_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_deposits,
                     pending_partial_withdrawals,
                     pending_consolidations
                 ],

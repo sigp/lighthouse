@@ -10,8 +10,8 @@ clap = { workspace = true }
 clap_utils = { workspace = true }
 environment = { workspace = true }
 hex = { workspace = true }
-store = { workspace = true }
-types = { workspace = true }
-slog = { workspace = true }
-strum = { workspace = true }
 serde = { workspace = true }
+slog = { workspace = true }
+store = { workspace = true }
+strum = { workspace = true }
+types = { workspace = true }

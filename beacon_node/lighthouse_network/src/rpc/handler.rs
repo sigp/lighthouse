@@ -353,6 +353,7 @@ where
         !matches!(self.state, HandlerState::Deactivated)
     }
 
+    #[allow(deprecated)]
     fn poll(
         &mut self,
         cx: &mut Context<'_>,
@@ -814,6 +815,7 @@ where
         Poll::Pending
     }
 
+    #[allow(deprecated)]
     fn on_connection_event(
         &mut self,
         event: ConnectionEvent<
@@ -855,7 +857,47 @@ where
         }
 
         let (req, substream) = substream;
-        let max_responses = req.max_responses();
+        let current_fork = self.fork_context.current_fork();
+        let spec = &self.fork_context.spec;
+
+        match &req {
+            RequestType::BlocksByRange(request) => {
+                let max_allowed = spec.max_request_blocks(current_fork) as u64;
+                if *request.count() > max_allowed {
+                    self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                        id: self.current_inbound_substream_id,
+                        proto: Protocol::BlocksByRange,
+                        error: RPCError::InvalidData(format!(
+                            "requested exceeded limit. allowed: {}, requested: {}",
+                            max_allowed,
+                            request.count()
+                        )),
+                    }));
+                    return self.shutdown(None);
+                }
+            }
+            RequestType::BlobsByRange(request) => {
+                let max_requested_blobs = request
+                    .count
+                    .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
+                let max_allowed = spec.max_request_blob_sidecars(current_fork) as u64;
+                if max_requested_blobs > max_allowed {
+                    self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                        id: self.current_inbound_substream_id,
+                        proto: Protocol::BlobsByRange,
+                        error: RPCError::InvalidData(format!(
+                            "requested exceeded limit. allowed: {}, requested: {}",
+                            max_allowed, max_requested_blobs
+                        )),
+                    }));
+                    return self.shutdown(None);
+                }
+            }
+            _ => {}
+        };
+
+        let max_responses =
+            req.max_responses(self.fork_context.current_fork(), &self.fork_context.spec);
 
         // store requests that expect responses
         if max_responses > 0 {
@@ -924,7 +966,8 @@ where
         }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
-        let max_responses = request.max_responses();
+        let max_responses =
+            request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec);
         if max_responses > 0 {
             let max_remaining_chunks = if request.expect_exactly_one_response() {
                 // Currently enforced only for multiple responses
@@ -964,6 +1007,9 @@ where
         request_info: (Id, RequestType<E>),
         error: StreamUpgradeError<RPCError>,
     ) {
+        // This dialing is now considered failed
+        self.dial_negotiated -= 1;
+
         let (id, req) = request_info;
 
         // map the error
@@ -988,9 +1034,6 @@ where
             }
             StreamUpgradeError::Apply(other) => other,
         };
-
-        // This dialing is now considered failed
-        self.dial_negotiated -= 1;
 
         self.outbound_io_error_retries = 0;
         self.events_out

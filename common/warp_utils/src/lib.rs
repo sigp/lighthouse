@@ -3,7 +3,6 @@
 
 pub mod cors;
 pub mod json;
-pub mod metrics;
 pub mod query;
 pub mod reject;
 pub mod task;
