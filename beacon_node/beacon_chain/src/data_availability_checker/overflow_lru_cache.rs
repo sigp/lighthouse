@@ -181,7 +181,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
         let num_expected_blobs = block.num_blobs_expected();
 
-        let available_data = if num_expected_blobs == 0 {
+        let blob_data = if num_expected_blobs == 0 {
             Some(AvailableBlockData::NoData)
         } else if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             match self.verified_data_columns.len().cmp(&custody_column_count) {
@@ -236,13 +236,13 @@ impl<E: EthSpec> PendingComponents<E> {
         };
 
         // Block's data not available yet
-        let Some(available_data) = available_data else {
+        let Some(blob_data) = blob_data else {
             return Ok(None);
         };
 
         // Block is available, construct `AvailableExecutedBlock`
 
-        let blobs_available_timestamp = match available_data {
+        let blobs_available_timestamp = match blob_data {
             AvailableBlockData::NoData => None,
             AvailableBlockData::Blobs(_) => self
                 .verified_blobs
@@ -264,7 +264,7 @@ impl<E: EthSpec> PendingComponents<E> {
         let available_block = AvailableBlock {
             block_root: self.block_root,
             block,
-            blob_data: available_data,
+            blob_data,
             blobs_available_timestamp,
             spec: spec.clone(),
         };
