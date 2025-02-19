@@ -19,6 +19,7 @@ use types::{
     AttesterSlashingRefOnDisk, BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion,
     ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit,
 };
+use thiserror::Error;
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
 
@@ -344,7 +345,7 @@ impl<E: EthSpec> TransformPersist for AttesterSlashing<E> {
     }
 }
 
-// TODO: Remove this once we no longer support DB schema version 17
+// TODO(v17): Remove the following implementations once we no longer support DB schema version 17
 impl<E: EthSpec> TransformPersist for types::AttesterSlashingBase<E> {
     type Persistable = Self;
     type PersistableRef<'a> = &'a Self;
@@ -357,7 +358,7 @@ impl<E: EthSpec> TransformPersist for types::AttesterSlashingBase<E> {
         persistable
     }
 }
-// TODO: Remove this once we no longer support DB schema version 17
+
 impl<E: EthSpec> From<SigVerifiedOp<AttesterSlashingBase<E>, E>>
     for SigVerifiedOp<AttesterSlashing<E>, E>
 {
@@ -369,21 +370,32 @@ impl<E: EthSpec> From<SigVerifiedOp<AttesterSlashingBase<E>, E>>
         }
     }
 }
-// TODO: Remove this once we no longer support DB schema version 17
+
+/// Error that occurs when converting between different forms of attester slashing.
+/// This typically happens when trying to convert from a newer format to an older format
+/// that doesn't support all features of the newer format.
+#[derive(Debug, thiserror::Error)]
+pub enum AttesterSlashingConversionError {
+    #[error("Cannot convert Electra variant to base format")]
+    UnsupportedVariant,
+    #[error("Conversion error: {0}")]
+    Other(String),
+}
+
 impl<E: EthSpec> TryFrom<SigVerifiedOp<AttesterSlashing<E>, E>>
     for SigVerifiedOp<AttesterSlashingBase<E>, E>
 {
-    type Error = String;
+    type Error = AttesterSlashingConversionError;
 
     fn try_from(slashing: SigVerifiedOp<AttesterSlashing<E>, E>) -> Result<Self, Self::Error> {
-        match slashing.op {
-            AttesterSlashing::Base(base) => Ok(SigVerifiedOp {
-                op: base,
-                verified_against: slashing.verified_against,
-                _phantom: PhantomData,
-            }),
-            AttesterSlashing::Electra(_) => Err("non-base attester slashing".to_string()),
-        }
+        let base = AttesterSlashingBase::try_from(slashing.op)
+            .map_err(|e| AttesterSlashingConversionError::Other(e.to_string()))?;
+
+        Ok(SigVerifiedOp {
+            op: base,
+            verified_against: slashing.verified_against,
+            _phantom: PhantomData,
+        })
     }
 }
 
@@ -463,5 +475,29 @@ mod test {
     #[test]
     fn bls_to_execution_roundtrip() {
         roundtrip_test::<SignedBlsToExecutionChange>();
+    }
+
+    #[test]
+    fn test_attester_slashing_conversion() {
+        let mut rng = XorShiftRng::seed_from_u64(0xff0af5a356af1123);
+        let verified_against = VerifiedAgainst::random_for_test(&mut rng);
+        
+        // Test base -> full -> base conversion
+        let base_op = SigVerifiedOp {
+            op: AttesterSlashingBase::random_for_test(&mut rng),
+            verified_against: verified_against.clone(),
+            _phantom: PhantomData::<E>,
+        };
+        let full_op: SigVerifiedOp<AttesterSlashing<E>, E> = base_op.into();
+        let converted_base = SigVerifiedOp::<AttesterSlashingBase<E>, E>::try_from(full_op).unwrap();
+        assert_eq!(converted_base.verified_against, verified_against);
+        
+        // Test error case
+        let electra_op = SigVerifiedOp {
+            op: AttesterSlashing::Electra(AttesterSlashingBase::random_for_test(&mut rng)),
+            verified_against,
+            _phantom: PhantomData::<E>,
+        };
+        assert!(SigVerifiedOp::<AttesterSlashingBase<E>, E>::try_from(electra_op).is_err());
     }
 }
