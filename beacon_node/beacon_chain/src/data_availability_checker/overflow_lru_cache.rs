@@ -161,10 +161,6 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Returns Some if the block has received all its required data for import. The return value
     /// must be persisted in the DB along with the block.
     ///
-    /// Verifies an `SignedBeaconBlock` against a set of KZG verified blobs.
-    /// This does not check whether a block *should* have blobs, these checks should have been
-    /// completed when producing the `AvailabilityPendingBlock`.
-    ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
     pub fn make_available<R>(
