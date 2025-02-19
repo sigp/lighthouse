@@ -813,7 +813,13 @@ pub struct LightClientUpdateResponseChunk {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ImportBlobsQuery {
-    pub verify: bool,
+    pub verify: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyBlobsQuery {
+    pub start_slot: Slot,
+    pub end_slot: Slot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]

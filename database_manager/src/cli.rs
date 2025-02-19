@@ -1,4 +1,5 @@
-pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser};
+use crate::blobs_manager::cli::BlobsManager;
+pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser, Subcommand};
 use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
 use serde::{Deserialize, Serialize};
@@ -80,6 +81,8 @@ pub enum DatabaseManagerSubcommand {
     PruneBlobs(PruneBlobs),
     PruneStates(PruneStates),
     Compact(Compact),
+    #[clap(subcommand)]
+    Blobs(BlobsManager),
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]

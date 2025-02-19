@@ -1,4 +1,9 @@
+pub mod blobs_manager;
 pub mod cli;
+
+use crate::blobs_manager::{
+    cli::BlobsManager, export::export_blobs, import::import_blobs, verify::verify_blobs,
+};
 use crate::cli::DatabaseManager;
 use crate::cli::Migrate;
 use crate::cli::PruneStates;
@@ -483,6 +488,7 @@ pub fn run<E: EthSpec>(
 ) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, db_manager_config, &env)?;
     let context = env.core_context();
+    let spec = context.eth2_config.spec.clone();
     let log = context.log().clone();
     let format_err = |e| format!("Fatal error: {:?}", e);
 
@@ -536,5 +542,17 @@ pub fn run<E: EthSpec>(
             let compact_config = parse_compact_config(compact_config)?;
             compact_db::<E>(compact_config, client_config, log).map_err(format_err)
         }
+        cli::DatabaseManagerSubcommand::Blobs(blobs_manager_cmd) => match blobs_manager_cmd {
+            BlobsManager::Verify(verify_config) => {
+                env.runtime()
+                    .block_on(verify_blobs::<E>(verify_config, &spec.clone(), log))
+            }
+            BlobsManager::Export(export_config) => env
+                .runtime()
+                .block_on(export_blobs::<E>(export_config, log)),
+            BlobsManager::Import(import_config) => env
+                .runtime()
+                .block_on(import_blobs::<E>(import_config, log)),
+        },
     }
 }

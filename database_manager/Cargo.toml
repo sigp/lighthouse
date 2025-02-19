@@ -9,7 +9,10 @@ beacon_node = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
 environment = { workspace = true }
+eth2 = { workspace = true }
+ethereum_ssz = { workspace = true }
 hex = { workspace = true }
+sensitive_url = { workspace = true }
 serde = { workspace = true }
 slog = { workspace = true }
 store = { workspace = true }

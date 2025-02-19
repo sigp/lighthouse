@@ -1975,7 +1975,10 @@ dependencies = [
  "clap",
  "clap_utils",
  "environment",
+ "eth2",
+ "ethereum_ssz",
  "hex",
+ "sensitive_url",
  "serde",
  "slog",
  "store",
@@ -2603,6 +2606,7 @@ dependencies = [
 name = "eth2"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "derivative",
  "either",
  "eth2_keystore",

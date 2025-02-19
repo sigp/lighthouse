@@ -470,6 +470,27 @@ impl BeaconNodeHttpClient {
         ok_or_error(response).await
     }
 
+    /// Generic POST function supporting arbitrary responses and timeouts without setting Consensus Version.
+    async fn post_generic_with_ssz_body<T: Into<Body>, U: IntoUrl>(
+        &self,
+        url: U,
+        body: T,
+        timeout: Option<Duration>,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let mut headers = HeaderMap::new();
+
+        headers.insert(
+            "Content-Type",
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        let response = builder.headers(headers).body(body).send().await?;
+        ok_or_error(response).await
+    }
+
     /// `GET beacon/genesis`
     ///
     /// ## Errors

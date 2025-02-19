@@ -29,6 +29,7 @@ pub use block_packing_efficiency::{
 };
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
 pub use lighthouse_network::{types::SyncState, PeerInfo};
+use reqwest::Response;
 pub use standard_block_rewards::StandardBlockReward;
 pub use sync_committee_rewards::SyncCommitteeReward;
 
@@ -411,8 +412,10 @@ impl BeaconNodeHttpClient {
     pub async fn post_lighthouse_database_import_blobs_ssz(
         &self,
         blobs: Bytes,
-    ) -> Result<String, Error> {
+        skip_verification: bool,
+    ) -> Result<Response, Error> {
         let mut path = self.server.full.clone();
+        let verify = !skip_verification;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -420,7 +423,33 @@ impl BeaconNodeHttpClient {
             .push("database")
             .push("import_blobs_ssz");
 
-        self.post_with_response(path, &blobs).await
+        if skip_verification {
+            path.query_pairs_mut()
+                .append_pair("verify", &verify.to_string());
+        }
+
+        self.post_generic_with_ssz_body(path, blobs, None).await
+    }
+
+    /// `POST lighthouse/database/verify_blobs`
+    pub async fn get_lighthouse_database_verify_blobs(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+    ) -> Result<String, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("database")
+            .push("verify_blobs");
+
+        path.query_pairs_mut()
+            .append_pair("start_slot", &start_slot.to_string())
+            .append_pair("end_slot", &end_slot.to_string());
+
+        self.get(path).await
     }
 
     /*

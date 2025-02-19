@@ -86,7 +86,7 @@ use tokio_stream::{
 };
 use types::{
     fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
-    AttesterSlashing, BeaconStateError, BlobSidecarList, ChainSpec, CommitteeCache,
+    AttesterSlashing, BeaconStateError, BlobSidecar, BlobSidecarList, ChainSpec, CommitteeCache,
     ConfigAndPreset, Epoch, EthSpec, ForkName, ForkVersionedResponse, Hash256,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBlindedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
@@ -4448,6 +4448,8 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/database/verify_blobs
+
     // POST lighthouse/database/import_blobs
     let post_lighthouse_database_import_blobs = database_path
         .and(warp::path("import_blobs"))
@@ -4462,7 +4464,7 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    if query.verify {
+                    if query.verify == Some(true) {
                         for blob_list in &blob_lists {
                             match verify_kzg_for_blob_list(blob_list.iter(), &chain.kzg) {
                                 Ok(()) => (),
@@ -4497,11 +4499,30 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    let blob_lists = Vec::<BlobSidecarList<T::EthSpec>>::from_ssz_bytes(&body)
+                    let blob_lists = Vec::<Vec<Arc<BlobSidecar<T::EthSpec>>>>::from_ssz_bytes(
+                        &body,
+                    )
+                    .map_err(|e| warp_utils::reject::custom_server_error(format!("{e:?}")))?;
+
+                    if blob_lists.is_empty() {
+                        return Err(warp_utils::reject::custom_server_error(
+                            "Blob list must not be empty".to_string(),
+                        ));
+                    }
+
+                    // Build `BlobSidecarList`s from the `Vec<BlobSidecar>`s.
+                    let blob_sidecar_lists: Vec<BlobSidecarList<T::EthSpec>> = blob_lists
+                        .into_iter()
+                        .map(|blob_sidecars| {
+                            let max_blobs_at_epoch =
+                                chain.spec.max_blobs_per_block(blob_sidecars[0].epoch()) as usize;
+                            BlobSidecarList::new(blob_sidecars, max_blobs_at_epoch)
+                        })
+                        .collect::<Result<Vec<_>, _>>()
                         .map_err(|e| warp_utils::reject::custom_server_error(format!("{e:?}")))?;
 
-                    if query.verify {
-                        for blob_list in &blob_lists {
+                    if query.verify == Some(true) {
+                        for blob_list in &blob_sidecar_lists {
                             match verify_kzg_for_blob_list(blob_list.iter(), &chain.kzg) {
                                 Ok(()) => (),
                                 Err(e) => {
@@ -4513,9 +4534,50 @@ pub fn serve<T: BeaconChainTypes>(
                         }
                     }
 
-                    match chain.store.import_blobs_batch(blob_lists) {
+                    match chain.store.import_blobs_batch(blob_sidecar_lists) {
                         Ok(()) => Ok(()),
                         Err(e) => Err(warp_utils::reject::custom_server_error(format!("{e:?}"))),
+                    }
+                })
+            },
+        );
+
+    // GET lighthouse/database/verify_blobs
+    let get_lighthouse_database_verify_blobs = database_path
+        .and(warp::path("verify_blobs"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::VerifyBlobsQuery>())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |query: api_types::VerifyBlobsQuery,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let mut results = Vec::new();
+                    for slot in query.start_slot.as_u64()..=query.end_slot.as_u64() {
+                        if let Ok((root, _, _)) = BlockId::from_slot(Slot::from(slot)).root(&chain)
+                        {
+                            if let Ok(blob_list_res) = chain.store.get_blobs(&root) {
+                                if let Some(blob_list) = blob_list_res.blobs() {
+                                    if let Err(e) =
+                                        verify_kzg_for_blob_list(blob_list.iter(), &chain.kzg)
+                                    {
+                                        results.push(format!(
+                                            "slot: {slot}, block_root: {root:?}, error: {e:?}"
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if results.is_empty() {
+                        Ok(api_types::GenericResponse::from(
+                            "All blobs verified successfully".to_string(),
+                        ))
+                    } else {
+                        Ok(api_types::GenericResponse::from(results.join("\n")))
                     }
                 })
             },
@@ -4820,6 +4882,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_eth1_deposit_cache)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
+                .uor(get_lighthouse_database_verify_blobs)
                 .uor(get_lighthouse_block_rewards)
                 .uor(get_lighthouse_attestation_performance)
                 .uor(

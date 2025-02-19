@@ -860,9 +860,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///   If it is, ensure it matches the `BlobSidecarList` we are attempting to store.
     pub fn import_blobs_batch(
         &self,
-        historical_blobs: Vec<BlobSidecarList<E>>,
+        historical_blob_sidecars: Vec<BlobSidecarList<E>>,
     ) -> Result<(), Error> {
-        if historical_blobs.is_empty() {
+        if historical_blob_sidecars.is_empty() {
             return Ok(());
         }
 
@@ -870,13 +870,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let mut ops = vec![];
 
-        for blob_list in historical_blobs {
+        for blob_sidecar_list in historical_blob_sidecars {
             // Ensure all block_roots in the blob list are the same.
             let block_root = {
-                let first_block_root = blob_list[0].block_root();
-                if !blob_list
+                let first_block_root = blob_sidecar_list[0].block_root();
+                if !blob_sidecar_list
                     .iter()
-                    .all(|blob| blob.block_root() == first_block_root)
+                    .all(|blob_sidecar| blob_sidecar.block_root() == first_block_root)
                 {
                     return Err(Error::InvalidBlobImport(
                         "Inconsistent block roots".to_string(),
@@ -885,37 +885,54 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 first_block_root
             };
 
-            // Verify block exists.
+            // Check block is stored for this block_root.
             if !self.block_exists(&block_root)? {
                 warn!(
                     self.log,
-                    "Aborting blob import; block root does not exist.";
+                    "Aborting blob import; block does not exist.";
                     "block_root" => ?block_root,
-                    "num_blobs" => blob_list.len(),
+                    "num_blob_sidecars" => blob_sidecar_list.len(),
                 );
-                return Err(Error::InvalidBlobImport("Missing block root".to_string()));
+                return Err(Error::InvalidBlobImport("Missing block".to_string()));
             }
 
-            // Check if a blob_list is already stored for this block root.
-            if let Some(existing_blob_list) = self.get_blobs(&block_root)? {
-                if existing_blob_list == blob_list {
-                    debug!(
-                        self.log,
-                        "Skipping blob import as identical blob exists";
-                        "block_root" => ?block_root,
-                        "num_blobs" => blob_list.len(),
-                    );
-                    continue;
+            // Check if a `blob_sidecar_list` is already stored for this block root.
+            match self.get_blobs(&block_root) {
+                Ok(BlobSidecarListFromRoot::Blobs(existing_blob_sidecar_list)) => {
+                    // If blobs already exist, only proceed if they match exactly.
+                    if existing_blob_sidecar_list == blob_sidecar_list {
+                        debug!(
+                            self.log,
+                            "Skipping blob sidecar import as identical blob exists";
+                            "block_root" => ?block_root,
+                            "num_blob_sidecars" => blob_sidecar_list.len(),
+                        );
+                        continue;
+                    } else {
+                        return Err(Error::InvalidBlobImport(format!(
+                            "Conflicting blobs exist for block root {:?}",
+                            block_root
+                        )));
+                    }
                 }
-
-                return Err(Error::InvalidBlobImport(format!(
-                    "Conflicting blobs exist for block root {:?}",
-                    block_root
-                )));
+                Ok(BlobSidecarListFromRoot::NoRoot) => {
+                    // This block has no existing blobs: proceed with import.
+                    self.blobs_as_kv_store_ops(&block_root, blob_sidecar_list.clone(), &mut ops);
+                    total_imported += blob_sidecar_list.len();
+                }
+                Ok(BlobSidecarListFromRoot::NoBlobs) => {
+                    // This block should not have any blobs: reject the import.
+                    warn!(
+                        self.log,
+                        "Aborting blob import; blobs should not exist for this block_root.";
+                        "block_root" => ?block_root,
+                    );
+                    return Err(Error::InvalidBlobImport(
+                        "No blobs should exist for this block_root".to_string(),
+                    ));
+                }
+                Err(e) => return Err(Error::InvalidBlobImport(format!("{e:?}"))),
             }
-
-            self.blobs_as_kv_store_ops(&block_root, blob_list.clone(), &mut ops);
-            total_imported += blob_list.len();
         }
 
         self.blobs_db.do_atomically(ops)?;
