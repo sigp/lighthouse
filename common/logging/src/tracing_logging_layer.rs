@@ -122,6 +122,12 @@ where
             None => "<unknown_line>".to_string(),
         };
 
+        if module.contains("discv5") {
+            visitor
+                .fields
+                .push(("service".to_string(), "\"discv5\"".to_string()));
+        }
+        
         let gray = "\x1b[90m";
         let reset = "\x1b[0m";
         let location = if self.extra_info {
