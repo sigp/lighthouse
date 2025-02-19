@@ -164,15 +164,10 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     pub fn peer_disconnected(&mut self, peer_id: PeerId) -> Vec<(Id, Protocol)> {
         let mut failed_requests = Vec::new();
 
-        self.ready_requests.retain(|event| {
-            if let BehaviourAction::NotifyHandler {
-                peer_id: req_peer_id,
-                handler: _,
-                event: RPCSend::Request(request_id, request),
-            } = event
-            {
+        self.ready_requests.retain(|(req_peer_id, rpc_send)| {
+            if let RPCSend::Request(request_id, req) = rpc_send {
                 if req_peer_id == &peer_id {
-                    failed_requests.push((*request_id, request.protocol()));
+                    failed_requests.push((*request_id, req.protocol()));
                     // Remove the entry
                     false
                 } else {
@@ -180,7 +175,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                     true
                 }
             } else {
-                unreachable!()
+                unreachable!("Coding error: unexpected RPCSend variant {rpc_send:?}.")
             }
         });
 
@@ -322,19 +317,27 @@ mod tests {
     #[tokio::test]
     async fn test_peer_disconnected_returns_failed_requests() {
         let log = logging::test_logger();
+        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Hash256::ZERO,
+            &MainnetEthSpec::default_spec(),
+        ));
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
             ping_quota: Quota::n_every(1, 2),
             ..Default::default()
         });
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(config, log).unwrap();
+            SelfRateLimiter::new(config, fork_context, log).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {
             let result = limiter.allows(
                 peer_id,
-                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                    id: i,
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    id: SingleLookupReqId {
+                        req_id: i,
+                        lookup_id: i,
+                    },
                 })),
                 RequestType::Ping(Ping { data: i as u64 }),
             );
@@ -370,9 +373,9 @@ mod tests {
             let (request_id, protocol) = failed_requests.remove(0);
             assert!(matches!(
                 request_id,
-                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
-                    id
-                })) if id == i
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    id: SingleLookupReqId { req_id, .. },
+                })) if req_id == i
             ));
             assert_eq!(protocol, Protocol::Ping);
         }
