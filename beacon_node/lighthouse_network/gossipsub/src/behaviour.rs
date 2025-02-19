@@ -984,7 +984,7 @@ where
 
         // if we are already in the mesh, return
         if self.mesh.contains_key(topic_hash) {
-            tracing::debug!(topic=%topic_hash, "JOIN: The topic is already in the mesh, ignoring JOIN");
+            tracing::debug!(topic=%topic_hash, "JOIN: The topic is already in the mesh; ignoring JOIN");
             return;
         }
 
@@ -1836,7 +1836,7 @@ where
         }
 
         if !self.duplicate_cache.insert(msg_id.clone()) {
-            tracing::debug!(message=%msg_id, "Message already received, ignoring");
+            tracing::debug!(message=%msg_id, "Message already received; ignoring");
             if let Some((peer_score, ..)) = &mut self.peer_score {
                 peer_score.duplicated_message(propagation_source, &msg_id, &message.topic);
             }
@@ -2258,7 +2258,7 @@ where
                     current_topic.push(topic_hash.clone());
                 }
                 // update the mesh
-                tracing::debug!("Updating mesh, new mesh: {:?}", peer_list);
+                tracing::debug!("Updating mesh, new mesh: {:?}, ", peer_list);
                 if let Some(m) = self.metrics.as_mut() {
                     m.peers_included(topic_hash, Inclusion::Random, peer_list.len())
                 }
@@ -2346,7 +2346,7 @@ where
                         current_topic.push(topic_hash.clone());
                     }
                     // update the mesh
-                    tracing::debug!("Updating mesh, new mesh: {:?}", peer_list);
+                    tracing::debug!("Updating mesh, new mesh: {:?}, ", peer_list);
                     if let Some(m) = self.metrics.as_mut() {
                         m.peers_included(topic_hash, Inclusion::Outbound, peer_list.len())
                     }
