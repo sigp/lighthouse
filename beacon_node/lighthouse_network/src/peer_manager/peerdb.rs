@@ -689,8 +689,8 @@ impl<E: EthSpec> PeerDB<E> {
         &mut self,
         supernode: bool,
         spec: &ChainSpec,
+        enr_key: CombinedKey,
     ) -> PeerId {
-        let enr_key = CombinedKey::generate_secp256k1();
         let mut enr = Enr::builder().build(&enr_key).unwrap();
         let peer_id = enr.peer_id();
 

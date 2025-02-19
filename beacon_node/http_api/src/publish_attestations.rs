@@ -36,8 +36,8 @@
 //! attestations and there's no immediate cause for concern.
 use crate::task_spawner::{Priority, TaskSpawner};
 use beacon_chain::{
-    validator_monitor::timestamp_now, AttestationError, BeaconChain, BeaconChainError,
-    BeaconChainTypes,
+    single_attestation::single_attestation_to_attestation, validator_monitor::timestamp_now,
+    AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
 use either::Either;
@@ -183,10 +183,10 @@ fn convert_to_attestation<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     attestation: &'a Either<Attestation<T::EthSpec>, SingleAttestation>,
 ) -> Result<Cow<'a, Attestation<T::EthSpec>>, Error> {
-    let a = match attestation {
-        Either::Left(a) => Cow::Borrowed(a),
-        Either::Right(single_attestation) => chain
-            .with_committee_cache(
+    match attestation {
+        Either::Left(a) => Ok(Cow::Borrowed(a)),
+        Either::Right(single_attestation) => {
+            let conversion_result = chain.with_committee_cache(
                 single_attestation.data.target.root,
                 single_attestation
                     .data
@@ -197,24 +197,33 @@ fn convert_to_attestation<'a, T: BeaconChainTypes>(
                         single_attestation.data.slot,
                         single_attestation.committee_index,
                     ) else {
-                        return Err(BeaconChainError::AttestationError(
-                            types::AttestationError::NoCommitteeForSlotAndIndex {
-                                slot: single_attestation.data.slot,
-                                index: single_attestation.committee_index,
-                            },
-                        ));
+                        return Ok(Err(AttestationError::NoCommitteeForSlotAndIndex {
+                            slot: single_attestation.data.slot,
+                            index: single_attestation.committee_index,
+                        }));
                     };
 
-                    let attestation =
-                        single_attestation.to_attestation::<T::EthSpec>(committee.committee)?;
-
-                    Ok(Cow::Owned(attestation))
+                    Ok(single_attestation_to_attestation::<T::EthSpec>(
+                        single_attestation,
+                        committee.committee,
+                    )
+                    .map(Cow::Owned))
                 },
-            )
-            .map_err(Error::FailedConversion)?,
-    };
-
-    Ok(a)
+            );
+            match conversion_result {
+                Ok(Ok(attestation)) => Ok(attestation),
+                Ok(Err(e)) => Err(Error::Validation(e)),
+                // Map the error returned by `with_committee_cache` for unknown blocks into the
+                // `UnknownHeadBlock` error that is gracefully handled.
+                Err(BeaconChainError::MissingBeaconBlock(beacon_block_root)) => {
+                    Err(Error::Validation(AttestationError::UnknownHeadBlock {
+                        beacon_block_root,
+                    }))
+                }
+                Err(e) => Err(Error::FailedConversion(e)),
+            }
+        }
+    }
 }
 
 pub async fn publish_attestations<T: BeaconChainTypes>(

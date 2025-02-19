@@ -234,6 +234,11 @@ impl<E: EthSpec> PeerInfo<E> {
         self.custody_subnets.contains(subnet)
     }
 
+    /// Returns an iterator on this peer's custody subnets
+    pub fn custody_subnets_iter(&self) -> impl Iterator<Item = &DataColumnSubnetId> {
+        self.custody_subnets.iter()
+    }
+
     /// Returns true if the peer is connected to a long-lived subnet.
     pub fn has_long_lived_subnet(&self) -> bool {
         // Check the meta_data

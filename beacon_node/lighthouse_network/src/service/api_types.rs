@@ -1,14 +1,13 @@
-use std::sync::Arc;
-
-use libp2p::swarm::ConnectionId;
-use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
-};
-
 use crate::rpc::{
     methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage},
     SubstreamId,
+};
+use libp2p::swarm::ConnectionId;
+use std::fmt::{Display, Formatter};
+use std::sync::Arc;
+use types::{
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
 
 /// Identifier of requests sent by a peer.
@@ -31,8 +30,12 @@ pub enum SyncRequestId {
     SingleBlob { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
     DataColumnsByRoot(DataColumnsByRootRequestId),
-    /// Range request that is composed by both a block range request and a blob range request.
-    RangeBlockAndBlobs { id: Id },
+    /// Blocks by range request
+    BlocksByRange(BlocksByRangeRequestId),
+    /// Blobs by range request
+    BlobsByRange(BlobsByRangeRequestId),
+    /// Data columns by range request
+    DataColumnsByRange(DataColumnsByRangeRequestId),
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
@@ -44,9 +47,57 @@ pub struct DataColumnsByRootRequestId {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct BlocksByRangeRequestId {
+    /// Id to identify this attempt at a blocks_by_range request for `parent_request_id`
+    pub id: Id,
+    /// The Id of the overall By Range request for block components.
+    pub parent_request_id: ComponentsByRangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct BlobsByRangeRequestId {
+    /// Id to identify this attempt at a blobs_by_range request for `parent_request_id`
+    pub id: Id,
+    /// The Id of the overall By Range request for block components.
+    pub parent_request_id: ComponentsByRangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataColumnsByRangeRequestId {
+    /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
+    pub id: Id,
+    /// The Id of the overall By Range request for block components.
+    pub parent_request_id: ComponentsByRangeRequestId,
+}
+
+/// Block components by range request for range sync. Includes an ID for downstream consumers to
+/// handle retries and tie all their sub requests together.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct ComponentsByRangeRequestId {
+    /// Each `RangeRequestId` may request the same data in a later retry. This Id identifies the
+    /// current attempt.
+    pub id: Id,
+    /// What sync component is issuing a components by range request and expecting data back
+    pub requester: RangeRequestId,
+}
+
+/// Range sync chain or backfill batch
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum RangeRequestId {
+    RangeSync { chain_id: Id, batch_id: Epoch },
+    BackfillSync { batch_id: Epoch },
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRootRequester {
     Sampling(SamplingId),
     Custody(CustodyId),
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum RangeRequester {
+    RangeSync { chain_id: u64, batch_id: Epoch },
+    BackfillSync { batch_id: Epoch },
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -183,9 +234,108 @@ impl slog::Value for RequestId {
     }
 }
 
-// This custom impl reduces log boilerplate not printing `DataColumnsByRootRequestId` on each id log
-impl std::fmt::Display for DataColumnsByRootRequestId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {:?}", self.id, self.requester)
+macro_rules! impl_display {
+    ($structname: ty, $format: literal, $($field:ident),*) => {
+        impl Display for $structname {
+            fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                write!(f, $format, $(self.$field,)*)
+            }
+        }
+    };
+}
+
+// Since each request Id is deeply nested with various types, if rendered with Debug on logs they
+// take too much visual space. This custom Display implementations make the overall Id short while
+// not losing information
+impl_display!(BlocksByRangeRequestId, "{}/{}", id, parent_request_id);
+impl_display!(BlobsByRangeRequestId, "{}/{}", id, parent_request_id);
+impl_display!(DataColumnsByRangeRequestId, "{}/{}", id, parent_request_id);
+impl_display!(ComponentsByRangeRequestId, "{}/{}", id, requester);
+impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
+impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);
+impl_display!(CustodyId, "{}", requester);
+impl_display!(SamplingId, "{}/{}", sampling_request_id, id);
+
+impl Display for DataColumnsByRootRequester {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Custody(id) => write!(f, "Custody/{id}"),
+            Self::Sampling(id) => write!(f, "Sampling/{id}"),
+        }
+    }
+}
+
+impl Display for CustodyRequester {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Display for RangeRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RangeSync { chain_id, batch_id } => write!(f, "RangeSync/{batch_id}/{chain_id}"),
+            Self::BackfillSync { batch_id } => write!(f, "BackfillSync/{batch_id}"),
+        }
+    }
+}
+
+impl Display for SamplingRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Display for SamplingRequester {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ImportedBlock(block) => write!(f, "ImportedBlock/{block}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_id_data_columns_by_root_custody() {
+        let id = DataColumnsByRootRequestId {
+            id: 123,
+            requester: DataColumnsByRootRequester::Custody(CustodyId {
+                requester: CustodyRequester(SingleLookupReqId {
+                    req_id: 121,
+                    lookup_id: 101,
+                }),
+            }),
+        };
+        assert_eq!(format!("{id}"), "123/Custody/121/Lookup/101");
+    }
+
+    #[test]
+    fn display_id_data_columns_by_root_sampling() {
+        let id = DataColumnsByRootRequestId {
+            id: 123,
+            requester: DataColumnsByRootRequester::Sampling(SamplingId {
+                id: SamplingRequester::ImportedBlock(Hash256::ZERO),
+                sampling_request_id: SamplingRequestId(101),
+            }),
+        };
+        assert_eq!(format!("{id}"), "123/Sampling/101/ImportedBlock/0x0000000000000000000000000000000000000000000000000000000000000000");
+    }
+
+    #[test]
+    fn display_id_data_columns_by_range() {
+        let id = DataColumnsByRangeRequestId {
+            id: 123,
+            parent_request_id: ComponentsByRangeRequestId {
+                id: 122,
+                requester: RangeRequestId::RangeSync {
+                    chain_id: 54,
+                    batch_id: Epoch::new(0),
+                },
+            },
+        };
+        assert_eq!(format!("{id}"), "123/122/RangeSync/0/54");
     }
 }

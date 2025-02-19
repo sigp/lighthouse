@@ -49,9 +49,8 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip6110",
     "tests/.*/whisk",
-    # TODO(electra): SingleAttestation tests are waiting on Eitan's PR
-    "tests/.*/electra/ssz_static/SingleAttestation",
-    "tests/.*/fulu/ssz_static/SingleAttestation",
+    # TODO(das): Fulu tests are ignored for now
+    "tests/.*/fulu",
     "tests/.*/fulu/ssz_static/MatrixEntry",
 ]
 

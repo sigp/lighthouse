@@ -516,7 +516,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .ok_or(Error::AddPayloadLogicError)
     }
 
-    /// Prepare a signed beacon block for storage in the datbase *without* its payload.
+    /// Prepare a signed beacon block for storage in the database *without* its payload.
     pub fn blinded_block_as_kv_store_ops(
         &self,
         key: &Hash256,

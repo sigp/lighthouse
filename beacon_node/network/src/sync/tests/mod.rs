@@ -7,12 +7,13 @@ use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
 use lighthouse_network::NetworkGlobals;
+use rand_chacha::ChaCha20Rng;
 use slog::Logger;
 use slot_clock::ManualSlotClock;
 use std::sync::Arc;
 use store::MemoryStore;
 use tokio::sync::mpsc;
-use types::{test_utils::XorShiftRng, ChainSpec, ForkName, MinimalEthSpec as E};
+use types::{ChainSpec, ForkName, MinimalEthSpec as E};
 
 mod lookups;
 mod range;
@@ -61,7 +62,7 @@ struct TestRig {
     /// Beacon chain harness
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     /// `rng` for generating test blocks and blobs.
-    rng: XorShiftRng,
+    rng: ChaCha20Rng,
     fork_name: ForkName,
     log: Logger,
     spec: Arc<ChainSpec>,

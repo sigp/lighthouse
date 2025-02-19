@@ -94,46 +94,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         should_import: bool,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
-        let result = self.chain.with_committee_cache(
-            single_attestation.data.target.root,
-            single_attestation
-                .data
-                .slot
-                .epoch(T::EthSpec::slots_per_epoch()),
-            |committee_cache, _| {
-                let Some(committee) = committee_cache.get_beacon_committee(
-                    single_attestation.data.slot,
-                    single_attestation.committee_index,
-                ) else {
-                    warn!(
-                        self.log,
-                        "No beacon committee for slot and index";
-                        "slot" => single_attestation.data.slot,
-                        "index" => single_attestation.committee_index
-                    );
-                    return Ok(Ok(()));
-                };
+        let processor = self.clone();
+        let process_individual = move |package: GossipAttestationPackage<SingleAttestation>| {
+            let reprocess_tx = processor.reprocess_tx.clone();
+            processor.process_gossip_attestation_to_convert(
+                package.message_id,
+                package.peer_id,
+                package.attestation,
+                package.subnet_id,
+                package.should_import,
+                Some(reprocess_tx),
+                package.seen_timestamp,
+            )
+        };
 
-                let attestation = single_attestation.to_attestation(committee.committee)?;
-
-                Ok(self.send_unaggregated_attestation(
-                    message_id.clone(),
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipAttestationToConvert {
+                attestation: Box::new(GossipAttestationPackage {
+                    message_id,
                     peer_id,
-                    attestation,
+                    attestation: Box::new(single_attestation),
                     subnet_id,
                     should_import,
                     seen_timestamp,
-                ))
+                }),
+                process_individual: Box::new(process_individual),
             },
-        );
-
-        match result {
-            Ok(result) => result,
-            Err(e) => {
-                warn!(self.log, "Failed to send SingleAttestation"; "error" => ?e);
-                Ok(())
-            }
-        }
+        })
     }
 
     /// Create a new `Work` event for some unaggregated attestation.
@@ -148,18 +136,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
-        let process_individual = move |package: GossipAttestationPackage<T::EthSpec>| {
-            let reprocess_tx = processor.reprocess_tx.clone();
-            processor.process_gossip_attestation(
-                package.message_id,
-                package.peer_id,
-                package.attestation,
-                package.subnet_id,
-                package.should_import,
-                Some(reprocess_tx),
-                package.seen_timestamp,
-            )
-        };
+        let process_individual =
+            move |package: GossipAttestationPackage<Attestation<T::EthSpec>>| {
+                let reprocess_tx = processor.reprocess_tx.clone();
+                processor.process_gossip_attestation(
+                    package.message_id,
+                    package.peer_id,
+                    package.attestation,
+                    package.subnet_id,
+                    package.should_import,
+                    Some(reprocess_tx),
+                    package.seen_timestamp,
+                )
+            };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
