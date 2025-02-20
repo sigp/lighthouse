@@ -70,6 +70,8 @@ fn filter_dependency_log(meta: &tracing::Metadata<'_>) -> bool {
         if file.contains("/.cargo/") {
             let target = meta.target();
             return target.contains("discv5") || target.contains("libp2p");
+        } else {
+            return !file.contains("gossipsub");
         }
     }
     true
