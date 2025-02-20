@@ -1939,10 +1939,10 @@ pub fn serve<T: BeaconChainTypes>(
              query: api_types::AttestationPoolQuery| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let query_filter = |data: &AttestationData| {
-                        query.slot.map_or(true, |slot| slot == data.slot)
+                        query.slot.is_none_or(|slot| slot == data.slot)
                             && query
                                 .committee_index
-                                .map_or(true, |index| index == data.index)
+                                .is_none_or(|index| index == data.index)
                     };
 
                     let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
@@ -3159,11 +3159,11 @@ pub fn serve<T: BeaconChainTypes>(
                                     peer_info.connection_status(),
                                 );
 
-                                let state_matches = query.state.as_ref().map_or(true, |states| {
+                                let state_matches = query.state.as_ref().is_none_or(|states| {
                                     states.iter().any(|state_param| *state_param == state)
                                 });
                                 let direction_matches =
-                                    query.direction.as_ref().map_or(true, |directions| {
+                                    query.direction.as_ref().is_none_or(|directions| {
                                         directions.iter().any(|dir_param| *dir_param == direction)
                                     });
 

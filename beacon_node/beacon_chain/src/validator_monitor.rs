@@ -628,7 +628,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                         // the proposer shuffling cache lock when there are lots of missed blocks.
                         if proposers_per_epoch
                             .as_ref()
-                            .map_or(true, |(_, cached_epoch)| *cached_epoch != slot_epoch)
+                            .is_none_or(|(_, cached_epoch)| *cached_epoch != slot_epoch)
                         {
                             proposers_per_epoch = self
                                 .get_proposers_by_epoch_from_cache(

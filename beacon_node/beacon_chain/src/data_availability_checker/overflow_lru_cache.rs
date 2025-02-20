@@ -307,7 +307,6 @@ impl<E: EthSpec> PendingComponents<E> {
                 .map(|b| b.map(|b| b.to_blob()))
                 .take(num_blobs_expected)
                 .collect::<Option<Vec<_>>>()
-                .map(Into::into)
             else {
                 return Err(AvailabilityCheckError::Unexpected);
             };

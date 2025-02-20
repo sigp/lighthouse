@@ -138,7 +138,7 @@ impl ShufflingCache {
             .get(&key)
             // Replace the committee if it's not present or if it's a promise. A bird in the hand is
             // worth two in the promise-bush!
-            .map_or(true, CacheItem::is_promise)
+            .is_none_or(CacheItem::is_promise)
         {
             self.insert_cache_item(
                 key,
