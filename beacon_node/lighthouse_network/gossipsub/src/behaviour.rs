@@ -2258,7 +2258,7 @@ where
                     current_topic.push(topic_hash.clone());
                 }
                 // update the mesh
-                tracing::debug!("Updating mesh, new mesh: {:?}, ", peer_list);
+                tracing::debug!(new_mesh = ?peer_list,"Updating mesh");
                 if let Some(m) = self.metrics.as_mut() {
                     m.peers_included(topic_hash, Inclusion::Random, peer_list.len())
                 }
@@ -2346,7 +2346,7 @@ where
                         current_topic.push(topic_hash.clone());
                     }
                     // update the mesh
-                    tracing::debug!("Updating mesh, new mesh: {:?}, ", peer_list);
+                    tracing::debug!(new_mesh = ?peer_list,"Updating mesh");
                     if let Some(m) = self.metrics.as_mut() {
                         m.peers_included(topic_hash, Inclusion::Outbound, peer_list.len())
                     }
