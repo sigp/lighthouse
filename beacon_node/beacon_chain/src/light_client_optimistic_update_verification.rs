@@ -22,11 +22,14 @@ pub enum Error {
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
     TooEarly,
+    /// Light client optimistic update message has been received too late to be compared
+    /// against locally constructed one.
+    TooLate,
     /// Light client optimistic update message does not match the locally constructed one.
     InvalidLightClientOptimisticUpdate,
     /// Signature slot start time is none.
     SigSlotStartIsNone,
-    /// Failed to construct a LightClientOptimisticUpdate from state.
+    /// Failed to construct a `LightClientOptimisticUpdate` from state.
     FailedConstructingUpdate,
     /// Unknown block with parent root.
     UnknownBlockParentRoot(Hash256),
@@ -75,6 +78,11 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             .light_client_server_cache
             .get_latest_optimistic_update()
             .ok_or(Error::FailedConstructingUpdate)?;
+
+        // verify that the gossiped finality update isn't stale
+        if latest_optimistic_update.signature_slot() > rcv_optimistic_update.signature_slot() {
+            return Err(Error::TooLate);
+        }
 
         // verify that the gossiped optimistic update is the same as the locally constructed one.
         if latest_optimistic_update != rcv_optimistic_update {

@@ -2204,7 +2204,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             | LightClientFinalityUpdateError::SigSlotStartIsNone => {
                 metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_ERRORS)
             }
-            LightClientFinalityUpdateError::TooEarly => {
+            LightClientFinalityUpdateError::TooEarly | LightClientFinalityUpdateError::TooLate => {
                 metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_IGNORES)
             }
         })
@@ -2255,6 +2255,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 metrics::inc_counter(&metrics::OPTIMISTIC_UPDATE_PROCESSING_ERRORS)
             }
             LightClientOptimisticUpdateError::TooEarly
+            | LightClientOptimisticUpdateError::TooLate
             | LightClientOptimisticUpdateError::UnknownBlockParentRoot(_) => {
                 metrics::inc_counter(&metrics::OPTIMISTIC_UPDATE_PROCESSING_IGNORES)
             }
