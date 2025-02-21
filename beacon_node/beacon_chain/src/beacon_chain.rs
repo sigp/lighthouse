@@ -7305,27 +7305,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(None)
     }
-
-    /// The current sync committee is considered misaligned if a fork is scheduled inside it.
-    /// That is, if `fork_epoch` is not divisible by 256 and the current sync committee period
-    /// is equal to the `fork_epoch` sync committee period.
-    pub fn is_current_sync_committee_period_misaligned<E: EthSpec>(
-        &self,
-        current_slot: Slot,
-    ) -> bool {
-        let is_fork_boundary_inside_sync_committee_period = |fork_epoch: Epoch| {
-            current_slot
-                .epoch(E::slots_per_epoch())
-                .sync_committee_period(&self.spec)
-                == fork_epoch.sync_committee_period(&self.spec)
-                && fork_epoch % self.spec.epochs_per_sync_committee_period != 0
-        };
-
-        ForkName::list_all_fork_epochs(&self.spec)
-            .iter()
-            .filter_map(|(_, fork_epoch_opt)| *fork_epoch_opt)
-            .any(is_fork_boundary_inside_sync_committee_period)
-    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {

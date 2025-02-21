@@ -86,7 +86,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
         // We temporarily skip computing light client updates if the current sync committee period is "misaligned"
-        if is_current_sync_committee_period_misaligned::<T::EthSpec>(block_slot, chain_spec) {
+        if chain_spec.is_current_sync_committee_period_misaligned::<T::EthSpec>(block_slot) {
             debug!(
                 log,
                 "The current sync committee period is misaligned, no light client updates have been computed.";
@@ -444,25 +444,4 @@ impl<E: EthSpec> LightClientCachedData<E> {
             finalized_block_root: state.finalized_checkpoint().root,
         })
     }
-}
-
-/// The current sync committee is considered misaligned if a fork is scheduled inside it.
-/// That is, if `fork_epoch` is not divisible by 256 and the current sync committee period
-/// is equal to the `fork_epoch` sync committee period.
-fn is_current_sync_committee_period_misaligned<E: EthSpec>(
-    current_slot: Slot,
-    spec: &ChainSpec,
-) -> bool {
-    let is_fork_boundary_inside_sync_committee_period = |fork_epoch: Epoch| {
-        current_slot
-            .epoch(E::slots_per_epoch())
-            .sync_committee_period(spec)
-            == fork_epoch.sync_committee_period(spec)
-            && fork_epoch % spec.epochs_per_sync_committee_period != 0
-    };
-
-    ForkName::list_all_fork_epochs(spec)
-        .iter()
-        .filter_map(|(_, fork_epoch_opt)| *fork_epoch_opt)
-        .any(is_fork_boundary_inside_sync_committee_period)
 }

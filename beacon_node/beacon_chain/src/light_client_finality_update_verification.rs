@@ -51,9 +51,12 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
         // the fork epoch is misaligned, the light client server is temporarily disabled
-        if chain.is_current_sync_committee_period_misaligned::<T::EthSpec>(
-            *rcv_finality_update.signature_slot(),
-        ) {
+        if chain
+            .spec
+            .is_current_sync_committee_period_misaligned::<T::EthSpec>(
+                *rcv_finality_update.signature_slot(),
+            )
+        {
             return Err(Error::Disabled);
         }
         // verify that enough time has passed for the block to have been propagated
