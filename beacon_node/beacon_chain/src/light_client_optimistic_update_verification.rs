@@ -25,6 +25,8 @@ pub enum Error {
     /// Light client optimistic update message has been received too late to be compared
     /// against locally constructed one.
     TooLate,
+    /// Light client functionality is temporarily disabled
+    Disabled,
     /// Light client optimistic update message does not match the locally constructed one.
     InvalidLightClientOptimisticUpdate,
     /// Signature slot start time is none.
@@ -52,6 +54,12 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
+        // the fork epoch is misaligned, the light client server is temporarily disabled
+        if chain.is_current_sync_committee_period_misaligned::<T::EthSpec>(
+            *rcv_optimistic_update.signature_slot(),
+        ) {
+            return Err(Error::Disabled);
+        }
         // verify that enough time has passed for the block to have been propagated
         let start_time = chain
             .slot_clock
