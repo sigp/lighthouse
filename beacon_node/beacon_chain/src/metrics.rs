@@ -1697,6 +1697,18 @@ pub static FINALITY_UPDATE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
             "Number of light client finality updates verified for gossip",
         )
     });
+pub static FINALITY_UPDATE_PROCESSING_ERRORS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "light_client_finality_update_verification_errors_total",
+        "Number of light client finality updates errors",
+    )
+});
+pub static FINALITY_UPDATE_PROCESSING_IGNORES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "light_client_finality_update_verification_ignores_total",
+        "Number of light client finality updates ignores",
+    )
+});
 /*
  * Light server message verification
  */
@@ -1705,6 +1717,20 @@ pub static OPTIMISTIC_UPDATE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> 
         try_create_int_counter(
             "light_client_optimistic_update_verification_success_total",
             "Number of light client optimistic updates verified for gossip",
+        )
+    });
+pub static OPTIMISTIC_UPDATE_PROCESSING_ERRORS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "light_client_optimistic_update_verification_errors_total",
+            "Number of light client optimistic updates errors",
+        )
+    });
+pub static OPTIMISTIC_UPDATE_PROCESSING_IGNORES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "light_client_optimistic_update_verification_ignores_total",
+            "Number of light client optimistic updates ignores",
         )
     });
 /*

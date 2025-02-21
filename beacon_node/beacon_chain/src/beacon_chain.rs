@@ -2198,6 +2198,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self,
             seen_timestamp,
         )
+        .inspect_err(|e| match e {
+            LightClientFinalityUpdateError::FailedConstructingUpdate
+            | LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate
+            | LightClientFinalityUpdateError::SigSlotStartIsNone => {
+                metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_ERRORS)
+            }
+            LightClientFinalityUpdateError::TooEarly => {
+                metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_IGNORES)
+            }
+        })
         .inspect(|_| {
             metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_SUCCESSES);
         })
@@ -2238,6 +2248,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self,
             seen_timestamp,
         )
+        .inspect_err(|e| match e {
+            LightClientOptimisticUpdateError::FailedConstructingUpdate
+            | LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate
+            | LightClientOptimisticUpdateError::SigSlotStartIsNone => {
+                metrics::inc_counter(&metrics::OPTIMISTIC_UPDATE_PROCESSING_ERRORS)
+            }
+            LightClientOptimisticUpdateError::TooEarly
+            | LightClientOptimisticUpdateError::UnknownBlockParentRoot(_) => {
+                metrics::inc_counter(&metrics::OPTIMISTIC_UPDATE_PROCESSING_IGNORES)
+            }
+        })
         .inspect(|_| {
             metrics::inc_counter(&metrics::OPTIMISTIC_UPDATE_PROCESSING_SUCCESSES);
         })
