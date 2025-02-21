@@ -1,3 +1,5 @@
+#![deny(clippy::arithmetic_side_effects)]
+
 use super::config::RateLimiterConfig;
 use crate::rpc::Protocol;
 use fnv::FnvHashMap;
@@ -236,7 +238,9 @@ impl RPCRateLimiterBuilder {
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
         let prune_every = tokio::time::Duration::from_secs(30);
-        let prune_start = tokio::time::Instant::now() + prune_every;
+        let prune_start = tokio::time::Instant::now()
+            .checked_add(prune_every)
+            .ok_or("prune time overflow")?;
         let prune_interval = tokio::time::interval_at(prune_start, prune_every);
         Ok(RPCRateLimiter {
             prune_interval,
@@ -408,7 +412,9 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
         if tau == 0 {
             return Err("Replenish time must be positive");
         }
-        let t = (tau / quota.max_tokens as u128)
+        let t = tau
+            .checked_div(quota.max_tokens as u128)
+            .ok_or("Max number of tokens should be positive")?
             .try_into()
             .map_err(|_| "total replenish time is too long")?;
         let tau = tau
@@ -431,7 +437,7 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
         let tau = self.tau;
         let t = self.t;
         // how long does it take to replenish these tokens
-        let additional_time = t * tokens;
+        let additional_time = t.saturating_mul(tokens);
         if additional_time > tau {
             // the time required to process this amount of tokens is longer than the time that
             // makes the bucket full. So, this batch can _never_ be processed
@@ -444,16 +450,16 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
             .entry(key.clone())
             .or_insert(time_since_start);
         // check how soon could the request be made
-        let earliest_time = (*tat + additional_time).saturating_sub(tau);
+        let earliest_time = (*tat).saturating_add(additional_time).saturating_sub(tau);
         // earliest_time is in the future
         if time_since_start < earliest_time {
             Err(RateLimitedErr::TooSoon(Duration::from_nanos(
                 /* time they need to wait, i.e. how soon were they */
-                earliest_time - time_since_start,
+                earliest_time.saturating_sub(time_since_start),
             )))
         } else {
             // calculate the new TAT
-            *tat = time_since_start.max(*tat) + additional_time;
+            *tat = time_since_start.max(*tat).saturating_add(additional_time);
             Ok(())
         }
     }
