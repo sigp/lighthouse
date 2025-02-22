@@ -215,6 +215,7 @@ mod tests {
     use crate::rpc::{Ping, Protocol, RequestType};
     use crate::service::api_types::{AppRequestId, RequestId, SingleLookupReqId, SyncRequestId};
     use libp2p::PeerId;
+    use std::num::NonZeroU64;
     use std::time::Duration;
     use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
 
@@ -223,7 +224,7 @@ mod tests {
     async fn test_next_peer_request_ready() {
         let log = logging::test_logger();
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
-            ping_quota: Quota::n_every(1, 2),
+            ping_quota: Quota::n_every(NonZeroU64::new(1).unwrap(), 2),
             ..Default::default()
         });
         let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(

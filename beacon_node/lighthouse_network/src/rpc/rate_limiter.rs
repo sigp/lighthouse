@@ -7,6 +7,7 @@ use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::hash::Hash;
+use std::num::NonZeroU64;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -57,7 +58,7 @@ pub struct Quota {
     pub(super) replenish_all_every: Duration,
     /// Token limit. This translates on how large can an instantaneous batch of
     /// tokens be.
-    pub(super) max_tokens: u64,
+    pub(super) max_tokens: NonZeroU64,
 }
 
 impl Quota {
@@ -65,12 +66,12 @@ impl Quota {
     pub const fn one_every(seconds: u64) -> Self {
         Quota {
             replenish_all_every: Duration::from_secs(seconds),
-            max_tokens: 1,
+            max_tokens: NonZeroU64::new(1).unwrap(),
         }
     }
 
     /// Allow `n` tokens to be use used every `seconds`.
-    pub const fn n_every(n: u64, seconds: u64) -> Self {
+    pub const fn n_every(n: NonZeroU64, seconds: u64) -> Self {
         Quota {
             replenish_all_every: Duration::from_secs(seconds),
             max_tokens: n,
@@ -405,16 +406,13 @@ pub struct Limiter<Key: Hash + Eq + Clone> {
 
 impl<Key: Hash + Eq + Clone> Limiter<Key> {
     pub fn from_quota(quota: Quota) -> Result<Self, &'static str> {
-        if quota.max_tokens == 0 {
-            return Err("Max number of tokens should be positive");
-        }
         let tau = quota.replenish_all_every.as_nanos();
         if tau == 0 {
             return Err("Replenish time must be positive");
         }
         let t = tau
-            .checked_div(quota.max_tokens as u128)
-            .ok_or("Max number of tokens should be positive")?
+            .checked_div(quota.max_tokens.get() as u128)
+            .expect("Division by zero never occurs, since Quota::max_token is of type NonZeroU64.")
             .try_into()
             .map_err(|_| "total replenish time is too long")?;
         let tau = tau
@@ -475,13 +473,14 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
 #[cfg(test)]
 mod tests {
     use crate::rpc::rate_limiter::{Limiter, Quota};
+    use std::num::NonZeroU64;
     use std::time::Duration;
 
     #[test]
     fn it_works_a() {
         let mut limiter = Limiter::from_quota(Quota {
             replenish_all_every: Duration::from_secs(2),
-            max_tokens: 4,
+            max_tokens: NonZeroU64::new(4).unwrap(),
         })
         .unwrap();
         let key = 10;
@@ -518,7 +517,7 @@ mod tests {
     fn it_works_b() {
         let mut limiter = Limiter::from_quota(Quota {
             replenish_all_every: Duration::from_secs(2),
-            max_tokens: 4,
+            max_tokens: NonZeroU64::new(4).unwrap(),
         })
         .unwrap();
         let key = 10;
