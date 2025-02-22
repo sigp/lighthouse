@@ -175,35 +175,23 @@ async fn light_client_bootstrap_test() {
 }
 
 #[tokio::test]
-async fn light_client_updates_test() {
-    let spec = test_spec::<E>();
-    let Some(_) = spec.altair_fork_epoch else {
-        // No-op prior to Altair.
-        return;
-    };
+async fn light_client_updates_misaligned_fork_epoch() {
+    let mut spec = MinimalEthSpec::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(1));
 
-    let num_final_blocks = E::slots_per_epoch() * 2;
     let db_path = tempdir().unwrap();
-    let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
-    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
-    let num_initial_slots = E::slots_per_epoch() * 10;
-    let slots: Vec<Slot> = (1..num_initial_slots).map(Slot::new).collect();
+    // we subtract 2 because the test harness starts at slot 0 and we want the slot before the next sync committee period
+    let num_slots_in_sync_committee_period =
+        spec.epochs_per_sync_committee_period.as_u64() * E::slots_per_epoch() - 2;
 
-    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
-    harness
-        .add_attested_blocks_at_slots(
-            genesis_state.clone(),
-            genesis_state_root,
-            &slots,
-            &all_validators,
-        )
-        .await;
-
+    // advance to the end of the current sync committee period
+    // this sync committee period is misaligned so no client data should be produced
     harness.advance_slot();
     harness
         .extend_chain_with_light_client_data(
-            num_final_blocks as usize,
+            num_slots_in_sync_committee_period as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -211,14 +199,74 @@ async fn light_client_updates_test() {
 
     let current_state = harness.get_current_state();
 
-    // calculate the sync period from the previous slot
-    let sync_period = (current_state.slot() - Slot::new(1))
+    let sync_period = (current_state.slot())
         .epoch(E::slots_per_epoch())
         .sync_committee_period(&spec)
         .unwrap();
 
-    // fetch a range of light client updates. right now there should only be one light client update
-    // in the db.
+    let lc_updates = harness
+        .chain
+        .get_light_client_updates(sync_period, 1)
+        .unwrap();
+
+    assert_eq!(lc_updates.len(), 0);
+
+    // advance to the next sync committee period
+    // this sync committee period is not misaligned so a
+    // light client update should be produced
+    harness.advance_slot();
+    harness
+        .extend_chain_with_light_client_data(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    let current_state = harness.get_current_state();
+    let sync_period = (current_state.slot())
+        .epoch(E::slots_per_epoch())
+        .sync_committee_period(&spec)
+        .unwrap();
+
+    let lc_updates = harness
+        .chain
+        .get_light_client_updates(sync_period, 1)
+        .unwrap();
+
+    assert_eq!(lc_updates.len(), 1);
+}
+
+#[tokio::test]
+async fn light_client_updates_test() {
+    let spec = test_spec::<E>();
+    let Some(_) = spec.altair_fork_epoch else {
+        // No-op prior to Altair.
+        return;
+    };
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let num_slots_in_sync_committee_period =
+        spec.epochs_per_sync_committee_period.as_u64() * E::slots_per_epoch() - 2;
+
+    // advance to the end of the current sync committee period
+    // exactly one light client update should exist in the db
+    harness.advance_slot();
+    harness
+        .extend_chain_with_light_client_data(
+            num_slots_in_sync_committee_period as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let current_state = harness.get_current_state();
+
+    let sync_period = (current_state.slot())
+        .epoch(E::slots_per_epoch())
+        .sync_committee_period(&spec)
+        .unwrap();
+
     let lc_updates = harness
         .chain
         .get_light_client_updates(sync_period, 100)
@@ -226,20 +274,22 @@ async fn light_client_updates_test() {
 
     assert_eq!(lc_updates.len(), 1);
 
-    // Advance to the next sync committee period
-    for _i in 0..(E::slots_per_epoch() * u64::from(spec.epochs_per_sync_committee_period)) {
-        harness.advance_slot();
-    }
-
+    // advance to the next sync committee period
+    // another light client update should be produced
+    harness.advance_slot();
     harness
         .extend_chain_with_light_client_data(
-            num_final_blocks as usize,
+            1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    // we should now have two light client updates in the db
+    let sync_period = (current_state.slot())
+        .epoch(E::slots_per_epoch())
+        .sync_committee_period(&spec)
+        .unwrap();
+
     let lc_updates = harness
         .chain
         .get_light_client_updates(sync_period, 100)

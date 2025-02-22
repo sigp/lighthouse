@@ -2356,4 +2356,40 @@ mod yaml_tests {
             [0, 0, 0, 1]
         );
     }
+
+    #[test]
+    fn test_is_current_sync_committee_period_misaligned() {
+        let mut spec = ChainSpec::mainnet();
+        for (_, epoch_opt) in ForkName::list_all_fork_epochs(&spec) {
+            if let Some(epoch) = epoch_opt {
+                let start_slot = epoch.start_slot(MainnetEthSpec::slots_per_epoch());
+                assert!(
+                    !spec.is_current_sync_committee_period_misaligned::<MainnetEthSpec>(start_slot)
+                );
+            };
+        }
+        // a fork epoch occurs within the sync committee period
+        let new_altair_fork_epoch = Epoch::new(1);
+        spec.altair_fork_epoch = Some(new_altair_fork_epoch);
+        assert!(
+            spec.is_current_sync_committee_period_misaligned::<MainnetEthSpec>(
+                new_altair_fork_epoch.start_slot(MainnetEthSpec::slots_per_epoch())
+            )
+        );
+        let next_sync_committee_slot = Slot::new(
+            spec.epochs_per_sync_committee_period.as_u64() * MainnetEthSpec::slots_per_epoch(),
+        );
+        // the slot immediately before the next sync committee period post fork
+        assert!(
+            spec.is_current_sync_committee_period_misaligned::<MainnetEthSpec>(
+                next_sync_committee_slot - 1
+            )
+        );
+        // the next sync committee period post fork
+        assert!(
+            !spec.is_current_sync_committee_period_misaligned::<MainnetEthSpec>(
+                next_sync_committee_slot
+            )
+        );
+    }
 }
