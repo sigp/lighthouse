@@ -224,7 +224,7 @@ impl<E: EthSpec> Network<E> {
 
         let gossipsub_config_params = GossipsubConfigParams {
             message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
-            gossip_max_size: ctx.chain_spec.gossip_max_size as usize,
+            gossip_max_size: ctx.chain_spec.max_payload_size as usize,
         };
         let gs_config = gossipsub_config(
             config.network_load,
@@ -349,7 +349,7 @@ impl<E: EthSpec> Network<E> {
         };
 
         let network_params = NetworkParams {
-            max_chunk_size: ctx.chain_spec.max_chunk_size as usize,
+            max_payload_size: ctx.chain_spec.max_payload_size as usize,
             ttfb_timeout: ctx.chain_spec.ttfb_timeout(),
             resp_timeout: ctx.chain_spec.resp_timeout(),
         };

@@ -210,10 +210,9 @@ pub struct ChainSpec {
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
     pub target_aggregators_per_committee: u64,
-    pub gossip_max_size: u64,
+    pub max_payload_size: u64,
     max_request_blocks: u64,
     pub min_epochs_for_block_requests: u64,
-    pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     pub attestation_propagation_slot_range: u64,
@@ -926,9 +925,8 @@ impl ChainSpec {
             subnets_per_node: 2,
             maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            gossip_max_size: default_gossip_max_size(),
+            max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
-            max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
@@ -1256,9 +1254,8 @@ impl ChainSpec {
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            gossip_max_size: default_gossip_max_size(),
+            max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: 33024,
-            max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
@@ -1430,18 +1427,15 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     gas_limit_adjustment_factor: u64,
 
-    #[serde(default = "default_gossip_max_size")]
+    #[serde(default = "default_max_payload_size")]
     #[serde(with = "serde_utils::quoted_u64")]
-    gossip_max_size: u64,
+    max_payload_size: u64,
     #[serde(default = "default_max_request_blocks")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks: u64,
     #[serde(default = "default_min_epochs_for_block_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_block_requests: u64,
-    #[serde(default = "default_max_chunk_size")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    max_chunk_size: u64,
     #[serde(default = "default_ttfb_timeout")]
     #[serde(with = "serde_utils::quoted_u64")]
     ttfb_timeout: u64,
@@ -1576,16 +1570,12 @@ const fn default_gas_limit_adjustment_factor() -> u64 {
     1024
 }
 
-const fn default_gossip_max_size() -> u64 {
+const fn default_max_payload_size() -> u64 {
     10485760
 }
 
 const fn default_min_epochs_for_block_requests() -> u64 {
     33024
-}
-
-const fn default_max_chunk_size() -> u64 {
-    10485760
 }
 
 const fn default_ttfb_timeout() -> u64 {
@@ -1853,10 +1843,9 @@ impl Config {
 
             gas_limit_adjustment_factor: spec.gas_limit_adjustment_factor,
 
-            gossip_max_size: spec.gossip_max_size,
+            max_payload_size: spec.max_payload_size,
             max_request_blocks: spec.max_request_blocks,
             min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
-            max_chunk_size: spec.max_chunk_size,
             ttfb_timeout: spec.ttfb_timeout,
             resp_timeout: spec.resp_timeout,
             attestation_propagation_slot_range: spec.attestation_propagation_slot_range,
@@ -1934,9 +1923,8 @@ impl Config {
             deposit_network_id,
             deposit_contract_address,
             gas_limit_adjustment_factor,
-            gossip_max_size,
+            max_payload_size,
             min_epochs_for_block_requests,
-            max_chunk_size,
             ttfb_timeout,
             resp_timeout,
             message_domain_invalid_snappy,
@@ -2005,9 +1993,8 @@ impl Config {
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
-            gossip_max_size,
+            max_payload_size,
             min_epochs_for_block_requests,
-            max_chunk_size,
             ttfb_timeout,
             resp_timeout,
             message_domain_invalid_snappy,
@@ -2307,9 +2294,8 @@ mod yaml_tests {
         check_default!(terminal_block_hash);
         check_default!(terminal_block_hash_activation_epoch);
         check_default!(bellatrix_fork_version);
-        check_default!(gossip_max_size);
+        check_default!(max_payload_size);
         check_default!(min_epochs_for_block_requests);
-        check_default!(max_chunk_size);
         check_default!(ttfb_timeout);
         check_default!(resp_timeout);
         check_default!(message_domain_invalid_snappy);

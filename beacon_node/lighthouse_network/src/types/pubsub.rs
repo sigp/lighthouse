@@ -74,7 +74,7 @@ impl gossipsub::DataTransform for SnappyTransform {
         if len > self.max_size_per_message {
             return Err(Error::new(
                 ErrorKind::InvalidData,
-                "ssz_snappy decoded data > GOSSIP_MAX_SIZE",
+                "ssz_snappy decoded data > MAX_PAYLOAD_SIZE",
             ));
         }
 
@@ -101,7 +101,7 @@ impl gossipsub::DataTransform for SnappyTransform {
         if data.len() > self.max_size_per_message {
             return Err(Error::new(
                 ErrorKind::InvalidData,
-                "ssz_snappy Encoded data > GOSSIP_MAX_SIZE",
+                "ssz_snappy Encoded data > MAX_PAYLOAD_SIZE",
             ));
         }
         let mut encoder = Encoder::new();

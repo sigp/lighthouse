@@ -30,7 +30,7 @@ fn bellatrix_block_small(fork_context: &ForkContext, spec: &ChainSpec) -> Beacon
     block.body.execution_payload.execution_payload.transactions = txs;
 
     let block = BeaconBlock::Bellatrix(block);
-    assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec.max_chunk_size as usize));
+    assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec.max_payload_size as usize));
     block
 }
 
@@ -45,7 +45,7 @@ fn bellatrix_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> Beacon
     block.body.execution_payload.execution_payload.transactions = txs;
 
     let block = BeaconBlock::Bellatrix(block);
-    assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec.max_chunk_size as usize));
+    assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec.max_payload_size as usize));
     block
 }
 
