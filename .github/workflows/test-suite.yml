@@ -19,7 +19,9 @@ env:
   # Disable debug info (see https://github.com/sigp/lighthouse/issues/4005)
   RUSTFLAGS: "-D warnings -C debuginfo=0"
   # Prevent Github API rate limiting.
-  LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # NOTE: this token is a personal access token on Jimmy's account due to the default GITHUB_TOKEN
+  # not having access to other repositories. We should eventually devise a better solution here.
+  LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.LIGHTHOUSE_GITHUB_TOKEN }}
   # Enable self-hosted runners for the sigp repo only.
   SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
   # Self-hosted runners need to reference a different host for `./watch` tests.
