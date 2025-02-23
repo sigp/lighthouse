@@ -472,7 +472,7 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
 
 #[cfg(test)]
 mod tests {
-    use crate::rpc::rate_limiter::{Limiter, Quota};
+    use crate::rpc::rate_limiter::{Limiter, Quota, RateLimitedErr};
     use std::num::NonZeroU64;
     use std::time::Duration;
 
@@ -540,5 +540,23 @@ mod tests {
         assert!(limiter
             .allows(Duration::from_secs_f32(0.4), &key, 1)
             .is_err());
+    }
+
+    #[test]
+    fn large_tokens() {
+        // These have been adjusted so that an overflow occurs when calculating `additional_time` in
+        // `Limiter::allows`. If we don't handle overflow properly, `Limiter::allows` returns `Ok`
+        // in this case.
+        let replenish_all_every = 2;
+        let tokens = u64::MAX / 2 + 1;
+
+        let mut limiter = Limiter::from_quota(Quota {
+            replenish_all_every: Duration::from_nanos(replenish_all_every),
+            max_tokens: NonZeroU64::new(1).unwrap(),
+        })
+        .unwrap();
+
+        let result = limiter.allows(Duration::from_secs_f32(0.0), &10, tokens);
+        assert!(matches!(result, Err(RateLimitedErr::TooLarge)));
     }
 }
