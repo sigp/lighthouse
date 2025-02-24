@@ -2546,6 +2546,17 @@ fn light_client_http_server_disabled() {
 }
 
 #[test]
+fn sync_tolerance_epochs() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("sync-tolerance-epochs", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.http_api.sync_tolerance_epochs, Some(0));
+        });
+}
+
+#[test]
 fn gui_flag() {
     CommandLineTest::new()
         .flag("gui", None)
