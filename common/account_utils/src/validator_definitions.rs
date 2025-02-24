@@ -115,7 +115,6 @@ impl SigningDefinition {
                 voting_keystore_password_path: Some(path),
                 ..
             } => read_password_string(path)
-                .map(Into::into)
                 .map(Option::Some)
                 .map_err(Error::UnableToReadKeystorePassword),
             SigningDefinition::LocalKeystore { .. } => Err(Error::KeystoreWithoutPassword),

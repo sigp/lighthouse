@@ -79,9 +79,7 @@ const BLOB_PUBLICATION_EXP_FACTOR: usize = 2;
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn try_send(&self, event: BeaconWorkEvent<T::EthSpec>) -> Result<(), Error<T::EthSpec>> {
-        self.beacon_processor_send
-            .try_send(event)
-            .map_err(Into::into)
+        self.beacon_processor_send.try_send(event)
     }
 
     /// Create a new `Work` event for some `SingleAttestation`.
