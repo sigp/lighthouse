@@ -112,7 +112,7 @@ const API_PREFIX: &str = "eth";
 ///
 /// This helps prevent attacks where nodes can convince us that we're syncing some non-existent
 /// finalized head.
-const SYNC_TOLERANCE_EPOCHS: u64 = 8;
+const DEFAULT_SYNC_TOLERANCE_EPOCHS: u64 = 8;
 
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
 type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
@@ -155,8 +155,8 @@ pub struct Config {
     pub enable_beacon_processor: bool,
     #[serde(with = "eth2::types::serde_status_code")]
     pub duplicate_block_status_code: StatusCode,
-    pub enable_light_client_server: bool,
     pub target_peers: usize,
+    pub sync_tolerance_epochs: Option<u64>,
 }
 
 impl Default for Config {
@@ -171,8 +171,8 @@ impl Default for Config {
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
-            enable_light_client_server: true,
             target_peers: 100,
+            sync_tolerance_epochs: None,
         }
     }
 }
@@ -294,18 +294,6 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
         );
         metrics::observe_timer_vec(&metrics::HTTP_API_PATHS_TIMES, &[path], info.elapsed());
     })
-}
-
-fn enable(is_enabled: bool) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
-    warp::any()
-        .and_then(move || async move {
-            if is_enabled {
-                Ok(())
-            } else {
-                Err(warp::reject::not_found())
-            }
-        })
-        .untuple_one()
 }
 
 /// Creates a server that will serve requests using information from `ctx`.
@@ -473,7 +461,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     )
                                 })?;
 
-                            let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
+                            let sync_tolerance_epochs = config
+                                .sync_tolerance_epochs
+                                .unwrap_or(DEFAULT_SYNC_TOLERANCE_EPOCHS);
+                            let tolerance = sync_tolerance_epochs * T::EthSpec::slots_per_epoch();
 
                             if head_slot + tolerance >= current_slot {
                                 Ok(())
@@ -492,6 +483,18 @@ pub fn serve<T: BeaconChainTypes>(
                     }
                 },
             );
+
+    // Create a `warp` filter that returns 404s if the light client server is disabled.
+    let light_client_server_filter =
+        warp::any()
+            .and(chain_filter.clone())
+            .then(|chain: Arc<BeaconChain<T>>| async move {
+                if chain.config.enable_light_client_server {
+                    Ok(())
+                } else {
+                    Err(warp::reject::not_found())
+                }
+            });
 
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
@@ -1939,10 +1942,10 @@ pub fn serve<T: BeaconChainTypes>(
              query: api_types::AttestationPoolQuery| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let query_filter = |data: &AttestationData| {
-                        query.slot.map_or(true, |slot| slot == data.slot)
+                        query.slot.is_none_or(|slot| slot == data.slot)
                             && query
                                 .committee_index
-                                .map_or(true, |index| index == data.index)
+                                .is_none_or(|index| index == data.index)
                     };
 
                     let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
@@ -2452,6 +2455,7 @@ pub fn serve<T: BeaconChainTypes>(
     let beacon_light_client_path = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("light_client"))
+        .and(light_client_server_filter)
         .and(chain_filter.clone());
 
     // GET beacon/light_client/bootstrap/{block_root}
@@ -2467,11 +2471,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
-            |chain: Arc<BeaconChain<T>>,
+            |light_client_server_enabled: Result<(), Rejection>,
+             chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              block_root: Hash256,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    light_client_server_enabled?;
                     get_light_client_bootstrap::<T>(chain, &block_root, accept_header)
                 })
             },
@@ -2485,10 +2491,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
-            |chain: Arc<BeaconChain<T>>,
+            |light_client_server_enabled: Result<(), Rejection>,
+             chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    light_client_server_enabled?;
                     let update = chain
                         .light_client_server_cache
                         .get_latest_optimistic_update()
@@ -2532,10 +2540,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
-            |chain: Arc<BeaconChain<T>>,
+            |light_client_server_enabled: Result<(), Rejection>,
+             chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    light_client_server_enabled?;
                     let update = chain
                         .light_client_server_cache
                         .get_latest_finality_update()
@@ -2580,11 +2590,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::LightClientUpdatesQuery>())
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
-            |chain: Arc<BeaconChain<T>>,
+            |light_client_server_enabled: Result<(), Rejection>,
+             chain: Arc<BeaconChain<T>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              query: LightClientUpdatesQuery,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
+                    light_client_server_enabled?;
                     get_light_client_updates::<T>(chain, query, accept_header)
                 })
             },
@@ -3159,11 +3171,11 @@ pub fn serve<T: BeaconChainTypes>(
                                     peer_info.connection_status(),
                                 );
 
-                                let state_matches = query.state.as_ref().map_or(true, |states| {
+                                let state_matches = query.state.as_ref().is_none_or(|states| {
                                     states.iter().any(|state_param| *state_param == state)
                                 });
                                 let direction_matches =
-                                    query.direction.as_ref().map_or(true, |directions| {
+                                    query.direction.as_ref().is_none_or(|directions| {
                                         directions.iter().any(|dir_param| *dir_param == direction)
                                     });
 
@@ -4723,22 +4735,10 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_database_info)
                 .uor(get_lighthouse_block_rewards)
                 .uor(get_lighthouse_attestation_performance)
-                .uor(
-                    enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_optimistic_update),
-                )
-                .uor(
-                    enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_finality_update),
-                )
-                .uor(
-                    enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_bootstrap),
-                )
-                .uor(
-                    enable(ctx.config.enable_light_client_server)
-                        .and(get_beacon_light_client_updates),
-                )
+                .uor(get_beacon_light_client_optimistic_update)
+                .uor(get_beacon_light_client_finality_update)
+                .uor(get_beacon_light_client_bootstrap)
+                .uor(get_beacon_light_client_updates)
                 .uor(get_lighthouse_block_packing_efficiency)
                 .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)

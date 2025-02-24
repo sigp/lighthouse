@@ -28,6 +28,8 @@ Options:
           network. Multiaddr is also supported.
       --builder <builder>
           The URL of a service compatible with the MEV-boost API.
+      --builder-disable-ssz
+          Disables sending requests using SSZ over the builder API.
       --builder-fallback-epochs-since-finalization <builder-fallback-epochs-since-finalization>
           If this node is proposing a block and the chain has not finalized
           within this number of epochs, it will NOT query any connected

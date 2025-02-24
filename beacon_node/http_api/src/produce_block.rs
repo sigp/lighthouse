@@ -147,7 +147,7 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti.map(Into::into),
+            query.graffiti,
             randao_verification,
             None,
             BlockProductionVersion::BlindedV2,
@@ -178,7 +178,7 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti.map(Into::into),
+            query.graffiti,
             randao_verification,
             None,
             BlockProductionVersion::FullV2,

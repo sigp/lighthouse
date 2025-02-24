@@ -903,7 +903,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: &Hash256,
         summary: HotStateSummary,
     ) -> Result<(), Error> {
-        self.hot_db.put(state_root, &summary).map_err(Into::into)
+        self.hot_db.put(state_root, &summary)
     }
 
     /// Store a state in the store.
@@ -1248,7 +1248,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         state_root.as_slice().to_vec(),
                     ));
 
-                    if slot.map_or(true, |slot| slot % E::slots_per_epoch() == 0) {
+                    if slot.is_none_or(|slot| slot % E::slots_per_epoch() == 0) {
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(
                             DBColumn::BeaconState,
                             state_root.as_slice().to_vec(),

@@ -448,7 +448,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             if self
                 .head_block
                 .as_ref()
-                .map_or(true, |head| head.block_hash() == last_block_hash)
+                .is_none_or(|head| head.block_hash() == last_block_hash)
             {
                 self.head_block = Some(block.clone());
             }

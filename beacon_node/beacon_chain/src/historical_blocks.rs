@@ -1,4 +1,4 @@
-use crate::data_availability_checker::AvailableBlock;
+use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
 use slog::debug;
@@ -105,7 +105,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let blob_batch_size = blocks_to_import
             .iter()
-            .filter(|available_block| available_block.blobs().is_some())
+            .filter(|available_block| available_block.has_blobs())
             .count()
             .saturating_mul(n_blob_ops_per_block);
 
@@ -114,14 +114,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
-        let mut blob_batch = Vec::with_capacity(blob_batch_size);
+        let mut blob_batch = Vec::<KeyValueStoreOp>::with_capacity(blob_batch_size);
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
         for available_block in blocks_to_import.into_iter().rev() {
-            let (block_root, block, maybe_blobs, maybe_data_columns) =
-                available_block.deconstruct();
+            let (block_root, block, block_data) = available_block.deconstruct();
 
             if block_root != expected_block_root {
                 return Err(HistoricalBlockError::MismatchedBlockRoot {
@@ -144,17 +143,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
 
-            // Store the blobs too
-            if let Some(blobs) = maybe_blobs {
-                new_oldest_blob_slot = Some(block.slot());
-                self.store
-                    .blobs_as_kv_store_ops(&block_root, blobs, &mut blob_batch);
+            match &block_data {
+                AvailableBlockData::NoData => {}
+                AvailableBlockData::Blobs(..) => {
+                    new_oldest_blob_slot = Some(block.slot());
+                }
+                AvailableBlockData::DataColumns(_) | AvailableBlockData::DataColumnsRecv(_) => {
+                    new_oldest_data_column_slot = Some(block.slot());
+                }
             }
-            // Store the data columns too
-            if let Some(data_columns) = maybe_data_columns {
-                new_oldest_data_column_slot = Some(block.slot());
-                self.store
-                    .data_columns_as_kv_store_ops(&block_root, data_columns, &mut blob_batch);
+
+            // Store the blobs or data columns too
+            if let Some(op) = self
+                .get_blobs_or_columns_store_op(block_root, block_data)
+                .map_err(|e| {
+                    HistoricalBlockError::StoreError(StoreError::DBError {
+                        message: format!("get_blobs_or_columns_store_op error {e:?}"),
+                    })
+                })?
+            {
+                blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
