@@ -1450,19 +1450,17 @@ where
         return Err(Error::UnknownTargetRoot(target.root));
     }
 
-    chain
-        .with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
-            let committees_per_slot = committee_cache.committees_per_slot();
+    chain.with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
+        let committees_per_slot = committee_cache.committees_per_slot();
 
-            Ok(committee_cache
-                .get_beacon_committees_at_slot(attestation.data().slot)
-                .map(|committees| map_fn((committees, committees_per_slot)))
-                .unwrap_or_else(|_| {
-                    Err(Error::NoCommitteeForSlotAndIndex {
-                        slot: attestation.data().slot,
-                        index: attestation.committee_index().unwrap_or(0),
-                    })
-                }))
-        })
-        .map_err(BeaconChainError::from)?
+        Ok(committee_cache
+            .get_beacon_committees_at_slot(attestation.data().slot)
+            .map(|committees| map_fn((committees, committees_per_slot)))
+            .unwrap_or_else(|_| {
+                Err(Error::NoCommitteeForSlotAndIndex {
+                    slot: attestation.data().slot,
+                    index: attestation.committee_index().unwrap_or(0),
+                })
+            }))
+    })?
 }

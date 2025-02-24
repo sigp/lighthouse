@@ -293,7 +293,6 @@ where
                 )?);
                 Ok(())
             })
-            .map_err(Error::into)
     }
 
     /// Includes all signatures in `self.block.body.voluntary_exits` for verification.

@@ -971,6 +971,7 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
         Option<ExecutionPayload<E>>,
     )
 {
+    #[allow(clippy::useless_conversion)] // Not a useless conversion
     fn from(body: BeaconBlockBody<E, FullPayload<E>>) -> Self {
         map_beacon_block_body!(body, |inner, cons| {
             let (block, payload) = inner.into();

@@ -195,7 +195,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let key = key.as_slice();
 
         self.put_bytes(column, key, &item.as_store_bytes())
-            .map_err(Into::into)
     }
 
     fn put_sync<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
@@ -203,7 +202,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let key = key.as_slice();
 
         self.put_bytes_sync(column, key, &item.as_store_bytes())
-            .map_err(Into::into)
     }
 
     /// Retrieve an item from `Self`.
