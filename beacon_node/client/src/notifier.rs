@@ -187,7 +187,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             let is_backfilling = matches!(current_sync_state, SyncState::BackFillSyncing { .. });
             if is_backfilling
                 && last_backfill_log_slot
-                    .map_or(true, |slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
+                    .is_none_or(|slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
             {
                 last_backfill_log_slot = Some(current_slot);
 
