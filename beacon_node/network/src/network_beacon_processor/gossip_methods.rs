@@ -2190,6 +2190,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "peer" => %peer_id,
                         "error" => ?e,
                     ),
+                    LightClientFinalityUpdateError::Disabled
+                    | LightClientFinalityUpdateError::TooLate => debug!(
+                        self.log,
+                        ":ight client finality update ignored";
+                        "peer" => %peer_id,
+                        "error" => ?e
+                    ),
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
@@ -2308,6 +2315,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         debug!(
                             self.log,
                             "Light client error constructing optimistic update";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        )
+                    }
+                    LightClientOptimisticUpdateError::Disabled
+                    | LightClientOptimisticUpdateError::TooLate => {
+                        debug!(
+                            self.log,
+                            "Light client optimistic update ignored";
                             "peer" => %peer_id,
                             "error" => ?e,
                         )
