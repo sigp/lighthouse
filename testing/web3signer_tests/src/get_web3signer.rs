@@ -82,7 +82,7 @@ fn find_versioned_web3signer_dir(dest_dir: &Path) -> PathBuf {
             .unwrap_or(false)
             && entry.file_type().unwrap().is_dir()
         {
-            return path.into();
+            return path;
         }
     }
     panic!("no directory named web3signer-* found after ZIP extraction")
