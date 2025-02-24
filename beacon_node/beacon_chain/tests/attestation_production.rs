@@ -242,7 +242,7 @@ async fn produces_attestations() {
                     .early_attester_cache
                     .add_head_block(
                         block_root,
-                        available_block,
+                        &available_block,
                         proto_block,
                         &state,
                         &chain.spec,
@@ -310,7 +310,7 @@ async fn early_attester_cache_old_request() {
         .early_attester_cache
         .add_head_block(
             head.beacon_block_root,
-            available_block,
+            &available_block,
             head_proto_block,
             &head.beacon_state,
             &harness.chain.spec,
