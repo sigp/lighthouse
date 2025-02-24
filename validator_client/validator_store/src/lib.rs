@@ -185,7 +185,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
             password_storage,
-            graffiti.map(Into::into),
+            graffiti,
             suggested_fee_recipient,
             gas_limit,
             builder_proposals,
@@ -327,7 +327,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .as_ref()
             // If there's no doppelganger service then we assume it is purposefully disabled and
             // declare that all keys are safe with regard to it.
-            .map_or(true, |doppelganger_service| {
+            .is_none_or(|doppelganger_service| {
                 doppelganger_service
                     .validator_status(validator_pubkey)
                     .only_safe()
