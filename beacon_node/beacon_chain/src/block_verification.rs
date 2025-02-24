@@ -1696,7 +1696,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 parent_eth1_finalization_data,
                 confirmed_state_roots,
                 consensus_context,
-                data_column_recv: None,
             },
             payload_verification_handle,
         })

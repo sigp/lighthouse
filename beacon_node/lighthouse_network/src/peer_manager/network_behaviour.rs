@@ -207,7 +207,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 .peers
                 .read()
                 .peer_info(&peer_id)
-                .map_or(true, |peer| !peer.has_future_duty())
+                .is_none_or(|peer| !peer.has_future_duty())
         {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: too many connections",
@@ -246,7 +246,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 .peers
                 .read()
                 .peer_info(&peer_id)
-                .map_or(true, |peer| !peer.has_future_duty())
+                .is_none_or(|peer| !peer.has_future_duty())
         {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: too many connections",
