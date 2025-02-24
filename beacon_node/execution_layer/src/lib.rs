@@ -441,6 +441,8 @@ pub struct Config {
     pub builder_header_timeout: Option<Duration>,
     /// User agent to send with requests to the builder API.
     pub builder_user_agent: Option<String>,
+    /// Disable ssz requests on builder. Only use json.
+    pub disable_builder_ssz_requests: bool,
     /// JWT secret for the above endpoint running the engine api.
     pub secret_file: Option<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
@@ -470,6 +472,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             builder_url,
             builder_user_agent,
             builder_header_timeout,
+            disable_builder_ssz_requests,
             secret_file,
             suggested_fee_recipient,
             jwt_id,
@@ -539,7 +542,12 @@ impl<E: EthSpec> ExecutionLayer<E> {
         };
 
         if let Some(builder_url) = builder_url {
-            el.set_builder_url(builder_url, builder_user_agent, builder_header_timeout)?;
+            el.set_builder_url(
+                builder_url,
+                builder_user_agent,
+                builder_header_timeout,
+                disable_builder_ssz_requests,
+            )?;
         }
 
         Ok(el)
@@ -562,11 +570,13 @@ impl<E: EthSpec> ExecutionLayer<E> {
         builder_url: SensitiveUrl,
         builder_user_agent: Option<String>,
         builder_header_timeout: Option<Duration>,
+        disable_ssz: bool,
     ) -> Result<(), Error> {
         let builder_client = BuilderHttpClient::new(
             builder_url.clone(),
             builder_user_agent,
             builder_header_timeout,
+            disable_ssz,
         )
         .map_err(Error::Builder)?;
         info!(
@@ -574,6 +584,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             "Using external block builder";
             "builder_url" => ?builder_url,
             "local_user_agent" => builder_client.get_user_agent(),
+            "ssz_disabled" => disable_ssz
         );
         self.inner.builder.swap(Some(Arc::new(builder_client)));
         Ok(())
@@ -1901,7 +1912,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         if let Some(builder) = self.builder() {
             let (payload_result, duration) =
                 timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
-                    if builder.is_ssz_enabled() {
+                    let ssz_enabled = builder.is_ssz_available();
+                    debug!(
+                        self.log(),
+                        "Calling submit_blinded_block on builder";
+                        "block_root" => ?block_root,
+                        "ssz" => ssz_enabled
+                    );
+                    if ssz_enabled {
                         builder
                             .post_builder_blinded_blocks_ssz(block)
                             .await

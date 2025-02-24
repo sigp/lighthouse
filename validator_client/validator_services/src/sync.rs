@@ -297,7 +297,7 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
     // If the Altair fork is yet to be activated, do not attempt to poll for duties.
     if spec
         .altair_fork_epoch
-        .map_or(true, |altair_epoch| current_epoch < altair_epoch)
+        .is_none_or(|altair_epoch| current_epoch < altair_epoch)
     {
         return Ok(());
     }
@@ -474,7 +474,7 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
             .get_mut(&duty.validator_index)
             .ok_or(Error::SyncDutiesNotFound(duty.validator_index))?;
 
-        let updated = validator_duties.as_ref().map_or(true, |existing_duties| {
+        let updated = validator_duties.as_ref().is_none_or(|existing_duties| {
             let updated_due_to_reorg = existing_duties.duty.validator_sync_committee_indices
                 != duty.validator_sync_committee_indices;
             if updated_due_to_reorg {
