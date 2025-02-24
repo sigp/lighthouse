@@ -2187,6 +2187,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    pub fn get_latest_finality_update(&self) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
+        self.light_client_server_cache.get_latest_finality_update()
+    }
+
+    pub fn get_latest_optimistic_update(&self) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
+        self.light_client_server_cache
+            .get_latest_optimistic_update()
+    }
+
     /// Accepts some 'LightClientFinalityUpdate' from the network and attempts to verify it
     pub fn verify_finality_update_for_gossip(
         self: &Arc<Self>,

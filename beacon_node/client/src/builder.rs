@@ -1,5 +1,5 @@
 use crate::compute_light_client_updates::{
-    compute_and_gossip_light_client_updates, LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
+    compute_light_client_updates, LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
 };
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
@@ -957,11 +957,10 @@ where
                 let log = light_client_update_context.log().clone();
                 light_client_update_context.executor.spawn(
                     async move {
-                        compute_and_gossip_light_client_updates(
+                        compute_light_client_updates(
                             &inner_chain,
                             light_client_server_rv,
                             beacon_processor_channels.work_reprocessing_tx,
-                            self.network_senders.clone(),
                             &log,
                         )
                         .await
