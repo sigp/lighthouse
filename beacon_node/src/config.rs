@@ -170,9 +170,6 @@ pub fn get_config<E: EthSpec>(
 
         client_config.http_api.duplicate_block_status_code =
             parse_required(cli_args, "http-duplicate-block-status")?;
-
-        client_config.http_api.enable_light_client_server =
-            !cli_args.get_flag("disable-light-client-server");
     }
 
     if cli_args.get_flag("light-client-server") {
@@ -883,6 +880,14 @@ pub fn get_config<E: EthSpec>(
         .beacon_processor
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
+
+    if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-block-publishing")? {
+        client_config.chain.block_publishing_delay = Some(Duration::from_secs_f64(delay));
+    }
+
+    if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-data-column-publishing")? {
+        client_config.chain.data_column_publishing_delay = Some(Duration::from_secs_f64(delay));
+    }
 
     Ok(client_config)
 }
