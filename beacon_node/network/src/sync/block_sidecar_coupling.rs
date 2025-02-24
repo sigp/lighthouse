@@ -92,6 +92,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         // Now collect all blobs that match to the block by block root. BlobsByRange request checks
         // the inclusion proof so we know that the commitment is the expected.
+        //
+        // BlobsByRange request handler ensures that we don't receive more blobs than possible.
+        // If the peer serving the request sends us blobs that don't pair well we'll send to the
+        // processor blocks without expected blobs, resulting in a downscoring event. A serving peer
+        // could serve fake blobs for blocks that don't have data, but it would gain nothing by it
+        // wasting theirs and our bandwidth 1:1. Therefore blobs that don't pair well are just ignored.
+        //
         // RpcBlock::new ensures that the count of blobs is consistent with the block
         blocks
             .into_iter()
@@ -99,7 +106,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 let block_root = get_block_root(&block);
                 let max_blobs_per_block = spec.max_blobs_per_block(block.epoch()) as usize;
                 let mut blobs = blobs_by_block.remove(&block_root).unwrap_or_default();
-                blobs.sort_by(|a, b| a.index.cmp(&b.index));
+                // BlobsByRange request handler enforces that blobs are sorted by index
                 let blobs = RuntimeVariableList::new(blobs, max_blobs_per_block)
                     .map_err(|_| "Blobs returned exceeds max length".to_string())?;
                 RpcBlock::new(Some(block_root), block, Some(blobs)).map_err(|e| format!("{e:?}"))
