@@ -2715,3 +2715,29 @@ fn beacon_node_backend_override() {
             assert_eq!(config.store.backend, BeaconNodeBackend::LevelDb);
         });
 }
+
+#[test]
+fn block_publishing_delay_for_testing() {
+    CommandLineTest::new()
+        .flag("delay-block-publishing", Some("2.5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.block_publishing_delay,
+                Some(Duration::from_secs_f64(2.5f64))
+            );
+        });
+}
+
+#[test]
+fn data_column_publishing_delay_for_testing() {
+    CommandLineTest::new()
+        .flag("delay-data-column-publishing", Some("3.5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.data_column_publishing_delay,
+                Some(Duration::from_secs_f64(3.5f64))
+            );
+        });
+}
