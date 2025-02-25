@@ -1,4 +1,4 @@
-# Mainnet preset - Electra
+# Minimal preset - Electra
 
 # Gwei values
 # ---------------------------------------------------------------
@@ -12,9 +12,9 @@ MAX_EFFECTIVE_BALANCE_ELECTRA: 2048000000000
 # `uint64(2**27)` (= 134,217,728)
 PENDING_DEPOSITS_LIMIT: 134217728
 # `uint64(2**27)` (= 134,217,728)
-PENDING_PARTIAL_WITHDRAWALS_LIMIT: 134217728
+PENDING_PARTIAL_WITHDRAWALS_LIMIT: 64
 # `uint64(2**18)` (= 262,144)
-PENDING_CONSOLIDATIONS_LIMIT: 262144
+PENDING_CONSOLIDATIONS_LIMIT: 64
 
 # Reward and penalty quotients
 # ---------------------------------------------------------------
@@ -35,14 +35,14 @@ MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD: 2
 # Execution
 # ---------------------------------------------------------------
 # 2**13 (= 8192) deposit requests
-MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: 8192
+MAX_DEPOSIT_REQUESTS_PER_PAYLOAD: 4
 # 2**4 (= 16) withdrawal requests
-MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: 16
+MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD: 2
 
 # Withdrawals processing
 # ---------------------------------------------------------------
 # 2**3 ( = 8) pending withdrawals
-MAX_PENDING_PARTIALS_PER_WITHDRAWALS_SWEEP: 8
+MAX_PENDING_PARTIALS_PER_WITHDRAWALS_SWEEP: 2
 
 # Pending deposits processing
 # ---------------------------------------------------------------
