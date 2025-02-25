@@ -1461,6 +1461,15 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("builder-disable-ssz")
+                .long("builder-disable-ssz")
+                .value_name("BOOLEAN")
+                .help("Disables sending requests using SSZ over the builder API.")
+                .requires("builder")
+                .action(ArgAction::SetTrue)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("reset-payload-statuses")
                 .long("reset-payload-statuses")
                 .help("When present, Lighthouse will forget the payload statuses of any \
@@ -1507,6 +1516,19 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
 
                 .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("sync-tolerance-epochs")
+                .long("sync-tolerance-epochs")
+                .help("Overrides the default SYNC_TOLERANCE_EPOCHS. This flag is not intended \
+                    for production and MUST only be used in TESTING only. This is primarily used \
+                    for testing range sync, to prevent the node from producing a block before the \
+                    node is synced with the network which may result in the node getting \
+                    disconnected from peers immediately.")
+                .hide(true)
+                .requires("enable_http")
+                .action(ArgAction::Set)
                 .display_order(0)
         )
         .arg(
