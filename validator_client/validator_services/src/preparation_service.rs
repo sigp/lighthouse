@@ -428,7 +428,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     pubkey,
                 } = key.clone();
 
-                let signed_data = match self
+                match self
                     .validator_store
                     .sign_validator_registration_data(ValidatorRegistrationData {
                         fee_recipient,
@@ -458,9 +458,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                         );
                         continue;
                     }
-                };
-
-                signed_data
+                }
             };
             signed.push(signed_data);
         }
