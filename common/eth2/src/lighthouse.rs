@@ -17,6 +17,7 @@ use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
+use std::path::PathBuf;
 use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
 
 pub use attestation_performance::{
@@ -138,6 +139,8 @@ pub struct SystemHealth {
     /// Total cpu time.
     pub cpu_time_total: u64,
 
+    /// Data dir path of the disk partition used.
+    pub disk_node_partition_path: PathBuf,
     /// Total capacity of disk.
     pub disk_node_bytes_total: u64,
     /// Free space in disk.
