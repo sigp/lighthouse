@@ -114,9 +114,8 @@ pub struct ValidatorClient {
         help = "If present, the validator client will use a multiplier for the timeout \
                 when making requests to the beacon node. This only takes effect when \
                 the `--use-long_timeouts` flag is present. The timeouts will be the slot \
-                duration multiplied by this value.
-                This flag is generally not recommended, longer timeouts can cause missed \
-                duties when fallbacks are used.",
+                duration multiplied by this value. This flag is generally not recommended, \
+                longer timeouts can cause missed duties when fallbacks are used.",
         display_order = 0,
         help_heading = FLAG_HEADER,
     )]
