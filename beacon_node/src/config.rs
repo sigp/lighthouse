@@ -20,9 +20,10 @@ use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, Pee
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
 use std::cmp::max;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fs;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::num::NonZeroU16;
@@ -896,6 +897,34 @@ pub fn get_config<E: EthSpec>(
         .beacon_processor
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
+
+    if let Some(invalid_block_roots_file_path) =
+        clap_utils::parse_optional::<String>(cli_args, "invalid-block-roots")?
+    {
+        let mut file = std::fs::File::open(invalid_block_roots_file_path)
+            .map_err(|e| format!("Failed to open invalid-block-roots file: {}", e))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .map_err(|e| format!("Failed to read invalid-block-roots file {}", e))?;
+        let invalid_block_roots: HashSet<Hash256> = contents
+            .split(',')
+            .filter_map(
+                |s| match Hash256::from_str(s.strip_prefix("0x").unwrap_or(s).trim()) {
+                    Ok(block_root) => Some(block_root),
+                    Err(e) => {
+                        warn!(
+                            log,
+                            "Unable to parse invalid block root";
+                            "block_root" => s,
+                            "error" => ?e,
+                        );
+                        None
+                    }
+                },
+            )
+            .collect();
+        client_config.chain.invalid_block_roots = invalid_block_roots;
+    }
 
     Ok(client_config)
 }
