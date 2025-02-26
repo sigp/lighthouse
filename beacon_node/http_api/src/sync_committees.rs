@@ -6,12 +6,12 @@ use beacon_chain::sync_committee_verification::{
 };
 use beacon_chain::{
     validator_monitor::timestamp_now, BeaconChain, BeaconChainError, BeaconChainTypes,
-    StateSkipConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    StateSkipConfig,
 };
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{error, warn, Logger};
+use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -30,9 +30,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<SyncDuties, warp::reject::Rejection> {
-    let altair_fork_epoch = if let Some(altair_fork_epoch) = chain.spec.altair_fork_epoch {
-        altair_fork_epoch
-    } else {
+    let Some(altair_fork_epoch) = chain.spec.altair_fork_epoch else {
         // Empty response for networks with Altair disabled.
         return Ok(convert_to_response(vec![], false));
     };
@@ -41,18 +39,23 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     // still dependent on the head. So using `is_optimistic_head` is fine for both cases.
     let execution_optimistic = chain
         .is_optimistic_or_invalid_head()
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     // Try using the head's sync committees to satisfy the request. This should be sufficient for
     // the vast majority of requests. Rather than checking if we think the request will succeed in a
     // way prone to data races, we attempt the request immediately and check the error code.
     match chain.sync_committee_duties_from_head(request_epoch, request_indices) {
-        Ok(duties) => return Ok(convert_to_response(duties, execution_optimistic)),
+        Ok(duties) => {
+            return Ok(convert_to_response(
+                verify_unknown_validators(duties, request_epoch, chain)?,
+                execution_optimistic,
+            ))
+        }
         Err(BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
             ..
         }))
         | Err(BeaconChainError::SyncDutiesError(BeaconStateError::IncorrectStateVariant)) => (),
-        Err(e) => return Err(warp_utils::reject::beacon_chain_error(e)),
+        Err(e) => return Err(warp_utils::reject::unhandled_error(e)),
     }
 
     let duties = duties_from_state_load(request_epoch, request_indices, altair_fork_epoch, chain)
@@ -64,9 +67,12 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
             "invalid epoch: {}, current epoch: {}",
             request_epoch, current_epoch
         )),
-        e => warp_utils::reject::beacon_chain_error(e),
+        e => warp_utils::reject::unhandled_error(e),
     })?;
-    Ok(convert_to_response(duties, execution_optimistic))
+    Ok(convert_to_response(
+        verify_unknown_validators(duties, request_epoch, chain)?,
+        execution_optimistic,
+    ))
 }
 
 /// Slow path for duties: load a state and use it to compute the duties.
@@ -75,7 +81,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     request_indices: &[u64],
     altair_fork_epoch: Epoch,
     chain: &BeaconChain<T>,
-) -> Result<Vec<Option<SyncDuty>>, BeaconChainError> {
+) -> Result<Vec<Result<Option<SyncDuty>, BeaconStateError>>, BeaconChainError> {
     // Determine what the current epoch would be if we fast-forward our system clock by
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
     //
@@ -85,7 +91,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let current_epoch = chain.epoch()?;
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?
         .epoch(T::EthSpec::slots_per_epoch());
 
@@ -121,6 +127,45 @@ fn duties_from_state_load<T: BeaconChainTypes>(
             },
         ))
     }
+}
+
+fn verify_unknown_validators<T: BeaconChainTypes>(
+    duties: Vec<Result<Option<SyncDuty>, BeaconStateError>>,
+    request_epoch: Epoch,
+    chain: &BeaconChain<T>,
+) -> Result<Vec<Option<SyncDuty>>, warp::reject::Rejection> {
+    // Lazily load the request_epoch_state, as it is only needed if there are any UnknownValidator
+    let mut request_epoch_state = None;
+
+    duties
+        .into_iter()
+        .map(|res| {
+            res.or_else(|err| {
+                // Make sure the validator is really unknown w.r.t. the request_epoch
+                if let BeaconStateError::UnknownValidator(idx) = err {
+                    let request_epoch_state = match &mut request_epoch_state {
+                        Some(state) => state,
+                        None => request_epoch_state.insert(chain.state_at_slot(
+                            request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                            StateSkipConfig::WithoutStateRoots,
+                        )?),
+                    };
+                    request_epoch_state
+                        .get_validator(idx)
+                        .map_err(BeaconChainError::SyncDutiesError)
+                        .map(|_| None)
+                } else {
+                    Err(BeaconChainError::SyncDutiesError(err))
+                }
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| match err {
+            BeaconChainError::SyncDutiesError(BeaconStateError::UnknownValidator(idx)) => {
+                warp_utils::reject::custom_bad_request(format!("invalid validator index: {idx}"))
+            }
+            e => warp_utils::reject::unhandled_error(e),
+        })
 }
 
 fn convert_to_response(duties: Vec<Option<SyncDuty>>, execution_optimistic: bool) -> SyncDuties {
@@ -188,6 +233,28 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                         );
 
                     verified_for_pool = Some(verified);
+                }
+                // If this validator has already published a sync message, just ignore this message
+                // without returning an error.
+                //
+                // This is likely to happen when a VC uses fallback BNs. If the first BN publishes
+                // the message and then fails to respond in a timely fashion then the VC will move
+                // to the second BN. The BN will then report that this message has already been
+                // seen, which is not actually an error as far as the network or user are concerned.
+                Err(SyncVerificationError::PriorSyncCommitteeMessageKnown {
+                    validator_index,
+                    slot,
+                    prev_root,
+                    new_root,
+                }) => {
+                    debug!(
+                        log,
+                        "Ignoring already-known sync message";
+                        "new_root" => ?new_root,
+                        "prev_root" => ?prev_root,
+                        "slot" => slot,
+                        "validator_index" => validator_index,
+                    );
                 }
                 Err(e) => {
                     error!(
@@ -282,7 +349,17 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
             }
             // If we already know the contribution, don't broadcast it or attempt to
             // further verify it. Return success.
-            Err(SyncVerificationError::SyncContributionAlreadyKnown(_)) => continue,
+            Err(SyncVerificationError::SyncContributionSupersetKnown(_)) => continue,
+            // If we've already seen this aggregator produce an aggregate, just
+            // skip this one.
+            //
+            // We're likely to see this with VCs that use fallback BNs. The first
+            // BN might time-out *after* publishing the aggregate and then the
+            // second BN will indicate it's already seen the aggregate.
+            //
+            // There's no actual error for the user or the network since the
+            // aggregate has been successfully published by some other node.
+            Err(SyncVerificationError::AggregatorAlreadyKnown(_)) => continue,
             Err(e) => {
                 error!(
                     log,

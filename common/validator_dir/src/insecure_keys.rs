@@ -15,7 +15,7 @@ use types::test_utils::generate_deterministic_keypair;
 /// A very weak password with which to encrypt the keystores.
 pub const INSECURE_PASSWORD: &[u8] = &[50; 51];
 
-impl<'a> Builder<'a> {
+impl Builder<'_> {
     /// Generate the voting keystore using a deterministic, well-known, **unsafe** keypair.
     ///
     /// **NEVER** use these keys in production!

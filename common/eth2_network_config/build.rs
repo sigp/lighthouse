@@ -1,5 +1,7 @@
 //! Extracts zipped genesis states on first run.
-use eth2_config::{Eth2NetArchiveAndDirectory, ETH2_NET_DIRS, GENESIS_FILE_NAME};
+use eth2_config::{
+    Eth2NetArchiveAndDirectory, GenesisStateSource, ETH2_NET_DIRS, GENESIS_FILE_NAME,
+};
 use std::fs::File;
 use std::io;
 use zip::ZipArchive;
@@ -26,7 +28,7 @@ fn uncompress_state(network: &Eth2NetArchiveAndDirectory<'static>) -> Result<(),
         return Ok(());
     }
 
-    if network.genesis_is_known {
+    if network.genesis_state_source == GenesisStateSource::IncludedBytes {
         // Extract genesis state from genesis.ssz.zip
         let archive_path = network.genesis_state_archive();
         let archive_file = File::open(&archive_path)
@@ -46,7 +48,8 @@ fn uncompress_state(network: &Eth2NetArchiveAndDirectory<'static>) -> Result<(),
         io::copy(&mut file, &mut outfile)
             .map_err(|e| format!("Error writing file {:?}: {}", genesis_ssz_path, e))?;
     } else {
-        // Create empty genesis.ssz if genesis is unknown
+        // Create empty genesis.ssz if genesis is unknown or to be downloaded via URL.
+        // This is a bit of a hack to make `include_bytes!` easier to deal with.
         File::create(genesis_ssz_path)
             .map_err(|e| format!("Failed to create {}: {}", GENESIS_FILE_NAME, e))?;
     }

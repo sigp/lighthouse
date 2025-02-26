@@ -1,14 +1,35 @@
-# Key Management
+# Key Management (Deprecated)
 
 [launchpad]: https://launchpad.ethereum.org/
 
->
-> **Note: we recommend using the [Staking launchpad][launchpad] to create validators.**
+**⚠️ The information on this page refers to tooling and process that have been deprecated. Please read the "Deprecation Notice". ⚠️**
+
+## Deprecation Notice
+
+This page recommends the use of the `lighthouse account-manager` tool to create
+validators. This tool will always generate keys with the withdrawal credentials
+of type `0x00`. This means the users who created keys using `lighthouse
+account-manager` will have to update their withdrawal credentials in a
+separate step to receive staking rewards.
+
+In addition, Lighthouse generates the deposit data file in the form of `*.rlp`,
+which cannot be uploaded to the [Staking launchpad][launchpad] that accepts only
+`*.json` file. This means that users have to directly interact with the deposit
+contract to be able to submit the deposit if they were to generate the files
+using Lighthouse.
+
+Rather than continuing to read this page, we recommend users visit either:
+
+- The [Staking Launchpad][launchpad] for detailed, beginner-friendly instructions.
+- The [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli) for a CLI tool used by the [Staking Launchpad][launchpad].
+- The [validator-manager documentation](./validator-manager.md) for a Lighthouse-specific tool for streamlined validator management tools.
+
+## The `lighthouse account-manager`
 
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a
 master key, making the validators keys _children_ of the master key. This
-scheme means that a single 24-word mnemonic can be used to backup all of your
+scheme means that a single 24-word mnemonic can be used to back up all of your
 validator keys without providing any observable link between them (i.e., it is
 privacy-retaining). Hierarchical key derivation schemes are common-place in
 cryptocurrencies, they are already used by most hardware and software wallets
@@ -19,48 +40,80 @@ to secure BTC, ETH and many other coins.
 We defined some terms in the context of validator key management:
 
 - **Mnemonic**: a string of 24 words that is designed to be easy to write down
-	and remember. E.g., _"radar fly lottery mirror fat icon bachelor sadness
-	type exhaust mule six beef arrest you spirit clog mango snap fox citizen
-	already bird erase"_.
-	- Defined in BIP-39
+ and remember. E.g., _"radar fly lottery mirror fat icon bachelor sadness
+ type exhaust mule six beef arrest you spirit clog mango snap fox citizen
+ already bird erase"_.
+  - Defined in BIP-39
 - **Wallet**: a wallet is a JSON file which stores an
-	encrypted version of a mnemonic.
-	- Defined in EIP-2386
+ encrypted version of a mnemonic.
+  - Defined in EIP-2386
 - **Keystore**: typically created by wallet, it contains a single encrypted BLS
-	keypair.
-	- Defined in EIP-2335.
+ keypair.
+  - Defined in EIP-2335.
 - **Voting Keypair**: a BLS public and private keypair which is used for
-	signing blocks, attestations and other messages on regular intervals,
-	whilst staking in Phase 0.
+ signing blocks, attestations and other messages on regular intervals in the beacon chain.
 - **Withdrawal Keypair**: a BLS public and private keypair which will be
-	required _after_ Phase 0 to manage ETH once a validator has exited.
+ required _after_ Phase 0 to manage ETH once a validator has exited.
 
-## Overview
+## Create a validator
 
-The key management system in Lighthouse involves moving down the above list of
-items, starting at one easy-to-backup mnemonic and ending with multiple
-keypairs. Creating a single validator looks like this:
+There are 2 steps involved to create a validator key using Lighthouse:
 
-1. Create a **wallet** and record the **mnemonic**:
-    - `lighthouse --network prater account wallet create --name wally --password-file wally.pass`
-1. Create the voting and withdrawal **keystores** for one validator:
-	- `lighthouse --network prater account validator create --wallet-name wally --wallet-password wally.pass --count 1`
+ 1. [Create a wallet](#step-1-create-a-wallet-and-record-the-mnemonic)
+ 1. [Create a validator](#step-2-create-a-validator)
 
+The following example demonstrates how to create a single validator key.
 
-In step (1), we created a wallet in `~/.lighthouse/{network}/wallets` with the name
-`wally`. We encrypted this using a pre-defined password in the
-`wally.pass` file. Then, in step (2), we created one new validator in the
-`~/.lighthouse/{network}/validators` directory using `wally` (unlocking it with
-`wally.pass`) and storing the passwords to the validators voting key in
-`~/.lighthouse/{network}/secrets`.
+### Step 1: Create a wallet and record the mnemonic
 
-Thanks to the hierarchical key derivation scheme, we can delete all of the
-aforementioned directories and then regenerate them as long as we remembered
-the 24-word mnemonic (we don't recommend doing this, though).
+A wallet allows for generating practically unlimited validators from an
+easy-to-remember 24-word string (a mnemonic). As long as that mnemonic is
+backed up, all validator keys can be trivially re-generated.
 
-Creating another validator is easy, it's just a matter of repeating step (2).
-The wallet keeps track of how many validators it has generated and ensures that
-a new validator is generated each time.
+Whilst the wallet stores the mnemonic, it does not store it in plain-text: the
+mnemonic is encrypted with a password. It is the responsibility of the user to
+define a strong password. The password is only required for interacting with
+the wallet, it is not required for recovering keys from a mnemonic.
+
+To create a wallet, use the `lighthouse account wallet` command. For example, if we wish to create a new wallet for the Holesky testnet named `wally` and saves it in `~/.lighthouse/holesky/wallets` with a randomly generated password saved
+to `./wallet.pass`:
+
+```bash
+lighthouse --network holesky account wallet create --name wally --password-file wally.pass
+```
+
+Using the above command, a wallet will be created in `~/.lighthouse/holesky/wallets` with the name
+`wally`. It is encrypted using the password defined in the
+`wally.pass` file.
+
+During the wallet creation process, a 24-word mnemonic will be displayed. Record the mnemonic because it allows you to recreate the files in the case of data loss.
+> Notes:
+>
+> - When navigating to the directory `~/.lighthouse/holesky/wallets`, one will not see the wallet name `wally`, but a hexadecimal folder containing the wallet file. However, when interacting with `lighthouse` in the CLI, the name `wally` will be used.
+> - The password is not `wally.pass`, it is the _content_ of the
+>   `wally.pass` file.
+> - If `wally.pass` already exists, the wallet password will be set to the content
+>   of that file.
+
+### Step 2: Create a validator
+
+Validators are fundamentally represented by a BLS keypair. In Lighthouse, we use a wallet to generate these keypairs. Once a wallet exists, the `lighthouse account validator create` command can be used to generate the BLS keypair and all necessary information to submit a validator deposit. With the `wally` wallet created in [Step 1](#step-1-create-a-wallet-and-record-the-mnemonic), we can create a validator with the command:
+
+```bash
+lighthouse --network holesky account validator create --wallet-name wally --wallet-password wally.pass --count 1
+```
+
+This command will:
+
+- Derive a single new BLS keypair from wallet `wally` in `~/.lighthouse/holesky/wallets`, updating it so that it generates a new key next time.
+- Create a new directory `~/.lighthouse/holesky/validators` containing:
+  - An encrypted keystore file `voting-keystore.json` containing the validator's voting keypair.
+    - An `eth1_deposit_data.rlp` assuming the default deposit amount (`32 ETH`) which can be submitted to the deposit
+  contract for the Goerli testnet. Other networks can be set via the
+  `--network` parameter.
+- Create a new directory `~/.lighthouse/holesky/secrets` which stores a password to the validator's voting keypair.
+
+If you want to create another validator in the future, repeat [Step 2](#step-2-create-a-validator). The wallet keeps track of how many validators it has generated and ensures that a new validator is generated each time. The important thing is to keep the 24-word mnemonic safe so that it can be used to generate new validator keys if needed.
 
 ## Detail
 
@@ -69,43 +122,24 @@ a new validator is generated each time.
 There are three important directories in Lighthouse validator key management:
 
 - `wallets/`: contains encrypted wallets which are used for hierarchical
-	key derivation.
-	- Defaults to `~/.lighthouse/{network}/wallets`
+ key derivation.
+  - Defaults to `~/.lighthouse/{network}/wallets`
 - `validators/`: contains a directory for each validator containing
-	encrypted keystores and other validator-specific data.
-	- Defaults to `~/.lighthouse/{network}/validators`
+ encrypted keystores and other validator-specific data.
+  - Defaults to `~/.lighthouse/{network}/validators`
 - `secrets/`: since the validator signing keys are "hot", the validator process
-	needs access to the passwords to decrypt the keystores in the validators
-	dir. These passwords are stored here.
-	- Defaults to `~/.lighthouse/{network}/secrets` where `network` is the name of the network passed in the `--network` parameter (default is `mainnet`).
+ needs access to the passwords to decrypt the keystores in the validators
+ directory. These passwords are stored here.
+  - Defaults to `~/.lighthouse/{network}/secrets`
+
+where `{network}` is the name of the network passed in the `--network` parameter.
 
 When the validator client boots, it searches the `validators/` for directories
 containing voting keystores. When it discovers a keystore, it searches the
-`secrets/` dir for a file with the same name as the 0x-prefixed hex
-representation of the keystore public key. If it finds this file, it attempts
+`secrets/` directory for a file with the same name as the 0x-prefixed validator public key. If it finds this file, it attempts
 to decrypt the keystore using the contents of this file as the password. If it
 fails, it logs an error and moves onto the next keystore.
 
 The `validators/` and `secrets/` directories are kept separate to allow for
 ease-of-backup; you can safely backup `validators/` without worrying about
 leaking private key data.
-
-### Withdrawal Keypairs
-
-In Ethereum consensus Phase 0, withdrawal keypairs do not serve any immediate purpose.
-However, they become very important _after_ Phase 0: they will provide the
-ultimate control of the ETH of withdrawn validators.
-
-This presents an interesting key management scenario: withdrawal keys are very
-important, but not right now. Considering this, Lighthouse has adopted a
-strategy where **we do not save withdrawal keypairs to disk by default** (it is
-opt-in). Instead, we assert that since the withdrawal keys can be regenerated
-from a mnemonic, having them lying around on the file-system only presents risk
-and complexity.
-
-At the time or writing, we do not expose the commands to regenerate keys from
-mnemonics. However, key regeneration is tested on the public Lighthouse
-repository and will be exposed prior to mainnet launch.
-
-So, in summary, withdrawal keypairs can be trivially regenerated from the
-mnemonic via EIP-2333 so they are not saved to disk like the voting keypairs.

@@ -20,7 +20,6 @@ macro_rules! ssz_tests {
             let original = <$type>::random_for_test(&mut rng);
 
             let bytes = ssz_encode(&original);
-            println!("bytes length: {}", bytes.len());
             let decoded = <$type>::from_ssz_bytes(&bytes).unwrap();
 
             assert_eq!(original, decoded);

@@ -2,8 +2,6 @@ use super::{ManualSlotClock, SlotClock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::Slot;
 
-pub use std::time::SystemTimeError;
-
 /// Determines the present slot based upon the present system time.
 #[derive(Clone)]
 pub struct SystemTimeSlotClock {

@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ProposerPreparationData {
     /// The validators index.
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     /// The fee-recipient address.
+    #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
 }

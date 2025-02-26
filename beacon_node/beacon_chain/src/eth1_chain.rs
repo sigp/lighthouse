@@ -1,7 +1,7 @@
 use crate::metrics;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2::lighthouse::Eth1SyncStatusData;
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use slog::{debug, error, trace, Logger};
 use ssz::{Decode, Encode};
@@ -9,14 +9,13 @@ use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::get_new_eth1_data;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::iter::DoubleEndedIterator;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
-    DEPOSIT_TREE_DEPTH,
 };
 
 type BlockNumber = u64;
@@ -68,7 +67,7 @@ impl From<safe_arith::ArithError> for Error {
 /// - `genesis_time`: beacon chain genesis time.
 /// - `current_slot`: current beacon chain slot.
 /// - `spec`: current beacon chain specification.
-fn get_sync_status<T: EthSpec>(
+fn get_sync_status<E: EthSpec>(
     latest_cached_block: Option<&Eth1Block>,
     head_block: Option<&Eth1Block>,
     genesis_time: u64,
@@ -86,10 +85,10 @@ fn get_sync_status<T: EthSpec>(
     // that are *before* genesis, so that we can indicate to users that we're actually adequately
     // cached for where they are in time.
     let voting_target_timestamp = if let Some(current_slot) = current_slot {
-        let period = T::SlotsPerEth1VotingPeriod::to_u64();
+        let period = E::SlotsPerEth1VotingPeriod::to_u64();
         let voting_period_start_slot = (current_slot / period) * period;
 
-        let period_start = slot_start_seconds::<T>(
+        let period_start = slot_start_seconds(
             genesis_time,
             spec.seconds_per_slot,
             voting_period_start_slot,
@@ -99,7 +98,7 @@ fn get_sync_status<T: EthSpec>(
     } else {
         // The number of seconds in an eth1 voting period.
         let voting_period_duration =
-            T::slots_per_eth1_voting_period() as u64 * spec.seconds_per_slot;
+            E::slots_per_eth1_voting_period() as u64 * spec.seconds_per_slot;
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
 
@@ -108,8 +107,7 @@ fn get_sync_status<T: EthSpec>(
 
         // Determine how many voting periods are contained in distance between
         // now and genesis, rounding up.
-        let voting_periods_past =
-            (seconds_till_genesis + voting_period_duration - 1) / voting_period_duration;
+        let voting_periods_past = seconds_till_genesis.div_ceil(voting_period_duration);
 
         // Return the start time of the current voting period*.
         //
@@ -155,7 +153,7 @@ fn get_sync_status<T: EthSpec>(
     // Lighthouse is "cached and ready" when it has cached enough blocks to cover the start of the
     // current voting period.
     let lighthouse_is_cached_and_ready =
-        latest_cached_block_timestamp.map_or(false, |t| t >= voting_target_timestamp);
+        latest_cached_block_timestamp.is_some_and(|t| t >= voting_target_timestamp);
 
     Some(Eth1SyncStatusData {
         head_block_number,
@@ -170,8 +168,8 @@ fn get_sync_status<T: EthSpec>(
 
 #[derive(Encode, Decode, Clone)]
 pub struct SszEth1 {
-    use_dummy_backend: bool,
-    backend_bytes: Vec<u8>,
+    pub use_dummy_backend: bool,
+    pub backend_bytes: Vec<u8>,
 }
 
 impl StoreItem for SszEth1 {
@@ -286,7 +284,7 @@ where
         ssz_container: &SszEth1,
         config: Eth1Config,
         log: &Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         let backend =
             Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, log.clone(), spec)?;
@@ -305,16 +303,22 @@ where
         }
     }
 
+    /// Set in motion the finalization of `Eth1Data`. This method is called during block import
+    /// so it should be fast.
+    pub fn finalize_eth1_data(&self, eth1_data: Eth1Data) {
+        self.backend.finalize_eth1_data(eth1_data);
+    }
+
     /// Consumes `self`, returning the backend.
     pub fn into_backend(self) -> T {
         self.backend
     }
 }
 
-pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
+pub trait Eth1ChainBackend<E: EthSpec>: Sized + Send + Sync {
     /// Returns the `Eth1Data` that should be included in a block being produced for the given
     /// `state`.
-    fn eth1_data(&self, beacon_state: &BeaconState<T>, spec: &ChainSpec)
+    fn eth1_data(&self, beacon_state: &BeaconState<E>, spec: &ChainSpec)
         -> Result<Eth1Data, Error>;
 
     /// Returns all `Deposits` between `state.eth1_deposit_index` and
@@ -326,7 +330,7 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     /// be more than `MAX_DEPOSIT_COUNT` or the churn may be too high.
     fn queued_deposits(
         &self,
-        beacon_state: &BeaconState<T>,
+        beacon_state: &BeaconState<E>,
         eth1_data_vote: &Eth1Data,
         spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error>;
@@ -334,6 +338,10 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     /// Returns the latest block stored in the cache. Used to obtain an idea of how up-to-date the
     /// beacon node eth1 cache is.
     fn latest_cached_block(&self) -> Option<Eth1Block>;
+
+    /// Set in motion the finalization of `Eth1Data`. This method is called during block import
+    /// so it should be fast.
+    fn finalize_eth1_data(&self, eth1_data: Eth1Data);
 
     /// Returns the block at the head of the chain (ignoring follow distance, etc). Used to obtain
     /// an idea of how up-to-date the remote eth1 node is.
@@ -347,7 +355,7 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
         bytes: &[u8],
         config: Eth1Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String>;
 }
 
@@ -356,13 +364,13 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
 /// Never creates deposits, therefore the validator set is static.
 ///
 /// This was used in the 2019 Canada interop workshops.
-pub struct DummyEth1ChainBackend<T: EthSpec>(PhantomData<T>);
+pub struct DummyEth1ChainBackend<E: EthSpec>(PhantomData<E>);
 
-impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
+impl<E: EthSpec> Eth1ChainBackend<E> for DummyEth1ChainBackend<E> {
     /// Produce some deterministic junk based upon the current epoch.
-    fn eth1_data(&self, state: &BeaconState<T>, _spec: &ChainSpec) -> Result<Eth1Data, Error> {
+    fn eth1_data(&self, state: &BeaconState<E>, _spec: &ChainSpec) -> Result<Eth1Data, Error> {
         let current_epoch = state.current_epoch();
-        let slots_per_voting_period = T::slots_per_eth1_voting_period() as u64;
+        let slots_per_voting_period = E::slots_per_eth1_voting_period() as u64;
         let current_voting_period: u64 = current_epoch.as_u64() / slots_per_voting_period;
 
         let deposit_root = hash(&int_to_bytes32(current_voting_period));
@@ -378,7 +386,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
     /// The dummy back-end never produces deposits.
     fn queued_deposits(
         &self,
-        _: &BeaconState<T>,
+        _: &BeaconState<E>,
         _: &Eth1Data,
         _: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
@@ -388,6 +396,8 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
     fn latest_cached_block(&self) -> Option<Eth1Block> {
         None
     }
+
+    fn finalize_eth1_data(&self, _eth1_data: Eth1Data) {}
 
     fn head_block(&self) -> Option<Eth1Block> {
         None
@@ -403,13 +413,13 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
         _bytes: &[u8],
         _config: Eth1Config,
         _log: Logger,
-        _spec: ChainSpec,
+        _spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         Ok(Self(PhantomData))
     }
 }
 
-impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
+impl<E: EthSpec> Default for DummyEth1ChainBackend<E> {
     fn default() -> Self {
         Self(PhantomData)
     }
@@ -421,22 +431,23 @@ impl<T: EthSpec> Default for DummyEth1ChainBackend<T> {
 /// The `core` connects to some external eth1 client (e.g., Parity/Geth) and polls it for
 /// information.
 #[derive(Clone)]
-pub struct CachingEth1Backend<T: EthSpec> {
+pub struct CachingEth1Backend<E: EthSpec> {
     pub core: HttpService,
     log: Logger,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<E>,
 }
 
-impl<T: EthSpec> CachingEth1Backend<T> {
+impl<E: EthSpec> CachingEth1Backend<E> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
-    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Self {
-        Self {
-            core: HttpService::new(config, log.clone(), spec),
+    pub fn new(config: Eth1Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
+        Ok(Self {
+            core: HttpService::new(config, log.clone(), spec)
+                .map_err(|e| format!("Failed to create eth1 http service: {:?}", e))?,
             log,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Starts the routine which connects to the external eth1 node and updates the caches.
@@ -454,20 +465,20 @@ impl<T: EthSpec> CachingEth1Backend<T> {
     }
 }
 
-impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
-    fn eth1_data(&self, state: &BeaconState<T>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
-        let period = T::SlotsPerEth1VotingPeriod::to_u64();
+impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
+    fn eth1_data(&self, state: &BeaconState<E>, spec: &ChainSpec) -> Result<Eth1Data, Error> {
+        let period = E::SlotsPerEth1VotingPeriod::to_u64();
         let voting_period_start_slot = (state.slot() / period) * period;
-        let voting_period_start_seconds = slot_start_seconds::<T>(
+        let voting_period_start_seconds = slot_start_seconds(
             state.genesis_time(),
             spec.seconds_per_slot,
             voting_period_start_slot,
         );
 
-        let blocks = self.core.blocks().read();
-
-        let votes_to_consider =
-            get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec);
+        let votes_to_consider = {
+            let blocks = self.core.blocks().read();
+            get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec)
+        };
 
         trace!(
             self.log,
@@ -524,7 +535,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
 
     fn queued_deposits(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         eth1_data_vote: &Eth1Data,
         _spec: &ChainSpec,
     ) -> Result<Vec<Deposit>, Error> {
@@ -535,18 +546,26 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
             state.eth1_data().deposit_count
         };
 
-        match deposit_index.cmp(&deposit_count) {
+        // [New in Electra:EIP6110]
+        let deposit_index_limit =
+            if let Ok(deposit_requests_start_index) = state.deposit_requests_start_index() {
+                std::cmp::min(deposit_count, deposit_requests_start_index)
+            } else {
+                deposit_count
+            };
+
+        match deposit_index.cmp(&deposit_index_limit) {
             Ordering::Greater => Err(Error::DepositIndexTooHigh),
             Ordering::Equal => Ok(vec![]),
             Ordering::Less => {
                 let next = deposit_index;
-                let last = std::cmp::min(deposit_count, next + T::MaxDeposits::to_u64());
+                let last = std::cmp::min(deposit_index_limit, next + E::MaxDeposits::to_u64());
 
                 self.core
                     .deposits()
                     .read()
                     .cache
-                    .get_deposits(next, last, deposit_count, DEPOSIT_TREE_DEPTH)
+                    .get_deposits(next, last, deposit_count)
                     .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
                     .map(|(_deposit_root, deposits)| deposits)
             }
@@ -555,6 +574,12 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
 
     fn latest_cached_block(&self) -> Option<Eth1Block> {
         self.core.latest_cached_block()
+    }
+
+    /// This only writes the eth1_data to a temporary cache so that the service
+    /// thread can later do the actual finalizing of the deposit tree.
+    fn finalize_eth1_data(&self, eth1_data: Eth1Data) {
+        self.core.set_to_finalize(Some(eth1_data));
     }
 
     fn head_block(&self) -> Option<Eth1Block> {
@@ -571,7 +596,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
         bytes: &[u8],
         config: Eth1Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         let inner = HttpService::from_bytes(bytes, config, log.clone(), spec)?;
         Ok(Self {
@@ -609,8 +634,8 @@ where
 
 /// Collect all valid votes that are cast during the current voting period.
 /// Return hashmap with count of each vote cast.
-fn collect_valid_votes<T: EthSpec>(
-    state: &BeaconState<T>,
+fn collect_valid_votes<E: EthSpec>(
+    state: &BeaconState<E>,
     votes_to_consider: &HashMap<Eth1Data, BlockNumber>,
 ) -> Eth1DataVoteCount {
     let mut valid_votes = HashMap::new();
@@ -640,11 +665,7 @@ fn find_winning_vote(valid_votes: Eth1DataVoteCount) -> Option<Eth1Data> {
 }
 
 /// Returns the unix-epoch seconds at the start of the given `slot`.
-fn slot_start_seconds<T: EthSpec>(
-    genesis_unix_seconds: u64,
-    seconds_per_slot: u64,
-    slot: Slot,
-) -> u64 {
+fn slot_start_seconds(genesis_unix_seconds: u64, seconds_per_slot: u64, slot: Slot) -> u64 {
     genesis_unix_seconds + slot.as_u64() * seconds_per_slot
 }
 
@@ -664,15 +685,14 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 #[cfg(test)]
 mod test {
     use super::*;
-    use environment::null_logger;
-    use types::{DepositData, MinimalEthSpec, Signature};
+    use types::{DepositData, FixedBytesExtended, MinimalEthSpec, Signature};
 
     type E = MinimalEthSpec;
 
     fn get_eth1_data(i: u64) -> Eth1Data {
         Eth1Data {
             block_hash: Hash256::from_low_u64_be(i),
-            deposit_root: Hash256::from_low_u64_be(u64::max_value() - i),
+            deposit_root: Hash256::from_low_u64_be(u64::MAX - i),
             deposit_count: i,
         }
     }
@@ -680,7 +700,7 @@ mod test {
     fn get_voting_period_start_seconds(state: &BeaconState<E>, spec: &ChainSpec) -> u64 {
         let period = <E as EthSpec>::SlotsPerEth1VotingPeriod::to_u64();
         let voting_period_start_slot = (state.slot() / period) * period;
-        slot_start_seconds::<E>(
+        slot_start_seconds(
             state.genesis_time(),
             spec.seconds_per_slot,
             voting_period_start_slot,
@@ -690,23 +710,23 @@ mod test {
     #[test]
     fn slot_start_time() {
         let zero_sec = 0;
-        assert_eq!(slot_start_seconds::<E>(100, zero_sec, Slot::new(2)), 100);
+        assert_eq!(slot_start_seconds(100, zero_sec, Slot::new(2)), 100);
 
         let one_sec = 1;
-        assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(0)), 100);
-        assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(1)), 101);
-        assert_eq!(slot_start_seconds::<E>(100, one_sec, Slot::new(2)), 102);
+        assert_eq!(slot_start_seconds(100, one_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds(100, one_sec, Slot::new(1)), 101);
+        assert_eq!(slot_start_seconds(100, one_sec, Slot::new(2)), 102);
 
         let three_sec = 3;
-        assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(0)), 100);
-        assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(1)), 103);
-        assert_eq!(slot_start_seconds::<E>(100, three_sec, Slot::new(2)), 106);
+        assert_eq!(slot_start_seconds(100, three_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds(100, three_sec, Slot::new(1)), 103);
+        assert_eq!(slot_start_seconds(100, three_sec, Slot::new(2)), 106);
 
         let five_sec = 5;
-        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(0)), 100);
-        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(1)), 105);
-        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(2)), 110);
-        assert_eq!(slot_start_seconds::<E>(100, five_sec, Slot::new(3)), 115);
+        assert_eq!(slot_start_seconds(100, five_sec, Slot::new(0)), 100);
+        assert_eq!(slot_start_seconds(100, five_sec, Slot::new(1)), 105);
+        assert_eq!(slot_start_seconds(100, five_sec, Slot::new(2)), 110);
+        assert_eq!(slot_start_seconds(100, five_sec, Slot::new(3)), 115);
     }
 
     fn get_eth1_block(timestamp: u64, number: u64) -> Eth1Block {
@@ -722,19 +742,19 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
-        use types::{test_utils::generate_deterministic_keypair, EthSpec, MainnetEthSpec};
+        use logging::test_logger;
+        use types::{test_utils::generate_deterministic_keypair, MainnetEthSpec};
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
             let eth1_config = Eth1Config {
                 ..Eth1Config::default()
             };
 
-            let log = null_logger().unwrap();
-            Eth1Chain::new(CachingEth1Backend::new(
-                eth1_config,
-                log,
-                MainnetEthSpec::default_spec(),
-            ))
+            let log = test_logger();
+            Eth1Chain::new(
+                CachingEth1Backend::new(eth1_config, log, Arc::new(MainnetEthSpec::default_spec()))
+                    .unwrap(),
+            )
         }
 
         fn get_deposit_log(i: u64, spec: &ChainSpec) -> DepositLog {
@@ -955,7 +975,7 @@ mod test {
             let spec = &E::default_spec();
             let state: BeaconState<E> = BeaconState::new(0, get_eth1_data(0), spec);
 
-            let blocks = vec![];
+            let blocks = [];
 
             assert_eq!(
                 get_votes_to_consider(
@@ -1009,6 +1029,7 @@ mod test {
 
     mod collect_valid_votes {
         use super::*;
+        use types::List;
 
         fn get_eth1_data_vec(n: u64, block_number_offset: u64) -> Vec<(Eth1Data, BlockNumber)> {
             (0..n)
@@ -1056,12 +1077,14 @@ mod test {
 
             let votes_to_consider = get_eth1_data_vec(slots, 0);
 
-            *state.eth1_data_votes_mut() = votes_to_consider[0..slots as usize / 4]
-                .iter()
-                .map(|(eth1_data, _)| eth1_data)
-                .cloned()
-                .collect::<Vec<_>>()
-                .into();
+            *state.eth1_data_votes_mut() = List::new(
+                votes_to_consider[0..slots as usize / 4]
+                    .iter()
+                    .map(|(eth1_data, _)| eth1_data)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
 
             let votes =
                 collect_valid_votes(&state, &votes_to_consider.clone().into_iter().collect());
@@ -1085,12 +1108,14 @@ mod test {
                 .expect("should have some eth1 data")
                 .clone();
 
-            *state.eth1_data_votes_mut() = vec![duplicate_eth1_data.clone(); 4]
-                .iter()
-                .map(|(eth1_data, _)| eth1_data)
-                .cloned()
-                .collect::<Vec<_>>()
-                .into();
+            *state.eth1_data_votes_mut() = List::new(
+                vec![duplicate_eth1_data.clone(); 4]
+                    .iter()
+                    .map(|(eth1_data, _)| eth1_data)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
 
             let votes = collect_valid_votes(&state, &votes_to_consider.into_iter().collect());
             assert_votes!(

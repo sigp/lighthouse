@@ -3,17 +3,20 @@ use crate::execution_engine::GenericExecutionEngine;
 use crate::genesis_json::geth_genesis_json;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
-use std::{env, fs::File};
+use std::{env, fs};
 use tempfile::TempDir;
-use unused_port::unused_tcp_port;
+use unused_port::unused_tcp4_port;
 
-const GETH_BRANCH: &str = "master";
+// This is not currently used due to the following breaking changes in geth that requires updating our tests:
+// 1. removal of `personal` namespace in v1.14.12: See #30704
+// 2. removal of `totalDifficulty` field from RPC in v1.14.11. See #30386.
+// const GETH_BRANCH: &str = "master";
 const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
 
 pub fn build_result(repo_dir: &Path) -> Output {
     Command::new("make")
         .arg("geth")
-        .current_dir(&repo_dir)
+        .current_dir(repo_dir)
         .output()
         .expect("failed to make geth")
 }
@@ -27,13 +30,22 @@ pub fn build(execution_clients_dir: &Path) {
     }
 
     // Get the latest tag on the branch
-    let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
-    build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
+    // let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
+    // Using an older release due to breaking changes in recent releases. See comment on `GETH_BRANCH` const.
+    let release_tag = "v1.14.10";
+    build_utils::checkout(&repo_dir, dbg!(release_tag)).unwrap();
 
     // Build geth
     build_utils::check_command_output(build_result(&repo_dir), || {
-        format!("geth make failed using release {last_release}")
+        format!("geth make failed using release {release_tag}")
     });
+}
+
+pub fn clean(execution_clients_dir: &Path) {
+    let repo_dir = execution_clients_dir.join("go-ethereum");
+    if let Err(e) = fs::remove_dir_all(repo_dir) {
+        eprintln!("Error while deleting folder: {}", e);
+    }
 }
 
 /*
@@ -60,7 +72,7 @@ impl GenericExecutionEngine for GethEngine {
         let datadir = TempDir::new().unwrap();
 
         let genesis_json_path = datadir.path().join("genesis.json");
-        let mut file = File::create(&genesis_json_path).unwrap();
+        let mut file = fs::File::create(&genesis_json_path).unwrap();
         let json = geth_genesis_json();
         serde_json::to_writer(&mut file, &json).unwrap();
 
@@ -83,7 +95,7 @@ impl GenericExecutionEngine for GethEngine {
         http_auth_port: u16,
         jwt_secret_path: PathBuf,
     ) -> Child {
-        let network_port = unused_tcp_port().unwrap();
+        let network_port = unused_tcp4_port().unwrap();
 
         Command::new(Self::binary_path())
             .arg("--datadir")

@@ -7,7 +7,7 @@ pub struct BeaconCommittee<'a> {
     pub committee: &'a [usize],
 }
 
-impl<'a> BeaconCommittee<'a> {
+impl BeaconCommittee<'_> {
     pub fn into_owned(self) -> OwnedBeaconCommittee {
         OwnedBeaconCommittee {
             slot: self.slot,
@@ -17,8 +17,7 @@ impl<'a> BeaconCommittee<'a> {
     }
 }
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(arbitrary::Arbitrary, Default, Clone, Debug, PartialEq)]
 pub struct OwnedBeaconCommittee {
     pub slot: Slot,
     pub index: CommitteeIndex,

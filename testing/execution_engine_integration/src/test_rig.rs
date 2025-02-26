@@ -3,8 +3,10 @@ use crate::execution_engine::{
 };
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
+use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
-    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus,
+    BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
+    PayloadParameters, PayloadStatus,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
@@ -14,31 +16,34 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
+use types::payload::BlockProductionVersion;
 use types::{
-    Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
-    MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
+    FixedBytesExtended, ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
-const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(20);
+const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 
-struct ExecutionPair<E, T: EthSpec> {
+const TEST_FORK: ForkName = ForkName::Capella;
+
+struct ExecutionPair<Engine, E: EthSpec> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
-    execution_layer: ExecutionLayer<T>,
+    execution_layer: ExecutionLayer<E>,
     /// A handle to external EE process, once this is dropped the process will be killed.
     #[allow(dead_code)]
-    execution_engine: ExecutionEngine<E>,
+    execution_engine: ExecutionEngine<Engine>,
 }
 
 /// A rig that holds two EE processes for testing.
 ///
 /// There are two EEs held here so that we can test out-of-order application of payloads, and other
 /// edge-cases.
-pub struct TestRig<E, T: EthSpec = MainnetEthSpec> {
+pub struct TestRig<Engine, E: EthSpec = MainnetEthSpec> {
     #[allow(dead_code)]
     runtime: Arc<tokio::runtime::Runtime>,
-    ee_a: ExecutionPair<E, T>,
-    ee_b: ExecutionPair<E, T>,
+    ee_a: ExecutionPair<Engine, E>,
+    ee_b: ExecutionPair<Engine, E>,
     spec: ChainSpec,
-    _runtime_shutdown: exit_future::Signal,
+    _runtime_shutdown: async_channel::Sender<()>,
 }
 
 /// Import a private key into the execution engine and unlock it so that we can
@@ -98,28 +103,30 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
     }
 }
 
-impl<E: GenericExecutionEngine> TestRig<E> {
-    pub fn new(generic_engine: E) -> Self {
-        let log = environment::null_logger().unwrap();
+impl<Engine: GenericExecutionEngine> TestRig<Engine> {
+    pub fn new(generic_engine: Engine) -> Self {
+        let log = logging::test_logger();
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .unwrap(),
         );
-        let (runtime_shutdown, exit) = exit_future::signal();
+        let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+        let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
+        spec.terminal_total_difficulty = Uint256::ZERO;
 
         let fee_recipient = None;
 
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
-            let urls = vec![execution_engine.http_auth_url()];
+            let url = Some(execution_engine.http_auth_url());
 
             let config = execution_layer::Config {
-                execution_endpoints: urls,
-                secret_files: vec![],
+                execution_endpoint: url,
+                secret_file: None,
                 suggested_fee_recipient: Some(Address::repeat_byte(42)),
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
@@ -134,11 +141,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
-            let urls = vec![execution_engine.http_auth_url()];
+            let url = Some(execution_engine.http_auth_url());
 
             let config = execution_layer::Config {
-                execution_endpoints: urls,
-                secret_files: vec![],
+                execution_endpoint: url,
+                secret_file: None,
                 suggested_fee_recipient: fee_recipient,
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
@@ -150,9 +157,6 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 execution_layer,
             }
         };
-
-        let mut spec = MainnetEthSpec::default_spec();
-        spec.terminal_total_difficulty = Uint256::zero();
 
         Self {
             runtime,
@@ -177,7 +181,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 // Run the routine to check for online nodes.
                 pair.execution_layer.watchdog_task().await;
 
-                if pair.execution_layer.is_synced().await {
+                if !pair.execution_layer.is_offline_or_erroring().await {
                     break;
                 } else if start_instant + EXECUTION_ENGINE_START_TIMEOUT > Instant::now() {
                     sleep(Duration::from_millis(500)).await;
@@ -202,18 +206,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         .await;
 
         // We hardcode the accounts here since some EEs start with a default unlocked account
-        let account1 = ethers_core::types::Address::from_slice(&hex::decode(&ACCOUNT1).unwrap());
-        let account2 = ethers_core::types::Address::from_slice(&hex::decode(&ACCOUNT2).unwrap());
-
-        /*
-         * Check the transition config endpoint.
-         */
-        for ee in [&self.ee_a, &self.ee_b] {
-            ee.execution_layer
-                .exchange_transition_configuration(&self.spec)
-                .await
-                .unwrap();
-        }
+        let account1 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT1).unwrap());
+        let account2 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT2).unwrap());
 
         /*
          * Read the terminal block hash from both pairs, check it's equal.
@@ -239,13 +233,16 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         // Submit transactions before getting payload
         let txs = transactions::<MainnetEthSpec>(account1, account2);
+        let mut pending_txs = Vec::new();
         for tx in txs.clone().into_iter() {
-            self.ee_a
+            let pending_tx = self
+                .ee_a
                 .execution_engine
                 .provider
                 .send_transaction(tx, None)
                 .await
                 .unwrap();
+            pending_txs.push(pending_tx);
         }
 
         /*
@@ -255,6 +252,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
 
         let parent_hash = terminal_pow_block_hash;
+        let parent_gas_limit = DEFAULT_GAS_LIMIT;
         let timestamp = timestamp_now();
         let prev_randao = Hash256::zero();
         let head_root = Hash256::zero();
@@ -268,6 +266,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         };
         let proposer_index = 0;
 
+        // To save sending proposer preparation data, just set the fee recipient
+        // to the fee recipient configured for EE A.
         let prepared = self
             .ee_a
             .execution_layer
@@ -275,11 +275,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 Slot::new(1), // Insert proposer for the next slot
                 head_root,
                 proposer_index,
-                PayloadAttributes {
+                PayloadAttributes::new(
                     timestamp,
                     prev_randao,
-                    suggested_fee_recipient: Address::zero(),
-                },
+                    Address::repeat_byte(42),
+                    Some(vec![]),
+                    None,
+                ),
             )
             .await;
 
@@ -312,23 +314,47 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             slot: Slot::new(0),
             chain_health: ChainHealth::Healthy,
         };
-        let valid_payload = self
+        let suggested_fee_recipient = self
             .ee_a
             .execution_layer
-            .get_payload::<FullPayload<MainnetEthSpec>>(
-                parent_hash,
-                timestamp,
-                prev_randao,
-                proposer_index,
-                forkchoice_update_params,
+            .get_suggested_fee_recipient(proposer_index)
+            .await;
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            suggested_fee_recipient,
+            Some(vec![]),
+            None,
+        );
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: TEST_FORK,
+        };
+
+        let block_proposal_content_type = self
+            .ee_a
+            .execution_layer
+            .get_payload(
+                payload_parameters,
                 builder_params,
                 &self.spec,
+                None,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
-            .execution_payload;
+            .unwrap();
 
-        assert_eq!(valid_payload.transactions.len(), txs.len());
+        let valid_payload = match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => block.to_payload().execution_payload(),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
+        };
+
+        assert_eq!(valid_payload.transactions().len(), pending_txs.len());
 
         /*
          * Execution Engine A:
@@ -336,7 +362,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Indicate that the payload is the head of the chain, before submitting a
          * `notify_new_payload`.
          */
-        let head_block_hash = valid_payload.block_hash;
+        let head_block_hash = valid_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
@@ -360,10 +386,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide the valid payload back to the EE again.
          */
 
+        // TODO: again consider forks here
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(&valid_payload)
+            .notify_new_payload(valid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -376,7 +403,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          *
          * Do not provide payload attributes (we'll test that later).
          */
-        let head_block_hash = valid_payload.block_hash;
+        let head_block_hash = valid_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
@@ -394,21 +421,42 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
 
+        // Verify that all submitted txs were successful
+        for pending_tx in pending_txs {
+            let tx_receipt = pending_tx.await.unwrap().unwrap();
+            assert_eq!(
+                tx_receipt.status,
+                Some(1.into()),
+                "Tx index {} has invalid status ",
+                tx_receipt.transaction_index
+            );
+        }
+
         /*
          * Execution Engine A:
          *
          * Provide an invalidated payload to the EE.
          */
 
+        // TODO: again think about forks here
         let mut invalid_payload = valid_payload.clone();
-        invalid_payload.prev_randao = Hash256::from_low_u64_be(42);
+        *invalid_payload.prev_randao_mut() = Hash256::from_low_u64_be(42);
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(&invalid_payload)
+            .notify_new_payload(invalid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
-        assert!(matches!(status, PayloadStatus::InvalidBlockHash { .. }));
+        assert!(matches!(
+            status,
+            PayloadStatus::InvalidBlockHash { .. }
+                // Geth is returning `INVALID` with a `null` LVH to indicate it
+                // does not know the invalid ancestor.
+                | PayloadStatus::Invalid {
+                    latest_valid_hash: None,
+                    ..
+                }
+        ));
 
         /*
          * Execution Engine A:
@@ -416,8 +464,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Produce another payload atop the previous one.
          */
 
-        let parent_hash = valid_payload.block_hash;
-        let timestamp = valid_payload.timestamp + 1;
+        let parent_hash = valid_payload.block_hash();
+        let timestamp = valid_payload.timestamp() + 1;
         let prev_randao = Hash256::zero();
         let proposer_index = 0;
         let builder_params = BuilderParams {
@@ -425,21 +473,45 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             slot: Slot::new(0),
             chain_health: ChainHealth::Healthy,
         };
-        let second_payload = self
+        let suggested_fee_recipient = self
             .ee_a
             .execution_layer
-            .get_payload::<FullPayload<MainnetEthSpec>>(
-                parent_hash,
-                timestamp,
-                prev_randao,
-                proposer_index,
-                forkchoice_update_params,
+            .get_suggested_fee_recipient(proposer_index)
+            .await;
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            suggested_fee_recipient,
+            Some(vec![]),
+            None,
+        );
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: TEST_FORK,
+        };
+
+        let block_proposal_content_type = self
+            .ee_a
+            .execution_layer
+            .get_payload(
+                payload_parameters,
                 builder_params,
                 &self.spec,
+                None,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
-            .execution_payload;
+            .unwrap();
+
+        let second_payload = match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => block.to_payload().execution_payload(),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
+        };
 
         /*
          * Execution Engine A:
@@ -447,10 +519,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide the second payload back to the EE again.
          */
 
+        // TODO: again consider forks here
         let status = self
             .ee_a
             .execution_layer
-            .notify_new_payload(&second_payload)
+            .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -461,13 +534,17 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          *
          * Indicate that the payload is the head of the chain, providing payload attributes.
          */
-        let head_block_hash = valid_payload.block_hash;
+        let head_block_hash = valid_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = PayloadAttributes {
-            timestamp: second_payload.timestamp + 1,
-            prev_randao: Hash256::zero(),
-            suggested_fee_recipient: Address::zero(),
-        };
+        // To save sending proposer preparation data, just set the fee recipient
+        // to the fee recipient configured for EE A.
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            Address::repeat_byte(42),
+            Some(vec![]),
+            None,
+        );
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);
         let validator_index = 0;
@@ -494,24 +571,21 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          *
          * Provide the second payload, without providing the first.
          */
+        // TODO: again consider forks here
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(&second_payload)
+            .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
-        // TODO: we should remove the `Accepted` status here once Geth fixes it
-        assert!(matches!(
-            status,
-            PayloadStatus::Syncing | PayloadStatus::Accepted
-        ));
+        assert!(matches!(status, PayloadStatus::Syncing));
 
         /*
          * Execution Engine B:
          *
          * Set the second payload as the head, without providing payload attributes.
          */
-        let head_block_hash = second_payload.block_hash;
+        let head_block_hash = second_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
@@ -535,10 +609,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide the first payload to the EE.
          */
 
+        // TODO: again consider forks here
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(&valid_payload)
+            .notify_new_payload(valid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -552,7 +627,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_new_payload(&second_payload)
+            .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -563,7 +638,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          *
          * Set the second payload as the head, without providing payload attributes.
          */
-        let head_block_hash = second_payload.block_hash;
+        let head_block_hash = second_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
@@ -590,13 +665,29 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
     ee: &ExecutionPair<E, MainnetEthSpec>,
     payload: &ExecutionPayload<MainnetEthSpec>,
 ) {
-    let reconstructed = ee
+    // check via payload bodies method
+    let capabilities = ee
         .execution_layer
-        .get_payload_by_block_hash(payload.block_hash)
+        .get_engine_capabilities(None)
         .await
-        .unwrap()
         .unwrap();
-    assert_eq!(reconstructed, *payload);
+
+    assert!(
+        // if the engine doesn't have these capabilities, we need to update the client in our tests
+        capabilities.get_payload_bodies_by_hash_v1 && capabilities.get_payload_bodies_by_range_v1,
+        "Testing engine does not support payload bodies methods"
+    );
+
+    let mut bodies = ee
+        .execution_layer
+        .get_payload_bodies_by_hash(vec![payload.block_hash()])
+        .await
+        .unwrap();
+    assert_eq!(bodies.len(), 1);
+    let body = bodies.pop().unwrap().unwrap();
+    let header = ExecutionPayloadHeader::from(payload.to_ref());
+    let reconstructed_from_body = body.to_payload(header).unwrap();
+    assert_eq!(reconstructed_from_body, *payload);
 }
 
 /// Returns the duration since the unix epoch.

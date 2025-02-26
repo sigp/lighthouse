@@ -5,7 +5,6 @@
 
 use super::hex_bytes::HexBytes;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 
 /// Used for ensuring that serde only decodes valid cipher functions.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -14,9 +13,9 @@ pub enum CipherFunction {
     Aes128Ctr,
 }
 
-impl Into<String> for CipherFunction {
-    fn into(self) -> String {
-        match self {
+impl From<CipherFunction> for String {
+    fn from(from: CipherFunction) -> String {
+        match from {
             CipherFunction::Aes128Ctr => "aes-128-ctr".into(),
         }
     }

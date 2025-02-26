@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::time::Instant;
-use types::{SubnetId, SyncSubnetId};
+use types::{DataColumnSubnetId, SubnetId, SyncSubnetId};
 
 /// Represents a subnet on an attestation or sync committee `SubnetId`.
 ///
@@ -12,6 +12,8 @@ pub enum Subnet {
     Attestation(SubnetId),
     /// Represents a gossipsub sync committee subnet and the metadata `syncnets` field.
     SyncCommittee(SyncSubnetId),
+    /// Represents a gossipsub data column subnet.
+    DataColumn(DataColumnSubnetId),
 }
 
 /// A subnet to discover peers on along with the instant after which it's no longer useful.

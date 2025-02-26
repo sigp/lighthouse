@@ -5,7 +5,7 @@ use std::fs::{self};
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use types::{BeaconState, EthSpec};
+use types::{BeaconState, LightClientUpdate};
 
 /// See `log_file_access` for details.
 const ACCESSED_FILE_LOG_FILENAME: &str = ".accessed_file_log.txt";
@@ -28,7 +28,7 @@ pub fn log_file_access<P: AsRef<Path>>(file_accessed: P) {
 
     writeln!(&mut file, "{:?}", file_accessed.as_ref()).expect("should write to file");
 
-    file.unlock().expect("unable to unlock file");
+    fs2::FileExt::unlock(&file).expect("unable to unlock file");
 }
 
 pub fn yaml_decode<T: serde::de::DeserializeOwned>(string: &str) -> Result<T, Error> {
@@ -71,9 +71,7 @@ where
     f(&bytes).map_err(|e| {
         match e {
             // NOTE: this is a bit hacky, but seemingly better than the alternatives
-            ssz::DecodeError::BytesInvalid(message)
-                if message.contains("Blst") || message.contains("Milagro") =>
-            {
+            ssz::DecodeError::BytesInvalid(message) if message.contains("Blst") => {
                 Error::InvalidBLSInput(message)
             }
             e => Error::FailedToParseTest(format!(
@@ -96,4 +94,14 @@ pub fn ssz_decode_state<E: EthSpec>(
 ) -> Result<BeaconState<E>, Error> {
     log_file_access(path);
     ssz_decode_file_with(path, |bytes| BeaconState::from_ssz_bytes(bytes, spec))
+}
+
+pub fn ssz_decode_light_client_update<E: EthSpec>(
+    path: &Path,
+    fork_name: &ForkName,
+) -> Result<LightClientUpdate<E>, Error> {
+    log_file_access(path);
+    ssz_decode_file_with(path, |bytes| {
+        LightClientUpdate::from_ssz_bytes(bytes, fork_name)
+    })
 }

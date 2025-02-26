@@ -1,5 +1,4 @@
 use crate::derived_key::{HASH_SIZE, LAMPORT_ARRAY_SIZE};
-use std::iter::Iterator;
 use zeroize::Zeroize;
 
 /// A Lamport secret key as specified in [EIP-2333](https://eips.ethereum.org/EIPS/eip-2333).

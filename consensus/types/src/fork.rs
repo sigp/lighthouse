@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::Epoch;
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -9,8 +9,8 @@ use tree_hash_derive::TreeHash;
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
+    arbitrary::Arbitrary,
     Debug,
     Clone,
     Copy,
@@ -24,9 +24,9 @@ use tree_hash_derive::TreeHash;
     TestRandom,
 )]
 pub struct Fork {
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     pub previous_version: [u8; 4],
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     pub current_version: [u8; 4],
     pub epoch: Epoch,
 }

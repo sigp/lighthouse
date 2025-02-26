@@ -2,14 +2,14 @@
 use crate::test_utils::*;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::*;
+use std::sync::LazyLock;
 use swap_or_not_shuffle::shuffle_list;
 
 pub const VALIDATOR_COUNT: usize = 16;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 fn get_harness<E: EthSpec>(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(E::default())
@@ -34,7 +34,7 @@ fn default_values() {
     assert!(cache.get_beacon_committees_at_slot(Slot::new(0)).is_err());
 }
 
-async fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
+async fn new_state<E: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<E> {
     let harness = get_harness(validator_count);
     let head_state = harness.get_current_state();
     if slot > Slot::new(0) {
@@ -92,7 +92,7 @@ async fn shuffles_for_the_right_epoch() {
         .map(|i| Hash256::from_low_u64_be(i as u64))
         .collect();
 
-    *state.randao_mixes_mut() = FixedVector::from(distinct_hashes);
+    *state.randao_mixes_mut() = Vector::try_from_iter(distinct_hashes).unwrap();
 
     let previous_seed = state
         .get_seed(state.previous_epoch(), Domain::BeaconAttester, spec)

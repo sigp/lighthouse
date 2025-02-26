@@ -14,8 +14,8 @@ use store::iter::RootsIterator;
 use store::{Error, ItemStore, StoreItem, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use types::{
-    BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256,
-    SignedBeaconBlockHash, Slot,
+    BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, FixedBytesExtended,
+    Hash256, SignedBeaconBlockHash, Slot,
 };
 
 /// Compact at least this frequently, finalization permitting (7 days).
@@ -24,11 +24,22 @@ const MAX_COMPACTION_PERIOD_SECONDS: u64 = 604800;
 const MIN_COMPACTION_PERIOD_SECONDS: u64 = 7200;
 /// Compact after a large finality gap, if we respect `MIN_COMPACTION_PERIOD_SECONDS`.
 const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
+/// Maximum number of blocks applied in each reconstruction burst.
+///
+/// This limits the amount of time that the finalization migration is paused for. We set this
+/// conservatively because pausing the finalization migration for too long can cause hot state
+/// cache misses and excessive disk use.
+const BLOCKS_PER_RECONSTRUCTION: usize = 1024;
+
+/// Default number of epochs to wait between finalization migrations.
+pub const DEFAULT_EPOCHS_PER_MIGRATION: u64 = 1;
 
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
 pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     db: Arc<HotColdDB<E, Hot, Cold>>,
+    /// Record of when the last migration ran, for enforcing `epochs_per_migration`.
+    prev_migration: Arc<Mutex<PrevMigration>>,
     #[allow(clippy::type_complexity)]
     tx_thread: Option<Mutex<(mpsc::Sender<Notification>, thread::JoinHandle<()>)>>,
     /// Genesis block root, for persisting the `PersistedBeaconChain`.
@@ -36,9 +47,22 @@ pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     log: Logger,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigratorConfig {
     pub blocking: bool,
+    /// Run migrations at most once per `epochs_per_migration`.
+    ///
+    /// If set to 0 or 1, then run every finalization.
+    pub epochs_per_migration: u64,
+}
+
+impl Default for MigratorConfig {
+    fn default() -> Self {
+        Self {
+            blocking: false,
+            epochs_per_migration: DEFAULT_EPOCHS_PER_MIGRATION,
+        }
+    }
 }
 
 impl MigratorConfig {
@@ -46,6 +70,19 @@ impl MigratorConfig {
         self.blocking = true;
         self
     }
+
+    pub fn epochs_per_migration(mut self, epochs_per_migration: u64) -> Self {
+        self.epochs_per_migration = epochs_per_migration;
+        self
+    }
+}
+
+/// Record of when the last migration ran.
+pub struct PrevMigration {
+    /// The epoch at which the last finalization migration ran.
+    epoch: Epoch,
+    /// The number of epochs to wait between runs.
+    epochs_per_migration: u64,
 }
 
 /// Pruning can be successful, or in rare cases deferred to a later point.
@@ -86,12 +123,14 @@ pub enum PruningError {
 pub enum Notification {
     Finalization(FinalizationNotification),
     Reconstruction,
+    PruneBlobs(Epoch),
 }
 
 pub struct FinalizationNotification {
     finalized_state_root: BeaconStateHash,
     finalized_checkpoint: Checkpoint,
     head_tracker: Arc<HeadTracker>,
+    prev_migration: Arc<Mutex<PrevMigration>>,
     genesis_block_root: Hash256,
 }
 
@@ -103,6 +142,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         genesis_block_root: Hash256,
         log: Logger,
     ) -> Self {
+        // Estimate last migration run from DB split slot.
+        let prev_migration = Arc::new(Mutex::new(PrevMigration {
+            epoch: db.get_split_slot().epoch(E::slots_per_epoch()),
+            epochs_per_migration: config.epochs_per_migration,
+        }));
         let tx_thread = if config.blocking {
             None
         } else {
@@ -111,6 +155,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         Self {
             db,
             tx_thread,
+            prev_migration,
             genesis_block_root,
             log,
         }
@@ -131,6 +176,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             finalized_state_root,
             finalized_checkpoint,
             head_tracker,
+            prev_migration: self.prev_migration.clone(),
             genesis_block_root: self.genesis_block_root,
         };
 
@@ -148,15 +194,60 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         if let Some(Notification::Reconstruction) =
             self.send_background_notification(Notification::Reconstruction)
         {
-            Self::run_reconstruction(self.db.clone(), &self.log);
+            // If we are running in foreground mode (as in tests), then this will just run a single
+            // batch. We may need to tweak this in future.
+            Self::run_reconstruction(self.db.clone(), None, &self.log);
         }
     }
 
-    pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
-        if let Err(e) = db.reconstruct_historic_states() {
+    pub fn process_prune_blobs(&self, data_availability_boundary: Epoch) {
+        if let Some(Notification::PruneBlobs(data_availability_boundary)) =
+            self.send_background_notification(Notification::PruneBlobs(data_availability_boundary))
+        {
+            Self::run_prune_blobs(self.db.clone(), data_availability_boundary, &self.log);
+        }
+    }
+
+    pub fn run_reconstruction(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        opt_tx: Option<mpsc::Sender<Notification>>,
+        log: &Logger,
+    ) {
+        match db.reconstruct_historic_states(Some(BLOCKS_PER_RECONSTRUCTION)) {
+            Ok(()) => {
+                // Schedule another reconstruction batch if required and we have access to the
+                // channel for requeueing.
+                if let Some(tx) = opt_tx {
+                    if !db.get_anchor_info().all_historic_states_stored() {
+                        if let Err(e) = tx.send(Notification::Reconstruction) {
+                            error!(
+                                log,
+                                "Unable to requeue reconstruction notification";
+                                "error" => ?e
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!(
+                    log,
+                    "State reconstruction failed";
+                    "error" => ?e,
+                );
+            }
+        }
+    }
+
+    pub fn run_prune_blobs(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        data_availability_boundary: Epoch,
+        log: &Logger,
+    ) {
+        if let Err(e) = db.try_prune_blobs(false, data_availability_boundary) {
             error!(
                 log,
-                "State reconstruction failed";
+                "Blob pruning failed";
                 "error" => ?e,
             );
         }
@@ -204,9 +295,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         notif: FinalizationNotification,
         log: &Logger,
     ) {
+        // Do not run too frequently.
+        let epoch = notif.finalized_checkpoint.epoch;
+        let mut prev_migration = notif.prev_migration.lock();
+        if epoch < prev_migration.epoch + prev_migration.epochs_per_migration {
+            debug!(
+                log,
+                "Database consolidation deferred";
+                "last_finalized_epoch" => prev_migration.epoch,
+                "new_finalized_epoch" => epoch,
+                "epochs_per_migration" => prev_migration.epochs_per_migration,
+            );
+            return;
+        }
+
+        // Update the previous migration epoch immediately to avoid holding the lock. If the
+        // migration doesn't succeed then the next migration will be retried at the next scheduled
+        // run.
+        prev_migration.epoch = epoch;
+        drop(prev_migration);
+
         debug!(log, "Database consolidation started");
 
         let finalized_state_root = notif.finalized_state_root;
+        let finalized_block_root = notif.finalized_checkpoint.root;
 
         let finalized_state = match db.get_state(&finalized_state_root.into(), None) {
             Ok(Some(state)) => state,
@@ -260,7 +372,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             }
         };
 
-        match migrate_database(db.clone(), finalized_state_root.into(), &finalized_state) {
+        match migrate_database(
+            db.clone(),
+            finalized_state_root.into(),
+            finalized_block_root,
+            &finalized_state,
+        ) {
             Ok(()) => {}
             Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                 debug!(
@@ -300,31 +417,48 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         log: Logger,
     ) -> (mpsc::Sender<Notification>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
+        let inner_tx = tx.clone();
         let thread = thread::spawn(move || {
             while let Ok(notif) = rx.recv() {
-                // Read the rest of the messages in the channel, preferring any reconstruction
-                // notification, or the finalization notification with the greatest finalized epoch.
-                let notif =
-                    rx.try_iter()
-                        .fold(notif, |best, other: Notification| match (&best, &other) {
-                            (Notification::Reconstruction, _)
-                            | (_, Notification::Reconstruction) => Notification::Reconstruction,
-                            (
-                                Notification::Finalization(fin1),
-                                Notification::Finalization(fin2),
-                            ) => {
-                                if fin2.finalized_checkpoint.epoch > fin1.finalized_checkpoint.epoch
-                                {
-                                    other
-                                } else {
-                                    best
-                                }
-                            }
-                        });
-
+                let mut reconstruction_notif = None;
+                let mut finalization_notif = None;
+                let mut prune_blobs_notif = None;
                 match notif {
-                    Notification::Reconstruction => Self::run_reconstruction(db.clone(), &log),
-                    Notification::Finalization(fin) => Self::run_migration(db.clone(), fin, &log),
+                    Notification::Reconstruction => reconstruction_notif = Some(notif),
+                    Notification::Finalization(fin) => finalization_notif = Some(fin),
+                    Notification::PruneBlobs(dab) => prune_blobs_notif = Some(dab),
+                }
+                // Read the rest of the messages in the channel, taking the best of each type.
+                for notif in rx.try_iter() {
+                    match notif {
+                        Notification::Reconstruction => reconstruction_notif = Some(notif),
+                        Notification::Finalization(fin) => {
+                            if let Some(current) = finalization_notif.as_mut() {
+                                if fin.finalized_checkpoint.epoch
+                                    > current.finalized_checkpoint.epoch
+                                {
+                                    *current = fin;
+                                }
+                            } else {
+                                finalization_notif = Some(fin);
+                            }
+                        }
+                        Notification::PruneBlobs(dab) => {
+                            prune_blobs_notif = std::cmp::max(prune_blobs_notif, Some(dab));
+                        }
+                    }
+                }
+                // Run finalization and blob pruning migrations first, then a reconstruction batch.
+                // This prevents finalization from being starved while reconstruciton runs (a
+                // problem in previous LH versions).
+                if let Some(fin) = finalization_notif {
+                    Self::run_migration(db.clone(), fin, &log);
+                }
+                if let Some(dab) = prune_blobs_notif {
+                    Self::run_prune_blobs(db.clone(), dab, &log);
+                }
+                if reconstruction_notif.is_some() {
+                    Self::run_reconstruction(db.clone(), Some(inner_tx.clone()), &log);
                 }
             }
         });
@@ -565,13 +699,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             head_tracker_lock.remove(&head_hash);
         }
 
-        let batch: Vec<StoreOp<E>> = abandoned_blocks
+        let mut batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
             .map(Into::into)
             .flat_map(|block_root: Hash256| {
                 [
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
+                    StoreOp::DeleteBlobs(block_root),
+                    StoreOp::DeleteSyncCommitteeBranch(block_root),
                 ]
             })
             .chain(
@@ -581,22 +717,29 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             )
             .collect();
 
-        let mut kv_batch = store.convert_to_kv_batch(batch)?;
-
         // Persist the head in case the process is killed or crashes here. This prevents
         // the head tracker reverting after our mutation above.
         let persisted_head = PersistedBeaconChain {
             _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
             genesis_block_root,
-            ssz_head_tracker: SszHeadTracker::from_map(&*head_tracker_lock),
+            ssz_head_tracker: SszHeadTracker::from_map(&head_tracker_lock),
         };
         drop(head_tracker_lock);
-        kv_batch.push(persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY));
+        batch.push(StoreOp::KeyValueOp(
+            persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY),
+        ));
 
         // Persist the new finalized checkpoint as the pruning checkpoint.
-        kv_batch.push(store.pruning_checkpoint_store_op(new_finalized_checkpoint));
+        batch.push(StoreOp::KeyValueOp(
+            store.pruning_checkpoint_store_op(new_finalized_checkpoint),
+        ));
 
-        store.hot_db.do_atomically(kv_batch)?;
+        store.do_atomically_with_block_and_blobs_cache(batch)?;
+
+        // Do a quick separate pass to delete obsoleted hot states, usually pre-states from the state
+        // advance which are not canonical due to blocks being applied on top.
+        store.prune_old_hot_states()?;
+
         debug!(log, "Database pruning complete");
 
         Ok(PruningOutcome::Successful {

@@ -2,13 +2,19 @@
 name = "task_executor"
 version = "0.1.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2021"
+edition = { workspace = true }
+
+[features]
+default = ["slog"]
+slog = ["dep:slog", "dep:sloggers", "dep:logging"]
+tracing = ["dep:tracing"]
 
 [dependencies]
-tokio = { version = "1.14.0", features = ["rt-multi-thread", "macros"] }
-slog = "2.5.2"
-futures = "0.3.7"
-exit-future = "0.2.0"
-lazy_static = "1.4.0"
-lighthouse_metrics = { path = "../lighthouse_metrics" }
-sloggers = { version = "2.1.1", features = ["json"] }
+async-channel = { workspace = true }
+futures = { workspace = true }
+logging = { workspace = true, optional = true }
+metrics = { workspace = true }
+slog = { workspace = true, optional = true }
+sloggers = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing = { workspace = true, optional = true }

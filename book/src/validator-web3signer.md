@@ -5,7 +5,7 @@
 [Teku]: https://github.com/consensys/teku
 
 [Web3Signer] is a tool by Consensys which allows *remote signing*. Remote signing is when a
-Validator Client (VC) out-sources the signing of messages to remote server (e.g., via HTTPS). This
+Validator Client (VC) out-sources the signing of messages to a remote server (e.g., via HTTPS). This
 means that the VC does not hold the validator private keys.
 
 ## Warnings
@@ -30,8 +30,7 @@ or effectiveness.
 ## Usage
 
 A remote signing validator is added to Lighthouse in much the same way as one that uses a local
-keystore, via the [`validator_definitions.yml`](./validator-management.md) file or via the `POST
-/lighthouse/validators/web3signer` API endpoint.
+keystore, via the [`validator_definitions.yml`](./validator-management.md) file or via the [`POST /lighthouse/validators/web3signer`](./api-vc-endpoints.md#post-lighthousevalidatorsweb3signer) API endpoint.
 
 Here is an example of a `validator_definitions.yml` file containing one validator which uses a
 remote signer:
@@ -47,7 +46,7 @@ remote signer:
   client_identity_password: "password"
 ```
 
-When using this file, the Lighthouse VC will perform duties for the `0xa5566..` validator and defer
+When using this file, the Lighthouse VC will perform duties for the `0xa5566..` validator and refer
 to the `https://my-remote-signer.com:1234` server to obtain any signatures. It will load a
 "self-signed" SSL certificate from `/home/paul/my-certificates/my-remote-signer.pem` (on the
 filesystem of the VC) to encrypt the communications between the VC and Web3Signer. It will use

@@ -3,11 +3,10 @@ use crate::{
     generic_signature::{GenericSignature, TSignature},
     Error, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
 };
-use eth2_serde_utils::hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
+use serde_utils::hex::encode as hex_encode;
 use ssz::{Decode, Encode};
-use std::convert::TryInto;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;

@@ -1,5 +1,4 @@
 #![cfg(test)]
-#![recursion_limit = "256"]
 
 use beacon_chain::StateSkipConfig;
 use node_test_rig::{
@@ -26,8 +25,7 @@ fn build_node<E: EthSpec>(env: &mut Environment<E>) -> LocalBeaconNode<E> {
 #[test]
 fn http_server_genesis_state() {
     let mut env = env_builder()
-        .null_logger()
-        //.async_logger("debug", None)
+        .test_logger()
         .expect("should build env logger")
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")

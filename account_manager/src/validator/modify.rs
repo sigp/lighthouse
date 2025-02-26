@@ -1,6 +1,7 @@
 use account_utils::validator_definitions::ValidatorDefinitions;
 use bls::PublicKey;
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use std::{collections::HashSet, path::PathBuf};
 
 pub const CMD: &str = "modify";
@@ -10,43 +11,50 @@ pub const DISABLE: &str = "disable";
 pub const PUBKEY_FLAG: &str = "pubkey";
 pub const ALL: &str = "all";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about("Modify validator status in validator_definitions.yml.")
+        .display_order(0)
         .subcommand(
-            App::new(ENABLE)
+            Command::new(ENABLE)
                 .about("Enable validator(s) in validator_definitions.yml.")
                 .arg(
-                    Arg::with_name(PUBKEY_FLAG)
+                    Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
                         .help("Validator pubkey to enable")
-                        .takes_value(true),
+                        .action(ArgAction::Set)
+                        .display_order(0),
                 )
                 .arg(
-                    Arg::with_name(ALL)
+                    Arg::new(ALL)
                         .long(ALL)
                         .help("Enable all validators in the validator directory")
-                        .takes_value(false)
-                        .conflicts_with(PUBKEY_FLAG),
+                        .action(ArgAction::SetTrue)
+                        .help_heading(FLAG_HEADER)
+                        .conflicts_with(PUBKEY_FLAG)
+                        .display_order(0),
                 ),
         )
         .subcommand(
-            App::new(DISABLE)
+            Command::new(DISABLE)
                 .about("Disable validator(s) in validator_definitions.yml.")
                 .arg(
-                    Arg::with_name(PUBKEY_FLAG)
+                    Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
                         .help("Validator pubkey to disable")
-                        .takes_value(true),
+                        .action(ArgAction::Set)
+                        .display_order(0),
                 )
                 .arg(
-                    Arg::with_name(ALL)
+                    Arg::new(ALL)
                         .long(ALL)
                         .help("Disable all validators in the validator directory")
-                        .takes_value(false)
-                        .conflicts_with(PUBKEY_FLAG),
+                        .action(ArgAction::SetTrue)
+                        .help_heading(FLAG_HEADER)
+                        .conflicts_with(PUBKEY_FLAG)
+                        .display_order(0),
                 ),
         )
 }
@@ -55,14 +63,15 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     // `true` implies we are setting `validator_definition.enabled = true` and
     // vice versa.
     let (enabled, sub_matches) = match matches.subcommand() {
-        (ENABLE, Some(sub_matches)) => (true, sub_matches),
-        (DISABLE, Some(sub_matches)) => (false, sub_matches),
-        (unknown, _) => {
+        Some((ENABLE, sub_matches)) => (true, sub_matches),
+        Some((DISABLE, sub_matches)) => (false, sub_matches),
+        Some((unknown, _)) => {
             return Err(format!(
                 "{} does not have a {} command. See --help",
                 CMD, unknown
             ))
         }
+        _ => return Err(format!("No command provided for {}. See --help", CMD)),
     };
     let mut defs = ValidatorDefinitions::open(&validator_dir).map_err(|e| {
         format!(
@@ -70,7 +79,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             validator_dir, e
         )
     })?;
-    let pubkeys_to_modify = if sub_matches.is_present(ALL) {
+    let pubkeys_to_modify = if sub_matches.get_flag(ALL) {
         defs.as_slice()
             .iter()
             .map(|def| def.voting_public_key.clone())

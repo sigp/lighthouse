@@ -6,29 +6,30 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    BeaconChain, StateSkipConfig, WhenSlotSkipped,
+    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
-use fork_choice::CountUnrealized;
-use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
-use state_processing::{
-    per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
-};
+use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
+use std::sync::LazyLock;
 use types::{
-    BeaconState, BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, EthSpec, Hash256, Keypair, MinimalEthSpec,
+    RelativeEpoch, Slot,
 };
 
 // Should ideally be divisible by 3.
-pub const VALIDATOR_COUNT: usize = 24;
+pub const VALIDATOR_COUNT: usize = 48;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
+        .chain_config(ChainConfig {
+            reconstruct_historic_states: true,
+            ..ChainConfig::default()
+        })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -56,9 +57,7 @@ fn massive_skips() {
     assert!(state.slot() > 1, "the state should skip at least one slot");
     assert_eq!(
         error,
-        SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
-            BeaconStateError::InsufficientValidators
-        )),
+        SlotProcessingError::BeaconStateError(BeaconStateError::InsufficientValidators),
         "should return error indicating that validators have been slashed out"
     )
 }
@@ -171,7 +170,7 @@ async fn find_reorgs() {
 
     harness
         .extend_chain(
-            num_blocks_produced as usize,
+            num_blocks_produced,
             BlockStrategy::OnCanonicalHead,
             // No need to produce attestations for this test.
             AttestationStrategy::SomeValidators(vec![]),
@@ -204,7 +203,7 @@ async fn find_reorgs() {
     assert_eq!(
         find_reorg_slot(
             &harness.chain,
-            &head_state,
+            head_state,
             harness.chain.head_beacon_block().canonical_root()
         ),
         head_slot
@@ -500,11 +499,10 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validator_slots: Vec<(usize, Slot)> = (0..VALIDATOR_COUNT)
-        .into_iter()
         .map(|validator_index| {
             let slot = state
                 .get_attestation_duties(validator_index, RelativeEpoch::Current)
@@ -574,7 +572,7 @@ async fn attestations_with_increasing_slots() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data.slot;
+        let expected_attestation_slot = attestation.data().slot;
         let expected_earliest_permissible_slot =
             current_slot - MinimalEthSpec::slots_per_epoch() - 1;
 
@@ -614,7 +612,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
     fork_choice
-        .update_time(harness.chain.slot().unwrap(), &harness.chain.spec)
+        .update_time(harness.chain.slot().unwrap())
         .unwrap();
 
     let validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
@@ -681,17 +679,21 @@ async fn run_skip_slot_test(skip_slots: u64) {
         Slot::new(0)
     );
 
-    assert_eq!(
-        harness_b
-            .chain
-            .process_block(
-                harness_a.chain.head_snapshot().beacon_block.clone(),
-                CountUnrealized::True
-            )
-            .await
-            .unwrap(),
-        harness_a.chain.head_snapshot().beacon_block_root
-    );
+    let status = harness_b
+        .chain
+        .process_block(
+            harness_a.chain.head_snapshot().beacon_block_root,
+            harness_a.get_head_block(),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await
+        .unwrap();
+
+    let root: Hash256 = status.try_into().unwrap();
+
+    assert_eq!(root, harness_a.chain.head_snapshot().beacon_block_root);
 
     harness_b.chain.recompute_head_at_current_slot().await;
 

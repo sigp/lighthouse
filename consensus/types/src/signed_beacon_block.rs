@@ -1,15 +1,15 @@
+use crate::beacon_block_body::{format_kzg_commitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::*;
-use bls::Signature;
 use derivative::Derivative;
-use serde_derive::{Deserialize, Serialize};
+use merkle_proof::MerkleTree;
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
 use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(arbitrary::Arbitrary, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct SignedBeaconBlockHash(Hash256);
 
 impl fmt::Debug for SignedBeaconBlockHash {
@@ -38,7 +38,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
         derive(
             Debug,
@@ -49,41 +49,69 @@ impl From<SignedBeaconBlockHash> for Hash256 {
             Decode,
             TreeHash,
             Derivative,
+            arbitrary::Arbitrary
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
-        serde(bound = "E: EthSpec, Payload: ExecPayload<E>"),
+        serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
+        arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
     ),
     map_into(BeaconBlock),
     map_ref_into(BeaconBlockRef),
     map_ref_mut_into(BeaconBlockRefMut)
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
+)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
-#[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
+#[arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct SignedBeaconBlock<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E>> {
+pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     #[superstruct(only(Base), partial_getter(rename = "message_base"))]
     pub message: BeaconBlockBase<E, Payload>,
     #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
     pub message: BeaconBlockAltair<E, Payload>,
-    #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
-    pub message: BeaconBlockMerge<E, Payload>,
+    #[superstruct(only(Bellatrix), partial_getter(rename = "message_bellatrix"))]
+    pub message: BeaconBlockBellatrix<E, Payload>,
+    #[superstruct(only(Capella), partial_getter(rename = "message_capella"))]
+    pub message: BeaconBlockCapella<E, Payload>,
+    #[superstruct(only(Deneb), partial_getter(rename = "message_deneb"))]
+    pub message: BeaconBlockDeneb<E, Payload>,
+    #[superstruct(only(Electra), partial_getter(rename = "message_electra"))]
+    pub message: BeaconBlockElectra<E, Payload>,
+    #[superstruct(only(Fulu), partial_getter(rename = "message_fulu"))]
+    pub message: BeaconBlockFulu<E, Payload>,
     pub signature: Signature,
+}
+
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDecode
+    for SignedBeaconBlock<E, Payload>
+{
+    /// SSZ decode with explicit fork variant.
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes_with(bytes, |bytes| {
+            BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+        })
+    }
 }
 
 pub type SignedBlindedBeaconBlock<E> = SignedBeaconBlock<E, BlindedPayload<E>>;
 
-impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         self.message().fork_name(spec)
+    }
+
+    /// Returns the name of the fork pertaining to `self`
+    /// Does not check that the fork is consistent with the slot.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        self.message().fork_name_unchecked()
     }
 
     /// SSZ decode with fork variant determined by slot.
@@ -126,8 +154,20 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
             BeaconBlock::Altair(message) => {
                 SignedBeaconBlock::Altair(SignedBeaconBlockAltair { message, signature })
             }
-            BeaconBlock::Merge(message) => {
-                SignedBeaconBlock::Merge(SignedBeaconBlockMerge { message, signature })
+            BeaconBlock::Bellatrix(message) => {
+                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix { message, signature })
+            }
+            BeaconBlock::Capella(message) => {
+                SignedBeaconBlock::Capella(SignedBeaconBlockCapella { message, signature })
+            }
+            BeaconBlock::Deneb(message) => {
+                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb { message, signature })
+            }
+            BeaconBlock::Electra(message) => {
+                SignedBeaconBlock::Electra(SignedBeaconBlockElectra { message, signature })
+            }
+            BeaconBlock::Fulu(message) => {
+                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu { message, signature })
             }
         }
     }
@@ -179,7 +219,7 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
         }
 
         let domain = spec.get_domain(
-            self.slot().epoch(E::slots_per_epoch()),
+            self.epoch(),
             Domain::BeaconProposer,
             fork,
             genesis_validators_root,
@@ -206,9 +246,53 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
         }
     }
 
+    /// Produce a signed beacon block header AND a merkle proof for the KZG commitments.
+    ///
+    /// This method is more efficient than generating each part separately as it reuses hashing.
+    pub fn signed_block_header_and_kzg_commitments_proof(
+        &self,
+    ) -> Result<
+        (
+            SignedBeaconBlockHeader,
+            FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+        ),
+        Error,
+    > {
+        // Create the block body merkle tree
+        let body_leaves = self.message().body().body_merkle_leaves();
+        let beacon_block_body_depth = body_leaves.len().next_power_of_two().ilog2() as usize;
+        let body_merkle_tree = MerkleTree::create(&body_leaves, beacon_block_body_depth);
+
+        // Compute the KZG commitments inclusion proof
+        let (_, proof) = body_merkle_tree
+            .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
+            .map_err(Error::MerkleTreeError)?;
+        let kzg_commitments_inclusion_proof = FixedVector::new(proof)?;
+
+        let block_header = BeaconBlockHeader {
+            slot: self.slot(),
+            proposer_index: self.message().proposer_index(),
+            parent_root: self.parent_root(),
+            state_root: self.state_root(),
+            body_root: body_merkle_tree.hash(),
+        };
+
+        let signed_header = SignedBeaconBlockHeader {
+            message: block_header,
+            signature: self.signature().clone(),
+        };
+
+        Ok((signed_header, kzg_commitments_inclusion_proof))
+    }
+
     /// Convenience accessor for the block's slot.
     pub fn slot(&self) -> Slot {
         self.message().slot()
+    }
+
+    /// Convenience accessor for the block's epoch.
+    pub fn epoch(&self) -> Epoch {
+        self.message().slot().epoch(E::slots_per_epoch())
     }
 
     /// Convenience accessor for the block's parent root.
@@ -224,6 +308,23 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
     /// Returns the `tree_hash_root` of the block.
     pub fn canonical_root(&self) -> Hash256 {
         self.message().tree_hash_root()
+    }
+
+    pub fn num_expected_blobs(&self) -> usize {
+        self.message()
+            .body()
+            .blob_kzg_commitments()
+            .map(|c| c.len())
+            .unwrap_or(0)
+    }
+
+    /// Used for displaying commitments in logs.
+    pub fn commitments_formatted(&self) -> String {
+        let Ok(commitments) = self.message().body().blob_kzg_commitments() else {
+            return "[]".to_string();
+        };
+
+        format_kzg_commitments(commitments.as_ref())
     }
 }
 
@@ -255,20 +356,20 @@ impl<E: EthSpec> From<SignedBeaconBlockAltair<E, BlindedPayload<E>>>
 // Post-Bellatrix blocks can be "unblinded" by adding the full payload.
 // NOTE: It might be nice to come up with a `superstruct` pattern to abstract over this before
 // the first fork after Bellatrix.
-impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
+impl<E: EthSpec> SignedBeaconBlockBellatrix<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayload<E>,
-    ) -> SignedBeaconBlockMerge<E, FullPayload<E>> {
-        let SignedBeaconBlockMerge {
+        execution_payload: ExecutionPayloadBellatrix<E>,
+    ) -> SignedBeaconBlockBellatrix<E, FullPayload<E>> {
+        let SignedBeaconBlockBellatrix {
             message:
-                BeaconBlockMerge {
+                BeaconBlockBellatrix {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root,
                     body:
-                        BeaconBlockBodyMerge {
+                        BeaconBlockBodyBellatrix {
                             randao_reveal,
                             eth1_data,
                             graffiti,
@@ -278,18 +379,18 @@ impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayload { .. },
+                            execution_payload: BlindedPayloadBellatrix { .. },
                         },
                 },
             signature,
         } = self;
-        SignedBeaconBlockMerge {
-            message: BeaconBlockMerge {
+        SignedBeaconBlockBellatrix {
+            message: BeaconBlockBellatrix {
                 slot,
                 proposer_index,
                 parent_root,
                 state_root,
-                body: BeaconBlockBodyMerge {
+                body: BeaconBlockBodyBellatrix {
                     randao_reveal,
                     eth1_data,
                     graffiti,
@@ -299,7 +400,233 @@ impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayload { execution_payload },
+                    execution_payload: FullPayloadBellatrix { execution_payload },
+                },
+            },
+            signature,
+        }
+    }
+}
+
+impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
+    pub fn into_full_block(
+        self,
+        execution_payload: ExecutionPayloadCapella<E>,
+    ) -> SignedBeaconBlockCapella<E, FullPayload<E>> {
+        let SignedBeaconBlockCapella {
+            message:
+                BeaconBlockCapella {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body:
+                        BeaconBlockBodyCapella {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload: BlindedPayloadCapella { .. },
+                            bls_to_execution_changes,
+                        },
+                },
+            signature,
+        } = self;
+        SignedBeaconBlockCapella {
+            message: BeaconBlockCapella {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root,
+                body: BeaconBlockBodyCapella {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload: FullPayloadCapella { execution_payload },
+                    bls_to_execution_changes,
+                },
+            },
+            signature,
+        }
+    }
+}
+
+impl<E: EthSpec> SignedBeaconBlockDeneb<E, BlindedPayload<E>> {
+    pub fn into_full_block(
+        self,
+        execution_payload: ExecutionPayloadDeneb<E>,
+    ) -> SignedBeaconBlockDeneb<E, FullPayload<E>> {
+        let SignedBeaconBlockDeneb {
+            message:
+                BeaconBlockDeneb {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body:
+                        BeaconBlockBodyDeneb {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload: BlindedPayloadDeneb { .. },
+                            bls_to_execution_changes,
+                            blob_kzg_commitments,
+                        },
+                },
+            signature,
+        } = self;
+        SignedBeaconBlockDeneb {
+            message: BeaconBlockDeneb {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root,
+                body: BeaconBlockBodyDeneb {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload: FullPayloadDeneb { execution_payload },
+                    bls_to_execution_changes,
+                    blob_kzg_commitments,
+                },
+            },
+            signature,
+        }
+    }
+}
+
+impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
+    pub fn into_full_block(
+        self,
+        execution_payload: ExecutionPayloadElectra<E>,
+    ) -> SignedBeaconBlockElectra<E, FullPayload<E>> {
+        let SignedBeaconBlockElectra {
+            message:
+                BeaconBlockElectra {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body:
+                        BeaconBlockBodyElectra {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload: BlindedPayloadElectra { .. },
+                            bls_to_execution_changes,
+                            blob_kzg_commitments,
+                            execution_requests,
+                        },
+                },
+            signature,
+        } = self;
+        SignedBeaconBlockElectra {
+            message: BeaconBlockElectra {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root,
+                body: BeaconBlockBodyElectra {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload: FullPayloadElectra { execution_payload },
+                    bls_to_execution_changes,
+                    blob_kzg_commitments,
+                    execution_requests,
+                },
+            },
+            signature,
+        }
+    }
+}
+
+impl<E: EthSpec> SignedBeaconBlockFulu<E, BlindedPayload<E>> {
+    pub fn into_full_block(
+        self,
+        execution_payload: ExecutionPayloadFulu<E>,
+    ) -> SignedBeaconBlockFulu<E, FullPayload<E>> {
+        let SignedBeaconBlockFulu {
+            message:
+                BeaconBlockFulu {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body:
+                        BeaconBlockBodyFulu {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload: BlindedPayloadFulu { .. },
+                            bls_to_execution_changes,
+                            blob_kzg_commitments,
+                            execution_requests,
+                        },
+                },
+            signature,
+        } = self;
+        SignedBeaconBlockFulu {
+            message: BeaconBlockFulu {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root,
+                body: BeaconBlockBodyFulu {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload: FullPayloadFulu { execution_payload },
+                    bls_to_execution_changes,
+                    blob_kzg_commitments,
+                    execution_requests,
                 },
             },
             signature,
@@ -312,12 +639,31 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
         self,
         execution_payload: Option<ExecutionPayload<E>>,
     ) -> Option<SignedBeaconBlock<E, FullPayload<E>>> {
-        let full_block = match self {
-            SignedBeaconBlock::Base(block) => SignedBeaconBlock::Base(block.into()),
-            SignedBeaconBlock::Altair(block) => SignedBeaconBlock::Altair(block.into()),
-            SignedBeaconBlock::Merge(block) => {
-                SignedBeaconBlock::Merge(block.into_full_block(execution_payload?))
+        let full_block = match (self, execution_payload) {
+            (SignedBeaconBlock::Base(block), _) => SignedBeaconBlock::Base(block.into()),
+            (SignedBeaconBlock::Altair(block), _) => SignedBeaconBlock::Altair(block.into()),
+            (SignedBeaconBlock::Bellatrix(block), Some(ExecutionPayload::Bellatrix(payload))) => {
+                SignedBeaconBlock::Bellatrix(block.into_full_block(payload))
             }
+            (SignedBeaconBlock::Capella(block), Some(ExecutionPayload::Capella(payload))) => {
+                SignedBeaconBlock::Capella(block.into_full_block(payload))
+            }
+            (SignedBeaconBlock::Deneb(block), Some(ExecutionPayload::Deneb(payload))) => {
+                SignedBeaconBlock::Deneb(block.into_full_block(payload))
+            }
+            (SignedBeaconBlock::Electra(block), Some(ExecutionPayload::Electra(payload))) => {
+                SignedBeaconBlock::Electra(block.into_full_block(payload))
+            }
+            (SignedBeaconBlock::Fulu(block), Some(ExecutionPayload::Fulu(payload))) => {
+                SignedBeaconBlock::Fulu(block.into_full_block(payload))
+            }
+            // avoid wildcard matching forks so that compiler will
+            // direct us here when a new fork has been added
+            (SignedBeaconBlock::Bellatrix(_), _) => return None,
+            (SignedBeaconBlock::Capella(_), _) => return None,
+            (SignedBeaconBlock::Deneb(_), _) => return None,
+            (SignedBeaconBlock::Electra(_), _) => return None,
+            (SignedBeaconBlock::Fulu(_), _) => return None,
         };
         Some(full_block)
     }
@@ -354,6 +700,144 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
     }
 }
 
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
+    for SignedBeaconBlock<E, Payload>
+{
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        Ok(map_fork_name!(
+            fork_name,
+            Self,
+            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
+                "SignedBeaconBlock failed to deserialize: {:?}",
+                e
+            )))?
+        ))
+    }
+}
+
+/// This module can be used to encode and decode a `SignedBeaconBlock` the same way it
+/// would be done if we had tagged the superstruct enum with
+/// `#[ssz(enum_behaviour = "union")]`
+/// This should _only_ be used *some* cases when storing these objects in the database
+/// and _NEVER_ for encoding / decoding blocks sent over the network!
+pub mod ssz_tagged_signed_beacon_block {
+    use super::*;
+    pub mod encode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn ssz_bytes_len<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            block: &SignedBeaconBlock<E, Payload>,
+        ) -> usize {
+            block
+                .ssz_bytes_len()
+                .checked_add(1)
+                .expect("encoded length must be less than usize::max")
+        }
+
+        pub fn ssz_append<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            block: &SignedBeaconBlock<E, Payload>,
+            buf: &mut Vec<u8>,
+        ) {
+            let fork_name = block.fork_name_unchecked();
+            fork_name.ssz_append(buf);
+            block.ssz_append(buf);
+        }
+
+        pub fn as_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            block: &SignedBeaconBlock<E, Payload>,
+        ) -> Vec<u8> {
+            let mut buf = vec![];
+            ssz_append(block, &mut buf);
+
+            buf
+        }
+    }
+
+    pub mod decode {
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+
+        pub fn is_ssz_fixed_len() -> bool {
+            false
+        }
+
+        pub fn ssz_fixed_len() -> usize {
+            BYTES_PER_LENGTH_OFFSET
+        }
+
+        pub fn from_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            bytes: &[u8],
+        ) -> Result<SignedBeaconBlock<E, Payload>, DecodeError> {
+            let fork_byte = bytes
+                .first()
+                .copied()
+                .ok_or(DecodeError::OutOfBoundsByte { i: 0 })?;
+            let body = bytes
+                .get(1..)
+                .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
+
+            match ForkName::from_ssz_bytes(&[fork_byte])? {
+                ForkName::Base => Ok(SignedBeaconBlock::Base(
+                    SignedBeaconBlockBase::from_ssz_bytes(body)?,
+                )),
+                ForkName::Altair => Ok(SignedBeaconBlock::Altair(
+                    SignedBeaconBlockAltair::from_ssz_bytes(body)?,
+                )),
+                ForkName::Bellatrix => Ok(SignedBeaconBlock::Bellatrix(
+                    SignedBeaconBlockBellatrix::from_ssz_bytes(body)?,
+                )),
+                ForkName::Capella => Ok(SignedBeaconBlock::Capella(
+                    SignedBeaconBlockCapella::from_ssz_bytes(body)?,
+                )),
+                ForkName::Deneb => Ok(SignedBeaconBlock::Deneb(
+                    SignedBeaconBlockDeneb::from_ssz_bytes(body)?,
+                )),
+                ForkName::Electra => Ok(SignedBeaconBlock::Electra(
+                    SignedBeaconBlockElectra::from_ssz_bytes(body)?,
+                )),
+                ForkName::Fulu => Ok(SignedBeaconBlock::Fulu(
+                    SignedBeaconBlockFulu::from_ssz_bytes(body)?,
+                )),
+            }
+        }
+    }
+}
+
+pub mod ssz_tagged_signed_beacon_block_arc {
+    use super::*;
+    pub mod encode {
+        pub use super::ssz_tagged_signed_beacon_block::encode::*;
+    }
+
+    pub mod decode {
+        pub use super::ssz_tagged_signed_beacon_block::decode::{is_ssz_fixed_len, ssz_fixed_len};
+        use super::*;
+        #[allow(unused_imports)]
+        use ssz::*;
+        use std::sync::Arc;
+
+        pub fn from_ssz_bytes<E: EthSpec, Payload: AbstractExecPayload<E>>(
+            bytes: &[u8],
+        ) -> Result<Arc<SignedBeaconBlock<E, Payload>>, DecodeError> {
+            ssz_tagged_signed_beacon_block::decode::from_ssz_bytes(bytes).map(Arc::new)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -373,7 +857,10 @@ mod test {
                 BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
                 sig.clone(),
             ),
-            SignedBeaconBlock::from_block(BeaconBlock::Merge(BeaconBlockMerge::empty(spec)), sig),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty(spec)),
+                sig,
+            ),
         ];
 
         for block in blocks {
@@ -393,6 +880,48 @@ mod test {
 
             let reconstructed = blinded_block.try_into_full_block(payload).unwrap();
             assert_eq!(reconstructed, block);
+        }
+    }
+
+    #[test]
+    fn test_ssz_tagged_signed_beacon_block() {
+        type E = MainnetEthSpec;
+
+        let spec = &E::default_spec();
+        let sig = Signature::empty();
+        let blocks = vec![
+            SignedBeaconBlock::<E>::from_block(
+                BeaconBlock::Base(BeaconBlockBase::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Capella(BeaconBlockCapella::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Electra(BeaconBlockElectra::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(BeaconBlock::Fulu(BeaconBlockFulu::empty(spec)), sig),
+        ];
+
+        for block in blocks {
+            let encoded = ssz_tagged_signed_beacon_block::encode::as_ssz_bytes(&block);
+            let decoded = ssz_tagged_signed_beacon_block::decode::from_ssz_bytes::<E, _>(&encoded)
+                .expect("should decode");
+            assert_eq!(decoded, block);
         }
     }
 }

@@ -1,20 +1,22 @@
-use crate::wallet::create::{PASSWORD_FLAG, STDIN_INPUTS_FLAG};
+use crate::wallet::create::PASSWORD_FLAG;
 use account_utils::validator_definitions::SigningDefinition;
 use account_utils::{
     eth2_keystore::Keystore,
     read_password_from_user,
     validator_definitions::{
-        recursively_find_voting_keystores, ValidatorDefinition, ValidatorDefinitions,
-        CONFIG_FILENAME,
+        recursively_find_voting_keystores, PasswordStorage, ValidatorDefinition,
+        ValidatorDefinitions, CONFIG_FILENAME,
     },
-    ZeroizeString,
+    STDIN_INPUTS_FLAG,
 };
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
+use zeroize::Zeroizing;
 
 pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
@@ -25,8 +27,8 @@ pub const PASSWORD_PROMPT: &str = "Enter the keystore password, or press enter t
 pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH \
                                           ANOTHER CLIENT, OR YOU WILL GET SLASHED.";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about(
             "Imports one or more EIP-2335 passwords into a Lighthouse VC directory, \
             requesting passwords interactively. The directory flag provides a convenient \
@@ -34,16 +36,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Python utility.",
         )
         .arg(
-            Arg::with_name(KEYSTORE_FLAG)
+            Arg::new(KEYSTORE_FLAG)
                 .long(KEYSTORE_FLAG)
                 .value_name("KEYSTORE_PATH")
                 .help("Path to a single keystore to be imported.")
                 .conflicts_with(DIR_FLAG)
-                .required_unless(DIR_FLAG)
-                .takes_value(true),
+                .required_unless_present(DIR_FLAG)
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(DIR_FLAG)
+            Arg::new(DIR_FLAG)
                 .long(DIR_FLAG)
                 .value_name("KEYSTORES_DIRECTORY")
                 .help(
@@ -53,23 +56,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     has the '.json' extension will be attempted to be imported.",
                 )
                 .conflicts_with(KEYSTORE_FLAG)
-                .required_unless(KEYSTORE_FLAG)
-                .takes_value(true),
+                .required_unless_present(KEYSTORE_FLAG)
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
-        .arg(
-            Arg::with_name(REUSE_PASSWORD_FLAG)
+            Arg::new(REUSE_PASSWORD_FLAG)
                 .long(REUSE_PASSWORD_FLAG)
-                .help("If present, the same password will be used for all imported keystores."),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("If present, the same password will be used for all imported keystores.")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(PASSWORD_FLAG)
+            Arg::new(PASSWORD_FLAG)
                 .long(PASSWORD_FLAG)
                 .value_name("KEYSTORE_PASSWORD_PATH")
                 .requires(REUSE_PASSWORD_FLAG)
@@ -79,15 +79,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     The password will be copied to the `validator_definitions.yml` file, so after \
                     import we strongly recommend you delete the file at KEYSTORE_PASSWORD_PATH.",
                 )
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 
 pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
     let keystore: Option<PathBuf> = clap_utils::parse_optional(matches, KEYSTORE_FLAG)?;
     let keystores_dir: Option<PathBuf> = clap_utils::parse_optional(matches, DIR_FLAG)?;
-    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
-    let reuse_password = matches.is_present(REUSE_PASSWORD_FLAG);
+    let stdin_inputs = cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG);
+    let reuse_password = matches.get_flag(REUSE_PASSWORD_FLAG);
     let keystore_password_path: Option<PathBuf> =
         clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
 
@@ -148,7 +149,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     // Skip keystores that already exist, but exit early if any operation fails.
     // Reuses the same password for all keystores if the `REUSE_PASSWORD_FLAG` flag is set.
     let mut num_imported_keystores = 0;
-    let mut previous_password: Option<ZeroizeString> = None;
+    let mut previous_password: Option<Zeroizing<String>> = None;
 
     for src_keystore in &keystore_paths {
         let keystore = Keystore::from_json_file(src_keystore)
@@ -169,21 +170,30 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         let password_opt = loop {
             if let Some(password) = previous_password.clone() {
                 eprintln!("Reuse previous password.");
-                break Some(password);
+                if check_password_on_keystore(&keystore, &password)? {
+                    break Some(password);
+                } else {
+                    eprintln!("Reused password incorrect. Retry!");
+                    previous_password = None;
+                    continue;
+                }
             }
             eprintln!();
             eprintln!("{}", PASSWORD_PROMPT);
 
             let password = match keystore_password_path.as_ref() {
                 Some(path) => {
-                    let password_from_file: ZeroizeString = fs::read_to_string(&path)
+                    let password_from_file: Zeroizing<String> = fs::read_to_string(path)
                         .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))?
                         .into();
-                    password_from_file.without_newlines()
+                    password_from_file
+                        .trim_end_matches(['\r', '\n'])
+                        .to_string()
+                        .into()
                 }
                 None => {
                     let password_from_user = read_password_from_user(stdin_inputs)?;
-                    if password_from_user.as_ref().is_empty() {
+                    if password_from_user.is_empty() {
                         eprintln!("Continuing without password.");
                         sleep(Duration::from_secs(1)); // Provides nicer UX.
                         break None;
@@ -192,20 +202,12 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                 }
             };
 
-            match keystore.decrypt_keypair(password.as_ref()) {
-                Ok(_) => {
-                    eprintln!("Password is correct.");
-                    eprintln!();
-                    sleep(Duration::from_secs(1)); // Provides nicer UX.
-                    if reuse_password {
-                        previous_password = Some(password.clone());
-                    }
-                    break Some(password);
+            // Check if the password unlocks the keystore
+            if check_password_on_keystore(&keystore, &password)? {
+                if reuse_password {
+                    previous_password = Some(password.clone());
                 }
-                Err(eth2_keystore::Error::InvalidPassword) => {
-                    eprintln!("Invalid password");
-                }
-                Err(e) => return Err(format!("Error whilst decrypting keypair: {:?}", e)),
+                break Some(password);
             }
         };
 
@@ -256,7 +258,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .ok_or_else(|| format!("Badly formatted file name: {:?}", src_keystore))?;
 
         // Copy the keystore to the new location.
-        fs::copy(&src_keystore, &dest_keystore)
+        fs::copy(src_keystore, &dest_keystore)
             .map_err(|e| format!("Unable to copy keystore: {:?}", e))?;
 
         // Register with slashing protection.
@@ -277,9 +279,13 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         let suggested_fee_recipient = None;
         let validator_def = ValidatorDefinition::new_keystore_with_password(
             &dest_keystore,
-            password_opt,
+            password_opt
+                .map(PasswordStorage::ValidatorDefinitions)
+                .unwrap_or(PasswordStorage::None),
             graffiti,
             suggested_fee_recipient,
+            None,
+            None,
             None,
             None,
         )
@@ -303,4 +309,28 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
     eprintln!("WARNING: {}", KEYSTORE_REUSE_WARNING);
 
     Ok(())
+}
+
+/// Checks if the given password unlocks the keystore.
+///
+/// Returns `Ok(true)` if password unlocks the keystore successfully.
+/// Returns `Ok(false` if password is incorrect.
+/// Otherwise, returns the keystore error.
+fn check_password_on_keystore(
+    keystore: &Keystore,
+    password: &Zeroizing<String>,
+) -> Result<bool, String> {
+    match keystore.decrypt_keypair(password.as_ref()) {
+        Ok(_) => {
+            eprintln!("Password is correct.");
+            eprintln!();
+            sleep(Duration::from_secs(1)); // Provides nicer UX.
+            Ok(true)
+        }
+        Err(eth2_keystore::Error::InvalidPassword) => {
+            eprintln!("Invalid password");
+            Ok(false)
+        }
+        Err(e) => Err(format!("Error whilst decrypting keypair: {:?}", e)),
+    }
 }

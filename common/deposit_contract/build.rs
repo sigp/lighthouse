@@ -54,12 +54,10 @@ fn read_contract_file_from_url(url: Url) -> Result<Value, String> {
                     .map_err(|e| format!("Respsonse is not a valid json {:?}", e))?;
                 Ok(contract)
             }
-            Err(e) => {
-                return Err(format!(
-                    "No abi file found. Failed to download from github: {:?}",
-                    e
-                ))
-            }
+            Err(e) => Err(format!(
+                "No abi file found. Failed to download from github: {:?}",
+                e
+            )),
         }
     }
 }

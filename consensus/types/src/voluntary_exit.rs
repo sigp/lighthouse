@@ -1,9 +1,9 @@
 use crate::{
-    test_utils::TestRandom, ChainSpec, Domain, Epoch, Fork, Hash256, SecretKey, SignedRoot,
+    test_utils::TestRandom, ChainSpec, Domain, Epoch, ForkName, Hash256, SecretKey, SignedRoot,
     SignedVoluntaryExit,
 };
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -11,14 +11,23 @@ use tree_hash_derive::TreeHash;
 /// An exit voluntarily submitted a validator who wishes to withdraw.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    arbitrary::Arbitrary,
+    Debug,
+    PartialEq,
+    Hash,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
 )]
 pub struct VoluntaryExit {
     /// Earliest epoch when voluntary exit can be processed.
     pub epoch: Epoch,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
 }
 
@@ -28,16 +37,19 @@ impl VoluntaryExit {
     pub fn sign(
         self,
         secret_key: &SecretKey,
-        fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> SignedVoluntaryExit {
-        let domain = spec.get_domain(
-            self.epoch,
-            Domain::VoluntaryExit,
-            fork,
-            genesis_validators_root,
-        );
+        let fork_name = spec.fork_name_at_epoch(self.epoch);
+        let fork_version = if fork_name.deneb_enabled() {
+            // EIP-7044
+            spec.fork_version_for_name(ForkName::Capella)
+        } else {
+            spec.fork_version_for_name(fork_name)
+        };
+        let domain =
+            spec.compute_domain(Domain::VoluntaryExit, fork_version, genesis_validators_root);
+
         let message = self.signing_root(domain);
         SignedVoluntaryExit {
             message: self,

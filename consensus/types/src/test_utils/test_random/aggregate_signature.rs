@@ -1,5 +1,4 @@
 use super::*;
-use bls::{AggregateSignature, Signature};
 
 impl TestRandom for AggregateSignature {
     fn random_for_test(rng: &mut impl RngCore) -> Self {

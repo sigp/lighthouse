@@ -1,23 +1,8 @@
-use crate::cases::LoadCase;
-use crate::decode::yaml_decode_file;
-use crate::error::Error;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::path::Path;
-use tree_hash::TreeHash;
 use types::ForkName;
-
-/// Trait for all BLS cases to eliminate some boilerplate.
-pub trait BlsCase: serde::de::DeserializeOwned {}
-
-impl<T: BlsCase> LoadCase for T {
-    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
-        yaml_decode_file(&path.join("data.yaml"))
-    }
-}
 
 /// Macro to wrap U128 and U256 so they deserialize correctly.
 macro_rules! uint_wrapper {
@@ -32,7 +17,7 @@ macro_rules! uint_wrapper {
             type Error = String;
 
             fn try_from(s: String) -> Result<Self, Self::Error> {
-                <$wrapped_type>::from_dec_str(&s)
+                <$wrapped_type>::from_str_radix(&s, 10)
                     .map(|x| Self { x })
                     .map_err(|e| format!("{:?}", e))
             }
@@ -43,7 +28,7 @@ macro_rules! uint_wrapper {
                 <$wrapped_type>::tree_hash_type()
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+            fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
                 self.x.tree_hash_packed_encoding()
             }
 
@@ -58,17 +43,17 @@ macro_rules! uint_wrapper {
     };
 }
 
-uint_wrapper!(TestU128, ethereum_types::U128);
-uint_wrapper!(TestU256, ethereum_types::U256);
+uint_wrapper!(DecimalU128, alloy_primitives::U128);
+uint_wrapper!(DecimalU256, alloy_primitives::U256);
 
 /// Trait for types that can be used in SSZ static tests.
 pub trait SszStaticType:
-    serde::de::DeserializeOwned + Encode + TreeHash + Clone + PartialEq + Debug + Sync
+    serde::de::DeserializeOwned + Encode + Clone + PartialEq + Debug + Sync
 {
 }
 
 impl<T> SszStaticType for T where
-    T: serde::de::DeserializeOwned + Encode + TreeHash + Clone + PartialEq + Debug + Sync
+    T: serde::de::DeserializeOwned + Encode + Clone + PartialEq + Debug + Sync
 {
 }
 
@@ -77,6 +62,31 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
     match fork_name {
         ForkName::Base => ForkName::Base,
         ForkName::Altair => ForkName::Base,
-        ForkName::Merge => ForkName::Altair, // TODO: Check this when tests are released..
+        ForkName::Bellatrix => ForkName::Altair,
+        ForkName::Capella => ForkName::Bellatrix,
+        ForkName::Deneb => ForkName::Capella,
+        ForkName::Electra => ForkName::Deneb,
+        ForkName::Fulu => ForkName::Electra,
     }
+}
+
+#[macro_export]
+macro_rules! impl_bls_load_case {
+    ($case_name:ident) => {
+        use $crate::decode::yaml_decode_file;
+        impl LoadCase for $case_name {
+            fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
+                yaml_decode_file(&path)
+            }
+        }
+    };
+
+    ($case_name:ident, $sub_path_name:expr) => {
+        use $crate::decode::yaml_decode_file;
+        impl LoadCase for $case_name {
+            fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
+                yaml_decode_file(&path.join($sub_path_name))
+            }
+        }
+    };
 }

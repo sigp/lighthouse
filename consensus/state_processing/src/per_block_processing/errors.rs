@@ -1,6 +1,8 @@
 use super::signature_sets::Error as SignatureSetError;
+use crate::ContextError;
 use merkle_proof::MerkleTreeError;
 use safe_arith::ArithError;
+use ssz::DecodeError;
 use types::*;
 
 /// The error returned from the `per_block_processing` function. Indicates that a block is either
@@ -47,12 +49,17 @@ pub enum BlockProcessingError {
         index: usize,
         reason: ExitInvalid,
     },
+    BlsExecutionChangeInvalid {
+        index: usize,
+        reason: BlsExecutionChangeInvalid,
+    },
     SyncAggregateInvalid {
         reason: SyncAggregateInvalid,
     },
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    SszDecodeError(DecodeError),
     MerkleTreeError(MerkleTreeError),
     ArithError(ArithError),
     InconsistentBlockFork(InconsistentFork),
@@ -69,7 +76,20 @@ pub enum BlockProcessingError {
         expected: u64,
         found: u64,
     },
+    ExecutionInvalidBlobsLen {
+        max: usize,
+        actual: usize,
+    },
     ExecutionInvalid,
+    ConsensusContext(ContextError),
+    MilhouseError(milhouse::Error),
+    EpochCacheError(EpochCacheError),
+    WithdrawalsRootMismatch {
+        expected: Hash256,
+        found: Hash256,
+    },
+    WithdrawalCredentialsInvalid,
+    PendingAttestationInElectra,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -90,6 +110,12 @@ impl From<ssz_types::Error> for BlockProcessingError {
     }
 }
 
+impl From<DecodeError> for BlockProcessingError {
+    fn from(error: DecodeError) -> Self {
+        BlockProcessingError::SszDecodeError(error)
+    }
+}
+
 impl From<ArithError> for BlockProcessingError {
     fn from(e: ArithError) -> Self {
         BlockProcessingError::ArithError(e)
@@ -102,6 +128,24 @@ impl From<SyncAggregateInvalid> for BlockProcessingError {
     }
 }
 
+impl From<ContextError> for BlockProcessingError {
+    fn from(e: ContextError) -> Self {
+        BlockProcessingError::ConsensusContext(e)
+    }
+}
+
+impl From<EpochCacheError> for BlockProcessingError {
+    fn from(e: EpochCacheError) -> Self {
+        BlockProcessingError::EpochCacheError(e)
+    }
+}
+
+impl From<milhouse::Error> for BlockProcessingError {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
+    }
+}
+
 impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
     fn from(e: BlockOperationError<HeaderInvalid>) -> BlockProcessingError {
         match e {
@@ -109,6 +153,7 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+            BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
     }
@@ -136,6 +181,7 @@ macro_rules! impl_into_block_processing_error_with_index {
                         BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
                         BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
                         BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+                        BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
                         BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
                     }
                 }
@@ -150,7 +196,8 @@ impl_into_block_processing_error_with_index!(
     IndexedAttestationInvalid,
     AttestationInvalid,
     DepositInvalid,
-    ExitInvalid
+    ExitInvalid,
+    BlsExecutionChangeInvalid
 );
 
 pub type HeaderValidationError = BlockOperationError<HeaderInvalid>;
@@ -160,6 +207,7 @@ pub type AttestationValidationError = BlockOperationError<AttestationInvalid>;
 pub type SyncCommitteeMessageValidationError = BlockOperationError<SyncAggregateInvalid>;
 pub type DepositValidationError = BlockOperationError<DepositInvalid>;
 pub type ExitValidationError = BlockOperationError<ExitInvalid>;
+pub type BlsExecutionChangeValidationError = BlockOperationError<BlsExecutionChangeInvalid>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BlockOperationError<T> {
@@ -167,6 +215,7 @@ pub enum BlockOperationError<T> {
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    ConsensusContext(ContextError),
     ArithError(ArithError),
 }
 
@@ -199,6 +248,12 @@ impl<T> From<ArithError> for BlockOperationError<T> {
     }
 }
 
+impl<T> From<ContextError> for BlockOperationError<T> {
+    fn from(e: ContextError) -> Self {
+        BlockOperationError::ConsensusContext(e)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum HeaderInvalid {
     ProposalSignatureInvalid,
@@ -208,14 +263,14 @@ pub enum HeaderInvalid {
         block_slot: Slot,
     },
     ProposerIndexMismatch {
-        block_proposer_index: usize,
-        state_proposer_index: usize,
+        block_proposer_index: u64,
+        state_proposer_index: u64,
     },
     ParentBlockRootMismatch {
         state: Hash256,
         block: Hash256,
     },
-    ProposerSlashed(usize),
+    ProposerSlashed(u64),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -257,7 +312,7 @@ pub enum AttesterSlashingInvalid {
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq, Clone)]
 pub enum AttestationInvalid {
-    /// Commmittee index exceeds number of committees in that slot.
+    /// Committee index exceeds number of committees in that slot.
     BadCommitteeIndex,
     /// Attestation included before the inclusion delay.
     IncludedTooEarly {
@@ -279,9 +334,11 @@ pub enum AttestationInvalid {
     ///
     /// `is_current` is `true` if the attestation was compared to the
     /// `state.current_justified_checkpoint`, `false` if compared to `state.previous_justified_checkpoint`.
+    ///
+    /// Checkpoints have been boxed to keep the error size down and prevent clippy failures.
     WrongJustifiedCheckpoint {
-        state: Checkpoint,
-        attestation: Checkpoint,
+        state: Box<Checkpoint>,
+        attestation: Box<Checkpoint>,
         is_current: bool,
     },
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.
@@ -310,6 +367,7 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
             BlockOperationError::BeaconStateError(e) => BlockOperationError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockOperationError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockOperationError::SszTypesError(e),
+            BlockOperationError::ConsensusContext(e) => BlockOperationError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockOperationError::ArithError(e),
         }
     }
@@ -354,7 +412,10 @@ pub enum ExitInvalid {
     /// The specified validator has already initiated exit.
     AlreadyInitiatedExit(u64),
     /// The exit is for a future epoch.
-    FutureEpoch { state: Epoch, exit: Epoch },
+    FutureEpoch {
+        state: Epoch,
+        exit: Epoch,
+    },
     /// The validator has not been active for long enough.
     TooYoungToExit {
         current_epoch: Epoch,
@@ -365,6 +426,19 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
+    PendingWithdrawalInQueue(u64),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum BlsExecutionChangeInvalid {
+    /// The specified validator is not in the state's validator registry.
+    ValidatorUnknown(u64),
+    /// Validator does not have BLS Withdrawal credentials before this change.
+    NonBlsWithdrawalCredentials,
+    /// Provided BLS pubkey does not match withdrawal credentials.
+    WithdrawalCredentialsMismatch,
+    /// The signature is invalid.
+    BadSignature,
 }
 
 #[derive(Debug, PartialEq, Clone)]

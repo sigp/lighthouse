@@ -5,19 +5,17 @@ use crate::{
     ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, Signature, SignedRoot, Slot,
     SyncAggregatorSelectionData,
 };
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use safe_arith::{ArithError, SafeArith};
 use ssz::Encode;
 use ssz_types::typenum::Unsigned;
 use std::cmp;
-use std::convert::TryInto;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
 pub struct SyncSelectionProof(Signature);
 
 impl SyncSelectionProof {
-    pub fn new<T: EthSpec>(
+    pub fn new<E: EthSpec>(
         slot: Slot,
         subcommittee_index: u64,
         secret_key: &SecretKey,
@@ -26,7 +24,7 @@ impl SyncSelectionProof {
         spec: &ChainSpec,
     ) -> Self {
         let domain = spec.get_domain(
-            slot.epoch(T::slots_per_epoch()),
+            slot.epoch(E::slots_per_epoch()),
             Domain::SyncCommitteeSelectionProof,
             fork,
             genesis_validators_root,
@@ -41,17 +39,17 @@ impl SyncSelectionProof {
     }
 
     /// Returns the "modulo" used for determining if a `SyncSelectionProof` elects an aggregator.
-    pub fn modulo<T: EthSpec>() -> Result<u64, ArithError> {
+    pub fn modulo<E: EthSpec>() -> Result<u64, ArithError> {
         Ok(cmp::max(
             1,
-            (T::SyncCommitteeSize::to_u64())
+            (E::SyncCommitteeSize::to_u64())
                 .safe_div(SYNC_COMMITTEE_SUBNET_COUNT)?
                 .safe_div(TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE)?,
         ))
     }
 
-    pub fn is_aggregator<T: EthSpec>(&self) -> Result<bool, ArithError> {
-        self.is_aggregator_from_modulo(Self::modulo::<T>()?)
+    pub fn is_aggregator<E: EthSpec>(&self) -> Result<bool, ArithError> {
+        self.is_aggregator_from_modulo(Self::modulo::<E>()?)
     }
 
     pub fn is_aggregator_from_modulo(&self, modulo: u64) -> Result<bool, ArithError> {
@@ -67,7 +65,7 @@ impl SyncSelectionProof {
         signature_hash_int.safe_rem(modulo).map(|rem| rem == 0)
     }
 
-    pub fn verify<T: EthSpec>(
+    pub fn verify<E: EthSpec>(
         &self,
         slot: Slot,
         subcommittee_index: u64,
@@ -77,7 +75,7 @@ impl SyncSelectionProof {
         spec: &ChainSpec,
     ) -> bool {
         let domain = spec.get_domain(
-            slot.epoch(T::slots_per_epoch()),
+            slot.epoch(E::slots_per_epoch()),
             Domain::SyncCommitteeSelectionProof,
             fork,
             genesis_validators_root,
@@ -92,9 +90,9 @@ impl SyncSelectionProof {
     }
 }
 
-impl Into<Signature> for SyncSelectionProof {
-    fn into(self) -> Signature {
-        self.0
+impl From<SyncSelectionProof> for Signature {
+    fn from(from: SyncSelectionProof) -> Signature {
+        from.0
     }
 }
 
@@ -107,7 +105,7 @@ impl From<Signature> for SyncSelectionProof {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::{FixedBytesExtended, MainnetEthSpec};
     use eth2_interop_keypairs::keypair;
 
     #[test]

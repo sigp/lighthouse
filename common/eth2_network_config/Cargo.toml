@@ -2,20 +2,30 @@
 name = "eth2_network_config"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 build = "build.rs"
 
 [build-dependencies]
-zip = "0.5.8"
-eth2_config = { path = "../eth2_config"}
+eth2_config = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.1.0"
+ethereum_ssz = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
 
 [dependencies]
-serde_yaml = "0.8.13"
-types = { path = "../../consensus/types"}
-eth2_ssz = "0.4.1"
-eth2_config = { path = "../eth2_config"}
-enr = { version = "0.5.1", features = ["ed25519", "k256"] }
+bytes = { workspace = true }
+discv5 = { workspace = true }
+eth2_config = { workspace = true }
+kzg = { workspace = true }
+logging = { workspace = true }
+pretty_reqwest_error = { workspace = true }
+reqwest = { workspace = true }
+sensitive_url = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+slog = { workspace = true }
+types = { workspace = true }
+url = { workspace = true }

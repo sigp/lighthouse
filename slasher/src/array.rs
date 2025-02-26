@@ -1,13 +1,13 @@
 use crate::metrics::{self, SLASHER_COMPRESSION_RATIO, SLASHER_NUM_CHUNKS_UPDATED};
-use crate::RwTransaction;
-use crate::{AttesterSlashingStatus, Config, Error, IndexedAttesterRecord, SlasherDB};
+use crate::{
+    AttesterSlashingStatus, Config, Database, Error, IndexedAttesterRecord, RwTransaction,
+    SlasherDB,
+};
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
-use serde_derive::{Deserialize, Serialize};
-use std::borrow::{Borrow, Cow};
+use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
-use std::convert::TryFrom;
 use std::io::Read;
-use std::iter::Extend;
 use std::sync::Arc;
 use types::{AttesterSlashing, Epoch, EthSpec, IndexedAttestation};
 
@@ -147,10 +147,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
     fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch;
 
-    fn select_db<'txn, E: EthSpec>(
-        db: &SlasherDB<E>,
-        txn: &'txn RwTransaction<'txn>,
-    ) -> Result<mdbx::Database<'txn>, Error>;
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database;
 
     fn load<E: EthSpec>(
         db: &SlasherDB<E>,
@@ -160,11 +157,9 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         config: &Config,
     ) -> Result<Option<Self>, Error> {
         let disk_key = config.disk_key(validator_chunk_index, chunk_index);
-        let chunk_bytes: Cow<[u8]> =
-            match txn.get(&Self::select_db(db, txn)?, &disk_key.to_be_bytes())? {
-                Some(chunk_bytes) => chunk_bytes,
-                None => return Ok(None),
-            };
+        let Some(chunk_bytes) = txn.get(Self::select_db(db), &disk_key.to_be_bytes())? else {
+            return Ok(None);
+        };
 
         let chunk = bincode::deserialize_from(ZlibDecoder::new(chunk_bytes.borrow()))?;
 
@@ -189,10 +184,9 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         metrics::set_float_gauge(&SLASHER_COMPRESSION_RATIO, compression_ratio);
 
         txn.put(
-            &Self::select_db(db, txn)?,
-            &disk_key.to_be_bytes(),
+            Self::select_db(db),
+            disk_key.to_be_bytes(),
             &compressed_value,
-            SlasherDB::<E>::write_flags(),
         )?;
         Ok(())
     }
@@ -232,12 +226,12 @@ impl TargetArrayChunk for MinTargetChunk {
     ) -> Result<AttesterSlashingStatus<E>, Error> {
         let min_target =
             self.chunk
-                .get_target(validator_index, attestation.data.source.epoch, config)?;
-        if attestation.data.target.epoch > min_target {
+                .get_target(validator_index, attestation.data().source.epoch, config)?;
+        if attestation.data().target.epoch > min_target {
             let existing_attestation =
                 db.get_attestation_for_validator(txn, validator_index, min_target)?;
 
-            if attestation.data.source.epoch < existing_attestation.data.source.epoch {
+            if attestation.data().source.epoch < existing_attestation.data().source.epoch {
                 Ok(AttesterSlashingStatus::SurroundsExisting(Box::new(
                     existing_attestation,
                 )))
@@ -296,11 +290,8 @@ impl TargetArrayChunk for MinTargetChunk {
         start_epoch / chunk_size * chunk_size - 1
     }
 
-    fn select_db<'txn, E: EthSpec>(
-        db: &SlasherDB<E>,
-        txn: &'txn RwTransaction<'txn>,
-    ) -> Result<mdbx::Database<'txn>, Error> {
-        db.min_targets_db(txn)
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+        &db.databases.min_targets_db
     }
 }
 
@@ -338,12 +329,12 @@ impl TargetArrayChunk for MaxTargetChunk {
     ) -> Result<AttesterSlashingStatus<E>, Error> {
         let max_target =
             self.chunk
-                .get_target(validator_index, attestation.data.source.epoch, config)?;
-        if attestation.data.target.epoch < max_target {
+                .get_target(validator_index, attestation.data().source.epoch, config)?;
+        if attestation.data().target.epoch < max_target {
             let existing_attestation =
                 db.get_attestation_for_validator(txn, validator_index, max_target)?;
 
-            if existing_attestation.data.source.epoch < attestation.data.source.epoch {
+            if existing_attestation.data().source.epoch < attestation.data().source.epoch {
                 Ok(AttesterSlashingStatus::SurroundedByExisting(Box::new(
                     existing_attestation,
                 )))
@@ -398,11 +389,8 @@ impl TargetArrayChunk for MaxTargetChunk {
         (start_epoch / chunk_size + 1) * chunk_size
     }
 
-    fn select_db<'txn, E: EthSpec>(
-        db: &SlasherDB<E>,
-        txn: &'txn RwTransaction<'txn>,
-    ) -> Result<mdbx::Database<'txn>, Error> {
-        db.max_targets_db(txn)
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+        &db.databases.max_targets_db
     }
 }
 
@@ -440,7 +428,7 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
     current_epoch: Epoch,
     config: &Config,
 ) -> Result<AttesterSlashingStatus<E>, Error> {
-    let mut chunk_index = config.chunk_index(attestation.data.source.epoch);
+    let mut chunk_index = config.chunk_index(attestation.data().source.epoch);
     let mut current_chunk = get_chunk_for_update(
         db,
         txn,
@@ -457,11 +445,9 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
         return Ok(slashing_status);
     }
 
-    let mut start_epoch = if let Some(start_epoch) =
-        T::first_start_epoch(attestation.data.source.epoch, current_epoch, config)
-    {
-        start_epoch
-    } else {
+    let Some(mut start_epoch) =
+        T::first_start_epoch(attestation.data().source.epoch, current_epoch, config)
+    else {
         return Ok(slashing_status);
     };
 
@@ -479,7 +465,7 @@ pub fn apply_attestation_for_validator<E: EthSpec, T: TargetArrayChunk>(
             chunk_index,
             validator_index,
             start_epoch,
-            attestation.data.target.epoch,
+            attestation.data().target.epoch,
             current_epoch,
             config,
         )?;
@@ -506,7 +492,7 @@ pub fn update<E: EthSpec>(
     let mut chunk_attestations = BTreeMap::new();
     for attestation in batch {
         chunk_attestations
-            .entry(config.chunk_index(attestation.indexed.data.source.epoch))
+            .entry(config.chunk_index(attestation.indexed.data().source.epoch))
             .or_insert_with(Vec::new)
             .push(attestation);
     }
@@ -545,12 +531,10 @@ pub fn epoch_update_for_validator<E: EthSpec, T: TargetArrayChunk>(
     current_epoch: Epoch,
     config: &Config,
 ) -> Result<(), Error> {
-    let previous_current_epoch =
-        if let Some(epoch) = db.get_current_epoch_for_validator(validator_index, txn)? {
-            epoch
-        } else {
-            return Ok(());
-        };
+    let Some(previous_current_epoch) = db.get_current_epoch_for_validator(validator_index, txn)?
+    else {
+        return Ok(());
+    };
 
     let mut epoch = previous_current_epoch;
 

@@ -1,4 +1,4 @@
-use bls::{Hash256, INFINITY_SIGNATURE, SECRET_KEY_BYTES_LEN};
+use bls::{FixedBytesExtended, Hash256, INFINITY_SIGNATURE, SECRET_KEY_BYTES_LEN};
 use ssz::{Decode, Encode};
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -341,6 +341,11 @@ macro_rules! test_suite {
                 .assert_single_message_verify(true)
         }
 
+        #[test]
+        fn deserialize_infinity_public_key() {
+            PublicKey::deserialize(&bls::INFINITY_PUBLIC_KEY).unwrap_err();
+        }
+
         /// A helper struct to make it easer to deal with `SignatureSet` lifetimes.
         struct OwnedSignatureSet {
             signature: AggregateSignature,
@@ -508,9 +513,4 @@ macro_rules! test_suite {
 
 mod blst {
     test_suite!(blst_implementations);
-}
-
-#[cfg(all(feature = "milagro", not(debug_assertions)))]
-mod milagro {
-    test_suite!(milagro_implementations);
 }

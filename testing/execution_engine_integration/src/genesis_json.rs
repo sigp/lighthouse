@@ -18,11 +18,10 @@ pub fn geth_genesis_json() -> Value {
             "muirGlacierBlock":0,
             "berlinBlock":0,
             "londonBlock":0,
-            "clique": {
-                "period": 5,
-                "epoch": 30000
-            },
-            "terminalTotalDifficulty":0
+            "mergeNetsplitBlock": 0,
+            "shanghaiTime": 0,
+            "terminalTotalDifficulty": 0,
+            "terminalTotalDifficultyPassed": true
         },
         "nonce":"0x42",
         "timestamp":"0x0",
@@ -72,8 +71,10 @@ pub fn nethermind_genesis_json() -> Value {
               "accountStartNonce": "0x0",
               "maximumExtraDataSize": "0x20",
               "minGasLimit": "0x1388",
-              "networkID": "0x1469ca",
-              "MergeForkIdTransition": "0x3e8",
+              "networkID": "0x00146A2E",
+              "MergeForkIdTransition": "0x0",
+              "maxCodeSize": "0x6000",
+              "maxCodeSizeTransition": "0x0",
               "eip150Transition": "0x0",
               "eip158Transition": "0x0",
               "eip160Transition": "0x0",
@@ -101,7 +102,15 @@ pub fn nethermind_genesis_json() -> Value {
               "eip1559Transition": "0x0",
               "eip3198Transition": "0x0",
               "eip3529Transition": "0x0",
-              "eip3541Transition": "0x0"
+              "eip3541Transition": "0x0",
+              "eip3540TransitionTimestamp": "0x0",
+              "eip3651TransitionTimestamp": "0x0",
+              "eip3670TransitionTimestamp": "0x0",
+              "eip3675TransitionTimestamp": "0x0",
+              "eip3855TransitionTimestamp": "0x0",
+              "eip3860TransitionTimestamp": "0x0",
+              "eip4895TransitionTimestamp": "0x0",
+              "terminalTotalDifficulty": "0x0"
             },
             "genesis": {
               "seal": {
@@ -112,10 +121,10 @@ pub fn nethermind_genesis_json() -> Value {
               },
               "difficulty": "0x01",
               "author": "0x0000000000000000000000000000000000000000",
-              "timestamp": "0x0",
+              "timestamp": "0x63585F88",
               "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
               "extraData": "",
-              "gasLimit": "0x1C9C380"
+              "gasLimit": "0x400000"
             },
             "accounts": {
               "0x7b8C3a386C0eea54693fFB0DA17373ffC9228139": {
@@ -123,9 +132,9 @@ pub fn nethermind_genesis_json() -> Value {
               },
               "0xdA2DD7560DB7e212B945fC72cEB54B7D8C886D77": {
                 "balance": "10000000000000000000000000"
-              },
+              }
             },
             "nodes": []
-          }
+        }
     )
 }

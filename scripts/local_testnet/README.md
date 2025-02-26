@@ -1,112 +1,85 @@
 # Simple Local Testnet
 
-These scripts allow for running a small local testnet with multiple beacon nodes and validator clients.
+These scripts allow for running a small local testnet with a default of 4 beacon nodes, 4 validator clients and 4 Geth execution clients using Kurtosis.
 This setup can be useful for testing and development.
 
-## Requirements
+## Installation
 
-The scripts require `lcli` and `lighthouse` to be installed on `PATH`. From the
-root of this repository, run:
+1. Install [Docker](https://docs.docker.com/get-docker/). Verify that Docker has been successfully installed by running `sudo docker run hello-world`. 
 
-```bash
-make
-make install-lcli
-```
+1. Install [Kurtosis](https://docs.kurtosis.com/install/). Verify that Kurtosis has been successfully installed by running `kurtosis version` which should display the version.
+
+1. Install [`yq`](https://github.com/mikefarah/yq). If you are on Ubuntu, you can install `yq` by running `snap install yq`.
 
 ## Starting the testnet
 
-Modify `vars.env` as desired.
-
-Start a local eth1 ganache server plus boot node along with `BN_COUNT`
-number of beacon nodes and `VC_COUNT` validator clients.
-
-The `start_local_testnet.sh` script takes three options `-v VC_COUNT`, `-d DEBUG_LEVEL` and `-h` for help.
-The options may be in any order or absent in which case they take the default value specified.
-- VC_COUNT: the number of validator clients to create, default: `BN_COUNT`
-- DEBUG_LEVEL: one of { error, warn, info, debug, trace }, default: `info`
-
+To start a testnet, from the Lighthouse root repository:
 
 ```bash
+cd ./scripts/local_testnet
 ./start_local_testnet.sh
 ```
 
+It will build a Lighthouse docker image from the root of the directory and will take an approximately 12 minutes to complete. Once built, the testing will be started automatically. You will see a list of services running and "Started!" at the end. 
+You can also select your own Lighthouse docker image to use by specifying it in `network_params.yml` under the `cl_image` key.
+Full configuration reference for Kurtosis is specified [here](https://github.com/ethpandaops/ethereum-package?tab=readme-ov-file#configuration).
+
+To view all running services:
+
+```bash
+kurtosis enclave inspect local-testnet
+```
+
+To view the logs:
+
+```bash
+kurtosis service logs local-testnet $SERVICE_NAME
+```
+
+where `$SERVICE_NAME` is obtained by inspecting the running services above. For example, to view the logs of the first beacon node, validator client and Geth:
+
+```bash
+kurtosis service logs local-testnet -f cl-1-lighthouse-geth 
+kurtosis service logs local-testnet -f vc-1-geth-lighthouse
+kurtosis service logs local-testnet -f el-1-geth-lighthouse
+```
+
+If you would like to save the logs, use the command:
+
+```bash
+kurtosis dump $OUTPUT_DIRECTORY
+```
+
+This will create a folder named `$OUTPUT_DIRECTORY` in the present working directory that contains all logs and other information. If you want the logs for a particular service and saved to a file named `logs.txt`:
+
+```bash
+kurtosis service logs local-testnet $SERVICE_NAME -a > logs.txt
+```
+where `$SERVICE_NAME` can be viewed by running `kurtosis enclave inspect local-testnet`.
+
+Kurtosis comes with a Dora explorer which can be opened with:
+
+```bash
+open $(kurtosis port print local-testnet dora http)
+```
+
+Some testnet parameters can be varied by modifying the `network_params.yaml` file. Kurtosis also comes with a web UI which can be open with `kurtosis web`.
+
 ## Stopping the testnet
 
-This is not necessary before `start_local_testnet.sh` as it invokes `stop_local_testnet.sh` automatically.
+To stop the testnet, from the Lighthouse root repository:
+
 ```bash
+cd ./scripts/local_testnet
 ./stop_local_testnet.sh
 ```
 
-## Manual creation of local testnet
+You will see "Local testnet stopped." at the end. 
 
-These scripts are used by ./start_local_testnet.sh and may be used to manually
+## CLI options
 
-Start a local eth1 ganache server
-```bash
-./ganache_test_node.sh
-```
-
-Assuming you are happy with the configuration in `vars.env`, deploy the deposit contract, make deposits,
-create the testnet directory, genesis state and validator keys with:
+The script comes with some CLI options, which can be viewed with `./start_local_testnet.sh --help`. One of the CLI options is to avoid rebuilding Lighthouse each time the testnet starts, which can be configured with the command:
 
 ```bash
-./setup.sh
+./start_local_testnet.sh -b false
 ```
-
-Generate bootnode enr and start a discv5 bootnode so that multiple beacon nodes can find each other
-```bash
-./bootnode.sh
-```
-
-Start a beacon node:
-
-```bash
-./beacon_node.sh <DATADIR> <NETWORK-PORT> <HTTP-PORT> <OPTIONAL-DEBUG-LEVEL>
-```
-e.g.
-```bash
-./beacon_node.sh $HOME/.lighthouse/local-testnet/node_1 9000 8000
-```
-
-In a new terminal, start the validator client which will attach to the first
-beacon node:
-
-```bash
-./validator_client.sh <DATADIR> <BEACON-NODE-HTTP> <OPTIONAL-DEBUG-LEVEL>
-```
-e.g. to attach to the above created beacon node
-```bash
-./validator_client.sh $HOME/.lighthouse/local-testnet/node_1 http://localhost:8000
-```
-
-You can create additional beacon node and validator client instances with appropriate parameters.
-
-## Additional Info
-
-### Adjusting number and distribution of validators
-The `VALIDATOR_COUNT` parameter is used to specify the number of insecure validator keystores to generate and make deposits for.
-The `BN_COUNT` parameter is used to adjust the division of these generated keys among separate validator client instances.
-For e.g. for `VALIDATOR_COUNT=80` and `BN_COUNT=4`, the validator keys are distributed over 4 datadirs with 20 keystores per datadir. The datadirs are located in `$DATADIR/node_{i}` which can be passed to separate validator client
-instances using the `--datadir` parameter.
-
-### Starting fresh
-
-Delete the current testnet and all related files using. Generally not necessary as `start_local_test.sh` does this each time it starts.
-
-```bash
-./clean.sh
-```
-
-### Updating the genesis time of the beacon state
-
-If it's been a while since you ran `./setup` then the genesis time of the
-genesis state will be far in the future, causing lots of skip slots.
-
-Update the genesis time to now using:
-
-```bash
-./reset_genesis_time.sh
-```
-
-> Note: you probably want to just rerun `./start_local_testnet.sh` to start over
-> but this is another option.

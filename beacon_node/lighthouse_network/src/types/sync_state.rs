@@ -13,7 +13,7 @@ pub enum SyncState {
     /// The node is undertaking a backfill sync. This occurs when a user has specified a trusted
     /// state. The node first syncs "forward" by downloading blocks up to the current head as
     /// specified by its peers. Once completed, the node enters this sync state and attempts to
-    /// download all required historical blocks to complete its chain.
+    /// download all required historical blocks.
     BackFillSyncing { completed: usize, remaining: usize },
     /// The node has completed syncing a finalized chain and is in the process of re-evaluating
     /// which sync state to progress to.
@@ -35,8 +35,6 @@ pub enum BackFillState {
     Syncing,
     /// A backfill sync has completed.
     Completed,
-    /// A backfill sync is not required.
-    NotRequired,
     /// Too many failed attempts at backfilling. Consider it failed.
     Failed,
 }
@@ -74,11 +72,30 @@ impl SyncState {
         }
     }
 
+    pub fn is_syncing_finalized(&self) -> bool {
+        match self {
+            SyncState::SyncingFinalized { .. } => true,
+            SyncState::SyncingHead { .. } => false,
+            SyncState::SyncTransition => false,
+            SyncState::BackFillSyncing { .. } => false,
+            SyncState::Synced => false,
+            SyncState::Stalled => false,
+        }
+    }
+
     /// Returns true if the node is synced.
     ///
     /// NOTE: We consider the node synced if it is fetching old historical blocks.
     pub fn is_synced(&self) -> bool {
         matches!(self, SyncState::Synced | SyncState::BackFillSyncing { .. })
+    }
+
+    /// Returns true if the node is *stalled*, i.e. has no synced peers.
+    ///
+    /// Usually this state is treated as unsynced, except in some places where we make an exception
+    /// for single-node testnets where having 0 peers is desired.
+    pub fn is_stalled(&self) -> bool {
+        matches!(self, SyncState::Stalled)
     }
 }
 

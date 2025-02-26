@@ -1,6 +1,6 @@
 //! Space-efficient storage for `BeaconState` vector fields.
 //!
-//! This module provides logic for splitting the `FixedVector` fields of a `BeaconState` into
+//! This module provides logic for splitting the `Vector` fields of a `BeaconState` into
 //! chunks, and storing those chunks in contiguous ranges in the on-disk database.  The motiviation
 //! for doing this is avoiding massive duplication in every on-disk state.  For example, rather than
 //! storing the whole `historical_roots` vector, which is updated once every couple of thousand
@@ -17,7 +17,7 @@
 use self::UpdatePattern::*;
 use crate::*;
 use ssz::{Decode, Encode};
-use typenum::Unsigned;
+use types::historical_summary::HistoricalSummary;
 
 /// Description of how a `BeaconState` field is updated during state processing.
 ///
@@ -26,7 +26,18 @@ use typenum::Unsigned;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdatePattern {
     /// The value is updated once per `n` slots.
-    OncePerNSlots { n: u64 },
+    OncePerNSlots {
+        n: u64,
+        /// The slot at which the field begins to accumulate values.
+        ///
+        /// The field should not be read or written until `activation_slot` is reached, and the
+        /// activation slot should act as an offset when converting slots to vector indices.
+        activation_slot: Option<Slot>,
+        /// The slot at which the field ceases to accumulate values.
+        ///
+        /// If this is `None` then the field is continually updated.
+        deactivation_slot: Option<Slot>,
+    },
     /// The value is updated once per epoch, for the epoch `current_epoch - lag`.
     OncePerEpoch { lag: u64 },
 }
@@ -49,12 +60,13 @@ fn genesis_value_key() -> [u8; 8] {
 /// type-level. We require their value-level witnesses to be `Copy` so that we can avoid the
 /// turbofish when calling functions like `store_updated_vector`.
 pub trait Field<E: EthSpec>: Copy {
-    /// The type of value stored in this field: the `T` from `FixedVector<T, N>`.
+    /// The type of value stored in this field: the `T` from `Vector<T, N>`.
     ///
     /// The `Default` impl will be used to fill extra vector entries.
-    type Value: Decode + Encode + Default + Clone + PartialEq + std::fmt::Debug;
+    type Value: Default + std::fmt::Debug + milhouse::Value;
+    // Decode + Encode + Default + Clone + PartialEq + std::fmt::Debug
 
-    /// The length of this field: the `N` from `FixedVector<T, N>`.
+    /// The length of this field: the `N` from `Vector<T, N>`.
     type Length: Unsigned;
 
     /// The database column where the integer-indexed chunks for this field should be stored.
@@ -98,12 +110,30 @@ pub trait Field<E: EthSpec>: Copy {
     fn start_and_end_vindex(current_slot: Slot, spec: &ChainSpec) -> (usize, usize) {
         // We take advantage of saturating subtraction on slots and epochs
         match Self::update_pattern(spec) {
-            OncePerNSlots { n } => {
+            OncePerNSlots {
+                n,
+                activation_slot,
+                deactivation_slot,
+            } => {
                 // Per-slot changes exclude the index for the current slot, because
                 // it won't be set until the slot completes (think of `state_roots`, `block_roots`).
                 // This also works for the `historical_roots` because at the `n`th slot, the 0th
                 // entry of the list is created, and before that the list is empty.
-                let end_vindex = current_slot / n;
+                //
+                // To account for the switch from historical roots to historical summaries at
+                // Capella we also modify the current slot by the activation and deactivation slots.
+                // The activation slot acts as an offset (subtraction) while the deactivation slot
+                // acts as a clamp (min).
+                let slot_with_clamp = deactivation_slot.map_or(current_slot, |deactivation_slot| {
+                    std::cmp::min(current_slot, deactivation_slot)
+                });
+                let slot_with_clamp_and_offset = if let Some(activation_slot) = activation_slot {
+                    slot_with_clamp - activation_slot
+                } else {
+                    // Return (0, 0) to indicate that the field should not be read/written.
+                    return (0, 0);
+                };
+                let end_vindex = slot_with_clamp_and_offset / n;
                 let start_vindex = end_vindex - Self::Length::to_u64();
                 (start_vindex.as_usize(), end_vindex.as_usize())
             }
@@ -244,10 +274,10 @@ pub trait Field<E: EthSpec>: Copy {
     }
 }
 
-/// Marker trait for fixed-length fields (`FixedVector<T, N>`).
+/// Marker trait for fixed-length fields (`Vector<T, N>`).
 pub trait FixedLengthField<E: EthSpec>: Field<E> {}
 
-/// Marker trait for variable-length fields (`VariableList<T, N>`).
+/// Marker trait for variable-length fields (`List<T, N>`).
 pub trait VariableLengthField<E: EthSpec>: Field<E> {}
 
 /// Macro to implement the `Field` trait on a new unit struct type.
@@ -257,9 +287,9 @@ macro_rules! field {
         #[derive(Clone, Copy)]
         pub struct $struct_name;
 
-        impl<T> Field<T> for $struct_name
+        impl<E> Field<E> for $struct_name
         where
-            T: EthSpec,
+            E: EthSpec,
         {
             type Value = $value_ty;
             type Length = $length_ty;
@@ -269,15 +299,17 @@ macro_rules! field {
             }
 
             fn update_pattern(spec: &ChainSpec) -> UpdatePattern {
-                $update_pattern(spec)
+                let update_pattern = $update_pattern;
+                update_pattern(spec)
             }
 
             fn get_value(
-                state: &BeaconState<T>,
+                state: &BeaconState<E>,
                 vindex: u64,
                 spec: &ChainSpec,
             ) -> Result<Self::Value, ChunkError> {
-                $get_value(state, vindex, spec)
+                let get_value = $get_value;
+                get_value(state, vindex, spec)
             }
 
             fn is_fixed_length() -> bool {
@@ -290,45 +322,78 @@ macro_rules! field {
 }
 
 field!(
-    BlockRoots,
+    BlockRootsChunked,
     FixedLengthField,
     Hash256,
-    T::SlotsPerHistoricalRoot,
-    DBColumn::BeaconBlockRoots,
-    |_| OncePerNSlots { n: 1 },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(state.block_roots(), index)
+    E::SlotsPerHistoricalRoot,
+    DBColumn::BeaconBlockRootsChunked,
+    |_| OncePerNSlots {
+        n: 1,
+        activation_slot: Some(Slot::new(0)),
+        deactivation_slot: None
+    },
+    |state: &BeaconState<_>, index, _| safe_modulo_vector_index(state.block_roots(), index)
 );
 
 field!(
-    StateRoots,
+    StateRootsChunked,
     FixedLengthField,
     Hash256,
-    T::SlotsPerHistoricalRoot,
-    DBColumn::BeaconStateRoots,
-    |_| OncePerNSlots { n: 1 },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(state.state_roots(), index)
+    E::SlotsPerHistoricalRoot,
+    DBColumn::BeaconStateRootsChunked,
+    |_| OncePerNSlots {
+        n: 1,
+        activation_slot: Some(Slot::new(0)),
+        deactivation_slot: None,
+    },
+    |state: &BeaconState<_>, index, _| safe_modulo_vector_index(state.state_roots(), index)
 );
 
 field!(
     HistoricalRoots,
     VariableLengthField,
     Hash256,
-    T::HistoricalRootsLimit,
+    E::HistoricalRootsLimit,
     DBColumn::BeaconHistoricalRoots,
-    |_| OncePerNSlots {
-        n: T::SlotsPerHistoricalRoot::to_u64()
+    |spec: &ChainSpec| OncePerNSlots {
+        n: E::SlotsPerHistoricalRoot::to_u64(),
+        activation_slot: Some(Slot::new(0)),
+        deactivation_slot: spec
+            .capella_fork_epoch
+            .map(|fork_epoch| fork_epoch.start_slot(E::slots_per_epoch())),
     },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(state.historical_roots(), index)
+    |state: &BeaconState<_>, index, _| safe_modulo_list_index(state.historical_roots(), index)
 );
 
 field!(
     RandaoMixes,
     FixedLengthField,
     Hash256,
-    T::EpochsPerHistoricalVector,
+    E::EpochsPerHistoricalVector,
     DBColumn::BeaconRandaoMixes,
     |_| OncePerEpoch { lag: 1 },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(state.randao_mixes(), index)
+    |state: &BeaconState<_>, index, _| safe_modulo_vector_index(state.randao_mixes(), index)
+);
+
+field!(
+    HistoricalSummaries,
+    VariableLengthField,
+    HistoricalSummary,
+    E::HistoricalRootsLimit,
+    DBColumn::BeaconHistoricalSummaries,
+    |spec: &ChainSpec| OncePerNSlots {
+        n: E::SlotsPerHistoricalRoot::to_u64(),
+        activation_slot: spec
+            .capella_fork_epoch
+            .map(|fork_epoch| fork_epoch.start_slot(E::slots_per_epoch())),
+        deactivation_slot: None,
+    },
+    |state: &BeaconState<_>, index, _| safe_modulo_list_index(
+        state
+            .historical_summaries()
+            .map_err(|_| ChunkError::InvalidFork)?,
+        index
+    )
 );
 
 pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
@@ -501,7 +566,7 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: KeyValueStore<
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
-) -> Result<FixedVector<F::Value, F::Length>, Error> {
+) -> Result<Vector<F::Value, F::Length>, Error> {
     // Do a range query
     let chunk_size = F::chunk_size();
     let (start_vindex, end_vindex) = F::start_and_end_vindex(slot, spec);
@@ -525,7 +590,7 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: KeyValueStore<
         default,
     )?;
 
-    Ok(result.into())
+    Ok(Vector::new(result).map_err(ChunkError::Milhouse)?)
 }
 
 /// The historical roots are stored in vector chunks, despite not actually being a vector.
@@ -533,7 +598,7 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
-) -> Result<VariableList<F::Value, F::Length>, Error> {
+) -> Result<List<F::Value, F::Length>, Error> {
     let chunk_size = F::chunk_size();
     let (start_vindex, end_vindex) = F::start_and_end_vindex(slot, spec);
     let start_cindex = start_vindex / chunk_size;
@@ -553,15 +618,35 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
         }
     }
 
-    Ok(result.into())
+    Ok(List::new(result).map_err(ChunkError::Milhouse)?)
 }
 
-/// Index into a field of the state, avoiding out of bounds and division by 0.
-fn safe_modulo_index<T: Copy>(values: &[T], index: u64) -> Result<T, ChunkError> {
+/// Index into a `List` field of the state, avoiding out of bounds and division by 0.
+fn safe_modulo_list_index<T: milhouse::Value + Copy, N: Unsigned>(
+    values: &List<T, N>,
+    index: u64,
+) -> Result<T, ChunkError> {
+    if values.is_empty() {
+        Err(ChunkError::ZeroLengthList)
+    } else {
+        values
+            .get(index as usize % values.len())
+            .copied()
+            .ok_or(ChunkError::IndexOutOfBounds { index })
+    }
+}
+
+fn safe_modulo_vector_index<T: milhouse::Value + Copy, N: Unsigned>(
+    values: &Vector<T, N>,
+    index: u64,
+) -> Result<T, ChunkError> {
     if values.is_empty() {
         Err(ChunkError::ZeroLengthVector)
     } else {
-        Ok(values[index as usize % values.len()])
+        values
+            .get(index as usize % values.len())
+            .copied()
+            .ok_or(ChunkError::IndexOutOfBounds { index })
     }
 }
 
@@ -595,7 +680,7 @@ where
         key: &[u8],
     ) -> Result<Option<Self>, Error> {
         store
-            .get_bytes(column.into(), key)?
+            .get_bytes(column, key)?
             .map(|bytes| Self::decode(&bytes))
             .transpose()
     }
@@ -606,8 +691,11 @@ where
         key: &[u8],
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        let db_key = get_key_for_col(column.into(), key);
-        ops.push(KeyValueStoreOp::PutKeyValue(db_key, self.encode()?));
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            column,
+            key.to_vec(),
+            self.encode()?,
+        ));
         Ok(())
     }
 
@@ -648,6 +736,10 @@ where
 #[derive(Debug, PartialEq)]
 pub enum ChunkError {
     ZeroLengthVector,
+    ZeroLengthList,
+    IndexOutOfBounds {
+        index: u64,
+    },
     InvalidSize {
         chunk_index: usize,
         expected: usize,
@@ -679,6 +771,14 @@ pub enum ChunkError {
         end_vindex: usize,
         length: usize,
     },
+    InvalidFork,
+    Milhouse(milhouse::Error),
+}
+
+impl From<milhouse::Error> for ChunkError {
+    fn from(e: milhouse::Error) -> ChunkError {
+        Self::Milhouse(e)
+    }
 }
 
 #[cfg(test)]
@@ -762,8 +862,8 @@ mod test {
         fn test_fixed_length<F: Field<TestSpec>>(_: F, expected: bool) {
             assert_eq!(F::is_fixed_length(), expected);
         }
-        test_fixed_length(BlockRoots, true);
-        test_fixed_length(StateRoots, true);
+        test_fixed_length(BlockRootsChunked, true);
+        test_fixed_length(StateRootsChunked, true);
         test_fixed_length(HistoricalRoots, false);
         test_fixed_length(RandaoMixes, true);
     }
@@ -783,12 +883,12 @@ mod test {
 
     #[test]
     fn needs_genesis_value_block_roots() {
-        needs_genesis_value_once_per_slot(BlockRoots);
+        needs_genesis_value_once_per_slot(BlockRootsChunked);
     }
 
     #[test]
     fn needs_genesis_value_state_roots() {
-        needs_genesis_value_once_per_slot(StateRoots);
+        needs_genesis_value_once_per_slot(StateRootsChunked);
     }
 
     #[test]
@@ -801,7 +901,7 @@ mod test {
 
     fn needs_genesis_value_test_randao<F: Field<TestSpec>>(_: F) {
         let spec = &TestSpec::default_spec();
-        let max = TestSpec::slots_per_epoch() as u64 * (F::Length::to_u64() - 1);
+        let max = TestSpec::slots_per_epoch() * (F::Length::to_u64() - 1);
         for i in 0..max {
             assert!(
                 F::slot_needs_genesis_value(Slot::new(i), spec),

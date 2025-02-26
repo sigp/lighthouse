@@ -21,17 +21,17 @@ impl ResponseOptional for Result<Response, Error> {
 /// Trait for extracting the fork name from the headers of a response.
 pub trait ResponseForkName {
     #[allow(clippy::result_unit_err)]
-    fn fork_name_from_header(&self) -> Result<Option<ForkName>, ()>;
+    fn fork_name_from_header(&self) -> Result<Option<ForkName>, String>;
 }
 
 impl ResponseForkName for Response {
-    fn fork_name_from_header(&self) -> Result<Option<ForkName>, ()> {
+    fn fork_name_from_header(&self) -> Result<Option<ForkName>, String> {
         self.headers()
             .get(CONSENSUS_VERSION_HEADER)
             .map(|fork_name| {
                 fork_name
                     .to_str()
-                    .map_err(|_| ())
+                    .map_err(|e| e.to_string())
                     .and_then(ForkName::from_str)
             })
             .transpose()

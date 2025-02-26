@@ -1,30 +1,33 @@
-#[macro_use]
-extern crate clap;
-
 mod cli;
 mod config;
 
 pub use beacon_chain;
-use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
-    TimeoutRwLock,
 };
 use clap::ArgMatches;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_config, get_data_dir, get_slots_per_restore_point, set_network_config};
+pub use config::{get_config, get_data_dir, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
-use slasher::Slasher;
+use slasher::{DatabaseBackendOverride, Slasher};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use types::EthSpec;
+use store::database::interface::BeaconNodeBackend;
+use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-pub type ProductionClient<E> =
-    Client<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, LevelDB<E>, LevelDB<E>>>;
+pub type ProductionClient<E> = Client<
+    Witness<
+        SystemTimeSlotClock,
+        CachingEth1Backend<E>,
+        E,
+        BeaconNodeBackend<E>,
+        BeaconNodeBackend<E>,
+    >,
+>;
 
 /// The beacon node `Client` that will be used in production.
 ///
@@ -44,7 +47,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// configurations hosted remotely.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: ArgMatches<'static>,
+        matches: ArgMatches,
     ) -> Result<Self, String> {
         let client_config = get_config::<E>(&matches, &context)?;
         Self::new(context, client_config).await
@@ -61,9 +64,10 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
         let log = context.log().clone();
-        let datadir = client_config.create_data_dir()?;
+        let _datadir = client_config.create_data_dir()?;
         let db_path = client_config.create_db_path()?;
         let freezer_db_path = client_config.create_freezer_db_path()?;
+        let blobs_db_path = client_config.create_blobs_db_path()?;
         let executor = context.executor.clone();
 
         if let Some(legacy_dir) = client_config.get_existing_legacy_data_dir() {
@@ -75,27 +79,57 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             )
         }
 
-        if !client_config.chain.enable_lock_timeouts {
-            info!(log, "Disabling lock timeouts globally");
-            TimeoutRwLock::disable_timeouts()
+        if let Err(misaligned_forks) = validator_fork_epochs(&spec) {
+            warn!(
+                log,
+                "Fork boundaries are not well aligned / multiples of 256";
+                "info" => "This may cause issues as fork boundaries do not align with the \
+                    start of sync committee period.",
+                "misaligned_forks" => ?misaligned_forks,
+            );
         }
 
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
-            .chain_spec(spec)
+            .chain_spec(spec.clone())
+            .beacon_processor(client_config.beacon_processor.clone())
             .http_api_config(client_config.http_api.clone())
             .disk_store(
-                &datadir,
                 &db_path,
                 &freezer_db_path,
+                &blobs_db_path,
                 store_config,
                 log.clone(),
             )?;
 
-        let builder = if let Some(slasher_config) = client_config.slasher.clone() {
+        let builder = if let Some(mut slasher_config) = client_config.slasher.clone() {
+            match slasher_config.override_backend() {
+                DatabaseBackendOverride::Success(old_backend) => {
+                    info!(
+                        log,
+                        "Slasher backend overridden";
+                        "reason" => "database exists",
+                        "configured_backend" => %old_backend,
+                        "override_backend" => %slasher_config.backend,
+                    );
+                }
+                DatabaseBackendOverride::Failure(path) => {
+                    warn!(
+                        log,
+                        "Slasher backend override failed";
+                        "advice" => "delete old MDBX database or enable MDBX backend",
+                        "path" => path.display()
+                    );
+                }
+                _ => {}
+            }
             let slasher = Arc::new(
-                Slasher::open(slasher_config, log.new(slog::o!("service" => "slasher")))
-                    .map_err(|e| format!("Slasher open error: {:?}", e))?,
+                Slasher::open(
+                    slasher_config,
+                    spec,
+                    log.new(slog::o!("service" => "slasher")),
+                )
+                .map_err(|e| format!("Slasher open error: {:?}", e))?,
             );
             builder.slasher(slasher)
         } else {
@@ -113,23 +147,16 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = builder
             .beacon_chain_builder(client_genesis, client_config.clone())
             .await?;
-        let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend {
+        let builder = if client_config.sync_eth1_chain {
             info!(
                 log,
                 "Block production enabled";
-                "endpoints" => format!("{:?}", &client_config.eth1.endpoints),
+                "endpoint" => format!("{:?}", &client_config.eth1.endpoint),
                 "method" => "json rpc via http"
             );
             builder
                 .caching_eth1_backend(client_config.eth1.clone())
                 .await?
-        } else if client_config.dummy_eth1_backend {
-            warn!(
-                log,
-                "Block production impaired";
-                "reason" => "dummy eth1 backend is enabled"
-            );
-            builder.dummy_eth1_backend()?
         } else {
             info!(
                 log,
@@ -147,7 +174,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         builder
             .build_beacon_chain()?
-            .network(&client_config.network)
+            .network(Arc::new(client_config.network))
             .await?
             .notifier()?
             .http_metrics_config(client_config.http_metrics.clone())
@@ -157,6 +184,28 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
     pub fn into_inner(self) -> ProductionClient<E> {
         self.0
+    }
+}
+
+fn validator_fork_epochs(spec: &ChainSpec) -> Result<(), Vec<(ForkName, Epoch)>> {
+    // @dapplion: "We try to schedule forks such that the fork epoch is a multiple of 256, to keep
+    // historical vectors in the same fork. Indirectly that makes light client periods align with
+    // fork boundaries."
+    let sync_committee_period = spec.epochs_per_sync_committee_period; // 256
+    let is_fork_boundary_misaligned = |epoch: Epoch| epoch % sync_committee_period != 0;
+
+    let forks_with_misaligned_epochs = ForkName::list_all_fork_epochs(spec)
+        .iter()
+        .filter_map(|(fork, fork_epoch_opt)| {
+            fork_epoch_opt
+                .and_then(|epoch| is_fork_boundary_misaligned(epoch).then_some((*fork, epoch)))
+        })
+        .collect::<Vec<_>>();
+
+    if forks_with_misaligned_epochs.is_empty() {
+        Ok(())
+    } else {
+        Err(forks_with_misaligned_epochs)
     }
 }
 
@@ -181,5 +230,26 @@ struct Discv5Executor(task_executor::TaskExecutor);
 impl lighthouse_network::discv5::Executor for Discv5Executor {
     fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
         self.0.spawn(future, "discv5")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use types::MainnetEthSpec;
+
+    #[test]
+    fn test_validator_fork_epoch_alignments() {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(256));
+        spec.deneb_fork_epoch = Some(Epoch::new(257));
+        spec.electra_fork_epoch = None;
+        spec.fulu_fork_epoch = None;
+        let result = validator_fork_epochs(&spec);
+        assert_eq!(
+            result,
+            Err(vec![(ForkName::Deneb, spec.deneb_fork_epoch.unwrap())])
+        );
     }
 }

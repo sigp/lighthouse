@@ -1,9 +1,8 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::cases::common::BlsCase;
+use crate::impl_bls_load_case;
 use bls::{AggregateSignature, PublicKeyBytes};
-use serde_derive::Deserialize;
-use std::convert::TryInto;
+use serde::Deserialize;
 use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -20,7 +19,7 @@ pub struct BlsEthFastAggregateVerify {
     pub output: bool,
 }
 
-impl BlsCase for BlsEthFastAggregateVerify {}
+impl_bls_load_case!(BlsEthFastAggregateVerify, "data.yaml");
 
 impl Case for BlsEthFastAggregateVerify {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {

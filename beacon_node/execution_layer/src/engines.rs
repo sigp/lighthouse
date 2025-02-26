@@ -1,33 +1,107 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
 use crate::engine_api::{
-    Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
+    EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
+    PayloadId,
 };
-use crate::HttpJsonRpc;
+use crate::{ClientVersionV1, HttpJsonRpc};
 use lru::LruCache;
-use slog::{debug, error, info, Logger};
+use slog::{debug, error, info, warn, Logger};
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
-use tokio::sync::{Mutex, RwLock};
-use types::{Address, ExecutionBlockHash, Hash256};
+use tokio::sync::{watch, Mutex, RwLock};
+use tokio_stream::wrappers::WatchStream;
+use types::non_zero_usize::new_non_zero_usize;
+use types::ExecutionBlockHash;
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
-/// Since the size of each value is small (~100 bytes) a large number is used for safety.
-const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
+/// Since the size of each value is small (~800 bytes) a large number is used for safety.
+const PAYLOAD_ID_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(512);
+const CACHED_RESPONSE_AGE_LIMIT: Duration = Duration::from_secs(900); // 15 minutes
 
 /// Stores the remembered state of a engine.
-#[derive(Copy, Clone, PartialEq, Debug)]
-enum EngineState {
+#[derive(Copy, Clone, PartialEq, Debug, Eq, Default)]
+enum EngineStateInternal {
     Synced,
+    #[default]
     Offline,
     Syncing,
     AuthFailed,
 }
 
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+enum ResponseCacheAction {
+    #[default]
+    None,
+    Update, // Update cached responses
+    Clear,  // Clear cached responses
+}
+
+/// A subset of the engine state to inform other services if the engine is online or offline.
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum EngineState {
+    Online,
+    Offline,
+}
+
+impl From<EngineStateInternal> for EngineState {
+    fn from(state: EngineStateInternal) -> Self {
+        match state {
+            EngineStateInternal::Synced | EngineStateInternal::Syncing => EngineState::Online,
+            EngineStateInternal::Offline | EngineStateInternal::AuthFailed => EngineState::Offline,
+        }
+    }
+}
+
+/// Wrapper structure that ensures changes to the engine state are correctly reported to watchers.
+struct State {
+    /// The actual engine state.
+    state: EngineStateInternal,
+    /// Notifier to watch the engine state.
+    notifier: watch::Sender<EngineState>,
+}
+
+impl std::ops::Deref for State {
+    type Target = EngineStateInternal;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        let state = EngineStateInternal::default();
+        let (notifier, _receiver) = watch::channel(state.into());
+        State { state, notifier }
+    }
+}
+
+impl State {
+    // Updates the state and notifies all watchers if the state has changed.
+    pub fn update(&mut self, new_state: EngineStateInternal) {
+        self.state = new_state;
+        self.notifier.send_if_modified(|last_state| {
+            let changed = *last_state != new_state.into(); // notify conditionally
+            *last_state = new_state.into(); // update the state unconditionally
+            changed
+        });
+    }
+
+    /// Gives access to a channel containing whether the last state is online.
+    ///
+    /// This can be called several times.
+    pub fn watch(&self) -> WatchStream<EngineState> {
+        self.notifier.subscribe().into()
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub struct ForkChoiceState {
+pub struct ForkchoiceState {
     pub head_block_hash: ExecutionBlockHash,
     pub safe_block_hash: ExecutionBlockHash,
     pub finalized_block_hash: ExecutionBlockHash,
@@ -36,9 +110,7 @@ pub struct ForkChoiceState {
 #[derive(Hash, PartialEq, std::cmp::Eq)]
 struct PayloadIdCacheKey {
     pub head_block_hash: ExecutionBlockHash,
-    pub timestamp: u64,
-    pub prev_randao: Hash256,
-    pub suggested_fee_recipient: Address,
+    pub payload_attributes: PayloadAttributes,
 }
 
 #[derive(Debug)]
@@ -53,10 +125,10 @@ pub enum EngineError {
 pub struct Engine {
     pub api: HttpJsonRpc,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
-    state: RwLock<EngineState>,
-    pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
-    pub executor: TaskExecutor,
-    pub log: Logger,
+    state: RwLock<State>,
+    latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
+    executor: TaskExecutor,
+    log: Logger,
 }
 
 impl Engine {
@@ -65,46 +137,46 @@ impl Engine {
         Self {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
-            state: RwLock::new(EngineState::Offline),
+            state: Default::default(),
             latest_forkchoice_state: Default::default(),
             executor,
             log: log.clone(),
         }
     }
 
+    /// Gives access to a channel containing the last engine state.
+    ///
+    /// This can be called several times.
+    pub async fn watch_state(&self) -> WatchStream<EngineState> {
+        self.state.read().await.watch()
+    }
+
     pub async fn get_payload_id(
         &self,
-        head_block_hash: ExecutionBlockHash,
-        timestamp: u64,
-        prev_randao: Hash256,
-        suggested_fee_recipient: Address,
+        head_block_hash: &ExecutionBlockHash,
+        payload_attributes: &PayloadAttributes,
     ) -> Option<PayloadId> {
         self.payload_id_cache
             .lock()
             .await
-            .get(&PayloadIdCacheKey {
-                head_block_hash,
-                timestamp,
-                prev_randao,
-                suggested_fee_recipient,
-            })
+            .get(&PayloadIdCacheKey::new(head_block_hash, payload_attributes))
             .cloned()
     }
 
     pub async fn notify_forkchoice_updated(
         &self,
-        forkchoice_state: ForkChoiceState,
+        forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
         log: &Logger,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
-            .forkchoice_updated_v1(forkchoice_state, payload_attributes)
+            .forkchoice_updated(forkchoice_state, payload_attributes.clone())
             .await?;
 
         if let Some(payload_id) = response.payload_id {
-            if let Some(key) =
-                payload_attributes.map(|pa| PayloadIdCacheKey::new(&forkchoice_state, &pa))
+            if let Some(key) = payload_attributes
+                .map(|pa| PayloadIdCacheKey::new(&forkchoice_state.head_block_hash, &pa))
             {
                 self.payload_id_cache.lock().await.put(key, payload_id);
             } else {
@@ -119,11 +191,11 @@ impl Engine {
         Ok(response)
     }
 
-    async fn get_latest_forkchoice_state(&self) -> Option<ForkChoiceState> {
+    async fn get_latest_forkchoice_state(&self) -> Option<ForkchoiceState> {
         *self.latest_forkchoice_state.read().await
     }
 
-    pub async fn set_latest_forkchoice_state(&self, state: ForkChoiceState) {
+    pub async fn set_latest_forkchoice_state(&self, state: ForkchoiceState) {
         *self.latest_forkchoice_state.write().await = Some(state);
     }
 
@@ -148,7 +220,7 @@ impl Engine {
 
             // For simplicity, payload attributes are never included in this call. It may be
             // reasonable to include them in the future.
-            if let Err(e) = self.api.forkchoice_updated_v1(forkchoice_state, None).await {
+            if let Err(e) = self.api.forkchoice_updated(forkchoice_state, None).await {
                 debug!(
                     self.log,
                     "Failed to issue latest head to engine";
@@ -165,17 +237,21 @@ impl Engine {
 
     /// Returns `true` if the engine has a "synced" status.
     pub async fn is_synced(&self) -> bool {
-        *self.state.read().await == EngineState::Synced
+        **self.state.read().await == EngineStateInternal::Synced
+    }
+
+    /// Returns `true` if the engine has a status other than synced or syncing.
+    pub async fn is_offline(&self) -> bool {
+        EngineState::from(**self.state.read().await) == EngineState::Offline
     }
 
     /// Run the `EngineApi::upcheck` function if the node's last known state is not synced. This
     /// might be used to recover the node if offline.
     pub async fn upcheck(&self) {
-        let state: EngineState = match self.api.upcheck().await {
+        let (state, cache_action) = match self.api.upcheck().await {
             Ok(()) => {
                 let mut state = self.state.write().await;
-
-                if *state != EngineState::Synced {
+                if **state != EngineStateInternal::Synced {
                     info!(
                         self.log,
                         "Execution engine online";
@@ -189,14 +265,13 @@ impl Engine {
                         "Execution engine online";
                     );
                 }
-
-                *state = EngineState::Synced;
-                *state
+                state.update(EngineStateInternal::Synced);
+                (**state, ResponseCacheAction::Update)
             }
             Err(EngineApiError::IsSyncing) => {
                 let mut state = self.state.write().await;
-                *state = EngineState::Syncing;
-                *state
+                state.update(EngineStateInternal::Syncing);
+                (**state, ResponseCacheAction::Update)
             }
             Err(EngineApiError::Auth(err)) => {
                 error!(
@@ -206,8 +281,8 @@ impl Engine {
                 );
 
                 let mut state = self.state.write().await;
-                *state = EngineState::AuthFailed;
-                *state
+                state.update(EngineStateInternal::AuthFailed);
+                (**state, ResponseCacheAction::Clear)
             }
             Err(e) => {
                 error!(
@@ -217,16 +292,77 @@ impl Engine {
                 );
 
                 let mut state = self.state.write().await;
-                *state = EngineState::Offline;
-                *state
+                state.update(EngineStateInternal::Offline);
+                // need to clear cached responses if we detect the execution engine
+                // is offline as it is likely the engine is being updated to a newer
+                // version which might also have new capabilities
+                (**state, ResponseCacheAction::Clear)
             }
         };
+
+        // do this after dropping state lock guard to avoid holding two locks at once
+        match cache_action {
+            ResponseCacheAction::None => {}
+            ResponseCacheAction::Update => {
+                if let Err(e) = self
+                    .get_engine_capabilities(Some(CACHED_RESPONSE_AGE_LIMIT))
+                    .await
+                {
+                    warn!(self.log,
+                        "Error during exchange capabilities";
+                        "error" => ?e,
+                    )
+                } else {
+                    // no point in running this if there was an error fetching the capabilities
+                    // as it will just result in an error again
+                    let _ = self
+                        .get_engine_version(Some(CACHED_RESPONSE_AGE_LIMIT))
+                        .await;
+                }
+            }
+            ResponseCacheAction::Clear => {
+                self.api.clear_exchange_capabilties_cache().await;
+                self.api.clear_engine_version_cache().await;
+            }
+        }
 
         debug!(
             self.log,
             "Execution engine upcheck complete";
             "state" => ?state,
         );
+    }
+
+    /// Returns the execution engine capabilities resulting from a call to
+    /// engine_exchangeCapabilities. If the capabilities cache is not populated,
+    /// or if it is populated with a cached result of age >= `age_limit`, this
+    /// method will fetch the result from the execution engine and populate the
+    /// cache before returning it. Otherwise it will return a cached result from
+    /// a previous call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, EngineApiError> {
+        self.api.get_engine_capabilities(age_limit).await
+    }
+
+    /// Returns the execution engine version resulting from a call to
+    /// engine_clientVersionV1. If the version cache is not populated, or if it
+    /// is populated with a cached result of age >= `age_limit`, this method will
+    /// fetch the result from the execution engine and populate the cache before
+    /// returning it. Otherwise it will return the cached result from an earlier
+    /// call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_version(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<Vec<ClientVersionV1>, EngineApiError> {
+        self.api.get_engine_version(age_limit).await
     }
 
     /// Run `func` on the node regardless of the node's current state.
@@ -237,19 +373,17 @@ impl Engine {
     /// deadlock.
     pub async fn request<'a, F, G, H>(self: &'a Arc<Self>, func: F) -> Result<H, EngineError>
     where
-        F: Fn(&'a Engine) -> G,
+        F: FnOnce(&'a Engine) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         match func(self).await {
             Ok(result) => {
                 // Take a clone *without* holding the read-lock since the `upcheck` function will
                 // take a write-lock.
-                let state: EngineState = *self.state.read().await;
+                let state: EngineStateInternal = **self.state.read().await;
 
-                // If this request just returned successfully but we don't think this node is
-                // synced, check to see if it just became synced. This helps to ensure that the
-                // networking stack can get fast feedback about a synced engine.
-                if state != EngineState::Synced {
+                // Keep an up to date engine state.
+                if state != EngineStateInternal::Synced {
                     // Spawn the upcheck in another task to avoid slowing down this request.
                     let inner_self = self.clone();
                     self.executor.spawn(
@@ -261,7 +395,7 @@ impl Engine {
                 Ok(result)
             }
             Err(error) => {
-                error!(
+                warn!(
                     self.log,
                     "Execution engine call failed";
                     "error" => ?error,
@@ -284,12 +418,29 @@ impl Engine {
 }
 
 impl PayloadIdCacheKey {
-    fn new(state: &ForkChoiceState, attributes: &PayloadAttributes) -> Self {
+    fn new(head_block_hash: &ExecutionBlockHash, attributes: &PayloadAttributes) -> Self {
         Self {
-            head_block_hash: state.head_block_hash,
-            timestamp: attributes.timestamp,
-            prev_randao: attributes.prev_randao,
-            suggested_fee_recipient: attributes.suggested_fee_recipient,
+            head_block_hash: *head_block_hash,
+            payload_attributes: attributes.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio_stream::StreamExt;
+
+    #[tokio::test]
+    async fn test_state_notifier() {
+        let mut state = State::default();
+        let initial_state: EngineState = state.state.into();
+        assert_eq!(initial_state, EngineState::Offline);
+        state.update(EngineStateInternal::Synced);
+
+        // a watcher that arrives after the first update.
+        let mut watcher = state.watch();
+        let new_state = watcher.next().await.expect("Last state is always present");
+        assert_eq!(new_state, EngineState::Online);
     }
 }

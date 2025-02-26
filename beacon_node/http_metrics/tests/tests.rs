@@ -1,6 +1,7 @@
 use beacon_chain::test_utils::EphemeralHarnessType;
-use environment::null_logger;
 use http_metrics::Config;
+use logging::test_logger;
+use reqwest::header::HeaderValue;
 use reqwest::StatusCode;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
@@ -12,7 +13,7 @@ type Context = http_metrics::Context<EphemeralHarnessType<MainnetEthSpec>>;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn returns_200_ok() {
     async {
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let context = Arc::new(Context {
             config: Config {
@@ -37,7 +38,7 @@ async fn returns_200_ok() {
         };
         let (listening_socket, server) = http_metrics::serve(ctx, server_shutdown).unwrap();
 
-        tokio::spawn(async { server.await });
+        tokio::spawn(server);
 
         let url = format!(
             "http://{}:{}/metrics",
@@ -45,7 +46,13 @@ async fn returns_200_ok() {
             listening_socket.port()
         );
 
-        assert_eq!(reqwest::get(&url).await.unwrap().status(), StatusCode::OK);
+        let response = reqwest::get(&url).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get("Content-Type").unwrap(),
+            &HeaderValue::from_str("text/plain").unwrap()
+        );
     }
     .await
 }

@@ -10,7 +10,7 @@ An open-source Ethereum consensus client, written in Rust and maintained by Sigm
 [Book Link]: https://lighthouse-book.sigmaprime.io
 [stable]: https://github.com/sigp/lighthouse/tree/stable
 [unstable]: https://github.com/sigp/lighthouse/tree/unstable
-[blog]: https://lighthouse.sigmaprime.io
+[blog]: https://lighthouse-blog.sigmaprime.io
 
 [Documentation](https://lighthouse-book.sigmaprime.io)
 
@@ -26,7 +26,7 @@ Lighthouse is:
 - Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
 - Funded by various organisations, including Sigma Prime, the
-	Ethereum Foundation, ConsenSys, the Decentralization Foundation and private individuals.
+	Ethereum Foundation, Consensys, the Decentralization Foundation and private individuals.
 - Actively involved in the specification and security analysis of the
 	Ethereum proof-of-stake consensus specification.
 
@@ -41,7 +41,7 @@ as the canonical staking deposit contract address.
 The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information for users and
 developers.
 
-The Lighthouse team maintains a blog at [lighthouse-blog.sigmaprime.io][blog] which contains periodical
+The Lighthouse team maintains a blog at [https://blog.sigmaprime.io/tag/lighthouse][blog] which contains periodic
 progress updates, roadmap insights and interesting findings.
 
 ## Branches
@@ -66,7 +66,7 @@ of the Lighthouse book.
 The best place for discussion is the [Lighthouse Discord
 server](https://discord.gg/cyAszAh).
 
-Sign up to the [Lighthouse Development Updates](http://eepurl.com/dh9Lvb) mailing list for email
+Sign up to the [Lighthouse Development Updates](https://eepurl.com/dh9Lvb) mailing list for email
 notifications about releases, network status and other important information.
 
 Encrypt sensitive messages using our [PGP

@@ -1,5 +1,5 @@
 use crate::*;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::hash::Hash;
 
@@ -11,7 +11,7 @@ use std::hash::Hash;
 ///
 /// - The epoch for which the shuffling should be effective.
 /// - A block root, where this is the root at the *last* slot of the penultimate epoch. I.e., the
-/// final block which contributed a randao reveal to the seed for the shuffling.
+///   final block which contributed a randao reveal to the seed for the shuffling.
 ///
 /// The struct stores exactly that 2-tuple.
 #[derive(Debug, PartialEq, Eq, Clone, Hash, Serialize, Deserialize, Encode, Decode)]

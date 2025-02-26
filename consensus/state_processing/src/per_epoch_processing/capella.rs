@@ -1,0 +1,3 @@
+pub use historical_summaries_update::process_historical_summaries_update;
+
+mod historical_summaries_update;

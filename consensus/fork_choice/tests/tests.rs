@@ -1,9 +1,5 @@
 #![cfg(not(debug_assertions))]
 
-use std::fmt;
-use std::sync::Mutex;
-use std::time::Duration;
-
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
@@ -12,18 +8,22 @@ use beacon_chain::{
     StateSkipConfig, WhenSlotSkipped,
 };
 use fork_choice::{
-    CountUnrealized, ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus,
-    QueuedAttestation,
+    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
 };
+use state_processing::state_advance::complete_state_advance;
+use std::fmt;
+use std::sync::Mutex;
+use std::time::Duration;
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
-    Epoch, EthSpec, Hash256, IndexedAttestation, MainnetEthSpec, SignedBeaconBlock, Slot, SubnetId,
+    Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, IndexedAttestation, MainnetEthSpec,
+    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
 };
 
 pub type E = MainnetEthSpec;
 
-pub const VALIDATOR_COUNT: usize = 32;
+pub const VALIDATOR_COUNT: usize = 64;
 
 /// Defines some delay between when an attestation is created and when it is mutated.
 pub enum MutationDelay {
@@ -48,22 +48,19 @@ impl fmt::Debug for ForkChoiceTest {
 impl ForkChoiceTest {
     /// Creates a new tester.
     pub fn new() -> Self {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .default_spec()
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .build();
-
-        Self { harness }
+        Self::new_with_chain_config(ChainConfig::default())
     }
 
     /// Creates a new tester with a custom chain config.
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
+        // Run fork choice tests against the latest fork.
+        let spec = ForkName::latest_stable().make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .default_spec()
+            .spec(spec.into())
             .chain_config(chain_config)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .build();
 
         Self { harness }
@@ -75,8 +72,7 @@ impl ForkChoiceTest {
         T: Fn(&BeaconForkChoiceStore<E, MemoryStore<E>, MemoryStore<E>>) -> U,
     {
         func(
-            &self
-                .harness
+            self.harness
                 .chain
                 .canonical_head
                 .fork_choice_read_lock()
@@ -100,16 +96,6 @@ impl ForkChoiceTest {
             self.get(|fc_store| fc_store.justified_checkpoint().epoch),
             Epoch::new(epoch),
             "justified_epoch"
-        );
-        self
-    }
-
-    /// Assert the epochs match.
-    pub fn assert_best_justified_epoch(self, epoch: u64) -> Self {
-        assert_eq!(
-            self.get(|fc_store| fc_store.best_justified_checkpoint().epoch),
-            Epoch::new(epoch),
-            "best_justified_epoch"
         );
         self
     }
@@ -151,7 +137,7 @@ impl ForkChoiceTest {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .update_time(self.harness.chain.slot().unwrap(), &self.harness.spec)
+            .update_time(self.harness.chain.slot().unwrap())
             .unwrap();
         func(
             self.harness
@@ -187,12 +173,27 @@ impl ForkChoiceTest {
         let validators = self.harness.get_all_validators();
         loop {
             let slot = self.harness.get_current_slot();
-            let (block, state_) = self.harness.make_block(state, slot).await;
+
+            // Skip slashed proposers, as we expect validators to get slashed in these tests.
+            // Presently `make_block` will panic if the proposer is slashed, so we just avoid
+            // calling it in this case.
+            complete_state_advance(&mut state, None, slot, &self.harness.spec).unwrap();
+            state.build_caches(&self.harness.spec).unwrap();
+            let proposer_index = state
+                .get_beacon_proposer_index(slot, &self.harness.chain.spec)
+                .unwrap();
+            if state.validators().get(proposer_index).unwrap().slashed {
+                self.harness.advance_slot();
+                continue;
+            }
+
+            let (block_contents, state_) = self.harness.make_block(state, slot).await;
             state = state_;
-            if !predicate(block.message(), &state) {
+            if !predicate(block_contents.0.message(), &state) {
                 break;
             }
-            if let Ok(block_hash) = self.harness.process_block_result(block.clone()).await {
+            let block = block_contents.0.clone();
+            if let Ok(block_hash) = self.harness.process_block_result(block_contents).await {
                 self.harness.attest_block(
                     &state,
                     block.state_root(),
@@ -210,21 +211,58 @@ impl ForkChoiceTest {
     }
 
     /// Apply `count` blocks to the chain (with attestations).
+    ///
+    /// Note that in the case of slashed validators, their proposals will be skipped and the chain
+    /// may be advanced by *more than* `count` slots.
     pub async fn apply_blocks(self, count: usize) -> Self {
-        self.harness.advance_slot();
+        // Use `Self::apply_blocks_while` which gracefully handles slashed validators.
+        let mut blocks_applied = 0;
+        self.apply_blocks_while(|_, _| {
+            // Blocks are applied after the predicate is called, so continue applying the block if
+            // less than *or equal* to the count.
+            blocks_applied += 1;
+            blocks_applied <= count
+        })
+        .await
+        .unwrap()
+    }
+
+    /// Slash a validator from the previous epoch committee.
+    pub async fn add_previous_epoch_attester_slashing(self) -> Self {
+        let state = self.harness.get_current_state();
+        let previous_epoch_shuffling = state.get_shuffling(RelativeEpoch::Previous).unwrap();
+        let validator_indices = previous_epoch_shuffling
+            .iter()
+            .map(|idx| *idx as u64)
+            .take(1)
+            .collect();
+
         self.harness
-            .extend_chain(
-                count,
-                BlockStrategy::OnCanonicalHead,
-                AttestationStrategy::AllValidators,
-            )
-            .await;
+            .add_attester_slashing(validator_indices)
+            .unwrap();
+
+        self
+    }
+
+    /// Slash the proposer of a block in the previous epoch.
+    pub async fn add_previous_epoch_proposer_slashing(self, slots_per_epoch: u64) -> Self {
+        let previous_epoch_slot = self.harness.get_current_slot() - slots_per_epoch;
+        let previous_epoch_block = self
+            .harness
+            .chain
+            .block_at_slot(previous_epoch_slot, WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let proposer_index: u64 = previous_epoch_block.message().proposer_index();
+
+        self.harness.add_proposer_slashing(proposer_index).unwrap();
 
         self
     }
 
     /// Apply `count` blocks to the chain (without attestations).
     pub async fn apply_blocks_without_new_attestations(self, count: usize) -> Self {
+        // This function does not gracefully handle slashed proposers, but may need to in future.
         self.harness.advance_slot();
         self.harness
             .extend_chain(
@@ -234,31 +272,6 @@ impl ForkChoiceTest {
             )
             .await;
 
-        self
-    }
-
-    /// Moves to the next slot that is *outside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
-    ///
-    /// If the chain is presently in an unsafe period, transition through it and the following safe
-    /// period.
-    pub fn move_to_next_unsafe_period(self) -> Self {
-        self.move_inside_safe_to_update()
-            .move_outside_safe_to_update()
-    }
-
-    /// Moves to the next slot that is *outside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
-    pub fn move_outside_safe_to_update(self) -> Self {
-        while is_safe_to_update(self.harness.chain.slot().unwrap(), &self.harness.chain.spec) {
-            self.harness.advance_slot()
-        }
-        self
-    }
-
-    /// Moves to the next slot that is *inside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
-    pub fn move_inside_safe_to_update(self) -> Self {
-        while !is_safe_to_update(self.harness.chain.slot().unwrap(), &self.harness.chain.spec) {
-            self.harness.advance_slot()
-        }
         self
     }
 
@@ -278,8 +291,9 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (mut signed_block, mut state) = self.harness.make_block(state, slot).await;
-        func(&mut signed_block, &mut state);
+        let ((block_arc, _block_blobs), mut state) = self.harness.make_block(state, slot).await;
+        let mut block = (*block_arc).clone();
+        func(&mut block, &mut state);
         let current_slot = self.harness.get_current_slot();
         self.harness
             .chain
@@ -287,13 +301,12 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .on_block(
                 current_slot,
-                signed_block.message(),
-                signed_block.canonical_root(),
+                block.message(),
+                block.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
-                CountUnrealized::True,
             )
             .unwrap();
         self
@@ -320,8 +333,9 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (mut signed_block, mut state) = self.harness.make_block(state, slot).await;
-        mutation_func(&mut signed_block, &mut state);
+        let ((block_arc, _block_blobs), mut state) = self.harness.make_block(state, slot).await;
+        let mut block = (*block_arc).clone();
+        mutation_func(&mut block, &mut state);
         let current_slot = self.harness.get_current_slot();
         let err = self
             .harness
@@ -330,16 +344,14 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .on_block(
                 current_slot,
-                signed_block.message(),
-                signed_block.canonical_root(),
+                block.message(),
+                block.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
-                CountUnrealized::True,
             )
-            .err()
-            .expect("on_block did not return an error");
+            .expect_err("on_block did not return an error");
         comparison_func(err);
         self
     }
@@ -378,9 +390,13 @@ impl ForkChoiceTest {
 
         assert_eq!(
             &balances[..],
-            fc.fc_store().justified_balances(),
+            &fc.fc_store().justified_balances().effective_balances,
             "balances should match"
-        )
+        );
+        assert_eq!(
+            balances.iter().sum::<u64>(),
+            fc.fc_store().justified_balances().total_effective_balance
+        );
     }
 
     /// Returns an attestation that is valid for some slot in the given `chain`.
@@ -408,7 +424,12 @@ impl ForkChoiceTest {
         let validator_committee_index = 0;
         let validator_index = *head
             .beacon_state
-            .get_beacon_committee(current_slot, attestation.data.index)
+            .get_beacon_committee(
+                current_slot,
+                attestation
+                    .committee_index()
+                    .expect("should get committee index"),
+            )
             .expect("should get committees")
             .committee
             .get(validator_committee_index)
@@ -484,10 +505,6 @@ impl ForkChoiceTest {
     }
 }
 
-fn is_safe_to_update(slot: Slot, spec: &ChainSpec) -> bool {
-    slot % E::slots_per_epoch() < spec.safe_slots_to_update_justified
-}
-
 #[test]
 fn justified_and_finalized_blocks() {
     let tester = ForkChoiceTest::new();
@@ -504,15 +521,13 @@ fn justified_and_finalized_blocks() {
     assert!(fork_choice.get_finalized_block().is_ok());
 }
 
-/// - The new justified checkpoint descends from the current.
-/// - Current slot is within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
+/// - The new justified checkpoint descends from the current. Near genesis.
 #[tokio::test]
-async fn justified_checkpoint_updates_with_descendent_inside_safe_slots() {
+async fn justified_checkpoint_updates_with_descendent_first_justification() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
         .await
         .unwrap()
-        .move_inside_safe_to_update()
         .assert_justified_epoch(0)
         .apply_blocks(1)
         .await
@@ -520,52 +535,29 @@ async fn justified_checkpoint_updates_with_descendent_inside_safe_slots() {
 }
 
 /// - The new justified checkpoint descends from the current.
-/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
 /// - This is **not** the first justification since genesis
 #[tokio::test]
-async fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
+async fn justified_checkpoint_updates_with_descendent() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch <= 2)
         .await
         .unwrap()
-        .move_outside_safe_to_update()
         .assert_justified_epoch(2)
-        .assert_best_justified_epoch(2)
         .apply_blocks(1)
         .await
         .assert_justified_epoch(3);
 }
 
-/// - The new justified checkpoint descends from the current.
-/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
-/// - This is the first justification since genesis
-#[tokio::test]
-async fn justified_checkpoint_updates_first_justification_outside_safe_to_update() {
-    ForkChoiceTest::new()
-        .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .move_to_next_unsafe_period()
-        .assert_justified_epoch(0)
-        .assert_best_justified_epoch(0)
-        .apply_blocks(1)
-        .await
-        .assert_justified_epoch(2)
-        .assert_best_justified_epoch(2);
-}
-
 /// - The new justified checkpoint **does not** descend from the current.
-/// - Current slot is within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
 /// - Finalized epoch has **not** increased.
 #[tokio::test]
-async fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_without_finality() {
+async fn justified_checkpoint_updates_with_non_descendent() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
         .await
         .unwrap()
         .apply_blocks(1)
         .await
-        .move_inside_safe_to_update()
         .assert_justified_epoch(2)
         .apply_block_directly_to_fork_choice(|_, state| {
             // The finalized checkpoint should not change.
@@ -579,66 +571,7 @@ async fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_with
                 .unwrap();
         })
         .await
-        .assert_justified_epoch(3)
-        .assert_best_justified_epoch(3);
-}
-
-/// - The new justified checkpoint **does not** descend from the current.
-/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`.
-/// - Finalized epoch has **not** increased.
-#[tokio::test]
-async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_finality() {
-    ForkChoiceTest::new()
-        .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .apply_blocks(1)
-        .await
-        .move_to_next_unsafe_period()
-        .assert_justified_epoch(2)
-        .apply_block_directly_to_fork_choice(|_, state| {
-            // The finalized checkpoint should not change.
-            state.finalized_checkpoint().epoch = Epoch::new(0);
-
-            // The justified checkpoint has changed.
-            state.current_justified_checkpoint_mut().epoch = Epoch::new(3);
-            // The new block should **not** include the current justified block as an ancestor.
-            state.current_justified_checkpoint_mut().root = *state
-                .get_block_root(Epoch::new(1).start_slot(E::slots_per_epoch()))
-                .unwrap();
-        })
-        .await
-        .assert_justified_epoch(2)
-        .assert_best_justified_epoch(3);
-}
-
-/// - The new justified checkpoint **does not** descend from the current.
-/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
-/// - Finalized epoch has increased.
-#[tokio::test]
-async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_finality() {
-    ForkChoiceTest::new()
-        .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .apply_blocks(1)
-        .await
-        .move_to_next_unsafe_period()
-        .assert_justified_epoch(2)
-        .apply_block_directly_to_fork_choice(|_, state| {
-            // The finalized checkpoint should change.
-            state.finalized_checkpoint_mut().epoch = Epoch::new(1);
-
-            // The justified checkpoint has changed.
-            state.current_justified_checkpoint_mut().epoch = Epoch::new(3);
-            // The new block should **not** include the current justified block as an ancestor.
-            state.current_justified_checkpoint_mut().root = *state
-                .get_block_root(Epoch::new(1).start_slot(E::slots_per_epoch()))
-                .unwrap();
-        })
-        .await
-        .assert_justified_epoch(3)
-        .assert_best_justified_epoch(3);
+        .assert_justified_epoch(3);
 }
 
 /// Check that the balances are obtained correctly.
@@ -793,7 +726,7 @@ async fn valid_attestation() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |_, _| {},
-            |result| assert_eq!(result.unwrap(), ()),
+            |result| assert!(result.is_ok()),
         )
         .await;
 }
@@ -807,8 +740,13 @@ async fn invalid_attestation_empty_bitfield() {
         .await
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
-            |attestation, _| {
-                attestation.attesting_indices = vec![].into();
+            |attestation, _| match attestation {
+                IndexedAttestation::Base(ref mut att) => {
+                    att.attesting_indices = vec![].into();
+                }
+                IndexedAttestation::Electra(ref mut att) => {
+                    att.attesting_indices = vec![].into();
+                }
             },
             |result| {
                 assert_invalid_attestation!(result, InvalidAttestation::EmptyAggregationBitfield)
@@ -830,7 +768,7 @@ async fn invalid_attestation_future_epoch() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.target.epoch = Epoch::new(2);
+                attestation.data_mut().target.epoch = Epoch::new(2);
             },
             |result| {
                 assert_invalid_attestation!(
@@ -856,7 +794,7 @@ async fn invalid_attestation_past_epoch() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.target.epoch = Epoch::new(0);
+                attestation.data_mut().target.epoch = Epoch::new(0);
             },
             |result| {
                 assert_invalid_attestation!(
@@ -880,7 +818,7 @@ async fn invalid_attestation_target_epoch() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.slot = Slot::new(1);
+                attestation.data_mut().slot = Slot::new(1);
             },
             |result| {
                 assert_invalid_attestation!(
@@ -906,7 +844,7 @@ async fn invalid_attestation_unknown_target_root() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.target.root = junk;
+                attestation.data_mut().target.root = junk;
             },
             |result| {
                 assert_invalid_attestation!(
@@ -932,7 +870,7 @@ async fn invalid_attestation_unknown_beacon_block_root() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.beacon_block_root = junk;
+                attestation.data_mut().beacon_block_root = junk;
             },
             |result| {
                 assert_invalid_attestation!(
@@ -956,7 +894,7 @@ async fn invalid_attestation_future_block() {
         .apply_attestation_to_chain(
             MutationDelay::Blocks(1),
             |attestation, chain| {
-                attestation.data.beacon_block_root = chain
+                attestation.data_mut().beacon_block_root = chain
                     .block_at_slot(chain.slot().unwrap(), WhenSlotSkipped::Prev)
                     .unwrap()
                     .unwrap()
@@ -987,13 +925,13 @@ async fn invalid_attestation_inconsistent_ffg_vote() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, chain| {
-                attestation.data.target.root = chain
+                attestation.data_mut().target.root = chain
                     .block_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
                     .unwrap()
                     .unwrap()
                     .canonical_root();
 
-                *attestation_opt.lock().unwrap() = Some(attestation.data.target.root);
+                *attestation_opt.lock().unwrap() = Some(attestation.data().target.root);
                 *local_opt.lock().unwrap() = Some(
                     chain
                         .block_at_slot(Slot::new(0), WhenSlotSkipped::Prev)
@@ -1026,7 +964,7 @@ async fn invalid_attestation_delayed_slot() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |_, _| {},
-            |result| assert_eq!(result.unwrap(), ()),
+            |result| assert!(result.is_ok()),
         )
         .await
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 1))
@@ -1046,8 +984,8 @@ async fn valid_attestation_skip_across_epoch() {
             MutationDelay::NoDelay,
             |attestation, _chain| {
                 assert_eq!(
-                    attestation.data.target.root,
-                    attestation.data.beacon_block_root
+                    attestation.data().target.root,
+                    attestation.data().beacon_block_root
                 )
             },
             |result| result.unwrap(),
@@ -1135,7 +1073,7 @@ async fn weak_subjectivity_check_fails_early_epoch() {
 
     let mut checkpoint = setup_harness.harness.finalized_checkpoint();
 
-    checkpoint.epoch = checkpoint.epoch - 1;
+    checkpoint.epoch -= 1;
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
@@ -1162,7 +1100,7 @@ async fn weak_subjectivity_check_fails_late_epoch() {
 
     let mut checkpoint = setup_harness.harness.finalized_checkpoint();
 
-    checkpoint.epoch = checkpoint.epoch + 1;
+    checkpoint.epoch += 1;
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
@@ -1237,18 +1175,20 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
     };
 
     // recreate the chain exactly
-    ForkChoiceTest::new_with_chain_config(chain_config.clone())
-        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .skip_slots(E::slots_per_epoch() as usize)
-        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch < 5)
-        .await
-        .unwrap()
-        .apply_blocks(1)
-        .await
-        .assert_finalized_epoch(5)
-        .assert_shutdown_signal_not_sent();
+    Box::pin(
+        ForkChoiceTest::new_with_chain_config(chain_config.clone())
+            .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+            .await
+            .unwrap()
+            .skip_slots(E::slots_per_epoch() as usize)
+            .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch < 5)
+            .await
+            .unwrap()
+            .apply_blocks(1),
+    )
+    .await
+    .assert_finalized_epoch(5)
+    .assert_shutdown_signal_not_sent();
 }
 
 #[tokio::test]
@@ -1294,4 +1234,50 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
         .unwrap_err()
         .assert_finalized_epoch_is_less_than(checkpoint.epoch)
         .assert_shutdown_signal_sent();
+}
+
+/// Checks that `ProgressiveBalancesCache` is updated correctly after an attester slashing event,
+/// where the slashed validator is a target attester in previous / current epoch.
+#[tokio::test]
+async fn progressive_balances_cache_attester_slashing() {
+    ForkChoiceTest::new()
+        // first two epochs
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        // expect fork choice to import blocks successfully after a previous epoch attester is
+        // slashed, i.e. the slashed attester's balance is correctly excluded from
+        // the previous epoch total balance in `ProgressiveBalancesCache`.
+        .apply_blocks(1)
+        .await
+        // expect fork choice to import another epoch of blocks successfully - the slashed
+        // attester's balance should be excluded from the current epoch total balance in
+        // `ProgressiveBalancesCache` as well.
+        .apply_blocks(E::slots_per_epoch() as usize)
+        .await;
+}
+
+/// Checks that `ProgressiveBalancesCache` is updated correctly after a proposer slashing event,
+/// where the slashed validator is a target attester in previous / current epoch.
+#[tokio::test]
+async fn progressive_balances_cache_proposer_slashing() {
+    ForkChoiceTest::new()
+        // first two epochs
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_proposer_slashing(E::slots_per_epoch())
+        .await
+        // expect fork choice to import blocks successfully after a previous epoch proposer is
+        // slashed, i.e. the slashed proposer's balance is correctly excluded from
+        // the previous epoch total balance in `ProgressiveBalancesCache`.
+        .apply_blocks(1)
+        .await
+        // expect fork choice to import another epoch of blocks successfully - the slashed
+        // proposer's balance should be excluded from the current epoch total balance in
+        // `ProgressiveBalancesCache` as well.
+        .apply_blocks(E::slots_per_epoch() as usize)
+        .await;
 }

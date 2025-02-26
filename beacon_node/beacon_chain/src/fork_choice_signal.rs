@@ -43,7 +43,7 @@ impl ForkChoiceSignalTx {
     ///
     /// Return an error if the provided `slot` is strictly less than any previously provided slot.
     pub fn notify_fork_choice_complete(&self, slot: Slot) -> Result<(), BeaconChainError> {
-        let &(ref lock, ref condvar) = &*self.pair;
+        let (lock, condvar) = &*self.pair;
 
         let mut current_slot = lock.lock();
 
@@ -72,7 +72,7 @@ impl Default for ForkChoiceSignalTx {
 
 impl ForkChoiceSignalRx {
     pub fn wait_for_fork_choice(&self, slot: Slot, timeout: Duration) -> ForkChoiceWaitResult {
-        let &(ref lock, ref condvar) = &*self.pair;
+        let (lock, condvar) = &*self.pair;
 
         let mut current_slot = lock.lock();
 

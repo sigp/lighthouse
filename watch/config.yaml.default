@@ -1,0 +1,49 @@
+---
+database:
+  user: "postgres"
+  password: "postgres"
+  dbname: "dev"
+  default_dbname: "postgres"
+  host: "localhost"
+  port: 5432
+  connect_timeout_millis: 2000
+
+server:
+  listen_addr: "127.0.0.1"
+  listen_port: 5059
+
+updater:
+  # The URL of the Beacon Node to perform sync tasks with. 
+  # Cannot yet accept multiple beacon nodes.
+  beacon_node_url: "http://localhost:5052"
+  # The number of epochs to backfill. Must be below 100.
+  max_backfill_size_epochs: 2
+  # The epoch at which to stop backfilling.
+  backfill_stop_epoch: 0
+  # Whether to sync the attestations table.
+  attestations: true
+  # Whether to sync the proposer_info table.
+  proposer_info: true
+  # Whether to sync the block_rewards table.
+  block_rewards: true
+  # Whether to sync the block_packing table.
+  block_packing: true
+
+blockprint:
+  # Whether to sync client information from blockprint.
+  enabled: false
+  # The URL of the blockprint server.
+  url: ""
+  # The username used to authenticate to the blockprint server.
+  username: ""
+  # The password used to authenticate to the blockprint server.
+  password: ""
+
+# Log level.
+# Valid options are:
+# - "trace"
+# - "debug"
+# - "info"
+# - "warn"
+# - "error"
+log_level: "debug"

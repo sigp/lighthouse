@@ -1,9 +1,10 @@
 use super::types::{BeaconProcessMetrics, ValidatorProcessMetrics};
-use lazy_static::lazy_static;
-use lighthouse_metrics::{MetricFamily, MetricType};
+use health_metrics::observe::Observe;
+use metrics::{MetricFamily, MetricType};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::LazyLock;
 
 /// Represents a metric that needs to be fetched from lighthouse metrics registry
 /// and sent to the remote monitoring service.
@@ -40,6 +41,16 @@ impl JsonMetric {
                 } else {
                     json!(false)
                 }
+            }
+        }
+    }
+
+    /// Return a default json value given given the metric type.
+    fn get_typed_value_default(&self) -> serde_json::Value {
+        match self.ty {
+            JsonType::Integer => json!(0),
+            JsonType::Boolean => {
+                json!(false)
             }
         }
     }
@@ -116,19 +127,20 @@ pub enum JsonType {
     Boolean,
 }
 
-lazy_static! {
-    /// HashMap representing the `BEACON_PROCESS_METRICS`.
-    pub static ref BEACON_METRICS_MAP: HashMap<String, JsonMetric> = BEACON_PROCESS_METRICS
+/// HashMap representing the `BEACON_PROCESS_METRICS`.
+pub static BEACON_METRICS_MAP: LazyLock<HashMap<String, JsonMetric>> = LazyLock::new(|| {
+    BEACON_PROCESS_METRICS
         .iter()
         .map(|metric| (metric.lighthouse_metric_name.to_string(), metric.clone()))
-        .collect();
-    /// HashMap representing the `VALIDATOR_PROCESS_METRICS`.
-    pub static ref VALIDATOR_METRICS_MAP: HashMap<String,JsonMetric> =
-        VALIDATOR_PROCESS_METRICS
+        .collect()
+});
+/// HashMap representing the `VALIDATOR_PROCESS_METRICS`.
+pub static VALIDATOR_METRICS_MAP: LazyLock<HashMap<String, JsonMetric>> = LazyLock::new(|| {
+    VALIDATOR_PROCESS_METRICS
         .iter()
         .map(|metric| (metric.lighthouse_metric_name.to_string(), metric.clone()))
-        .collect();
-}
+        .collect()
+});
 
 /// Returns the value from a Counter/Gauge `MetricType` assuming that it has no associated labels
 /// else it returns `None`.
@@ -144,7 +156,7 @@ fn get_value(mf: &MetricFamily) -> Option<i64> {
 /// Collects all metrics and returns a `serde_json::Value` object with the required metrics
 /// from the metrics hashmap.
 pub fn gather_metrics(metrics_map: &HashMap<String, JsonMetric>) -> Option<serde_json::Value> {
-    let metric_families = lighthouse_metrics::gather();
+    let metric_families = metrics::gather();
     let mut res = serde_json::Map::with_capacity(metrics_map.len());
     for mf in metric_families.iter() {
         let metric_name = mf.get_name();
@@ -154,6 +166,16 @@ pub fn gather_metrics(metrics_map: &HashMap<String, JsonMetric>) -> Option<serde
             let value = metric.get_typed_value(value);
             let _ = res.insert(metric.json_output_key.to_string(), value);
         };
+    }
+    // Insert default metrics for all monitoring service metrics that do not
+    // exist as lighthouse metrics.
+    for json_metric in metrics_map.values() {
+        if !res.contains_key(json_metric.json_output_key) {
+            let _ = res.insert(
+                json_metric.json_output_key.to_string(),
+                json_metric.get_typed_value_default(),
+            );
+        }
     }
     Some(serde_json::Value::Object(res))
 }

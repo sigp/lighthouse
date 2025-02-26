@@ -1,125 +1,86 @@
 #!/usr/bin/env bash
-# Start all processes necessary to create a local testnet
+
+# Requires `docker`, `kurtosis`, `yq`
 
 set -Eeuo pipefail
 
-source ./vars.env
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+ENCLAVE_NAME=local-testnet
+NETWORK_PARAMS_FILE=$SCRIPT_DIR/network_params.yaml
+ETHEREUM_PKG_VERSION=main
 
-# Set a higher ulimit in case we want to import 1000s of validators.
-ulimit -n 65536
-
-# VC_COUNT is defaulted in vars.env
-DEBUG_LEVEL=${DEBUG_LEVEL:-info}
-BUILDER_PROPOSALS=
+BUILD_IMAGE=true
+BUILDER_PROPOSALS=false
+CI=false
+KEEP_ENCLAVE=false
 
 # Get options
-while getopts "v:d:ph" flag; do
+while getopts "e:b:n:phck" flag; do
   case "${flag}" in
-    v) VC_COUNT=${OPTARG};;
-    d) DEBUG_LEVEL=${OPTARG};;
-    p) BUILDER_PROPOSALS="-p";;
+    e) ENCLAVE_NAME=${OPTARG};;
+    b) BUILD_IMAGE=${OPTARG};;
+    n) NETWORK_PARAMS_FILE=${OPTARG};;
+    p) BUILDER_PROPOSALS=true;;
+    c) CI=true;;
+    k) KEEP_ENCLAVE=true;;
     h)
-        validators=$(( $VALIDATOR_COUNT / $BN_COUNT ))
-        echo "Start local testnet, defaults: 1 eth1 node, $BN_COUNT beacon nodes,"
-        echo "and $VC_COUNT validator clients with each vc having $validators validators."
+        echo "Start a local testnet with kurtosis."
         echo
         echo "usage: $0 <Options>"
         echo
         echo "Options:"
-        echo "   -v: VC_COUNT    default: $VC_COUNT"
-        echo "   -d: DEBUG_LEVEL default: info"
-        echo "   -p:             enable private tx proposals"
-        echo "   -h:             this help"
+        echo "   -e: enclave name                                default: $ENCLAVE_NAME"
+        echo "   -b: whether to build Lighthouse docker image    default: $BUILD_IMAGE"
+        echo "   -n: kurtosis network params file path           default: $NETWORK_PARAMS_FILE"
+        echo "   -p: enable builder proposals"
+        echo "   -c: CI mode, run without other additional services like Grafana and Dora explorer"
+        echo "   -k: keeping enclave to allow starting the testnet without destroying the existing one"
+        echo "   -h: this help"
         exit
         ;;
   esac
 done
 
-if (( $VC_COUNT > $BN_COUNT )); then
-    echo "Error $VC_COUNT is too large, must be <= BN_COUNT=$BN_COUNT"
+LH_IMAGE_NAME=$(yq eval ".participants[0].cl_image" $NETWORK_PARAMS_FILE)
+
+if ! command -v docker &> /dev/null; then
+    echo "Docker is not installed. Please install Docker and try again."
+    exit 1
+fi
+
+if ! command -v kurtosis &> /dev/null; then
+    echo "kurtosis command not found. Please install kurtosis and try again."
     exit
 fi
 
-# Init some constants
-PID_FILE=$TESTNET_DIR/PIDS.pid
-LOG_DIR=$TESTNET_DIR
+if ! command -v yq &> /dev/null; then
+    echo "yq not found. Please install yq and try again."
+fi
 
-# Stop local testnet and remove $PID_FILE
-./stop_local_testnet.sh
+if [ "$BUILDER_PROPOSALS" = true ]; then
+  yq eval '.participants[0].vc_extra_params = ["--builder-proposals"]' -i $NETWORK_PARAMS_FILE
+  echo "--builder-proposals VC flag added to network_params.yaml"
+fi
 
-# Clean $DATADIR and create empty log files so the
-# user can "tail -f" right after starting this script
-# even before its done.
-./clean.sh
-mkdir -p $LOG_DIR
-for (( bn=1; bn<=$BN_COUNT; bn++ )); do
-    touch $LOG_DIR/beacon_node_$bn.log
-done
-for (( vc=1; vc<=$VC_COUNT; vc++ )); do
-    touch $LOG_DIR/validator_node_$vc.log
-done
+if [ "$CI" = true ]; then
+  # TODO: run assertoor tests
+  yq eval '.additional_services = []' -i $NETWORK_PARAMS_FILE
+  echo "Running without additional services (CI mode)."
+fi
 
-# Sleep with a message
-sleeping() {
-   echo sleeping $1
-   sleep $1
-}
+if [ "$BUILD_IMAGE" = true ]; then
+    echo "Building Lighthouse Docker image."
+    ROOT_DIR="$SCRIPT_DIR/../.."
+    docker build --build-arg FEATURES=portable -f $ROOT_DIR/Dockerfile -t $LH_IMAGE_NAME $ROOT_DIR
+else
+    echo "Not rebuilding Lighthouse Docker image."
+fi
 
-# Execute the command with logs saved to a file.
-#
-# First parameter is log file name
-# Second parameter is executable name
-# Remaining parameters are passed to executable
-execute_command() {
-    LOG_NAME=$1
-    EX_NAME=$2
-    shift
-    shift
-    CMD="$EX_NAME $@ >> $LOG_DIR/$LOG_NAME 2>&1"
-    echo "executing: $CMD"
-    echo "$CMD" > "$LOG_DIR/$LOG_NAME"
-    eval "$CMD &"
-}
+if [ "$KEEP_ENCLAVE" = false ]; then
+  # Stop local testnet
+  kurtosis enclave rm -f $ENCLAVE_NAME 2>/dev/null || true
+fi
 
-# Execute the command with logs saved to a file
-# and is PID is saved to $PID_FILE.
-#
-# First parameter is log file name
-# Second parameter is executable name
-# Remaining parameters are passed to executable
-execute_command_add_PID() {
-    execute_command $@
-    echo "$!" >> $PID_FILE
-}
-
-# Start ganache, setup things up and start the bootnode.
-# The delays are necessary, hopefully there is a better way :(
-
-# Delay to let ganache to get started
-execute_command_add_PID ganache_test_node.log ./ganache_test_node.sh
-sleeping 10
-
-# Setup data
-echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
-./setup.sh >> $LOG_DIR/setup.log 2>&1
-
-# Delay to let boot_enr.yaml to be created
-execute_command_add_PID bootnode.log ./bootnode.sh
-sleeping 1
-
-# Start beacon nodes
-BN_udp_tcp_base=9000
-BN_http_port_base=8000
-
-(( $VC_COUNT < $BN_COUNT )) && SAS=-s || SAS=
-
-for (( bn=1; bn<=$BN_COUNT; bn++ )); do
-    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_http_port_base + $bn))
-done
-
-# Start requested number of validator clients
-for (( vc=1; vc<=$VC_COUNT; vc++ )); do
-    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $BUILDER_PROPOSALS -d $DEBUG_LEVEL $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc))
-done
+kurtosis run --enclave $ENCLAVE_NAME github.com/ethpandaops/ethereum-package@$ETHEREUM_PKG_VERSION --args-file $NETWORK_PARAMS_FILE
 
 echo "Started!"

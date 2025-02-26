@@ -1,15 +1,17 @@
+use crate::service::endpoint_from_config;
 use crate::Config;
 use crate::{
     block_cache::{BlockCache, Eth1Block},
-    deposit_cache::{DepositCache, SszDepositCache},
-    service::EndpointsCache,
+    deposit_cache::{DepositCache, SszDepositCache, SszDepositCacheV13},
 };
+use execution_layer::HttpJsonRpc;
 use parking_lot::RwLock;
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
-use types::ChainSpec;
+use superstruct::superstruct;
+use types::{ChainSpec, DepositTreeSnapshot, Eth1Data};
 
 // Define "legacy" implementations of `Option<u64>` which use four bytes for encoding the union
 // selector.
@@ -29,16 +31,28 @@ impl DepositUpdater {
             last_processed_block: None,
         }
     }
+
+    pub fn from_snapshot(
+        deposit_contract_deploy_block: u64,
+        snapshot: &DepositTreeSnapshot,
+    ) -> Result<Self, String> {
+        let last_processed_block = Some(snapshot.execution_block_height);
+        Ok(Self {
+            cache: DepositCache::from_deposit_snapshot(deposit_contract_deploy_block, snapshot)?,
+            last_processed_block,
+        })
+    }
 }
 
-#[derive(Default)]
 pub struct Inner {
     pub block_cache: RwLock<BlockCache>,
     pub deposit_cache: RwLock<DepositUpdater>,
-    pub endpoints_cache: RwLock<Option<Arc<EndpointsCache>>>,
+    pub endpoint: HttpJsonRpc,
+    // this gets set to Some(Eth1Data) when the deposit finalization conditions are met
+    pub to_finalize: RwLock<Option<Eth1Data>>,
     pub config: RwLock<Config>,
     pub remote_head_block: RwLock<Option<Eth1Block>>,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl Inner {
@@ -58,10 +72,11 @@ impl Inner {
     }
 
     /// Recover `Inner` given byte representation of eth1 deposit and block caches.
-    pub fn from_bytes(bytes: &[u8], config: Config, spec: ChainSpec) -> Result<Self, String> {
-        let ssz_cache = SszEth1Cache::from_ssz_bytes(bytes)
-            .map_err(|e| format!("Ssz decoding error: {:?}", e))?;
-        ssz_cache.to_inner(config, spec)
+    pub fn from_bytes(bytes: &[u8], config: Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
+        SszEth1Cache::from_ssz_bytes(bytes)
+            .map_err(|e| format!("Ssz decoding error: {:?}", e))?
+            .to_inner(config, spec)
+            .inspect(|inner| inner.block_cache.write().rebuild_by_hash_map())
     }
 
     /// Returns a reference to the specification.
@@ -70,12 +85,18 @@ impl Inner {
     }
 }
 
-#[derive(Encode, Decode, Clone)]
+pub type SszEth1Cache = SszEth1CacheV13;
+
+#[superstruct(
+    variants(V13),
+    variant_attributes(derive(Encode, Decode, Clone)),
+    no_enum
+)]
 pub struct SszEth1Cache {
-    block_cache: BlockCache,
-    deposit_cache: SszDepositCache,
+    pub block_cache: BlockCache,
+    pub deposit_cache: SszDepositCacheV13,
     #[ssz(with = "four_byte_option_u64")]
-    last_processed_block: Option<u64>,
+    pub last_processed_block: Option<u64>,
 }
 
 impl SszEth1Cache {
@@ -89,14 +110,16 @@ impl SszEth1Cache {
         }
     }
 
-    pub fn to_inner(&self, config: Config, spec: ChainSpec) -> Result<Inner, String> {
+    pub fn to_inner(&self, config: Config, spec: Arc<ChainSpec>) -> Result<Inner, String> {
         Ok(Inner {
             block_cache: RwLock::new(self.block_cache.clone()),
             deposit_cache: RwLock::new(DepositUpdater {
                 cache: self.deposit_cache.to_deposit_cache()?,
                 last_processed_block: self.last_processed_block,
             }),
-            endpoints_cache: RwLock::new(None),
+            endpoint: endpoint_from_config(&config)
+                .map_err(|e| format!("Failed to create endpoint: {:?}", e))?,
+            to_finalize: RwLock::new(None),
             // Set the remote head_block zero when creating a new instance. We only care about
             // present and future eth1 nodes.
             remote_head_block: RwLock::new(None),

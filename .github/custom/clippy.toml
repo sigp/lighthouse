@@ -16,6 +16,7 @@ async-wrapper-methods = [
     "task_executor::TaskExecutor::spawn_blocking_handle",
     "warp_utils::task::blocking_task",
     "warp_utils::task::blocking_json_task",
+    "beacon_chain::beacon_chain::BeaconChain::spawn_blocking_handle",
     "validator_client::http_api::blocking_signed_json_task",
     "execution_layer::test_utils::MockServer::new",
     "execution_layer::test_utils::MockServer::new_with_config",

@@ -1,7 +1,10 @@
 use ssz_derive::{Decode, Encode};
+use std::collections::HashMap;
 use std::ops::RangeInclusive;
 
 pub use eth2::lighthouse::Eth1Block;
+use eth2::types::Hash256;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -10,7 +13,7 @@ pub enum Error {
     /// Some `Eth1Block` was provided with the same block number but different data. The source
     /// of eth1 data is inconsistent.
     Conflicting(u64),
-    /// The given block was not one block number higher than the higest known block number.
+    /// The given block was not one block number higher than the highest known block number.
     NonConsecutive { given: u64, expected: u64 },
     /// Some invariant was violated, there is a likely bug in the code.
     Internal(String),
@@ -20,7 +23,9 @@ pub enum Error {
 /// timestamp.
 #[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
 pub struct BlockCache {
-    blocks: Vec<Eth1Block>,
+    blocks: Vec<Arc<Eth1Block>>,
+    #[ssz(skip_serializing, skip_deserializing)]
+    by_hash: HashMap<Hash256, Arc<Eth1Block>>,
 }
 
 impl BlockCache {
@@ -36,12 +41,12 @@ impl BlockCache {
 
     /// Returns the earliest (lowest timestamp) block, if any.
     pub fn earliest_block(&self) -> Option<&Eth1Block> {
-        self.blocks.first()
+        self.blocks.first().map(|ptr| ptr.as_ref())
     }
 
     /// Returns the latest (highest timestamp) block, if any.
     pub fn latest_block(&self) -> Option<&Eth1Block> {
-        self.blocks.last()
+        self.blocks.last().map(|ptr| ptr.as_ref())
     }
 
     /// Returns the timestamp of the earliest block in the cache (if any).
@@ -71,7 +76,7 @@ impl BlockCache {
     /// - Monotonically increasing block numbers.
     /// - Non-uniformly increasing block timestamps.
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Eth1Block> + Clone {
-        self.blocks.iter()
+        self.blocks.iter().map(|ptr| ptr.as_ref())
     }
 
     /// Shortens the cache, keeping the latest (by block number) `len` blocks while dropping the
@@ -80,7 +85,11 @@ impl BlockCache {
     /// If `len` is greater than the vector's current length, this has no effect.
     pub fn truncate(&mut self, len: usize) {
         if len < self.blocks.len() {
-            self.blocks = self.blocks.split_off(self.blocks.len() - len);
+            let remaining = self.blocks.split_off(self.blocks.len() - len);
+            for block in &self.blocks {
+                self.by_hash.remove(&block.hash);
+            }
+            self.blocks = remaining;
         }
     }
 
@@ -92,12 +101,27 @@ impl BlockCache {
 
     /// Returns a block with the corresponding number, if any.
     pub fn block_by_number(&self, block_number: u64) -> Option<&Eth1Block> {
-        self.blocks.get(
-            self.blocks
-                .as_slice()
-                .binary_search_by(|block| block.number.cmp(&block_number))
-                .ok()?,
-        )
+        self.blocks
+            .get(
+                self.blocks
+                    .as_slice()
+                    .binary_search_by(|block| block.number.cmp(&block_number))
+                    .ok()?,
+            )
+            .map(|ptr| ptr.as_ref())
+    }
+
+    /// Returns a block with the corresponding hash, if any.
+    pub fn block_by_hash(&self, block_hash: &Hash256) -> Option<&Eth1Block> {
+        self.by_hash.get(block_hash).map(|ptr| ptr.as_ref())
+    }
+
+    /// Rebuilds the by_hash map
+    pub fn rebuild_by_hash_map(&mut self) {
+        self.by_hash.clear();
+        for block in self.blocks.iter() {
+            self.by_hash.insert(block.hash, block.clone());
+        }
     }
 
     /// Insert an `Eth1Snapshot` into `self`, allowing future queries.
@@ -111,7 +135,7 @@ impl BlockCache {
     ///
     /// - If the cache is not empty and `item.block.block_number - 1` is not already in `self`.
     /// - If `item.block.block_number` is in `self`, but is not identical to the supplied
-    /// `Eth1Snapshot`.
+    ///   `Eth1Snapshot`.
     /// - If `item.block.timestamp` is prior to the parent.
     pub fn insert_root_or_child(&mut self, block: Eth1Block) -> Result<(), Error> {
         let expected_block_number = self
@@ -161,7 +185,9 @@ impl BlockCache {
             }
         }
 
-        self.blocks.push(block);
+        let ptr = Arc::new(block);
+        self.by_hash.insert(ptr.hash, ptr.clone());
+        self.blocks.push(ptr);
 
         Ok(())
     }
@@ -169,8 +195,9 @@ impl BlockCache {
 
 #[cfg(test)]
 mod tests {
+    use types::FixedBytesExtended;
+
     use super::*;
-    use types::Hash256;
 
     fn get_block(i: u64, interval_secs: u64) -> Eth1Block {
         Eth1Block {
@@ -268,6 +295,8 @@ mod tests {
             insert(&mut cache, block.clone())
                 .expect("should add consecutive blocks with duplicate timestamps");
         }
+
+        let blocks = blocks.into_iter().map(Arc::new).collect::<Vec<_>>();
 
         assert_eq!(cache.blocks, blocks, "should have added all blocks");
     }

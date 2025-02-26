@@ -15,7 +15,7 @@ use account_manager::{
 use account_utils::{
     eth2_keystore::KeystoreBuilder,
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
-    ZeroizeString,
+    STDIN_INPUTS_FLAG,
 };
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::env;
@@ -27,10 +27,7 @@ use std::str::from_utf8;
 use tempfile::{tempdir, TempDir};
 use types::{Keypair, PublicKey};
 use validator_dir::ValidatorDir;
-
-// TODO: create tests for the `lighthouse account validator deposit` command. This involves getting
-// access to an IPC endpoint during testing or adding support for deposit submission via HTTP and
-// using ganache.
+use zeroize::Zeroizing;
 
 /// Returns the `lighthouse account` command.
 fn account_cmd() -> Command {
@@ -118,7 +115,7 @@ fn create_wallet<P: AsRef<Path>>(
             .arg(base_dir.as_ref().as_os_str())
             .arg(CREATE_CMD)
             .arg(format!("--{}", NAME_FLAG))
-            .arg(&name)
+            .arg(name)
             .arg(format!("--{}", PASSWORD_FLAG))
             .arg(password.as_ref().as_os_str())
             .arg(format!("--{}", MNEMONIC_FLAG))
@@ -276,16 +273,16 @@ impl TestValidator {
             .expect("stdout is not utf8")
             .to_string();
 
-        if stdout == "" {
+        if stdout.is_empty() {
             return Ok(vec![]);
         }
 
         let pubkeys = stdout[..stdout.len() - 1]
             .split("\n")
-            .filter_map(|line| {
+            .map(|line| {
                 let tab = line.find("\t").expect("line must have tab");
                 let (_, pubkey) = line.split_at(tab + 1);
-                Some(pubkey.to_string())
+                pubkey.to_string()
             })
             .collect::<Vec<_>>();
 
@@ -449,7 +446,9 @@ fn validator_import_launchpad() {
         }
     }
 
-    stdin.write(format!("{}\n", PASSWORD).as_bytes()).unwrap();
+    stdin
+        .write_all(format!("{}\n", PASSWORD).as_bytes())
+        .unwrap();
 
     child.wait().unwrap();
 
@@ -496,16 +495,18 @@ fn validator_import_launchpad() {
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_boost_factor: None,
+        prefer_builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
             voting_keystore_password_path: None,
-            voting_keystore_password: Some(ZeroizeString::from(PASSWORD.to_string())),
+            voting_keystore_password: Some(Zeroizing::from(PASSWORD.to_string())),
         },
     };
 
     assert!(
-        defs.as_slice() == &[expected_def.clone()],
+        defs.as_slice() == [expected_def.clone()],
         "validator defs file should be accurate"
     );
 
@@ -526,7 +527,7 @@ fn validator_import_launchpad() {
     expected_def.enabled = true;
 
     assert!(
-        defs.as_slice() == &[expected_def.clone()],
+        defs.as_slice() == [expected_def.clone()],
         "validator defs file should be accurate"
     );
 }
@@ -583,7 +584,7 @@ fn validator_import_launchpad_no_password_then_add_password() {
     let mut child = validator_import_key_cmd();
     wait_for_password_prompt(&mut child);
     let stdin = child.stdin.as_mut().unwrap();
-    stdin.write("\n".as_bytes()).unwrap();
+    stdin.write_all("\n".as_bytes()).unwrap();
     child.wait().unwrap();
 
     assert!(
@@ -618,6 +619,8 @@ fn validator_import_launchpad_no_password_then_add_password() {
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_boost_factor: None,
+        prefer_builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
@@ -627,14 +630,16 @@ fn validator_import_launchpad_no_password_then_add_password() {
     };
 
     assert!(
-        defs.as_slice() == &[expected_def.clone()],
+        defs.as_slice() == [expected_def.clone()],
         "validator defs file should be accurate"
     );
 
     let mut child = validator_import_key_cmd();
     wait_for_password_prompt(&mut child);
     let stdin = child.stdin.as_mut().unwrap();
-    stdin.write(format!("{}\n", PASSWORD).as_bytes()).unwrap();
+    stdin
+        .write_all(format!("{}\n", PASSWORD).as_bytes())
+        .unwrap();
     child.wait().unwrap();
 
     let expected_def = ValidatorDefinition {
@@ -644,17 +649,19 @@ fn validator_import_launchpad_no_password_then_add_password() {
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_boost_factor: None,
+        prefer_builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path: dst_keystore_dir.join(KEYSTORE_NAME),
             voting_keystore_password_path: None,
-            voting_keystore_password: Some(ZeroizeString::from(PASSWORD.to_string())),
+            voting_keystore_password: Some(Zeroizing::from(PASSWORD.to_string())),
         },
     };
 
     let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
     assert!(
-        defs.as_slice() == &[expected_def.clone()],
+        defs.as_slice() == [expected_def.clone()],
         "validator defs file should be accurate"
     );
 }
@@ -746,15 +753,17 @@ fn validator_import_launchpad_password_file() {
         suggested_fee_recipient: None,
         gas_limit: None,
         builder_proposals: None,
+        builder_boost_factor: None,
+        prefer_builder_proposals: None,
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,
             voting_keystore_password_path: None,
-            voting_keystore_password: Some(ZeroizeString::from(PASSWORD.to_string())),
+            voting_keystore_password: Some(Zeroizing::from(PASSWORD.to_string())),
         },
     };
 
     assert!(
-        defs.as_slice() == &[expected_def],
+        defs.as_slice() == [expected_def],
         "validator defs file should be accurate"
     );
 }

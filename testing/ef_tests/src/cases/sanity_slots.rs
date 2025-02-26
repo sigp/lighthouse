@@ -2,9 +2,9 @@ use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use state_processing::per_slot_processing;
-use types::{BeaconState, EthSpec, ForkName};
+use types::BeaconState;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Metadata {
@@ -61,7 +61,7 @@ impl<E: EthSpec> Case for SanitySlots<E> {
         let spec = &testing_spec::<E>(fork_name);
 
         // Processing requires the epoch cache.
-        state.build_all_caches(spec).unwrap();
+        state.build_caches(spec).unwrap();
 
         let mut result = (0..self.slots)
             .try_for_each(|_| per_slot_processing(&mut state, None, spec).map(|_| ()))

@@ -14,18 +14,19 @@ use lru::LruCache;
 use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
 use std::cmp::Ordering;
+use std::num::NonZeroUsize;
+use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Fork, Hash256, Slot,
-    Unsigned,
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot, Unsigned,
 };
 
 /// The number of sets of proposer indices that should be cached.
-const CACHE_SIZE: usize = 16;
+const CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
 
 /// This value is fairly unimportant, it's used to avoid heap allocations. The result of it being
 /// incorrect is non-substantial from a consensus perspective (and probably also from a
 /// performance perspective).
-const TYPICAL_SLOTS_PER_EPOCH: usize = 32;
+pub const TYPICAL_SLOTS_PER_EPOCH: usize = 32;
 
 /// For some given slot, this contains the proposer index (`index`) and the `fork` that should be
 /// used to verify their signature.
@@ -66,19 +67,19 @@ impl Default for BeaconProposerCache {
 impl BeaconProposerCache {
     /// If it is cached, returns the proposer for the block at `slot` where the block has the
     /// ancestor block root of `shuffling_decision_block` at `end_slot(slot.epoch() - 1)`.
-    pub fn get_slot<T: EthSpec>(
+    pub fn get_slot<E: EthSpec>(
         &mut self,
         shuffling_decision_block: Hash256,
         slot: Slot,
     ) -> Option<Proposer> {
-        let epoch = slot.epoch(T::slots_per_epoch());
+        let epoch = slot.epoch(E::slots_per_epoch());
         let key = (epoch, shuffling_decision_block);
         if let Some(cache) = self.cache.get(&key) {
             // This `if` statement is likely unnecessary, but it feels like good practice.
             if epoch == cache.epoch {
                 cache
                     .proposers
-                    .get(slot.as_usize() % T::SlotsPerEpoch::to_usize())
+                    .get(slot.as_usize() % E::SlotsPerEpoch::to_usize())
                     .map(|&index| Proposer {
                         index,
                         fork: cache.fork,
@@ -96,7 +97,7 @@ impl BeaconProposerCache {
     /// The nth slot in the returned `SmallVec` will be equal to the nth slot in the given `epoch`.
     /// E.g., if `epoch == 1` then `smallvec[0]` refers to slot 32 (assuming `SLOTS_PER_EPOCH ==
     /// 32`).
-    pub fn get_epoch<T: EthSpec>(
+    pub fn get_epoch<E: EthSpec>(
         &mut self,
         shuffling_decision_block: Hash256,
         epoch: Epoch,
@@ -135,7 +136,7 @@ impl BeaconProposerCache {
 
 /// Compute the proposer duties using the head state without cache.
 pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
-    current_epoch: Epoch,
+    request_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<(Vec<usize>, Hash256, ExecutionStatus, Fork), BeaconChainError> {
     // Atomically collect information about the head whilst holding the canonical head `Arc` as
@@ -143,10 +144,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     let (mut state, head_state_root, head_block_root) = {
         let head = chain.canonical_head.cached_head();
         // Take a copy of the head state.
-        let head_state = head
-            .snapshot
-            .beacon_state
-            .clone_with(CloneConfig::committee_caches_only());
+        let head_state = head.snapshot.beacon_state.clone();
         let head_state_root = head.head_state_root();
         let head_block_root = head.head_block_root();
         (head_state, head_state_root, head_block_root)
@@ -159,7 +157,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .ok_or(BeaconChainError::HeadMissingFromForkChoice(head_block_root))?;
 
     // Advance the state into the requested epoch.
-    ensure_state_is_in_epoch(&mut state, head_state_root, current_epoch, &chain.spec)?;
+    ensure_state_is_in_epoch(&mut state, head_state_root, request_epoch, &chain.spec)?;
 
     let indices = state
         .get_beacon_proposer_indices(&chain.spec)

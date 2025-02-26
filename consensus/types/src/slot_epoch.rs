@@ -15,24 +15,45 @@ use crate::{ChainSpec, SignedRoot};
 
 use rand::RngCore;
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
-use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use serde::{Deserialize, Serialize};
+use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 use std::hash::Hash;
-use std::iter::Iterator;
 
 #[cfg(feature = "legacy-arith")]
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    arbitrary::Arbitrary,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[serde(transparent)]
-pub struct Slot(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
+pub struct Slot(#[serde(with = "serde_utils::quoted_u64")] u64);
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    arbitrary::Arbitrary,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
 #[serde(transparent)]
-pub struct Epoch(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
+pub struct Epoch(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 impl_common!(Slot);
 impl_common!(Epoch);
@@ -49,17 +70,17 @@ impl Slot {
     }
 
     pub fn max_value() -> Slot {
-        Slot(u64::max_value())
+        Slot(u64::MAX)
     }
 }
 
 impl Epoch {
-    pub const fn new(slot: u64) -> Epoch {
-        Epoch(slot)
+    pub const fn new(epoch: u64) -> Epoch {
+        Epoch(epoch)
     }
 
     pub fn max_value() -> Epoch {
-        Epoch(u64::max_value())
+        Epoch(u64::MAX)
     }
 
     /// The first slot in the epoch.
@@ -112,7 +133,7 @@ pub struct SlotIter<'a> {
     slots_per_epoch: u64,
 }
 
-impl<'a> Iterator for SlotIter<'a> {
+impl Iterator for SlotIter<'_> {
     type Item = Slot;
 
     fn next(&mut self) -> Option<Slot> {
@@ -155,10 +176,10 @@ mod epoch_tests {
         let slots_per_epoch = 32;
 
         // The last epoch which can be represented by u64.
-        let epoch = Epoch::new(u64::max_value() / slots_per_epoch);
+        let epoch = Epoch::new(u64::MAX / slots_per_epoch);
 
         // A slot number on the epoch should be equal to u64::max_value.
-        assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(u64::max_value()));
+        assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(u64::MAX));
     }
 
     #[test]

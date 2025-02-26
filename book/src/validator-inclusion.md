@@ -8,12 +8,14 @@ These endpoints are not stable or included in the Ethereum consensus standard AP
 they are subject to change or removal without a change in major release
 version.
 
+In order to apply these APIs, you need to have historical states information in the database of your node. This means adding the flag `--reconstruct-historic-states` in the beacon node. Once the state reconstruction process is completed, you can apply these APIs to any epoch.
+
 ## Endpoints
 
-HTTP Path | Description |
+| HTTP Path | Description |
 | --- | -- |
-[`/lighthouse/validator_inclusion/{epoch}/global`](#global) | A global vote count for a given epoch.
-[`/lighthouse/validator_inclusion/{epoch}/{validator_id}`](#individual) | A per-validator breakdown of votes in a given epoch.
+| [`/lighthouse/validator_inclusion/{epoch}/global`](#global) | A global vote count for a given epoch. |
+| [`/lighthouse/validator_inclusion/{epoch}/{validator_id}`](#individual) | A per-validator breakdown of votes in a given epoch. |
 
 ## Global
 
@@ -29,7 +31,7 @@ is not the case for attestations from the _previous_ epoch.
 ```
                   `epoch` query parameter
 				              |
-				              |     --------- values are calcuated here
+				              |     --------- values are calculated here
                               |     |
 							  v     v
 Epoch:  |---previous---|---current---|---next---|
@@ -51,26 +53,18 @@ vote (that is why it is _effective_ `Gwei`).
 The following fields are returned:
 
 - `current_epoch_active_gwei`: the total staked gwei that was active (i.e.,
-	able to vote) during the current epoch.
+ able to vote) during the current epoch.
 - `current_epoch_target_attesting_gwei`: the total staked gwei that attested to
-	the majority-elected Casper FFG target epoch during the current epoch.
-- `previous_epoch_active_gwei`: as per `current_epoch_active_gwei`, but during the previous epoch.
+ the majority-elected Casper FFG target epoch during the current epoch.
 - `previous_epoch_target_attesting_gwei`: see `current_epoch_target_attesting_gwei`.
 - `previous_epoch_head_attesting_gwei`: the total staked gwei that attested to a
-	head beacon block that is in the canonical chain.
+ head beacon block that is in the canonical chain.
 
-From this data you can calculate some interesting figures:
+From this data you can calculate:
 
-#### Participation Rate
+### Justification/Finalization Rate
 
-`previous_epoch_attesting_gwei / previous_epoch_active_gwei`
-
-Expresses the ratio of validators that managed to have an attestation
-voting upon the previous epoch included in a block.
-
-#### Justification/Finalization Rate
-
-`previous_epoch_target_attesting_gwei / previous_epoch_active_gwei`
+`previous_epoch_target_attesting_gwei / current_epoch_active_gwei`
 
 When this value is greater than or equal to `2/3` it is possible that the
 beacon chain may justify and/or finalize the epoch.
@@ -85,7 +79,6 @@ curl -X GET "http://localhost:5052/lighthouse/validator_inclusion/0/global" -H  
 {
   "data": {
     "current_epoch_active_gwei": 642688000000000,
-    "previous_epoch_active_gwei": 642688000000000,
     "current_epoch_target_attesting_gwei": 366208000000000,
     "previous_epoch_target_attesting_gwei": 1000000000,
     "previous_epoch_head_attesting_gwei": 1000000000
@@ -101,7 +94,6 @@ current epoch.
 The [Global Votes](#global) endpoint is the summation of all of these
 individual values, please see it for definitions of terms like "current_epoch",
 "previous_epoch" and "target_attester".
-
 
 ### HTTP Example
 

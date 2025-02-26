@@ -14,15 +14,11 @@ impl From<ArithError> for Error {
     }
 }
 
-#[cfg(feature = "arbitrary-fuzz")]
-use arbitrary::Arbitrary;
-
 /// Defines the epochs relative to some epoch. Most useful when referring to the committees prior
 /// to and following some epoch.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, arbitrary::Arbitrary)]
 pub enum RelativeEpoch {
     /// The prior epoch.
     Previous,

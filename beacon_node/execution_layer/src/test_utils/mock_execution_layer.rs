@@ -2,57 +2,66 @@ use crate::{
     test_utils::{
         MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY,
     },
-    Config, *,
+    *,
 };
-use sensitive_url::SensitiveUrl;
-use task_executor::TaskExecutor;
+use alloy_primitives::B256 as H256;
+use kzg::Kzg;
 use tempfile::NamedTempFile;
-use tree_hash::TreeHash;
-use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, Uint256};
+use types::{FixedBytesExtended, MainnetEthSpec};
 
-pub struct MockExecutionLayer<T: EthSpec> {
-    pub server: MockServer<T>,
-    pub el: ExecutionLayer<T>,
+pub struct MockExecutionLayer<E: EthSpec> {
+    pub server: MockServer<E>,
+    pub el: ExecutionLayer<E>,
     pub executor: TaskExecutor,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
 }
 
-impl<T: EthSpec> MockExecutionLayer<T> {
+impl<E: EthSpec> MockExecutionLayer<E> {
     pub fn default_params(executor: TaskExecutor) -> Self {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.terminal_total_difficulty = Uint256::from(DEFAULT_TERMINAL_DIFFICULTY);
+        spec.terminal_block_hash = ExecutionBlockHash::zero();
+        spec.terminal_block_hash_activation_epoch = Epoch::new(0);
         Self::new(
             executor,
-            DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
-            ExecutionBlockHash::zero(),
-            Epoch::new(0),
+            None,
+            None,
+            None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            Arc::new(spec),
             None,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         executor: TaskExecutor,
-        terminal_total_difficulty: Uint256,
         terminal_block: u64,
-        terminal_block_hash: ExecutionBlockHash,
-        terminal_block_hash_activation_epoch: Epoch,
+        shanghai_time: Option<u64>,
+        cancun_time: Option<u64>,
+        prague_time: Option<u64>,
+        osaka_time: Option<u64>,
         jwt_key: Option<JwtKey>,
-        builder_url: Option<SensitiveUrl>,
+        spec: Arc<ChainSpec>,
+        kzg: Option<Arc<Kzg>>,
     ) -> Self {
         let handle = executor.handle().unwrap();
-
-        let mut spec = T::default_spec();
-        spec.terminal_total_difficulty = terminal_total_difficulty;
-        spec.terminal_block_hash = terminal_block_hash;
-        spec.terminal_block_hash_activation_epoch = terminal_block_hash_activation_epoch;
 
         let jwt_key = jwt_key.unwrap_or_else(JwtKey::random);
         let server = MockServer::new(
             &handle,
             jwt_key,
-            terminal_total_difficulty,
+            spec.terminal_total_difficulty,
             terminal_block,
-            terminal_block_hash,
+            spec.terminal_block_hash,
+            shanghai_time,
+            cancun_time,
+            prague_time,
+            osaka_time,
+            spec.clone(),
+            kzg,
         );
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();
@@ -62,9 +71,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         std::fs::write(&path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
 
         let config = Config {
-            execution_endpoints: vec![url],
-            builder_url,
-            secret_files: vec![path],
+            execution_endpoint: Some(url),
+            secret_file: Some(path),
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
@@ -86,6 +94,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         };
 
         let parent_hash = latest_execution_block.block_hash();
+        let parent_gas_limit = latest_execution_block.gas_limit();
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
         let prev_randao = Hash256::from_low_u64_be(block_number);
@@ -96,21 +105,14 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             justified_hash: None,
             finalized_hash: None,
         };
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, Address::repeat_byte(42), None, None);
 
         // Insert a proposer to ensure the fork choice updated command works.
         let slot = Slot::new(0);
         let validator_index = 0;
         self.el
-            .insert_proposer(
-                slot,
-                head_block_root,
-                validator_index,
-                PayloadAttributes {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient: Address::repeat_byte(42),
-                },
-            )
+            .insert_proposer(slot, head_block_root, validator_index, payload_attributes)
             .await;
 
         self.el
@@ -130,25 +132,41 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             slot,
             chain_health: ChainHealth::Healthy,
         };
-        let payload = self
+        let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: ForkName::Bellatrix,
+        };
+
+        let block_proposal_content_type = self
             .el
-            .get_payload::<FullPayload<T>>(
-                parent_hash,
-                timestamp,
-                prev_randao,
-                validator_index,
-                forkchoice_update_params,
+            .get_payload(
+                payload_parameters,
                 builder_params,
                 &self.spec,
+                None,
+                BlockProductionVersion::FullV2,
             )
             .await
-            .unwrap()
-            .execution_payload;
-        let block_hash = payload.block_hash;
-        assert_eq!(payload.parent_hash, parent_hash);
-        assert_eq!(payload.block_number, block_number);
-        assert_eq!(payload.timestamp, timestamp);
-        assert_eq!(payload.prev_randao, prev_randao);
+            .unwrap();
+
+        let payload: ExecutionPayload<E> = match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => block.to_payload().into(),
+            BlockProposalContentsType::Blinded(_) => panic!("Should always be a full payload"),
+        };
+
+        let block_hash = payload.block_hash();
+        assert_eq!(payload.parent_hash(), parent_hash);
+        assert_eq!(payload.block_number(), block_number);
+        assert_eq!(payload.timestamp(), timestamp);
+        assert_eq!(payload.prev_randao(), prev_randao);
 
         // Ensure the payload cache is empty.
         assert!(self
@@ -160,34 +178,93 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             slot,
             chain_health: ChainHealth::Healthy,
         };
-        let payload_header = self
+        let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: ForkName::Bellatrix,
+        };
+
+        let block_proposal_content_type = self
             .el
-            .get_payload::<BlindedPayload<T>>(
-                parent_hash,
-                timestamp,
-                prev_randao,
-                validator_index,
-                forkchoice_update_params,
+            .get_payload(
+                payload_parameters,
                 builder_params,
                 &self.spec,
+                None,
+                BlockProductionVersion::BlindedV2,
             )
             .await
-            .unwrap()
-            .execution_payload_header;
-        assert_eq!(payload_header.block_hash, block_hash);
-        assert_eq!(payload_header.parent_hash, parent_hash);
-        assert_eq!(payload_header.block_number, block_number);
-        assert_eq!(payload_header.timestamp, timestamp);
-        assert_eq!(payload_header.prev_randao, prev_randao);
+            .unwrap();
+
+        match block_proposal_content_type {
+            BlockProposalContentsType::Full(block) => {
+                let payload_header = block.to_payload();
+                self.assert_valid_execution_payload_on_head(
+                    payload,
+                    payload_header,
+                    block_hash,
+                    parent_hash,
+                    block_number,
+                    timestamp,
+                    prev_randao,
+                )
+                .await;
+            }
+            BlockProposalContentsType::Blinded(block) => {
+                let payload_header = block.to_payload();
+                self.assert_valid_execution_payload_on_head(
+                    payload,
+                    payload_header,
+                    block_hash,
+                    parent_hash,
+                    block_number,
+                    timestamp,
+                    prev_randao,
+                )
+                .await;
+            }
+        };
+
+        self
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn assert_valid_execution_payload_on_head<Payload: AbstractExecPayload<E>>(
+        &self,
+        payload: ExecutionPayload<E>,
+        payload_header: Payload,
+        block_hash: ExecutionBlockHash,
+        parent_hash: ExecutionBlockHash,
+        block_number: u64,
+        timestamp: u64,
+        prev_randao: H256,
+    ) {
+        assert_eq!(payload_header.block_hash(), block_hash);
+        assert_eq!(payload_header.parent_hash(), parent_hash);
+        assert_eq!(payload_header.block_number(), block_number);
+        assert_eq!(payload_header.timestamp(), timestamp);
+        assert_eq!(payload_header.prev_randao(), prev_randao);
 
         // Ensure the payload cache has the correct payload.
         assert_eq!(
             self.el
                 .get_payload_by_root(&payload_header.tree_hash_root()),
-            Some(payload.clone())
+            Some(FullPayloadContents::Payload(payload.clone()))
         );
 
-        let status = self.el.notify_new_payload(&payload).await.unwrap();
+        // TODO: again consider forks
+        let status = self
+            .el
+            .notify_new_payload(payload.to_ref().try_into().unwrap())
+            .await
+            .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
 
         // Use junk values for slot/head-root to ensure there is no payload supplied.
@@ -212,8 +289,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(head_execution_block.block_number(), block_number);
         assert_eq!(head_execution_block.block_hash(), block_hash);
         assert_eq!(head_execution_block.parent_hash(), parent_hash);
-
-        self
     }
 
     pub fn move_to_block_prior_to_terminal_block(self) -> Self {
@@ -232,9 +307,24 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         self
     }
 
-    pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
+    pub fn produce_forked_pow_block(self) -> (Self, ExecutionBlockHash) {
+        let head_block = self
+            .server
+            .execution_block_generator()
+            .latest_block()
+            .unwrap();
+
+        let block_hash = self
+            .server
+            .execution_block_generator()
+            .insert_pow_block_by_hash(head_block.parent_hash(), 1)
+            .unwrap();
+        (self, block_hash)
+    }
+
+    pub async fn with_terminal_block<U, V>(self, func: U) -> Self
     where
-        U: Fn(ChainSpec, ExecutionLayer<T>, Option<ExecutionBlock>) -> V,
+        U: Fn(Arc<ChainSpec>, ExecutionLayer<E>, Option<ExecutionBlock>) -> V,
         V: Future<Output = ()>,
     {
         let terminal_block_number = self
