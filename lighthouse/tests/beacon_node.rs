@@ -2755,7 +2755,7 @@ fn invalid_block_root_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file =
         File::create(dir.path().join("invalid-block-roots")).expect("Unable to create file");
-    file.write_all(b"2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359, 2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f358, 0x2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359")
+    file.write_all(b"2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359, 2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f358, 0x3db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f358")
         .expect("Unable to write to file");
     CommandLineTest::new()
         .flag(
@@ -2763,5 +2763,5 @@ fn invalid_block_root_flag() {
             dir.path().join("invalid-block-roots").as_os_str().to_str(),
         )
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.invalid_block_roots.len(), 2))
+        .with_config(|config| assert_eq!(config.chain.invalid_block_roots.len(), 3))
 }
