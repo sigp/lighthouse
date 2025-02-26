@@ -85,6 +85,7 @@ pub struct Config {
     /// Configuration for the initialized validators
     #[serde(flatten)]
     pub initialized_validators: InitializedValidatorsConfig,
+    pub disable_attesting: bool,
 }
 
 impl Default for Config {
@@ -126,6 +127,7 @@ impl Default for Config {
             validator_registration_batch_size: 500,
             distributed: false,
             initialized_validators: <_>::default(),
+            disable_attesting: false,
         }
     }
 }
@@ -378,6 +380,8 @@ impl Config {
             } else {
                 true
             };
+
+        config.disable_attesting = validator_client_config.disable_attesting;
 
         Ok(config)
     }

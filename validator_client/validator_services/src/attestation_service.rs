@@ -21,6 +21,7 @@ pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
+    disable: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
@@ -31,6 +32,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
             slot_clock: None,
             beacon_nodes: None,
             context: None,
+            disable: false,
         }
     }
 
@@ -59,6 +61,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
+    pub fn disable(mut self, disable: bool) -> Self {
+        self.disable = disable;
+        self
+    }
+
     pub fn build(self) -> Result<AttestationService<T, E>, String> {
         Ok(AttestationService {
             inner: Arc::new(Inner {
@@ -77,6 +84,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build AttestationService without runtime_context")?,
+                disable: self.disable,
             }),
         })
     }
@@ -89,6 +97,7 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
+    disable: bool,
 }
 
 /// Attempts to produce attestations for all known validators 1/3rd of the way through each slot.
@@ -120,6 +129,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Starts the service which periodically produces attestations.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let log = self.context.log().clone();
+        if self.disable {
+            info!(log, "Attestation service disabled");
+            return Ok(());
+        }
 
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self

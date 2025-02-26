@@ -87,6 +87,11 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         let log = self.context.log().clone();
+        if self.duties_service.disable_attesting {
+            info!(log, "Sync committee service disabled");
+            return Ok(());
+        }
+
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
