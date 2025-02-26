@@ -1770,7 +1770,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let is_total_difficulty_reached =
             block.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
         let is_parent_total_difficulty_valid = parent
-            .total_difficulty.is_some_and(|td| td < spec.terminal_total_difficulty);
+            .total_difficulty
+            .is_some_and(|td| td < spec.terminal_total_difficulty);
         is_total_difficulty_reached && is_parent_total_difficulty_valid
     }
 
