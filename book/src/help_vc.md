@@ -175,6 +175,10 @@ Flags:
           If this flag is set, Lighthouse will query the Beacon Node for only
           block headers during proposals and will sign over headers. Useful for
           outsourcing execution payload construction during proposals.
+      --disable-attesting
+          Disable the performance of attestation duties (and sync committee
+          duties). This flag should only be used in emergencies to prioritise
+          block proposal duties.
       --disable-auto-discover
           If present, do not attempt to discover new validators in the
           validators-dir. Validators will need to be manually added to the

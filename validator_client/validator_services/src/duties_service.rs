@@ -230,6 +230,7 @@ pub struct DutiesService<T, E: EthSpec> {
     pub enable_high_validator_count_metrics: bool,
     /// If this validator is running in distributed mode.
     pub distributed: bool,
+    pub disable_attesting: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
@@ -402,6 +403,11 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
         },
         "duties_service_proposers",
     );
+
+    // Skip starting attestation duties or sync committee services.
+    if core_duties_service.disable_attesting {
+        return;
+    }
 
     /*
      * Spawn the task which keeps track of local attestation duties.

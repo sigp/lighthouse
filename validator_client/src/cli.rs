@@ -99,6 +99,15 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        help = "Disable the performance of attestation duties (and sync committee duties). This \
+                flag should only be used in emergencies to prioritise block proposal duties.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_attesting: bool,
+
+    #[clap(
+        long,
         help = "If present, the validator client will use longer timeouts for requests \
                 made to the beacon node. This flag is generally not recommended, \
                 longer timeouts can cause missed duties when fallbacks are used.",
