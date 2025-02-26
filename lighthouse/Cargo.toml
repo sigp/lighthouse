@@ -33,7 +33,7 @@ beacon-node-redb = ["store/redb"]
 jemalloc = []
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-malloc_utils = { workspace = true, features = ["jemalloc"] }
+malloc_utils = { workspace = true, features = [] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 malloc_utils = { workspace = true }
