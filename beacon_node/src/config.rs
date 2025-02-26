@@ -906,7 +906,7 @@ pub fn get_config<E: EthSpec>(
         let mut contents = String::new();
         file.read_to_string(&mut contents)
             .map_err(|e| format!("Failed to read invalid-block-roots file {}", e))?;
-        let invalid_block_roots: HashSet<Hash256> = contents
+        let mut invalid_block_roots: HashSet<Hash256> = contents
             .split(',')
             .filter_map(
                 |s| match Hash256::from_str(s.strip_prefix("0x").unwrap_or(s).trim()) {
@@ -923,6 +923,12 @@ pub fn get_config<E: EthSpec>(
                 },
             )
             .collect();
+        // Hardcode the known bad holesky block
+        if let Ok(invalid_block_root) =
+            Hash256::from_str("2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359")
+        {
+            invalid_block_roots.insert(invalid_block_root);
+        }
         client_config.chain.invalid_block_roots = invalid_block_roots;
     }
 

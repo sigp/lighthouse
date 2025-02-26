@@ -90,7 +90,6 @@ use std::borrow::Cow;
 use std::fmt::Debug;
 use std::fs;
 use std::io::Write;
-use std::str::FromStr;
 use std::sync::Arc;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use strum::AsRefStr;
@@ -147,9 +146,7 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it cannot be processed without already knowing
     /// its parent.
-    ParentUnknown {
-        parent_root: Hash256,
-    },
+    ParentUnknown { parent_root: Hash256 },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -164,10 +161,7 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The peer has incompatible state transition logic and is faulty.
-    StateRootMismatch {
-        block: Hash256,
-        local: Hash256,
-    },
+    StateRootMismatch { block: Hash256, local: Hash256 },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -186,9 +180,7 @@ pub enum BlockError {
     ///
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
-    NotFinalizedDescendant {
-        block_parent_root: Hash256,
-    },
+    NotFinalizedDescendant { block_parent_root: Hash256 },
     /// Block is already known and valid, no need to re-import.
     ///
     /// ## Peer scoring
@@ -215,10 +207,7 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    IncorrectBlockProposer {
-        block: u64,
-        local_shuffling: u64,
-    },
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// The `block.proposal_index` is not known.
     ///
     /// ## Peer scoring
@@ -236,10 +225,7 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent {
-        block_slot: Slot,
-        parent_slot: Slot,
-    },
+    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -295,9 +281,9 @@ pub enum BlockError {
     /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
-    ParentExecutionPayloadInvalid {
-        parent_root: Hash256,
-    },
+    ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    /// This is a known invalid block that was listed in Lighthouses configuration.
+    /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
     KnownInvalidExecutionPayload(Hash256),
     /// The block is a slashable equivocation from the proposer.
     ///
@@ -1343,16 +1329,9 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError> {
-        let invalid_holesky_block = {
-            if let Ok(invalid_block_root) = Hash256::from_str(
-                "2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359",
-            ) {
-                block_root == invalid_block_root && chain.spec.deposit_chain_id == 17000
-            } else {
-                false
-            }
-        };
-        if chain.config.invalid_block_roots.contains(&block_root) || invalid_holesky_block {
+        if chain.config.invalid_block_roots.contains(&block_root)
+            && chain.spec.deposit_chain_id == 17000
+        {
             return Err(BlockError::KnownInvalidExecutionPayload(block_root));
         }
 
