@@ -104,8 +104,6 @@ members = [
     "validator_client/validator_store",
 
     "validator_manager",
-
-    "watch",
 ]
 resolver = "2"
 
