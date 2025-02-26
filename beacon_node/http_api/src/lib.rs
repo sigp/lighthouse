@@ -107,13 +107,6 @@ use warp_utils::{query::multi_key_query, reject::convert_rejection, uor::Unifyin
 
 const API_PREFIX: &str = "eth";
 
-/// If the node is within this many epochs from the head, we declare it to be synced regardless of
-/// the network sync state.
-///
-/// This helps prevent attacks where nodes can convince us that we're syncing some non-existent
-/// finalized head.
-const DEFAULT_SYNC_TOLERANCE_EPOCHS: u64 = 8;
-
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
 type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 
@@ -157,7 +150,6 @@ pub struct Config {
     pub duplicate_block_status_code: StatusCode,
     pub enable_light_client_server: bool,
     pub target_peers: usize,
-    pub sync_tolerance_epochs: Option<u64>,
 }
 
 impl Default for Config {
@@ -174,7 +166,6 @@ impl Default for Config {
             duplicate_block_status_code: StatusCode::ACCEPTED,
             enable_light_client_server: true,
             target_peers: 100,
-            sync_tolerance_epochs: None,
         }
     }
 }
@@ -475,10 +466,8 @@ pub fn serve<T: BeaconChainTypes>(
                                     )
                                 })?;
 
-                            let sync_tolerance_epochs = config
-                                .sync_tolerance_epochs
-                                .unwrap_or(DEFAULT_SYNC_TOLERANCE_EPOCHS);
-                            let tolerance = sync_tolerance_epochs * T::EthSpec::slots_per_epoch();
+                            let tolerance =
+                                chain.config.sync_tolerance_epochs * T::EthSpec::slots_per_epoch();
 
                             if head_slot + tolerance >= current_slot {
                                 Ok(())
