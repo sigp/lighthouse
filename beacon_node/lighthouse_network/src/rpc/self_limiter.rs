@@ -275,7 +275,7 @@ mod tests {
     use crate::rpc::config::{OutboundRateLimiterConfig, RateLimiterConfig};
     use crate::rpc::rate_limiter::Quota;
     use crate::rpc::self_limiter::SelfRateLimiter;
-    use crate::rpc::{BehaviourAction, Ping, Protocol, RPCSend, RequestType};
+    use crate::rpc::{Ping, Protocol, RPCSend, RequestType};
     use crate::service::api_types::{AppRequestId, RequestId, SingleLookupReqId, SyncRequestId};
     use libp2p::PeerId;
     use std::time::Duration;
@@ -425,12 +425,7 @@ mod tests {
         // Check that the three delayed requests have moved to ready_requests.
         let mut it = limiter.ready_requests.iter();
         for i in 3..=5u32 {
-            let BehaviourAction::NotifyHandler {
-                peer_id: _,
-                handler: _,
-                event: RPCSend::Request(request_id, _),
-            } = it.next().unwrap()
-            else {
+            let (_peer_id, RPCSend::Request(request_id, _)) = it.next().unwrap() else {
                 unreachable!()
             };
 

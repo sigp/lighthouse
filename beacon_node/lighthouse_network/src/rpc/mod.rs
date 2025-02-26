@@ -263,7 +263,11 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             .outbound_request_limiter
             .allows(peer_id, request_id, req)
         {
-            Ok(event) => self.events.push(event),
+            Ok(event) => self.events.push(BehaviourAction::NotifyHandler {
+                peer_id,
+                handler: NotifyHandler::Any,
+                event,
+            }),
             Err(_e) => {
                 // Request is logged and queued internally in the self rate limiter.
             }
