@@ -478,7 +478,7 @@ where
                         id,
                         RpcResponse::Error(
                             RpcErrorResponse::RateLimited,
-                            "Rate limited. There is an active request with the same protocol"
+                            format!("Rate limited. There are already {MAX_CONCURRENT_REQUESTS} active requests with the same protocol")
                                 .into(),
                         ),
                     );
