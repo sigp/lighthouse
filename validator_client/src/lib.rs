@@ -325,7 +325,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                     get_validator_block: slot_duration / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
                 }
             } else {
-                Timeouts::set_all(slot_duration)
+                Timeouts::set_all(slot_duration.saturating_mul(config.long_timeouts_multiplier))
             };
 
             Ok(BeaconNodeHttpClient::from_components(
