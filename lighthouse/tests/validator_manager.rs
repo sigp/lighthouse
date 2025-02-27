@@ -136,7 +136,7 @@ pub fn validator_create_defaults() {
                 count: 1,
                 deposit_gwei: MainnetEthSpec::default_spec().max_effective_balance,
                 mnemonic_path: None,
-                stdin_inputs: cfg!(windows) || false,
+                stdin_inputs: cfg!(windows),
                 disable_deposits: false,
                 specify_voting_keystore_password: false,
                 eth1_withdrawal_address: None,
@@ -201,7 +201,7 @@ pub fn validator_create_disable_deposits() {
         .flag("--disable-deposits", None)
         .flag("--builder-proposals", Some("false"))
         .assert_success(|config| {
-            assert_eq!(config.disable_deposits, true);
+            assert!(config.disable_deposits);
             assert_eq!(config.builder_proposals, Some(false));
         });
 }
@@ -300,7 +300,7 @@ pub fn validator_move_defaults() {
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);
@@ -350,7 +350,7 @@ pub fn validator_move_misc_flags_1() {
         .flag("--src-vc-token", Some("./1.json"))
         .flag("--dest-vc-url", Some("http://localhost:2"))
         .flag("--dest-vc-token", Some("./2.json"))
-        .flag("--validators", Some(&format!("{}", EXAMPLE_PUBKEY_0)))
+        .flag("--validators", Some(EXAMPLE_PUBKEY_0))
         .flag("--builder-proposals", Some("false"))
         .flag("--prefer-builder-proposals", Some("false"))
         .assert_success(|config| {
@@ -368,7 +368,7 @@ pub fn validator_move_misc_flags_1() {
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);
@@ -382,7 +382,7 @@ pub fn validator_move_misc_flags_2() {
         .flag("--src-vc-token", Some("./1.json"))
         .flag("--dest-vc-url", Some("http://localhost:2"))
         .flag("--dest-vc-token", Some("./2.json"))
-        .flag("--validators", Some(&format!("{}", EXAMPLE_PUBKEY_0)))
+        .flag("--validators", Some(EXAMPLE_PUBKEY_0))
         .flag("--builder-proposals", Some("false"))
         .flag("--builder-boost-factor", Some("100"))
         .assert_success(|config| {
@@ -400,7 +400,7 @@ pub fn validator_move_misc_flags_2() {
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);
@@ -428,7 +428,7 @@ pub fn validator_move_count() {
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);

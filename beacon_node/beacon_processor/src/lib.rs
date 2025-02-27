@@ -57,6 +57,7 @@ use strum::IntoStaticStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use types::SingleAttestation;
 use types::{Attestation, BeaconState, ChainSpec, Hash256, SignedAggregateAndProof, SubnetId};
 use types::{EthSpec, Slot};
 mod metrics;
@@ -204,6 +205,7 @@ impl DuplicateCache {
 #[strum(serialize_all = "snake_case")]
 pub enum WorkType {
     GossipAttestation,
+    GossipAttestationToConvert,
     UnknownBlockAttestation,
     GossipAttestationBatch,
     GossipAggregate,
@@ -258,6 +260,7 @@ impl<E: EthSpec> Work<E> {
     pub fn to_type(&self) -> WorkType {
         match self {
             Work::GossipAttestation { .. } => WorkType::GossipAttestation,
+            Work::GossipAttestationToConvert { .. } => WorkType::GossipAttestationToConvert,
             Work::GossipAttestationBatch { .. } => WorkType::GossipAttestationBatch,
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
@@ -334,10 +337,10 @@ impl<E: EthSpec> WorkEvent<E> {
 
 /// Items required to verify a batch of unaggregated gossip attestations.
 #[derive(Debug)]
-pub struct GossipAttestationPackage<E: EthSpec> {
+pub struct GossipAttestationPackage<T> {
     pub message_id: MessageId,
     pub peer_id: PeerId,
-    pub attestation: Box<Attestation<E>>,
+    pub attestation: Box<T>,
     pub subnet_id: SubnetId,
     pub should_import: bool,
     pub seen_timestamp: Duration,
@@ -380,6 +383,7 @@ pub enum BlockingOrAsync {
     Blocking(BlockingFn),
     Async(AsyncFn),
 }
+pub type GossipAttestationBatch<E> = Vec<GossipAttestationPackage<Attestation<E>>>;
 
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
@@ -490,16 +494,26 @@ impl<E: EthSpec> From<QueuedBackfillBatch> for WorkEvent<E> {
 /// queuing specifics.
 pub enum Work<E: EthSpec> {
     GossipAttestation {
-        attestation: Box<GossipAttestationPackage<E>>,
-        process_individual: Box<dyn FnOnce(GossipAttestationPackage<E>) + Send + Sync>,
-        process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
+        attestation: Box<GossipAttestationPackage<Attestation<E>>>,
+        process_individual: Box<dyn FnOnce(GossipAttestationPackage<Attestation<E>>) + Send + Sync>,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
+    },
+    // Attestation requiring conversion before processing.
+    //
+    // For now this is a `SingleAttestation`, but eventually we will switch this around so that
+    // legacy `Attestation`s are converted and the main processing pipeline operates on
+    // `SingleAttestation`s.
+    GossipAttestationToConvert {
+        attestation: Box<GossipAttestationPackage<SingleAttestation>>,
+        process_individual:
+            Box<dyn FnOnce(GossipAttestationPackage<SingleAttestation>) + Send + Sync>,
     },
     UnknownBlockAttestation {
         process_fn: BlockingFn,
     },
     GossipAttestationBatch {
-        attestations: Vec<GossipAttestationPackage<E>>,
-        process_batch: Box<dyn FnOnce(Vec<GossipAttestationPackage<E>>) + Send + Sync>,
+        attestations: GossipAttestationBatch<E>,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
     },
     GossipAggregate {
         aggregate: Box<GossipAggregatePackage<E>>,

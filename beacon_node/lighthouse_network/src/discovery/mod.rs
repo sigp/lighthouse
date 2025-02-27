@@ -994,7 +994,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
         &mut self,
         _peer_id: PeerId,
         _connection_id: ConnectionId,
-        _event: void::Void,
+        _event: std::convert::Infallible,
     ) {
     }
 

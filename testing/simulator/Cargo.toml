@@ -3,20 +3,19 @@ name = "simulator"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-node_test_rig = { path = "../node_test_rig" }
-execution_layer = { workspace = true }
-types = { workspace = true }
-parking_lot = { workspace = true }
-futures = { workspace = true }
-tokio = { workspace = true }
-env_logger = { workspace = true }
 clap = { workspace = true }
+env_logger = { workspace = true }
+eth2_network_config = { workspace = true }
+execution_layer = { workspace = true }
+futures = { workspace = true }
+kzg = { workspace = true }
+node_test_rig = { path = "../node_test_rig" }
+parking_lot = { workspace = true }
 rayon = { workspace = true }
 sensitive_url  = { path = "../../common/sensitive_url" }
-eth2_network_config = { workspace = true }
 serde_json = { workspace = true }
-kzg = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }

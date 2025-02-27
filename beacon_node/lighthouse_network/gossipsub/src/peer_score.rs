@@ -44,7 +44,7 @@ mod tests;
 const TIME_CACHE_DURATION: u64 = 120;
 
 pub(crate) struct PeerScore {
-    params: PeerScoreParams,
+    pub(crate) params: PeerScoreParams,
     /// The score parameters.
     peer_stats: HashMap<PeerId, PeerStats>,
     /// Tracking peers per IP.

@@ -1,4 +1,4 @@
-use crate::data_availability_checker::AvailableBlock;
+use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
 use slog::debug;
@@ -10,10 +10,7 @@ use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
 use store::metadata::DataColumnInfo;
-use store::{
-    get_key_for_col, AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore,
-    KeyValueStoreOp,
-};
+use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use types::{FixedBytesExtended, Hash256, Slot};
 
@@ -108,7 +105,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let blob_batch_size = blocks_to_import
             .iter()
-            .filter(|available_block| available_block.blobs().is_some())
+            .filter(|available_block| available_block.has_blobs())
             .count()
             .saturating_mul(n_blob_ops_per_block);
 
@@ -117,14 +114,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
-        let mut blob_batch = Vec::with_capacity(blob_batch_size);
+        let mut blob_batch = Vec::<KeyValueStoreOp>::with_capacity(blob_batch_size);
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
         for available_block in blocks_to_import.into_iter().rev() {
-            let (block_root, block, maybe_blobs, maybe_data_columns) =
-                available_block.deconstruct();
+            let (block_root, block, block_data) = available_block.deconstruct();
 
             if block_root != expected_block_root {
                 return Err(HistoricalBlockError::MismatchedBlockRoot {
@@ -133,27 +129,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 });
             }
 
-            let blinded_block = block.clone_as_blinded();
-            // Store block in the hot database without payload.
-            self.store
-                .blinded_block_as_kv_store_ops(&block_root, &blinded_block, &mut hot_batch);
-            // Store the blobs too
-            if let Some(blobs) = maybe_blobs {
-                new_oldest_blob_slot = Some(block.slot());
+            if !self.store.get_config().prune_payloads {
+                // If prune-payloads is set to false, store the block which includes the execution payload
                 self.store
-                    .blobs_as_kv_store_ops(&block_root, blobs, &mut blob_batch);
+                    .block_as_kv_store_ops(&block_root, (*block).clone(), &mut hot_batch)?;
+            } else {
+                let blinded_block = block.clone_as_blinded();
+                // Store block in the hot database without payload.
+                self.store.blinded_block_as_kv_store_ops(
+                    &block_root,
+                    &blinded_block,
+                    &mut hot_batch,
+                );
             }
-            // Store the data columns too
-            if let Some(data_columns) = maybe_data_columns {
-                new_oldest_data_column_slot = Some(block.slot());
-                self.store
-                    .data_columns_as_kv_store_ops(&block_root, data_columns, &mut blob_batch);
+
+            match &block_data {
+                AvailableBlockData::NoData => {}
+                AvailableBlockData::Blobs(..) => {
+                    new_oldest_blob_slot = Some(block.slot());
+                }
+                AvailableBlockData::DataColumns(_) | AvailableBlockData::DataColumnsRecv(_) => {
+                    new_oldest_data_column_slot = Some(block.slot());
+                }
+            }
+
+            // Store the blobs or data columns too
+            if let Some(op) = self
+                .get_blobs_or_columns_store_op(block_root, block_data)
+                .map_err(|e| {
+                    HistoricalBlockError::StoreError(StoreError::DBError {
+                        message: format!("get_blobs_or_columns_store_op error {e:?}"),
+                    })
+                })?
+            {
+                blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
                 cold_batch.push(KeyValueStoreOp::PutKeyValue(
-                    get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                    DBColumn::BeaconBlockRoots,
+                    slot.to_be_bytes().to_vec(),
                     block_root.as_slice().to_vec(),
                 ));
             }
@@ -169,7 +185,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let genesis_slot = self.spec.genesis_slot;
                 for slot in genesis_slot.as_u64()..prev_block_slot.as_u64() {
                     cold_batch.push(KeyValueStoreOp::PutKeyValue(
-                        get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                        DBColumn::BeaconBlockRoots,
+                        slot.to_be_bytes().to_vec(),
                         self.genesis_block_root.as_slice().to_vec(),
                     ));
                 }

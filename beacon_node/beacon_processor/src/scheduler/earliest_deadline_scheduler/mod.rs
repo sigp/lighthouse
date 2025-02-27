@@ -86,7 +86,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 worker_journal(&work_event, &work_journal_tx);
                 let drop_during_sync = work_event
                     .as_ref()
-                    .map_or(false, |event| event.drop_during_sync);
+                    .is_some_and(|event| event.drop_during_sync);
 
                 let modified_queue_id = match work_event {
                     // There is no new work event, but we are able to spawn a new worker.

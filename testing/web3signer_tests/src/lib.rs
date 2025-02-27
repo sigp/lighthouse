@@ -130,7 +130,11 @@ mod tests {
     }
 
     fn client_identity_path() -> PathBuf {
-        tls_dir().join("lighthouse").join("key.p12")
+        if cfg!(target_os = "macos") {
+            tls_dir().join("lighthouse").join("key_legacy.p12")
+        } else {
+            tls_dir().join("lighthouse").join("key.p12")
+        }
     }
 
     fn client_identity_password() -> String {
@@ -169,17 +173,12 @@ mod tests {
     }
 
     impl Web3SignerRig {
+        // We need to hold that lock as we want to get the binary only once
+        #[allow(clippy::await_holding_lock)]
         pub async fn new(network: &str, listen_address: &str, listen_port: u16) -> Self {
             GET_WEB3SIGNER_BIN
                 .get_or_init(|| async {
-                    // Read a Github API token from the environment. This is intended to prevent rate-limits on CI.
-                    // We use a name that is unlikely to accidentally collide with anything the user has configured.
-                    let github_token = env::var("LIGHTHOUSE_GITHUB_TOKEN");
-                    download_binary(
-                        TEMP_DIR.lock().path().to_path_buf(),
-                        github_token.as_deref().unwrap_or(""),
-                    )
-                    .await;
+                    download_binary(TEMP_DIR.lock().path().to_path_buf()).await;
                 })
                 .await;
 
@@ -206,7 +205,7 @@ mod tests {
                 keystore_password_file: keystore_password_filename.to_string(),
             };
             let key_config_file =
-                File::create(&keystore_dir.path().join("key-config.yaml")).unwrap();
+                File::create(keystore_dir.path().join("key-config.yaml")).unwrap();
             serde_yaml::to_writer(key_config_file, &key_config).unwrap();
 
             let tls_keystore_file = tls_dir().join("web3signer").join("key.p12");

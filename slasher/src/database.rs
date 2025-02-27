@@ -406,7 +406,7 @@ impl<E: EthSpec> SlasherDB<E> {
     ) -> Result<(), Error> {
         // Don't update maximum if new target is less than or equal to previous. In the case of
         // no previous we *do* want to update.
-        if previous_max_target.map_or(false, |prev_max| max_target <= prev_max) {
+        if previous_max_target.is_some_and(|prev_max| max_target <= prev_max) {
             return Ok(());
         }
 
@@ -665,7 +665,7 @@ impl<E: EthSpec> SlasherDB<E> {
         target: Epoch,
         prev_max_target: Option<Epoch>,
     ) -> Result<Option<CompactAttesterRecord>, Error> {
-        if prev_max_target.map_or(true, |prev_max| target > prev_max) {
+        if prev_max_target.is_none_or(|prev_max| target > prev_max) {
             return Ok(None);
         }
 

@@ -9,11 +9,11 @@ use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionRequests,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionRequests,
 };
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -39,12 +39,14 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub execution_payload: &'block ExecutionPayloadDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     pub execution_payload: &'block ExecutionPayloadElectra<E>,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
+    pub execution_payload: &'block ExecutionPayloadFulu<E>,
+    #[superstruct(only(Deneb, Electra, Fulu))]
     pub versioned_hashes: Vec<VersionedHash>,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Deneb, Electra, Fulu))]
     pub parent_beacon_block_root: Hash256,
-    #[superstruct(only(Electra))]
-    pub execution_requests_list: &'block ExecutionRequests<E>,
+    #[superstruct(only(Electra, Fulu))]
+    pub execution_requests: &'block ExecutionRequests<E>,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
@@ -54,6 +56,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Capella(payload) => payload.execution_payload.parent_hash,
             Self::Deneb(payload) => payload.execution_payload.parent_hash,
             Self::Electra(payload) => payload.execution_payload.parent_hash,
+            Self::Fulu(payload) => payload.execution_payload.parent_hash,
         }
     }
 
@@ -63,6 +66,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Capella(payload) => payload.execution_payload.block_hash,
             Self::Deneb(payload) => payload.execution_payload.block_hash,
             Self::Electra(payload) => payload.execution_payload.block_hash,
+            Self::Fulu(payload) => payload.execution_payload.block_hash,
         }
     }
 
@@ -72,6 +76,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Capella(payload) => payload.execution_payload.block_number,
             Self::Deneb(payload) => payload.execution_payload.block_number,
             Self::Electra(payload) => payload.execution_payload.block_number,
+            Self::Fulu(payload) => payload.execution_payload.block_number,
         }
     }
 
@@ -81,6 +86,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Capella(request) => ExecutionPayloadRef::Capella(request.execution_payload),
             Self::Deneb(request) => ExecutionPayloadRef::Deneb(request.execution_payload),
             Self::Electra(request) => ExecutionPayloadRef::Electra(request.execution_payload),
+            Self::Fulu(request) => ExecutionPayloadRef::Fulu(request.execution_payload),
         }
     }
 
@@ -92,6 +98,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Capella(request) => ExecutionPayload::Capella(request.execution_payload.clone()),
             Self::Deneb(request) => ExecutionPayload::Deneb(request.execution_payload.clone()),
             Self::Electra(request) => ExecutionPayload::Electra(request.execution_payload.clone()),
+            Self::Fulu(request) => ExecutionPayload::Fulu(request.execution_payload.clone()),
         }
     }
 
@@ -121,8 +128,16 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
 
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_VERIFY_BLOCK_HASH);
 
-        let (header_hash, rlp_transactions_root) =
-            calculate_execution_block_hash(payload, parent_beacon_block_root);
+        // Check that no transactions in the payload are zero length
+        if payload.transactions().iter().any(|slice| slice.is_empty()) {
+            return Err(Error::ZeroLengthTransaction);
+        }
+
+        let (header_hash, rlp_transactions_root) = calculate_execution_block_hash(
+            payload,
+            parent_beacon_block_root,
+            self.execution_requests().ok().copied(),
+        );
 
         if header_hash != self.block_hash() {
             return Err(Error::BlockHashMismatch {
@@ -185,7 +200,18 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E>
                     .map(kzg_commitment_to_versioned_hash)
                     .collect(),
                 parent_beacon_block_root: block_ref.parent_root,
-                execution_requests_list: &block_ref.body.execution_requests,
+                execution_requests: &block_ref.body.execution_requests,
+            })),
+            BeaconBlockRef::Fulu(block_ref) => Ok(Self::Fulu(NewPayloadRequestFulu {
+                execution_payload: &block_ref.body.execution_payload.execution_payload,
+                versioned_hashes: block_ref
+                    .body
+                    .blob_kzg_commitments
+                    .iter()
+                    .map(kzg_commitment_to_versioned_hash)
+                    .collect(),
+                parent_beacon_block_root: block_ref.parent_root,
+                execution_requests: &block_ref.body.execution_requests,
             })),
         }
     }
@@ -206,6 +232,7 @@ impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'
             })),
             ExecutionPayloadRef::Deneb(_) => Err(Self::Error::IncorrectStateVariant),
             ExecutionPayloadRef::Electra(_) => Err(Self::Error::IncorrectStateVariant),
+            ExecutionPayloadRef::Fulu(_) => Err(Self::Error::IncorrectStateVariant),
         }
     }
 }

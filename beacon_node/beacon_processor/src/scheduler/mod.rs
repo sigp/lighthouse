@@ -214,6 +214,12 @@ pub fn spawn_worker<E: EthSpec>(
         } => task_spawner.spawn_blocking(move || {
             process_individual(*attestation);
         }),
+        Work::GossipAttestationToConvert {
+            attestation,
+            process_individual,
+        } => task_spawner.spawn_blocking(move || {
+            process_individual(*attestation);
+        }),
         Work::GossipAttestationBatch {
             attestations,
             process_batch,

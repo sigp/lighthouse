@@ -7,6 +7,7 @@ mod remotekeys;
 mod tests;
 
 pub mod test_utils;
+pub use api_secret::PK_FILENAME;
 
 use graffiti::{delete_graffiti, get_graffiti, set_graffiti};
 
@@ -23,6 +24,7 @@ use beacon_node_fallback::CandidateInfo;
 use create_validator::{
     create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
 };
+use directory::{DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_VALIDATOR_DIR};
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{
@@ -30,6 +32,7 @@ use eth2::lighthouse_vc::{
         PublicKeyBytes, SetGraffitiRequest,
     },
 };
+use health_metrics::observe::Observe;
 use lighthouse_version::version_with_platform;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
@@ -99,10 +102,18 @@ pub struct Config {
     pub allow_origin: Option<String>,
     pub allow_keystore_export: bool,
     pub store_passwords_in_secrets_dir: bool,
+    pub http_token_path: PathBuf,
 }
 
 impl Default for Config {
     fn default() -> Self {
+        // This value is always overridden when building config from CLI.
+        let http_token_path = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(DEFAULT_ROOT_DIR)
+            .join(DEFAULT_HARDCODED_NETWORK)
+            .join(DEFAULT_VALIDATOR_DIR)
+            .join(PK_FILENAME);
         Self {
             enabled: false,
             listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -110,6 +121,7 @@ impl Default for Config {
             allow_origin: None,
             allow_keystore_export: false,
             store_passwords_in_secrets_dir: false,
+            http_token_path,
         }
     }
 }
@@ -755,7 +767,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         // Disabling an already disabled validator *with no other changes* is a
                         // no-op.
                         (Some(false), None)
-                            if body.enabled.map_or(true, |enabled| !enabled)
+                            if body.enabled.is_none_or(|enabled| !enabled)
                                 && body.gas_limit.is_none()
                                 && body.builder_boost_factor.is_none()
                                 && body.builder_proposals.is_none()

@@ -17,6 +17,7 @@ pub mod types;
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::{Error as ResponseError, *};
 use derivative::Derivative;
+use either::Either;
 use futures::Stream;
 use futures_util::StreamExt;
 use lighthouse_network::PeerId;
@@ -27,6 +28,7 @@ use reqwest::{
     Body, IntoUrl, RequestBuilder, Response,
 };
 pub use reqwest::{StatusCode, Url};
+use reqwest_eventsource::{Event, EventSource};
 pub use sensitive_url::{SensitiveError, SensitiveUrl};
 use serde::{de::DeserializeOwned, Serialize};
 use ssz::Encode;
@@ -47,11 +49,14 @@ pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
 
 pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
 pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
+pub const JSON_CONTENT_TYPE_HEADER: &str = "application/json";
 
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
     HttpClient(PrettyReqwestError),
+    /// The `reqwest_eventsource` client raised an error.
+    SseClient(reqwest_eventsource::Error),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
     /// The server returned an error message with an array of errors.
@@ -93,6 +98,13 @@ impl Error {
     pub fn status(&self) -> Option<StatusCode> {
         match self {
             Error::HttpClient(error) => error.inner().status(),
+            Error::SseClient(error) => {
+                if let reqwest_eventsource::Error::InvalidStatusCode(status, _) = error {
+                    Some(*status)
+                } else {
+                    None
+                }
+            }
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),
@@ -101,9 +113,9 @@ impl Error {
             Error::InvalidSignatureHeader => None,
             Error::MissingSignatureHeader => None,
             Error::InvalidJson(_) => None,
+            Error::InvalidSsz(_) => None,
             Error::InvalidServerSentEvent(_) => None,
             Error::InvalidHeaders(_) => None,
-            Error::InvalidSsz(_) => None,
             Error::TokenReadError(..) => None,
             Error::NoServerPubkey | Error::NoToken => None,
         }
@@ -1316,7 +1328,7 @@ impl BeaconNodeHttpClient {
     /// `POST v2/beacon/pool/attestations`
     pub async fn post_beacon_pool_attestations_v2<E: EthSpec>(
         &self,
-        attestations: &[Attestation<E>],
+        attestations: Either<Vec<Attestation<E>>, Vec<SingleAttestation>>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V2)?;
@@ -1327,13 +1339,26 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attestations");
 
-        self.post_with_timeout_and_consensus_header(
-            path,
-            &attestations,
-            self.timeouts.attestation,
-            fork_name,
-        )
-        .await?;
+        match attestations {
+            Either::Right(attestations) => {
+                self.post_with_timeout_and_consensus_header(
+                    path,
+                    &attestations,
+                    self.timeouts.attestation,
+                    fork_name,
+                )
+                .await?;
+            }
+            Either::Left(attestations) => {
+                self.post_with_timeout_and_consensus_header(
+                    path,
+                    &attestations,
+                    self.timeouts.attestation,
+                    fork_name,
+                )
+                .await?;
+            }
+        };
 
         Ok(())
     }
@@ -2592,16 +2617,29 @@ impl BeaconNodeHttpClient {
             .join(",");
         path.query_pairs_mut().append_pair("topics", &topic_string);
 
-        Ok(self
-            .client
-            .get(path)
-            .send()
-            .await?
-            .bytes_stream()
-            .map(|next| match next {
-                Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
-                Err(e) => Err(Error::HttpClient(e.into())),
-            }))
+        let mut es = EventSource::get(path);
+        // If we don't await `Event::Open` here, then the consumer
+        // will not get any Message events until they start awaiting the stream.
+        // This is a way to register the stream with the sse server before
+        // message events start getting emitted.
+        while let Some(event) = es.next().await {
+            match event {
+                Ok(Event::Open) => break,
+                Err(err) => return Err(Error::SseClient(err)),
+                // This should never happen as we are guaranteed to get the
+                // Open event before any message starts coming through.
+                Ok(Event::Message(_)) => continue,
+            }
+        }
+        Ok(Box::pin(es.filter_map(|event| async move {
+            match event {
+                Ok(Event::Open) => None,
+                Ok(Event::Message(message)) => {
+                    Some(EventKind::from_sse_bytes(&message.event, &message.data))
+                }
+                Err(err) => Some(Err(Error::SseClient(err))),
+            }
+        })))
     }
 
     /// `POST validator/duties/sync/{epoch}`

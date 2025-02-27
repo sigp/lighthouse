@@ -218,6 +218,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub aggregate_queue: LifoQueue<Work<E>>,
     pub aggregate_debounce: TimeLatch,
     pub attestation_queue: LifoQueue<Work<E>>,
+    pub attestation_to_convert_queue: LifoQueue<Work<E>>,
     pub attestation_debounce: TimeLatch,
     pub unknown_block_aggregate_queue: LifoQueue<Work<E>>,
     pub unknown_block_attestation_queue: LifoQueue<Work<E>>,
@@ -262,6 +263,7 @@ impl<E: EthSpec> WorkQueues<E> {
         let aggregate_queue = LifoQueue::new(queue_lengths.aggregate_queue);
         let aggregate_debounce = TimeLatch::default();
         let attestation_queue = LifoQueue::new(queue_lengths.attestation_queue);
+        let attestation_to_convert_queue = LifoQueue::new(queue_lengths.attestation_queue);
         let attestation_debounce = TimeLatch::default();
         let unknown_block_aggregate_queue =
             LifoQueue::new(queue_lengths.unknown_block_aggregate_queue);
@@ -328,6 +330,7 @@ impl<E: EthSpec> WorkQueues<E> {
             aggregate_queue,
             aggregate_debounce,
             attestation_queue,
+            attestation_to_convert_queue,
             attestation_debounce,
             unknown_block_aggregate_queue,
             unknown_block_attestation_queue,

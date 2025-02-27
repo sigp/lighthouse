@@ -103,7 +103,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     < self.beacon_processor.config.max_workers;
                 let drop_during_sync = work_event
                     .as_ref()
-                    .map_or(false, |event| event.drop_during_sync);
+                    .is_some_and(|event| event.drop_during_sync);
 
                 let modified_queue_id = match work_event {
                     // There is no new work event, but we are able to spawn a new worker.
@@ -432,6 +432,9 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             }
             _ if can_spawn => spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work),
             Work::GossipAttestation { .. } => self.work_queues.attestation_queue.push(work),
+            Work::GossipAttestationToConvert { .. } => {
+                self.work_queues.attestation_to_convert_queue.push(work)
+            }
             // Attestation batches are formed internally within the
             // `BeaconProcessor`, they are not sent from external services.
             Work::GossipAttestationBatch { .. } => crit!(
@@ -621,6 +624,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
         if let Some(modified_queue_id) = modified_queue_id {
             let queue_len = match modified_queue_id {
                 WorkType::GossipAttestation => self.work_queues.aggregate_queue.len(),
+                WorkType::GossipAttestationToConvert => self.work_queues.aggregate_queue.len(),
                 WorkType::UnknownBlockAttestation => {
                     self.work_queues.unknown_block_attestation_queue.len()
                 }

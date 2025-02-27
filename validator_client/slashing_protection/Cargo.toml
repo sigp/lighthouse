@@ -10,16 +10,16 @@ name = "slashing_protection_tests"
 path = "tests/main.rs"
 
 [dependencies]
-tempfile = { workspace = true }
-types = { workspace = true }
-rusqlite = { workspace = true }
-r2d2 = { workspace = true }
-r2d2_sqlite = "0.21.0"
-serde = { workspace = true }
-serde_json = { workspace = true }
+arbitrary = { workspace = true, features = ["derive"] }
 ethereum_serde_utils = { workspace = true }
 filesystem = { workspace = true }
-arbitrary = { workspace = true, features = ["derive"] }
+r2d2 = { workspace = true }
+r2d2_sqlite = "0.21.0"
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+types = { workspace = true }
 
 [dev-dependencies]
 rayon = { workspace = true }

@@ -43,6 +43,10 @@ impl<E: EthSpec, S: SlotClock> QueueItem<E, S> {
                 let attestation_slot = attestation.attestation.data().slot;
                 Self::calculate_unaggregated_attestation_deadline(attestation_slot, slot_clock)
             }
+            Work::GossipAttestationToConvert { attestation, .. } => {
+                let attestation_slot = attestation.attestation.data.slot;
+                Self::calculate_unaggregated_attestation_deadline(attestation_slot, slot_clock)
+            }
             Work::GossipAttestationBatch { attestations, .. } => {
                 let Some(attestation) = attestations.first() else {
                     return None;

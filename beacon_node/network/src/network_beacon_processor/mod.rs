@@ -77,9 +77,45 @@ const BLOB_PUBLICATION_EXP_FACTOR: usize = 2;
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn try_send(&self, event: BeaconWorkEvent<T::EthSpec>) -> Result<(), Error<T::EthSpec>> {
-        self.beacon_processor_send
-            .try_send(event)
-            .map_err(Into::into)
+        self.beacon_processor_send.try_send(event)
+    }
+
+    /// Create a new `Work` event for some `SingleAttestation`.
+    pub fn send_single_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        single_attestation: SingleAttestation,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_individual = move |package: GossipAttestationPackage<SingleAttestation>| {
+            processor.process_gossip_attestation_to_convert(
+                package.message_id,
+                package.peer_id,
+                package.attestation,
+                package.subnet_id,
+                package.should_import,
+                package.seen_timestamp,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipAttestationToConvert {
+                attestation: Box::new(GossipAttestationPackage {
+                    message_id,
+                    peer_id,
+                    attestation: Box::new(single_attestation),
+                    subnet_id,
+                    should_import,
+                    seen_timestamp,
+                }),
+                process_individual: Box::new(process_individual),
+            },
+        })
     }
 
     /// Create a new `Work` event for some unaggregated attestation.
@@ -94,17 +130,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
-        let process_individual = move |package: GossipAttestationPackage<T::EthSpec>| {
-            processor.process_gossip_attestation(
-                package.message_id,
-                package.peer_id,
-                package.attestation,
-                package.subnet_id,
-                package.should_import,
-                true,
-                package.seen_timestamp,
-            )
-        };
+        let process_individual =
+            move |package: GossipAttestationPackage<Attestation<T::EthSpec>>| {
+                processor.process_gossip_attestation(
+                    package.message_id,
+                    package.peer_id,
+                    package.attestation,
+                    package.subnet_id,
+                    package.should_import,
+                    true,
+                    package.seen_timestamp,
+                )
+            };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
@@ -550,6 +587,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
+        debug!(self.log, "Batch sending for process";
+            "blocks" => blocks.len(),
+            "id" => ?process_id,
+        );
+
         let processor = self.clone();
         let process_fn = async move {
             let notify_execution_layer = if processor
@@ -1111,10 +1153,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         messages: columns
                             .into_iter()
                             .map(|d| {
-                                let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                                    d.index as usize,
-                                    &chain.spec,
-                                );
+                                let subnet =
+                                    DataColumnSubnetId::from_column_index(d.index, &chain.spec);
                                 PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
                             })
                             .collect(),
@@ -1128,7 +1168,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let blob_publication_batches = chain.config.blob_publication_batches;
-                let batch_size = chain.spec.number_of_columns / blob_publication_batches;
+                let number_of_columns = chain.spec.number_of_columns as usize;
+                let batch_size = number_of_columns / blob_publication_batches;
                 let mut publish_count = 0usize;
 
                 for batch in data_columns_to_publish.chunks(batch_size) {

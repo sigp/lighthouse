@@ -293,7 +293,7 @@ impl<I> SlotHashSet<I> {
         Ok(self
             .map
             .get(&root)
-            .map_or(false, |agg| agg.iter().any(|val| item.is_subset(val))))
+            .is_some_and(|agg| agg.iter().any(|val| item.is_subset(val))))
     }
 
     /// The number of observed items in `self`.

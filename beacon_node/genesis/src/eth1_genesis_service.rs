@@ -263,14 +263,14 @@ impl Eth1GenesisService {
             // again later.
             if eth1_service
                 .highest_safe_block()
-                .map_or(true, |n| block.number > n)
+                .is_none_or(|n| block.number > n)
             {
                 continue;
             }
 
             // Ignore any block that has already been processed or update the highest processed
             // block.
-            if highest_processed_block.map_or(false, |highest| highest >= block.number) {
+            if highest_processed_block.is_some_and(|highest| highest >= block.number) {
                 continue;
             } else {
                 self.stats

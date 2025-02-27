@@ -409,6 +409,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(expected_pk, kp.pk.into());
+        assert_eq!(expected_pk, kp.pk);
     }
 }

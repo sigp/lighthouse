@@ -16,7 +16,7 @@ use tokio::time::sleep;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
     EmptyBlock, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256, MinimalEthSpec,
-    Signature, SignedBeaconBlock, Slot,
+    RuntimeVariableList, Signature, SignedBeaconBlock, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -810,17 +810,20 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
         .await;
 
         // BlocksByRoot Request
-        let rpc_request = RequestType::BlocksByRoot(BlocksByRootRequest::new(
-            vec![
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-            ],
-            &spec,
-        ));
+        let rpc_request =
+            RequestType::BlocksByRoot(BlocksByRootRequest::V2(BlocksByRootRequestV2 {
+                block_roots: RuntimeVariableList::from_vec(
+                    vec![
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                    ],
+                    spec.max_request_blocks_upper_bound(),
+                ),
+            }));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
@@ -953,21 +956,24 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
         .await;
 
         // BlocksByRoot Request
-        let rpc_request = RequestType::BlocksByRoot(BlocksByRootRequest::new(
-            vec![
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-                Hash256::zero(),
-            ],
-            &spec,
-        ));
+        let rpc_request =
+            RequestType::BlocksByRoot(BlocksByRootRequest::V2(BlocksByRootRequestV2 {
+                block_roots: RuntimeVariableList::from_vec(
+                    vec![
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                        Hash256::zero(),
+                    ],
+                    spec.max_request_blocks_upper_bound(),
+                ),
+            }));
 
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));

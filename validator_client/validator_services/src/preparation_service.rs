@@ -258,7 +258,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             .slot_clock
             .now()
             .map_or(E::genesis_epoch(), |slot| slot.epoch(E::slots_per_epoch()));
-        spec.bellatrix_fork_epoch.map_or(false, |fork_epoch| {
+        spec.bellatrix_fork_epoch.is_some_and(|fork_epoch| {
             current_epoch + PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS >= fork_epoch
         })
     }
@@ -428,7 +428,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     pubkey,
                 } = key.clone();
 
-                let signed_data = match self
+                match self
                     .validator_store
                     .sign_validator_registration_data(ValidatorRegistrationData {
                         fee_recipient,
@@ -458,13 +458,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                         );
                         continue;
                     }
-                };
-
-                self.validator_registration_cache
-                    .write()
-                    .insert(key, signed_data.clone());
-
-                signed_data
+                }
             };
             signed.push(signed_data);
         }
@@ -478,11 +472,20 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     })
                     .await
                 {
-                    Ok(()) => info!(
-                        log,
-                        "Published validator registrations to the builder network";
-                        "count" => batch.len(),
-                    ),
+                    Ok(()) => {
+                        info!(
+                            log,
+                            "Published validator registrations to the builder network";
+                            "count" => batch.len(),
+                        );
+                        let mut guard = self.validator_registration_cache.write();
+                        for signed_data in batch {
+                            guard.insert(
+                                ValidatorRegistrationKey::from(signed_data.message.clone()),
+                                signed_data.clone(),
+                            );
+                        }
+                    }
                     Err(e) => warn!(
                         log,
                         "Unable to publish validator registrations to the builder network";

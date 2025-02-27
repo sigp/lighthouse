@@ -3,3 +3,14 @@ pre-build = ["apt-get install -y cmake clang-5.0"]
 
 [target.aarch64-unknown-linux-gnu]
 pre-build = ["apt-get install -y cmake clang-5.0"]
+
+# Allow setting page size limits for jemalloc at build time:
+# For certain architectures (like aarch64), we must compile
+# jemalloc with support for large page sizes, otherwise the host's
+# system page size will be used, which may not work on the target systems.
+# JEMALLOC_SYS_WITH_LG_PAGE=16 tells jemalloc to support up to 64-KiB
+# pages. See: https://github.com/sigp/lighthouse/issues/5244
+[build.env]
+passthrough = [
+    "JEMALLOC_SYS_WITH_LG_PAGE",
+]

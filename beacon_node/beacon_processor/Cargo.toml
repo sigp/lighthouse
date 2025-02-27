@@ -4,22 +4,22 @@ version = "0.1.0"
 edition = { workspace = true }
 
 [dependencies]
-slog = { workspace = true }
-itertools = { workspace = true }
-logging = { workspace = true }
-tokio = { workspace = true }
-tokio-util = { workspace = true }
-futures = { workspace = true }
 fnv = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+lighthouse_network = { workspace = true }
+logging = { workspace = true }
+metrics = { workspace = true }
+num_cpus = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+slog = { workspace = true }
+slot_clock = { workspace = true }
 strum = { workspace = true }
 task_executor = { workspace = true }
-slot_clock = { workspace = true }
-lighthouse_network = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
 types = { workspace = true }
-metrics = { workspace = true }
-parking_lot = { workspace = true }
-num_cpus = { workspace = true }
-serde = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
