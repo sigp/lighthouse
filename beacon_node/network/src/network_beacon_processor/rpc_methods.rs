@@ -95,25 +95,59 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Some("Different system clocks or genesis time".to_string())
         } else {
             match remote.finalized_epoch.cmp(&local.finalized_epoch) {
-                // This peer has a finalized epoch less than ours. We could check here if their
-                // finalized root matches one in imported chain. However this check can be very
-                // expensive. Consider the cases:
+                // This peer has a finalized epoch less than ours. This peer is likely to not be
+                // useful to us, as they want to sync from us. As a nice gesture, we could do work
+                // from them and check if their finalized_root matches our imported chain.
+                // However, this check is unncessary, as if we are incompatible the peer will be
+                // eventually disconnected anyway. Consider the two cases:
+                //
                 // - Peer is our chain: we should forward peer to sync to allow them to sync from us
                 // - Peer is on a different chain: the peer will query blocks from us which they
                 //   won't be able to import. The peer will eventually disconnect from us as we are
                 //   not useful to them. If the peer is synced, it will forward us blocks over
                 //   gossip from a different chain, and will eventually be disconnected. If the
                 //   peer does nothing, the peer manager will eventually disconnect the peer for low
-                //   gossip score. So we choose to NOT eagerly check that the peer is our chain for
-                //   performance reasons and simplicity.
-                Ordering::Less => None,
+                //   gossip score.
+                //
+                // Doing a DB read to check _any_ finalized root has proven to be very expensive and
+                // REKT lighthouse in multiple ocassions, see https://github.com/sigp/lighthouse/pull/5481
+                // So we won't do that. But, we can use the cached head to check recent roots, which is
+                // free and covers most cases of peers close to be considered fully synced (the most
+                // useful peers to us).
+                Ordering::Less => {
+                    match self
+                        .chain
+                        .canonical_head
+                        .cached_head()
+                        .snapshot
+                        .beacon_state
+                        .get_block_root_at_epoch(remote.finalized_epoch)
+                    {
+                        Ok(block_root_at_remote_finalized_epoch) => {
+                            if remote.finalized_root == *block_root_at_remote_finalized_epoch {
+                                // Definitely on same finalized chain, forward peer to sync
+                                None
+                            } else {
+                                Some(format!(
+                                    "Different finalized chain, expected {} got {}",
+                                    block_root_at_remote_finalized_epoch, remote.finalized_root
+                                ))
+                            }
+                        }
+                        // Out of bounds root check, allow the peer to connected to us and expect
+                        // they to disconnect or be disconnected if we are in incompatible chains
+                        Err(_) => None,
+                    }
+                }
                 Ordering::Equal => {
                     if remote.finalized_root == local.finalized_root {
                         // Definitely on same finalized chain, forward peer to sync
                         None
                     } else {
-                        // Definitely on a different chain, disconnect immediatelly
-                        Some("Different finalized chain".to_string())
+                        Some(format!(
+                            "Different finalized chain, expected {} got {}",
+                            local.finalized_root, remote.finalized_root
+                        ))
                     }
                 }
                 // Peer claims to know about a finalized checkpoint ahead of hours. Send peer to
