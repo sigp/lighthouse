@@ -150,7 +150,7 @@ pub struct ExecutionBlock {
 impl ExecutionBlock {
     pub fn terminal_total_difficulty_reached(&self, terminal_total_difficulty: Uint256) -> bool {
         self.total_difficulty
-            .map_or(true, |td| td >= terminal_total_difficulty)
+            .is_none_or(|td| td >= terminal_total_difficulty)
     }
 }
 
