@@ -13,11 +13,12 @@ use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo
 use methods::LightClientUpdatesByRangeRequest;
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
+use std::cmp::Ordering;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{EthSpec, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -73,7 +74,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         remote: &StatusMessage,
     ) -> Result<Option<String>, BeaconChainError> {
         let local = self.chain.status_message();
-        let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
         let irrelevant_reason = if local.fork_digest != remote.fork_digest {
             // The node is on a different network/fork
@@ -93,41 +93,33 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // current slot. This could be because they are using a different genesis time, or that
             // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time".to_string())
-        } else if (remote.finalized_epoch == local.finalized_epoch
-            && remote.finalized_root == local.finalized_root)
-            || remote.finalized_root.is_zero()
-            || local.finalized_root.is_zero()
-            || remote.finalized_epoch > local.finalized_epoch
-        {
-            // Fast path. Remote finalized checkpoint is either identical, or genesis, or we are at
-            // genesis, or they are ahead. In all cases, we should allow this peer to connect to us
-            // so we can sync from them.
-            None
         } else {
-            // Remote finalized epoch is less than ours.
-            let remote_finalized_slot = start_slot(remote.finalized_epoch);
-            if remote_finalized_slot < self.chain.store.get_oldest_block_slot() {
-                // Peer's finalized checkpoint is older than anything in our DB. We are unlikely
-                // to be able to help them sync.
-                Some("Old finality out of range".to_string())
-            } else if remote_finalized_slot < self.chain.store.get_split_slot() {
-                // Peer's finalized slot is in range for a quick block root check in our freezer DB.
-                // If that block root check fails, reject them as they're on a different finalized
-                // chain.
-                if self
-                    .chain
-                    .block_root_at_slot(remote_finalized_slot, WhenSlotSkipped::Prev)
-                    .map(|root_opt| root_opt != Some(remote.finalized_root))?
-                {
-                    Some("Different finalized chain".to_string())
-                } else {
-                    None
+            match remote.finalized_epoch.cmp(&local.finalized_epoch) {
+                // This peer has a finalized epoch less than ours. We could check here if their
+                // finalized root matches one in imported chain. However this check can be very
+                // expensive. Consider the cases:
+                // - Peer is our chain: we should forward peer to sync to allow them to sync from us
+                // - Peer is on a different chain: the peer will query blocks from us which they
+                //   won't be able to import. The peer will eventually disconnect from us as we are
+                //   not useful to them. If the peer is synced, it will forward us blocks over
+                //   gossip from a different chain, and will eventually be disconnected. If the
+                //   peer does nothing, the peer manager will eventually disconnect the peer for low
+                //   gossip score. So we choose to NOT eagerly check that the peer is our chain for
+                //   performance reasons and simplicity.
+                Ordering::Less => None,
+                Ordering::Equal => {
+                    if remote.finalized_root == local.finalized_root {
+                        // Definitely on same finalized chain, forward peer to sync
+                        None
+                    } else {
+                        // Definitely on a different chain, disconnect immediatelly
+                        Some("Different finalized chain".to_string())
+                    }
                 }
-            } else {
-                // Peer's finality is older than ours, but newer than our split point, making a
-                // block root check infeasible. This case shouldn't happen particularly often so
-                // we give the peer the benefit of the doubt and let them connect to us.
-                None
+                // Peer claims to know about a finalized checkpoint ahead of hours. Send peer to
+                // sync to query its blocks. If the peer turns out to be in an invalid fork, block
+                // processing will error and we will disconnect the peer.
+                Ordering::Greater => None,
             }
         };
 
