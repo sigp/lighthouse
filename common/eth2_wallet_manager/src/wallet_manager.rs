@@ -296,10 +296,10 @@ mod tests {
             )
             .expect("should create first wallet");
 
-        let uuid = w.wallet().uuid().clone();
+        let uuid = *w.wallet().uuid();
 
         assert_eq!(
-            load_wallet_raw(&base_dir, &uuid).nextaccount(),
+            load_wallet_raw(base_dir, &uuid).nextaccount(),
             0,
             "should start wallet with nextaccount 0"
         );
@@ -308,7 +308,7 @@ mod tests {
             w.next_validator(WALLET_PASSWORD, &[50; 32], &[51; 32])
                 .expect("should create validator");
             assert_eq!(
-                load_wallet_raw(&base_dir, &uuid).nextaccount(),
+                load_wallet_raw(base_dir, &uuid).nextaccount(),
                 i,
                 "should update wallet with nextaccount {}",
                 i
@@ -333,54 +333,54 @@ mod tests {
         let base_dir = dir.path();
         let mgr = WalletManager::open(base_dir).unwrap();
 
-        let uuid_a = create_wallet(&mgr, 0).wallet().uuid().clone();
-        let uuid_b = create_wallet(&mgr, 1).wallet().uuid().clone();
+        let uuid_a = *create_wallet(&mgr, 0).wallet().uuid();
+        let uuid_b = *create_wallet(&mgr, 1).wallet().uuid();
 
-        let locked_a = LockedWallet::open(&base_dir, &uuid_a).expect("should open wallet a");
+        let locked_a = LockedWallet::open(base_dir, &uuid_a).expect("should open wallet a");
 
         assert!(
-            lockfile_path(&base_dir, &uuid_a).exists(),
+            lockfile_path(base_dir, &uuid_a).exists(),
             "lockfile should exist"
         );
 
         drop(locked_a);
 
         assert!(
-            !lockfile_path(&base_dir, &uuid_a).exists(),
+            !lockfile_path(base_dir, &uuid_a).exists(),
             "lockfile have been cleaned up"
         );
 
-        let locked_a = LockedWallet::open(&base_dir, &uuid_a).expect("should open wallet a");
-        let locked_b = LockedWallet::open(&base_dir, &uuid_b).expect("should open wallet b");
+        let locked_a = LockedWallet::open(base_dir, &uuid_a).expect("should open wallet a");
+        let locked_b = LockedWallet::open(base_dir, &uuid_b).expect("should open wallet b");
 
         assert!(
-            lockfile_path(&base_dir, &uuid_a).exists(),
+            lockfile_path(base_dir, &uuid_a).exists(),
             "lockfile a should exist"
         );
 
         assert!(
-            lockfile_path(&base_dir, &uuid_b).exists(),
+            lockfile_path(base_dir, &uuid_b).exists(),
             "lockfile b should exist"
         );
 
-        match LockedWallet::open(&base_dir, &uuid_a) {
+        match LockedWallet::open(base_dir, &uuid_a) {
             Err(Error::LockfileError(_)) => {}
             _ => panic!("did not get locked error"),
         };
 
         drop(locked_a);
 
-        LockedWallet::open(&base_dir, &uuid_a)
+        LockedWallet::open(base_dir, &uuid_a)
             .expect("should open wallet a after previous instance is dropped");
 
-        match LockedWallet::open(&base_dir, &uuid_b) {
+        match LockedWallet::open(base_dir, &uuid_b) {
             Err(Error::LockfileError(_)) => {}
             _ => panic!("did not get locked error"),
         };
 
         drop(locked_b);
 
-        LockedWallet::open(&base_dir, &uuid_b)
+        LockedWallet::open(base_dir, &uuid_b)
             .expect("should open wallet a after previous instance is dropped");
     }
 }

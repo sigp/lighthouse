@@ -26,7 +26,7 @@ Lighthouse is:
 - Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
 - Funded by various organisations, including Sigma Prime, the
-	Ethereum Foundation, ConsenSys, the Decentralization Foundation and private individuals.
+	Ethereum Foundation, Consensys, the Decentralization Foundation and private individuals.
 - Actively involved in the specification and security analysis of the
 	Ethereum proof-of-stake consensus specification.
 
@@ -41,7 +41,7 @@ as the canonical staking deposit contract address.
 The [Lighthouse Book](https://lighthouse-book.sigmaprime.io) contains information for users and
 developers.
 
-The Lighthouse team maintains a blog at [lighthouse-blog.sigmaprime.io][blog] which contains periodic
+The Lighthouse team maintains a blog at [https://blog.sigmaprime.io/tag/lighthouse][blog] which contains periodic
 progress updates, roadmap insights and interesting findings.
 
 ## Branches

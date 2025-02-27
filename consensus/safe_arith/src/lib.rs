@@ -155,12 +155,12 @@ mod test {
 
     #[test]
     fn errors() {
-        assert!(u32::max_value().safe_add(1).is_err());
-        assert!(u32::min_value().safe_sub(1).is_err());
-        assert!(u32::max_value().safe_mul(2).is_err());
-        assert!(u32::max_value().safe_div(0).is_err());
-        assert!(u32::max_value().safe_rem(0).is_err());
-        assert!(u32::max_value().safe_shl(32).is_err());
-        assert!(u32::max_value().safe_shr(32).is_err());
+        assert!(u32::MAX.safe_add(1).is_err());
+        assert!(u32::MIN.safe_sub(1).is_err());
+        assert!(u32::MAX.safe_mul(2).is_err());
+        assert!(u32::MAX.safe_div(0).is_err());
+        assert!(u32::MAX.safe_rem(0).is_err());
+        assert!(u32::MAX.safe_shl(32).is_err());
+        assert!(u32::MAX.safe_shr(32).is_err());
     }
 }

@@ -17,52 +17,27 @@ impl ForkContext {
     /// fork digest.
     ///
     /// A fork is disabled in the `ChainSpec` if the activation slot corresponding to that fork is `None`.
-    pub fn new<T: EthSpec>(
+    pub fn new<E: EthSpec>(
         current_slot: Slot,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> Self {
-        let mut fork_to_digest = vec![(
-            ForkName::Base,
-            ChainSpec::compute_fork_digest(spec.genesis_fork_version, genesis_validators_root),
-        )];
-
-        // Only add Altair to list of forks if it's enabled
-        // Note: `altair_fork_epoch == None` implies altair hasn't been activated yet on the config.
-        if spec.altair_fork_epoch.is_some() {
-            fork_to_digest.push((
-                ForkName::Altair,
-                ChainSpec::compute_fork_digest(spec.altair_fork_version, genesis_validators_root),
-            ));
-        }
-
-        // Only add Merge to list of forks if it's enabled
-        // Note: `bellatrix_fork_epoch == None` implies merge hasn't been activated yet on the config.
-        if spec.bellatrix_fork_epoch.is_some() {
-            fork_to_digest.push((
-                ForkName::Merge,
-                ChainSpec::compute_fork_digest(
-                    spec.bellatrix_fork_version,
-                    genesis_validators_root,
-                ),
-            ));
-        }
-
-        if spec.capella_fork_epoch.is_some() {
-            fork_to_digest.push((
-                ForkName::Capella,
-                ChainSpec::compute_fork_digest(spec.capella_fork_version, genesis_validators_root),
-            ));
-        }
-
-        if spec.deneb_fork_epoch.is_some() {
-            fork_to_digest.push((
-                ForkName::Deneb,
-                ChainSpec::compute_fork_digest(spec.deneb_fork_version, genesis_validators_root),
-            ));
-        }
-
-        let fork_to_digest: HashMap<ForkName, [u8; 4]> = fork_to_digest.into_iter().collect();
+        let fork_to_digest: HashMap<ForkName, [u8; 4]> = ForkName::list_all()
+            .into_iter()
+            .filter_map(|fork| {
+                if spec.fork_epoch(fork).is_some() {
+                    Some((
+                        fork,
+                        ChainSpec::compute_fork_digest(
+                            spec.fork_version_for_name(fork),
+                            genesis_validators_root,
+                        ),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let digest_to_fork = fork_to_digest
             .clone()
@@ -71,7 +46,7 @@ impl ForkContext {
             .collect();
 
         Self {
-            current_fork: RwLock::new(spec.fork_name_at_slot::<T>(current_slot)),
+            current_fork: RwLock::new(spec.fork_name_at_slot::<E>(current_slot)),
             fork_to_digest,
             digest_to_fork,
             spec: spec.clone(),

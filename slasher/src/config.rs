@@ -11,20 +11,23 @@ pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
 pub const DEFAULT_HISTORY_LENGTH: usize = 4096;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
 pub const DEFAULT_SLOT_OFFSET: f64 = 10.5;
-pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
+pub const DEFAULT_MAX_DB_SIZE: usize = 512 * 1024; // 512 GiB
 pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(100_000);
 pub const DEFAULT_BROADCAST: bool = false;
 
-#[cfg(all(feature = "mdbx", not(feature = "lmdb")))]
+#[cfg(all(feature = "mdbx", not(any(feature = "lmdb", feature = "redb"))))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Mdbx;
 #[cfg(feature = "lmdb")]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Lmdb;
-#[cfg(not(any(feature = "mdbx", feature = "lmdb")))]
+#[cfg(all(feature = "redb", not(any(feature = "mdbx", feature = "lmdb"))))]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Redb;
+#[cfg(not(any(feature = "mdbx", feature = "lmdb", feature = "redb")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Disabled;
 
 pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
 pub const MEGABYTE: usize = 1 << 20;
 pub const MDBX_DATA_FILENAME: &str = "mdbx.dat";
+pub const REDB_DATA_FILENAME: &str = "slasher.redb";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -64,6 +67,8 @@ pub enum DatabaseBackend {
     Mdbx,
     #[cfg(feature = "lmdb")]
     Lmdb,
+    #[cfg(feature = "redb")]
+    Redb,
     Disabled,
 }
 
@@ -166,8 +171,7 @@ impl Config {
         validator_chunk_index: usize,
     ) -> impl Iterator<Item = u64> + 'a {
         attestation
-            .attesting_indices
-            .iter()
+            .attesting_indices_iter()
             .filter(move |v| self.validator_chunk_index(**v) == validator_chunk_index)
             .copied()
     }

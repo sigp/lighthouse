@@ -5,6 +5,10 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use serde::Deserialize;
 use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
+use state_processing::epoch_cache::initialize_epoch_cache;
+use state_processing::per_block_processing::process_operations::{
+    process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
+};
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
@@ -19,10 +23,11 @@ use state_processing::{
 };
 use std::fmt::Debug;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyCapella,
-    BeaconBlockBodyDeneb, BeaconBlockBodyMerge, BeaconState, BlindedPayload, Deposit,
-    ExecutionPayload, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, SyncAggregate,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
+    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
+    ForkVersionDecode, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
+    SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -38,8 +43,8 @@ struct ExecutionMetadata {
 
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
-pub struct WithdrawalsPayload<T: EthSpec> {
-    payload: FullPayload<T>,
+pub struct WithdrawalsPayload<E: EthSpec> {
+    payload: FullPayload<E>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,8 +82,12 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         "attestation".into()
     }
 
-    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path)
+    fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        if fork_name < ForkName::Electra {
+            Ok(Self::Base(ssz_decode_file(path)?))
+        } else {
+            Ok(Self::Electra(ssz_decode_file(path)?))
+        }
     }
 
     fn apply_to(
@@ -87,29 +96,26 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
+        initialize_epoch_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
-        match state {
-            BeaconState::Base(_) => base::process_attestations(
+        if state.fork_name_unchecked().altair_enabled() {
+            initialize_progressive_balances_cache(state, spec)?;
+            altair_deneb::process_attestation(
                 state,
-                &[self.clone()],
+                self.to_ref(),
+                0,
+                &mut ctxt,
+                VerifySignatures::True,
+                spec,
+            )
+        } else {
+            base::process_attestations(
+                state,
+                [self.clone().to_ref()].into_iter(),
                 VerifySignatures::True,
                 &mut ctxt,
                 spec,
-            ),
-            BeaconState::Altair(_)
-            | BeaconState::Merge(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => {
-                initialize_progressive_balances_cache(state, None, spec)?;
-                altair_deneb::process_attestation(
-                    state,
-                    self,
-                    0,
-                    &mut ctxt,
-                    VerifySignatures::True,
-                    spec,
-                )
-            }
+            )
         }
     }
 }
@@ -119,8 +125,12 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         "attester_slashing".into()
     }
 
-    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path)
+    fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        if fork_name.electra_enabled() {
+            Ok(Self::Electra(ssz_decode_file(path)?))
+        } else {
+            Ok(Self::Base(ssz_decode_file(path)?))
+        }
     }
 
     fn apply_to(
@@ -130,10 +140,10 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        initialize_progressive_balances_cache(state, None, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         process_attester_slashings(
             state,
-            &[self.clone()],
+            [self.clone().to_ref()].into_iter(),
             VerifySignatures::True,
             &mut ctxt,
             spec,
@@ -181,7 +191,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        initialize_progressive_balances_cache(state, None, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         process_proposer_slashings(
             state,
             &[self.clone()],
@@ -252,7 +262,7 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
+        fork_name.altair_enabled()
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -280,15 +290,17 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair
+        fork_name.bellatrix_enabled()
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
             Ok(match fork_name {
-                ForkName::Merge => BeaconBlockBody::Merge(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Bellatrix => BeaconBlockBody::Bellatrix(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Fulu => BeaconBlockBody::Fulu(<_>::from_ssz_bytes(bytes)?),
                 _ => panic!(),
             })
         })
@@ -303,7 +315,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
         let valid = extra
             .execution_metadata
             .as_ref()
-            .map_or(false, |e| e.execution_valid);
+            .is_some_and(|e| e.execution_valid);
         if valid {
             process_execution_payload::<E, FullPayload<E>>(state, self.to_ref(), spec)
         } else {
@@ -321,15 +333,16 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair
+        fork_name.bellatrix_enabled()
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
             Ok(match fork_name {
-                ForkName::Merge => {
-                    let inner = <BeaconBlockBodyMerge<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
-                    BeaconBlockBody::Merge(inner.clone_as_blinded())
+                ForkName::Bellatrix => {
+                    let inner =
+                        <BeaconBlockBodyBellatrix<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Bellatrix(inner.clone_as_blinded())
                 }
                 ForkName::Capella => {
                     let inner = <BeaconBlockBodyCapella<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
@@ -338,6 +351,14 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                 ForkName::Deneb => {
                     let inner = <BeaconBlockBodyDeneb<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Deneb(inner.clone_as_blinded())
+                }
+                ForkName::Electra => {
+                    let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Electra(inner.clone_as_blinded())
+                }
+                ForkName::Fulu => {
+                    let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Electra(inner.clone_as_blinded())
                 }
                 _ => panic!(),
             })
@@ -353,7 +374,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
         let valid = extra
             .execution_metadata
             .as_ref()
-            .map_or(false, |e| e.execution_valid);
+            .is_some_and(|e| e.execution_valid);
         if valid {
             process_execution_payload::<E, BlindedPayload<E>>(state, self.to_ref(), spec)
         } else {
@@ -372,12 +393,12 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
+        fork_name.capella_enabled()
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
-            ExecutionPayload::from_ssz_bytes(bytes, fork_name)
+            ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
         })
         .map(|payload| WithdrawalsPayload {
             payload: payload.into(),
@@ -404,7 +425,7 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
+        fork_name.capella_enabled()
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -418,6 +439,77 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for WithdrawalRequest {
+    fn handler_name() -> String {
+        "withdrawal_request".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.electra_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        state.update_pubkey_cache()?;
+        process_withdrawal_requests(state, &[self.clone()], spec)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for DepositRequest {
+    fn handler_name() -> String {
+        "deposit_request".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.electra_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        process_deposit_requests(state, &[self.clone()], spec)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for ConsolidationRequest {
+    fn handler_name() -> String {
+        "consolidation_request".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.electra_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        state.update_pubkey_cache()?;
+        process_consolidation_requests(state, &[self.clone()], spec)
     }
 }
 
@@ -483,14 +575,22 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let spec = &testing_spec::<E>(fork_name);
-        let mut state = self.pre.clone();
-        let mut expected = self.post.clone();
 
+        let mut pre_state = self.pre.clone();
         // Processing requires the committee caches.
         // NOTE: some of the withdrawals tests have 0 active validators, do not try
         // to build the commitee cache in this case.
         if O::handler_name() != "withdrawals" {
-            state.build_all_committee_caches(spec).unwrap();
+            pre_state.build_all_committee_caches(spec).unwrap();
+        }
+
+        let mut state = pre_state.clone();
+        let mut expected = self.post.clone();
+
+        if O::handler_name() != "withdrawals" {
+            if let Some(post_state) = expected.as_mut() {
+                post_state.build_all_committee_caches(spec).unwrap();
+            }
         }
 
         let mut result = self

@@ -1,35 +1,159 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
-use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
-use super::manager::{Id, RequestId as SyncRequestId};
-use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
+use self::custody::{ActiveCustodyRequest, Error as CustodyRequestError};
+pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest};
+use super::block_sidecar_coupling::RangeBlockComponentsRequest;
+use super::manager::BlockProcessType;
+use super::range_sync::ByRangeRequestType;
+use super::SyncMessage;
+use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
-use crate::service::{NetworkMessage, RequestId};
+use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use crate::sync::block_lookups::common::LookupType;
-use crate::sync::manager::SingleLookupReqId;
+use crate::sync::block_lookups::SingleLookupId;
+use crate::sync::network_context::requests::BlobsByRootSingleBlockRequest;
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
+use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
-use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
-use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
-use slog::{debug, trace, warn};
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
+use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, RequestType};
+pub use lighthouse_network::service::api_types::RangeRequestId;
+use lighthouse_network::service::api_types::{
+    AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+    CustodyId, CustodyRequester, DataColumnsByRangeRequestId, DataColumnsByRootRequestId,
+    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+};
+use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
+use parking_lot::RwLock;
+use rand::prelude::IteratorRandom;
+use rand::thread_rng;
+pub use requests::LookupVerifyError;
+use requests::{
+    ActiveRequests, BlobsByRangeRequestItems, BlobsByRootRequestItems, BlocksByRangeRequestItems,
+    BlocksByRootRequestItems, DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
+};
+use slog::{debug, error, warn};
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::blob_sidecar::FixedBlobSidecarList;
+use types::{
+    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
+    Hash256, SignedBeaconBlock, Slot,
+};
 
-pub struct BlocksAndBlobsByRangeResponse<T: EthSpec> {
-    pub batch_id: BatchId,
-    pub responses: Result<Vec<RpcBlock<T>>, String>,
+pub mod custody;
+mod requests;
+
+#[derive(Debug)]
+pub enum RpcEvent<T> {
+    StreamTermination,
+    Response(T, Duration),
+    RPCError(RPCError),
 }
 
-pub struct BlocksAndBlobsByRangeRequest<T: EthSpec> {
-    pub chain_id: ChainId,
-    pub batch_id: BatchId,
-    pub block_blob_info: BlocksAndBlobsRequestInfo<T>,
+impl<T> RpcEvent<T> {
+    pub fn from_chunk(chunk: Option<T>, seen_timestamp: Duration) -> Self {
+        match chunk {
+            Some(item) => RpcEvent::Response(item, seen_timestamp),
+            None => RpcEvent::StreamTermination,
+        }
+    }
+}
+
+pub type RpcResponseResult<T> = Result<(T, Duration), RpcResponseError>;
+
+pub type CustodyByRootResult<T> = Result<(DataColumnSidecarList<T>, PeerGroup), RpcResponseError>;
+
+#[derive(Debug)]
+pub enum RpcResponseError {
+    RpcError(RPCError),
+    VerifyError(LookupVerifyError),
+    CustodyRequestError(CustodyRequestError),
+    BlockComponentCouplingError(String),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RpcRequestSendError {
+    /// Network channel send failed
+    NetworkSendError,
+    NoCustodyPeers,
+    CustodyRequestError(custody::Error),
+    SlotClockError,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SendErrorProcessor {
+    SendError,
+    ProcessorNotAvailable,
+}
+
+impl From<RPCError> for RpcResponseError {
+    fn from(e: RPCError) -> Self {
+        RpcResponseError::RpcError(e)
+    }
+}
+
+impl From<LookupVerifyError> for RpcResponseError {
+    fn from(e: LookupVerifyError) -> Self {
+        RpcResponseError::VerifyError(e)
+    }
+}
+
+/// Represents a group of peers that served a block component.
+#[derive(Clone, Debug)]
+pub struct PeerGroup {
+    /// Peers group by which indexed section of the block component they served. For example:
+    /// - PeerA served = [blob index 0, blob index 2]
+    /// - PeerA served = [blob index 1]
+    peers: HashMap<PeerId, Vec<usize>>,
+}
+
+impl PeerGroup {
+    /// Return a peer group where a single peer returned all parts of a block component. For
+    /// example, a block has a single component (the block = index 0/1).
+    pub fn from_single(peer: PeerId) -> Self {
+        Self {
+            peers: HashMap::from_iter([(peer, vec![0])]),
+        }
+    }
+    pub fn from_set(peers: HashMap<PeerId, Vec<usize>>) -> Self {
+        Self { peers }
+    }
+    pub fn all(&self) -> impl Iterator<Item = &PeerId> + '_ {
+        self.peers.keys()
+    }
+    pub fn of_index(&self, index: usize) -> impl Iterator<Item = &PeerId> + '_ {
+        self.peers.iter().filter_map(move |(peer, indices)| {
+            if indices.contains(&index) {
+                Some(peer)
+            } else {
+                None
+            }
+        })
+    }
+}
+
+/// Sequential ID that uniquely identifies ReqResp outgoing requests
+pub type ReqId = u32;
+
+pub enum LookupRequestResult<I = ReqId> {
+    /// A request is sent. Sync MUST receive an event from the network in the future for either:
+    /// completed response or failed request
+    RequestSent(I),
+    /// No request is sent, and no further action is necessary to consider this request completed.
+    /// Includes a reason why this request is not needed.
+    NoRequestNeeded(&'static str),
+    /// No request is sent, but the request is not completed. Sync MUST receive some future event
+    /// that makes progress on the request. For example: request is processing from a different
+    /// source (i.e. block received from gossip) and sync MUST receive an event with that processing
+    /// result.
+    Pending(&'static str),
 }
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
@@ -40,18 +164,30 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// A sequential ID for all RPC requests.
     request_id: Id,
 
-    /// BlocksByRange requests made by the range syncing algorithm.
-    range_requests: FnvHashMap<Id, (ChainId, BatchId)>,
+    /// A mapping of active BlocksByRoot requests, including both current slot and parent lookups.
+    blocks_by_root_requests:
+        ActiveRequests<SingleLookupReqId, BlocksByRootRequestItems<T::EthSpec>>,
+    /// A mapping of active BlobsByRoot requests, including both current slot and parent lookups.
+    blobs_by_root_requests: ActiveRequests<SingleLookupReqId, BlobsByRootRequestItems<T::EthSpec>>,
+    /// A mapping of active DataColumnsByRoot requests
+    data_columns_by_root_requests:
+        ActiveRequests<DataColumnsByRootRequestId, DataColumnsByRootRequestItems<T::EthSpec>>,
+    /// A mapping of active BlocksByRange requests
+    blocks_by_range_requests:
+        ActiveRequests<BlocksByRangeRequestId, BlocksByRangeRequestItems<T::EthSpec>>,
+    /// A mapping of active BlobsByRange requests
+    blobs_by_range_requests:
+        ActiveRequests<BlobsByRangeRequestId, BlobsByRangeRequestItems<T::EthSpec>>,
+    /// A mapping of active DataColumnsByRange requests
+    data_columns_by_range_requests:
+        ActiveRequests<DataColumnsByRangeRequestId, DataColumnsByRangeRequestItems<T::EthSpec>>,
 
-    /// BlocksByRange requests made by backfill syncing.
-    backfill_requests: FnvHashMap<Id, BatchId>,
+    /// Mapping of active custody column requests for a block root
+    custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
-    /// BlocksByRange requests paired with BlobsByRange requests made by the range.
-    range_blocks_and_blobs_requests: FnvHashMap<Id, BlocksAndBlobsByRangeRequest<T::EthSpec>>,
-
-    /// BlocksByRange requests paired with BlobsByRange requests made by the backfill sync.
-    backfill_blocks_and_blobs_requests:
-        FnvHashMap<Id, (BatchId, BlocksAndBlobsRequestInfo<T::EthSpec>)>,
+    /// BlocksByRange requests paired with other ByRange requests for data components
+    components_by_range_requests:
+        FnvHashMap<ComponentsByRangeRequestId, RangeBlockComponentsRequest<T::EthSpec>>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -62,26 +198,17 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     pub chain: Arc<BeaconChain<T>>,
 
+    fork_context: Arc<ForkContext>,
+
     /// Logger for the `SyncNetworkContext`.
     pub log: slog::Logger,
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
-pub enum BlockOrBlob<T: EthSpec> {
-    Block(Option<Arc<SignedBeaconBlock<T>>>),
-    Blob(Option<Arc<BlobSidecar<T>>>),
-}
-
-impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlob<T> {
-    fn from(block: Option<Arc<SignedBeaconBlock<T>>>) -> Self {
-        BlockOrBlob::Block(block)
-    }
-}
-
-impl<T: EthSpec> From<Option<Arc<BlobSidecar<T>>>> for BlockOrBlob<T> {
-    fn from(blob: Option<Arc<BlobSidecar<T>>>) -> Self {
-        BlockOrBlob::Blob(blob)
-    }
+pub enum RangeBlockComponent<E: EthSpec> {
+    Block(RpcResponseResult<Vec<Arc<SignedBeaconBlock<E>>>>),
+    Blob(RpcResponseResult<Vec<Arc<BlobSidecar<E>>>>),
+    CustodyColumns(RpcResponseResult<Vec<Arc<DataColumnSidecar<E>>>>),
 }
 
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
@@ -89,20 +216,101 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         chain: Arc<BeaconChain<T>>,
+        fork_context: Arc<ForkContext>,
         log: slog::Logger,
     ) -> Self {
         SyncNetworkContext {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
             request_id: 1,
-            range_requests: FnvHashMap::default(),
-            backfill_requests: FnvHashMap::default(),
-            range_blocks_and_blobs_requests: FnvHashMap::default(),
-            backfill_blocks_and_blobs_requests: FnvHashMap::default(),
+            blocks_by_root_requests: ActiveRequests::new("blocks_by_root"),
+            blobs_by_root_requests: ActiveRequests::new("blobs_by_root"),
+            data_columns_by_root_requests: ActiveRequests::new("data_columns_by_root"),
+            blocks_by_range_requests: ActiveRequests::new("blocks_by_range"),
+            blobs_by_range_requests: ActiveRequests::new("blobs_by_range"),
+            data_columns_by_range_requests: ActiveRequests::new("data_columns_by_range"),
+            custody_by_root_requests: <_>::default(),
+            components_by_range_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
+            fork_context,
             log,
         }
+    }
+
+    pub fn send_sync_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
+        self.network_beacon_processor
+            .send_sync_message(sync_message);
+    }
+
+    /// Returns the ids of all the requests made to the given peer_id.
+    pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Vec<SyncRequestId> {
+        // Note: using destructuring pattern without a default case to make sure we don't forget to
+        // add new request types to this function. Otherwise, lookup sync can break and lookups
+        // will get stuck if a peer disconnects during an active requests.
+        let Self {
+            network_send: _,
+            request_id: _,
+            blocks_by_root_requests,
+            blobs_by_root_requests,
+            data_columns_by_root_requests,
+            blocks_by_range_requests,
+            blobs_by_range_requests,
+            data_columns_by_range_requests,
+            // custody_by_root_requests is a meta request of data_columns_by_root_requests
+            custody_by_root_requests: _,
+            // components_by_range_requests is a meta request of various _by_range requests
+            components_by_range_requests: _,
+            execution_engine_state: _,
+            network_beacon_processor: _,
+            chain: _,
+            fork_context: _,
+            log: _,
+        } = self;
+
+        let blocks_by_root_ids = blocks_by_root_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|id| SyncRequestId::SingleBlock { id: *id });
+        let blobs_by_root_ids = blobs_by_root_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|id| SyncRequestId::SingleBlob { id: *id });
+        let data_column_by_root_ids = data_columns_by_root_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|req_id| SyncRequestId::DataColumnsByRoot(*req_id));
+        let blocks_by_range_ids = blocks_by_range_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|req_id| SyncRequestId::BlocksByRange(*req_id));
+        let blobs_by_range_ids = blobs_by_range_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|req_id| SyncRequestId::BlobsByRange(*req_id));
+        let data_column_by_range_ids = data_columns_by_range_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|req_id| SyncRequestId::DataColumnsByRange(*req_id));
+
+        blocks_by_root_ids
+            .chain(blobs_by_root_ids)
+            .chain(data_column_by_root_ids)
+            .chain(blocks_by_range_ids)
+            .chain(blobs_by_range_ids)
+            .chain(data_column_by_range_ids)
+            .collect()
+    }
+
+    pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
+        self.network_globals()
+            .custody_peers_for_column(column_index)
+    }
+
+    pub fn get_random_custodial_peer(&self, column_index: ColumnIndex) -> Option<PeerId> {
+        self.get_custodial_peers(column_index)
+            .into_iter()
+            .choose(&mut thread_rng())
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -133,8 +341,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "head_slot" => %status_message.head_slot,
             );
 
-            let request = Request::Status(status_message.clone());
-            let request_id = RequestId::Router;
+            let request = RequestType::Status(status_message.clone());
+            let request_id = AppRequestId::Router;
             let _ = self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
                 request,
@@ -143,367 +351,542 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// A blocks by range request for the range sync algorithm.
-    pub fn blocks_by_range_request(
+    /// A blocks by range request sent by the range sync algorithm
+    pub fn block_components_by_range_request(
         &mut self,
         peer_id: PeerId,
         batch_type: ByRangeRequestType,
         request: BlocksByRangeRequest,
-        chain_id: ChainId,
-        batch_id: BatchId,
-    ) -> Result<Id, &'static str> {
-        match batch_type {
-            ByRangeRequestType::Blocks => {
-                trace!(
-                    self.log,
-                    "Sending BlocksByRange request";
-                    "method" => "BlocksByRange",
-                    "count" => request.count(),
-                    "peer" => %peer_id,
-                );
-                let request = Request::BlocksByRange(request);
-                let id = self.next_id();
-                let request_id = RequestId::Sync(SyncRequestId::RangeBlocks { id });
-                self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id,
-                    request,
-                    request_id,
-                })?;
-                self.range_requests.insert(id, (chain_id, batch_id));
-                Ok(id)
-            }
-            ByRangeRequestType::BlocksAndBlobs => {
-                debug!(
-                    self.log,
-                    "Sending BlocksByRange and BlobsByRange requests";
-                    "method" => "Mixed by range request",
-                    "count" => request.count(),
-                    "peer" => %peer_id,
-                );
+        requester: RangeRequestId,
+    ) -> Result<Id, RpcRequestSendError> {
+        // Create the overall components_by_range request ID before its individual components
+        let id = ComponentsByRangeRequestId {
+            id: self.next_id(),
+            requester,
+        };
 
-                // create the shared request id. This is fine since the rpc handles substream ids.
-                let id = self.next_id();
-                let request_id = RequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id });
+        let _blocks_req_id = self.send_blocks_by_range_request(peer_id, request.clone(), id)?;
 
-                // Create the blob request based on the blob request.
-                let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
+        let blobs_req_id = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
+            Some(self.send_blobs_by_range_request(
+                peer_id,
+                BlobsByRangeRequest {
                     start_slot: *request.start_slot(),
                     count: *request.count(),
-                });
-                let blocks_request = Request::BlocksByRange(request);
+                },
+                id,
+            )?)
+        } else {
+            None
+        };
 
-                // Send both requests. Make sure both can be sent.
-                self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id,
-                    request: blocks_request,
-                    request_id,
-                })?;
-                self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id,
-                    request: blobs_request,
-                    request_id,
-                })?;
-                let block_blob_info = BlocksAndBlobsRequestInfo::default();
-                self.range_blocks_and_blobs_requests.insert(
-                    id,
-                    BlocksAndBlobsByRangeRequest {
-                        chain_id,
-                        batch_id,
-                        block_blob_info,
-                    },
-                );
-                Ok(id)
-            }
-        }
+        let (expects_columns, data_column_requests) =
+            if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
+                let column_indexes = self.network_globals().sampling_columns.clone();
+
+                let data_column_requests = self
+                    .make_columns_by_range_requests(request, &column_indexes)?
+                    .into_iter()
+                    .map(|(peer_id, columns_by_range_request)| {
+                        self.send_data_columns_by_range_request(
+                            peer_id,
+                            columns_by_range_request,
+                            id,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                (
+                    Some(column_indexes.into_iter().collect::<Vec<_>>()),
+                    Some(data_column_requests),
+                )
+            } else {
+                (None, None)
+            };
+
+        let expected_blobs = blobs_req_id.is_some();
+        let info = RangeBlockComponentsRequest::new(
+            expected_blobs,
+            expects_columns,
+            data_column_requests.map(|items| items.len()),
+        );
+        self.components_by_range_requests.insert(id, info);
+
+        Ok(id.id)
     }
 
-    /// A blocks by range request sent by the backfill sync algorithm
-    pub fn backfill_blocks_by_range_request(
-        &mut self,
-        peer_id: PeerId,
-        batch_type: ByRangeRequestType,
+    fn make_columns_by_range_requests(
+        &self,
         request: BlocksByRangeRequest,
-        batch_id: BatchId,
-    ) -> Result<Id, &'static str> {
-        match batch_type {
-            ByRangeRequestType::Blocks => {
-                trace!(
-                    self.log,
-                    "Sending backfill BlocksByRange request";
-                    "method" => "BlocksByRange",
-                    "count" => request.count(),
-                    "peer" => %peer_id,
-                );
-                let request = Request::BlocksByRange(request);
-                let id = self.next_id();
-                let request_id = RequestId::Sync(SyncRequestId::BackFillBlocks { id });
-                self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id,
-                    request,
-                    request_id,
-                })?;
-                self.backfill_requests.insert(id, batch_id);
-                Ok(id)
-            }
-            ByRangeRequestType::BlocksAndBlobs => {
-                debug!(
-                    self.log,
-                    "Sending backfill BlocksByRange and BlobsByRange requests";
-                    "method" => "Mixed by range request",
-                    "count" => request.count(),
-                    "peer" => %peer_id,
-                );
+        custody_indexes: &HashSet<ColumnIndex>,
+    ) -> Result<HashMap<PeerId, DataColumnsByRangeRequest>, RpcRequestSendError> {
+        let mut peer_id_to_request_map = HashMap::new();
 
-                // create the shared request id. This is fine since the rpc handles substream ids.
-                let id = self.next_id();
-                let request_id = RequestId::Sync(SyncRequestId::BackFillBlockAndBlobs { id });
+        for column_index in custody_indexes {
+            // TODO(das): The peer selection logic here needs to be improved - we should probably
+            // avoid retrying from failed peers, however `BatchState` currently only tracks the peer
+            // serving the blocks.
+            let Some(custody_peer) = self.get_random_custodial_peer(*column_index) else {
+                // TODO(das): this will be pretty bad UX. To improve we should:
+                // - Attempt to fetch custody requests first, before requesting blocks
+                // - Handle the no peers case gracefully, maybe add some timeout and give a few
+                //   minutes / seconds to the peer manager to locate peers on this subnet before
+                //   abandoing progress on the chain completely.
+                return Err(RpcRequestSendError::NoCustodyPeers);
+            };
 
-                // Create the blob request based on the blob request.
-                let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
+            let columns_by_range_request = peer_id_to_request_map
+                .entry(custody_peer)
+                .or_insert_with(|| DataColumnsByRangeRequest {
                     start_slot: *request.start_slot(),
                     count: *request.count(),
+                    columns: vec![],
                 });
-                let blocks_request = Request::BlocksByRange(request);
 
-                // Send both requests. Make sure both can be sent.
-                self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id,
-                    request: blocks_request,
-                    request_id,
-                })?;
-                self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id,
-                    request: blobs_request,
-                    request_id,
-                })?;
-                let block_blob_info = BlocksAndBlobsRequestInfo::default();
-                self.backfill_blocks_and_blobs_requests
-                    .insert(id, (batch_id, block_blob_info));
-                Ok(id)
-            }
+            columns_by_range_request.columns.push(*column_index);
         }
-    }
 
-    /// Response for a request that is only for blocks.
-    pub fn range_sync_block_only_response(
-        &mut self,
-        request_id: Id,
-        is_stream_terminator: bool,
-    ) -> Option<(ChainId, BatchId)> {
-        if is_stream_terminator {
-            self.range_requests.remove(&request_id)
-        } else {
-            self.range_requests.get(&request_id).copied()
-        }
-    }
-
-    /// Received a blocks by range response for a request that couples blocks and blobs.
-    pub fn range_sync_block_and_blob_response(
-        &mut self,
-        request_id: Id,
-        block_or_blob: BlockOrBlob<T::EthSpec>,
-    ) -> Option<(ChainId, BlocksAndBlobsByRangeResponse<T::EthSpec>)> {
-        match self.range_blocks_and_blobs_requests.entry(request_id) {
-            Entry::Occupied(mut entry) => {
-                let req = entry.get_mut();
-                let info = &mut req.block_blob_info;
-                match block_or_blob {
-                    BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
-                }
-                if info.is_finished() {
-                    // If the request is finished, dequeue everything
-                    let BlocksAndBlobsByRangeRequest {
-                        chain_id,
-                        batch_id,
-                        block_blob_info,
-                    } = entry.remove();
-                    Some((
-                        chain_id,
-                        BlocksAndBlobsByRangeResponse {
-                            batch_id,
-                            responses: block_blob_info.into_responses(),
-                        },
-                    ))
-                } else {
-                    None
-                }
-            }
-            Entry::Vacant(_) => None,
-        }
-    }
-
-    pub fn range_sync_request_failed(
-        &mut self,
-        request_id: Id,
-        batch_type: ByRangeRequestType,
-    ) -> Option<(ChainId, BatchId)> {
-        let req = match batch_type {
-            ByRangeRequestType::BlocksAndBlobs => self
-                .range_blocks_and_blobs_requests
-                .remove(&request_id)
-                .map(|req| (req.chain_id, req.batch_id)),
-            ByRangeRequestType::Blocks => self.range_requests.remove(&request_id),
-        };
-        if let Some(req) = req {
-            debug!(
-                self.log,
-                "Range sync request failed";
-                "request_id" => request_id,
-                "batch_type" => ?batch_type,
-                "chain_id" => ?req.0,
-                "batch_id" => ?req.1
-            );
-            Some(req)
-        } else {
-            debug!(self.log, "Range sync request failed"; "request_id" => request_id, "batch_type" => ?batch_type);
-            None
-        }
-    }
-
-    pub fn backfill_request_failed(
-        &mut self,
-        request_id: Id,
-        batch_type: ByRangeRequestType,
-    ) -> Option<BatchId> {
-        let batch_id = match batch_type {
-            ByRangeRequestType::BlocksAndBlobs => self
-                .backfill_blocks_and_blobs_requests
-                .remove(&request_id)
-                .map(|(batch_id, _info)| batch_id),
-            ByRangeRequestType::Blocks => self.backfill_requests.remove(&request_id),
-        };
-        if let Some(batch_id) = batch_id {
-            debug!(
-                self.log,
-                "Backfill sync request failed";
-                "request_id" => request_id,
-                "batch_type" => ?batch_type,
-                "batch_id" => ?batch_id
-            );
-            Some(batch_id)
-        } else {
-            debug!(self.log, "Backfill sync request failed"; "request_id" => request_id, "batch_type" => ?batch_type);
-            None
-        }
-    }
-
-    /// Response for a request that is only for blocks.
-    pub fn backfill_sync_only_blocks_response(
-        &mut self,
-        request_id: Id,
-        is_stream_terminator: bool,
-    ) -> Option<BatchId> {
-        if is_stream_terminator {
-            self.backfill_requests.remove(&request_id)
-        } else {
-            self.backfill_requests.get(&request_id).copied()
-        }
+        Ok(peer_id_to_request_map)
     }
 
     /// Received a blocks by range or blobs by range response for a request that couples blocks '
     /// and blobs.
-    pub fn backfill_sync_block_and_blob_response(
+    pub fn range_block_component_response(
         &mut self,
-        request_id: Id,
-        block_or_blob: BlockOrBlob<T::EthSpec>,
-    ) -> Option<BlocksAndBlobsByRangeResponse<T::EthSpec>> {
-        match self.backfill_blocks_and_blobs_requests.entry(request_id) {
-            Entry::Occupied(mut entry) => {
-                let (_, info) = entry.get_mut();
-                match block_or_blob {
-                    BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
-                }
-                if info.is_finished() {
-                    // If the request is finished, dequeue everything
-                    let (batch_id, info) = entry.remove();
+        id: ComponentsByRangeRequestId,
+        range_block_component: RangeBlockComponent<T::EthSpec>,
+    ) -> Option<Result<Vec<RpcBlock<T::EthSpec>>, RpcResponseError>> {
+        let Entry::Occupied(mut entry) = self.components_by_range_requests.entry(id) else {
+            metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
+            return None;
+        };
 
-                    let responses = info.into_responses();
-                    Some(BlocksAndBlobsByRangeResponse {
-                        batch_id,
-                        responses,
-                    })
-                } else {
-                    None
-                }
+        if let Err(e) = {
+            let request = entry.get_mut();
+            match range_block_component {
+                RangeBlockComponent::Block(resp) => resp.map(|(blocks, _)| {
+                    request.add_blocks(blocks);
+                }),
+                RangeBlockComponent::Blob(resp) => resp.map(|(blobs, _)| {
+                    request.add_blobs(blobs);
+                }),
+                RangeBlockComponent::CustodyColumns(resp) => resp.map(|(custody_columns, _)| {
+                    request.add_custody_columns(custody_columns);
+                }),
             }
-            Entry::Vacant(_) => None,
+        } {
+            entry.remove();
+            return Some(Err(e));
+        }
+
+        if entry.get_mut().is_finished() {
+            // If the request is finished, dequeue everything
+            let request = entry.remove();
+            let blocks = request
+                .into_responses(&self.chain.spec)
+                .map_err(RpcResponseError::BlockComponentCouplingError);
+            Some(blocks)
+        } else {
+            None
         }
     }
 
+    /// Request block of `block_root` if necessary by checking:
+    /// - If the da_checker has a pending block from gossip or a previous request
+    ///
+    /// Returns false if no request was made, because the block is already imported
     pub fn block_lookup_request(
-        &self,
-        id: SingleLookupReqId,
-        peer_id: PeerId,
-        request: BlocksByRootRequest,
-        lookup_type: LookupType,
-    ) -> Result<(), &'static str> {
-        let sync_id = match lookup_type {
-            LookupType::Current => SyncRequestId::SingleBlock { id },
-            LookupType::Parent => SyncRequestId::ParentLookup { id },
+        &mut self,
+        lookup_id: SingleLookupId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
+        block_root: Hash256,
+    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let Some(peer_id) = lookup_peers
+            .read()
+            .iter()
+            .choose(&mut rand::thread_rng())
+            .copied()
+        else {
+            // Allow lookup to not have any peers and do nothing. This is an optimization to not
+            // lose progress of lookups created from a block with unknown parent before we receive
+            // attestations for said block.
+            // Lookup sync event safety: If a lookup requires peers to make progress, and does
+            // not receive any new peers for some time it will be dropped. If it receives a new
+            // peer it must attempt to make progress.
+            return Ok(LookupRequestResult::Pending("no peers"));
         };
-        let request_id = RequestId::Sync(sync_id);
+
+        match self.chain.get_block_process_status(&block_root) {
+            // Unknown block, continue request to download
+            BlockProcessStatus::Unknown => {}
+            // Block is known are currently processing, expect a future event with the result of
+            // processing.
+            BlockProcessStatus::NotValidated { .. } => {
+                // Lookup sync event safety: If the block is currently in the processing cache, we
+                // are guaranteed to receive a `SyncMessage::GossipBlockProcessResult` that will
+                // make progress on this lookup
+                return Ok(LookupRequestResult::Pending("block in processing cache"));
+            }
+            // Block is fully validated. If it's not yet imported it's waiting for missing block
+            // components. Consider this request completed and do nothing.
+            BlockProcessStatus::ExecutionValidated { .. } => {
+                return Ok(LookupRequestResult::NoRequestNeeded(
+                    "block execution validated",
+                ))
+            }
+        }
+
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
+
+        let request = BlocksByRootSingleRequest(block_root);
+
+        // Lookup sync event safety: If network_send.send() returns Ok(_) we are guaranteed that
+        // eventually at least one this 3 events will be received:
+        // - StreamTermination(request_id): handled by `Self::on_single_block_response`
+        // - RPCError(request_id): handled by `Self::on_single_block_response`
+        // - Disconnect(peer_id) handled by `Self::peer_disconnected``which converts it to a
+        // ` RPCError(request_id)`event handled by the above method
+        self.network_send
+            .send(NetworkMessage::SendRequest {
+                peer_id,
+                request: RequestType::BlocksByRoot(request.into_request(&self.fork_context)),
+                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
+            })
+            .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         debug!(
             self.log,
-            "Sending BlocksByRoot Request";
+            "Sync RPC request sent";
             "method" => "BlocksByRoot",
-            "block_roots" => ?request.block_roots().to_vec(),
+            "block_root" => ?block_root,
             "peer" => %peer_id,
-            "lookup_type" => ?lookup_type
+            "id" => %id
         );
+
+        self.blocks_by_root_requests.insert(
+            id,
+            peer_id,
+            // true = enforce max_requests as returned for blocks_by_root. We always request a single
+            // block and the peer must have it.
+            true,
+            BlocksByRootRequestItems::new(request),
+        );
+
+        Ok(LookupRequestResult::RequestSent(id.req_id))
+    }
+
+    /// Request necessary blobs for `block_root`. Requests only the necessary blobs by checking:
+    /// - If we have a downloaded but not yet processed block
+    /// - If the da_checker has a pending block
+    /// - If the da_checker has pending blobs from gossip
+    ///
+    /// Returns false if no request was made, because we don't need to import (more) blobs.
+    pub fn blob_lookup_request(
+        &mut self,
+        lookup_id: SingleLookupId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
+        block_root: Hash256,
+        expected_blobs: usize,
+    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let Some(peer_id) = lookup_peers
+            .read()
+            .iter()
+            .choose(&mut rand::thread_rng())
+            .copied()
+        else {
+            // Allow lookup to not have any peers and do nothing. This is an optimization to not
+            // lose progress of lookups created from a block with unknown parent before we receive
+            // attestations for said block.
+            // Lookup sync event safety: If a lookup requires peers to make progress, and does
+            // not receive any new peers for some time it will be dropped. If it receives a new
+            // peer it must attempt to make progress.
+            return Ok(LookupRequestResult::Pending("no peers"));
+        };
+
+        let imported_blob_indexes = self
+            .chain
+            .data_availability_checker
+            .cached_blob_indexes(&block_root)
+            .unwrap_or_default();
+        // Include only the blob indexes not yet imported (received through gossip)
+        let indices = (0..expected_blobs as u64)
+            .filter(|index| !imported_blob_indexes.contains(index))
+            .collect::<Vec<_>>();
+
+        if indices.is_empty() {
+            // No blobs required, do not issue any request
+            return Ok(LookupRequestResult::NoRequestNeeded("no indices to fetch"));
+        }
+
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
+
+        let request = BlobsByRootSingleBlockRequest {
+            block_root,
+            indices: indices.clone(),
+        };
+
+        // Lookup sync event safety: Refer to `Self::block_lookup_request` `network_send.send` call
+        self.network_send
+            .send(NetworkMessage::SendRequest {
+                peer_id,
+                request: RequestType::BlobsByRoot(request.clone().into_request(&self.fork_context)),
+                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
+            })
+            .map_err(|_| RpcRequestSendError::NetworkSendError)?;
+
+        debug!(
+            self.log,
+            "Sync RPC request sent";
+            "method" => "BlobsByRoot",
+            "block_root" => ?block_root,
+            "blob_indices" => ?indices,
+            "peer" => %peer_id,
+            "id" => %id
+        );
+
+        self.blobs_by_root_requests.insert(
+            id,
+            peer_id,
+            // true = enforce max_requests are returned for blobs_by_root. We only issue requests for
+            // blocks after we know the block has data, and only request peers after they claim to
+            // have imported the block+blobs.
+            true,
+            BlobsByRootRequestItems::new(request),
+        );
+
+        Ok(LookupRequestResult::RequestSent(id.req_id))
+    }
+
+    /// Request to send a single `data_columns_by_root` request to the network.
+    pub fn data_column_lookup_request(
+        &mut self,
+        requester: DataColumnsByRootRequester,
+        peer_id: PeerId,
+        request: DataColumnsByRootSingleBlockRequest,
+        expect_max_responses: bool,
+    ) -> Result<LookupRequestResult<DataColumnsByRootRequestId>, &'static str> {
+        let id = DataColumnsByRootRequestId {
+            id: self.next_id(),
+            requester,
+        };
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request: Request::BlocksByRoot(request),
-            request_id,
+            request: RequestType::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
+            request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
         })?;
-        Ok(())
+
+        debug!(
+            self.log,
+            "Sync RPC request sent";
+            "method" => "DataColumnsByRoot",
+            "block_root" => ?request.block_root,
+            "indices" => ?request.indices,
+            "peer" => %peer_id,
+            "id" => %id,
+        );
+
+        self.data_columns_by_root_requests.insert(
+            id,
+            peer_id,
+            expect_max_responses,
+            DataColumnsByRootRequestItems::new(request),
+        );
+
+        Ok(LookupRequestResult::RequestSent(id))
     }
 
-    pub fn blob_lookup_request(
-        &self,
-        id: SingleLookupReqId,
-        blob_peer_id: PeerId,
-        blob_request: BlobsByRootRequest,
-        lookup_type: LookupType,
-    ) -> Result<(), &'static str> {
-        let sync_id = match lookup_type {
-            LookupType::Current => SyncRequestId::SingleBlob { id },
-            LookupType::Parent => SyncRequestId::ParentLookupBlob { id },
-        };
-        let request_id = RequestId::Sync(sync_id);
+    /// Request to fetch all needed custody columns of a specific block. This function may not send
+    /// any request to the network if no columns have to be fetched based on the import state of the
+    /// node. A custody request is a "super request" that may trigger 0 or more `data_columns_by_root`
+    /// requests.
+    pub fn custody_lookup_request(
+        &mut self,
+        lookup_id: SingleLookupId,
+        block_root: Hash256,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
+    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let custody_indexes_imported = self
+            .chain
+            .data_availability_checker
+            .cached_data_column_indexes(&block_root)
+            .unwrap_or_default();
 
-        if let Some(block_root) = blob_request
-            .blob_ids
-            .as_slice()
-            .first()
-            .map(|id| id.block_root)
-        {
-            let indices = blob_request
-                .blob_ids
-                .as_slice()
-                .iter()
-                .map(|id| id.index)
-                .collect::<Vec<_>>();
-            debug!(
-                self.log,
-                "Sending BlobsByRoot Request";
-                "method" => "BlobsByRoot",
-                "block_root" => ?block_root,
-                "blob_indices" => ?indices,
-                "peer" => %blob_peer_id,
-                "lookup_type" => ?lookup_type
-            );
+        // Include only the blob indexes not yet imported (received through gossip)
+        let custody_indexes_to_fetch = self
+            .network_globals()
+            .sampling_columns
+            .clone()
+            .into_iter()
+            .filter(|index| !custody_indexes_imported.contains(index))
+            .collect::<Vec<_>>();
 
-            self.send_network_msg(NetworkMessage::SendRequest {
-                peer_id: blob_peer_id,
-                request: Request::BlobsByRoot(blob_request),
-                request_id,
-            })?;
+        if custody_indexes_to_fetch.is_empty() {
+            // No indexes required, do not issue any request
+            return Ok(LookupRequestResult::NoRequestNeeded("no indices to fetch"));
         }
-        Ok(())
+
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
+
+        debug!(
+            self.log,
+            "Starting custody columns request";
+            "block_root" => ?block_root,
+            "indices" => ?custody_indexes_to_fetch,
+            "id" => %id
+        );
+
+        let requester = CustodyRequester(id);
+        let mut request = ActiveCustodyRequest::new(
+            block_root,
+            CustodyId { requester },
+            &custody_indexes_to_fetch,
+            lookup_peers,
+            self.log.clone(),
+        );
+
+        // Note that you can only send, but not handle a response here
+        match request.continue_requests(self) {
+            Ok(_) => {
+                // Ignoring the result of `continue_requests` is okay. A request that has just been
+                // created cannot return data immediately, it must send some request to the network
+                // first. And there must exist some request, `custody_indexes_to_fetch` is not empty.
+                self.custody_by_root_requests.insert(requester, request);
+                Ok(LookupRequestResult::RequestSent(id.req_id))
+            }
+            Err(e) => Err(RpcRequestSendError::CustodyRequestError(e)),
+        }
+    }
+
+    fn send_blocks_by_range_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BlocksByRangeRequest,
+        parent_request_id: ComponentsByRangeRequestId,
+    ) -> Result<BlocksByRangeRequestId, RpcRequestSendError> {
+        let id = BlocksByRangeRequestId {
+            id: self.next_id(),
+            parent_request_id,
+        };
+        self.network_send
+            .send(NetworkMessage::SendRequest {
+                peer_id,
+                request: RequestType::BlocksByRange(request.clone().into()),
+                request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
+            })
+            .map_err(|_| RpcRequestSendError::NetworkSendError)?;
+
+        debug!(
+            self.log,
+            "Sync RPC request sent";
+            "method" => "BlocksByRange",
+            "slots" => request.count(),
+            "epoch" => Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch()),
+            "peer" => %peer_id,
+            "id" => %id,
+        );
+
+        self.blocks_by_range_requests.insert(
+            id,
+            peer_id,
+            // false = do not enforce max_requests are returned for *_by_range methods. We don't
+            // know if there are missed blocks.
+            false,
+            BlocksByRangeRequestItems::new(request),
+        );
+        Ok(id)
+    }
+
+    fn send_blobs_by_range_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BlobsByRangeRequest,
+        parent_request_id: ComponentsByRangeRequestId,
+    ) -> Result<BlobsByRangeRequestId, RpcRequestSendError> {
+        let id = BlobsByRangeRequestId {
+            id: self.next_id(),
+            parent_request_id,
+        };
+        let request_epoch = Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch());
+
+        // Create the blob request based on the blocks request.
+        self.network_send
+            .send(NetworkMessage::SendRequest {
+                peer_id,
+                request: RequestType::BlobsByRange(request.clone()),
+                request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
+            })
+            .map_err(|_| RpcRequestSendError::NetworkSendError)?;
+
+        debug!(
+            self.log,
+            "Sync RPC request sent";
+            "method" => "BlobsByRange",
+            "slots" => request.count,
+            "epoch" => request_epoch,
+            "peer" => %peer_id,
+            "id" => %id,
+        );
+
+        let max_blobs_per_block = self.chain.spec.max_blobs_per_block(request_epoch);
+        self.blobs_by_range_requests.insert(
+            id,
+            peer_id,
+            // false = do not enforce max_requests are returned for *_by_range methods. We don't
+            // know if there are missed blocks.
+            false,
+            BlobsByRangeRequestItems::new(request, max_blobs_per_block),
+        );
+        Ok(id)
+    }
+
+    fn send_data_columns_by_range_request(
+        &mut self,
+        peer_id: PeerId,
+        request: DataColumnsByRangeRequest,
+        parent_request_id: ComponentsByRangeRequestId,
+    ) -> Result<DataColumnsByRangeRequestId, RpcRequestSendError> {
+        let id = DataColumnsByRangeRequestId {
+            id: self.next_id(),
+            parent_request_id,
+        };
+
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request: RequestType::DataColumnsByRange(request.clone()),
+            request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
+        })
+        .map_err(|_| RpcRequestSendError::NetworkSendError)?;
+
+        debug!(
+            self.log,
+            "Sync RPC request sent";
+            "method" => "DataColumnsByRange",
+            "slots" => request.count,
+            "epoch" => Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
+            "columns" => ?request.columns,
+            "peer" => %peer_id,
+            "id" => %id,
+        );
+
+        self.data_columns_by_range_requests.insert(
+            id,
+            peer_id,
+            // false = do not enforce max_requests are returned for *_by_range methods. We don't
+            // know if there are missed blocks.
+            false,
+            DataColumnsByRangeRequestItems::new(request),
+        );
+        Ok(id)
     }
 
     pub fn is_execution_engine_online(&self) -> bool {
@@ -531,7 +914,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Reports to the scoring algorithm the behaviour of a peer.
     pub fn report_peer(&self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
-        debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action);
+        debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action, "msg" => %msg);
         self.network_send
             .send(NetworkMessage::ReportPeer {
                 peer_id,
@@ -587,32 +970,362 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "To deal with alignment with deneb boundaries, batches need to be of just one epoch"
         );
 
-        if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
-            if epoch >= data_availability_boundary {
-                ByRangeRequestType::BlocksAndBlobs
-            } else {
-                ByRangeRequestType::Blocks
-            }
+        if self
+            .chain
+            .data_availability_checker
+            .data_columns_required_for_epoch(epoch)
+        {
+            ByRangeRequestType::BlocksAndColumns
+        } else if self
+            .chain
+            .data_availability_checker
+            .blobs_required_for_epoch(epoch)
+        {
+            ByRangeRequestType::BlocksAndBlobs
         } else {
             ByRangeRequestType::Blocks
         }
     }
 
-    pub fn insert_range_blocks_and_blobs_request(
+    /// Attempt to make progress on all custody_by_root requests. Some request may be stale waiting
+    /// for custody peers. Returns a Vec of results as zero or more requests may fail in this
+    /// attempt.
+    pub fn continue_custody_by_root_requests(
         &mut self,
-        id: Id,
-        request: BlocksAndBlobsByRangeRequest<T::EthSpec>,
-    ) {
-        self.range_blocks_and_blobs_requests.insert(id, request);
+    ) -> Vec<(CustodyRequester, CustodyByRootResult<T::EthSpec>)> {
+        let ids = self
+            .custody_by_root_requests
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+
+        // Need to collect ids and results in separate steps to re-borrow self.
+        ids.into_iter()
+            .filter_map(|id| {
+                let mut request = self
+                    .custody_by_root_requests
+                    .remove(&id)
+                    .expect("key of hashmap");
+                let result = request.continue_requests(self);
+                self.handle_custody_by_root_result(id, request, result)
+                    .map(|result| (id, result))
+            })
+            .collect()
     }
 
-    pub fn insert_backfill_blocks_and_blobs_requests(
+    // Request handlers
+
+    pub(crate) fn on_single_block_response(
         &mut self,
-        id: Id,
-        batch_id: BatchId,
-        request: BlocksAndBlobsRequestInfo<T::EthSpec>,
-    ) {
-        self.backfill_blocks_and_blobs_requests
-            .insert(id, (batch_id, request));
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
+        let resp = self.blocks_by_root_requests.on_response(id, rpc_event);
+        let resp = resp.map(|res| {
+            res.and_then(|(mut blocks, seen_timestamp)| {
+                // Enforce that exactly one chunk = one block is returned. ReqResp behavior limits the
+                // response count to at most 1.
+                match blocks.pop() {
+                    Some(block) => Ok((block, seen_timestamp)),
+                    // Should never happen, `blocks_by_root_requests` enforces that we receive at least
+                    // 1 chunk.
+                    None => Err(LookupVerifyError::NotEnoughResponsesReturned { actual: 0 }.into()),
+                }
+            })
+        });
+        self.on_rpc_response_result(id, "BlocksByRoot", resp, peer_id, |_| 1)
     }
+
+    pub(crate) fn on_single_blob_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
+        let resp = self.blobs_by_root_requests.on_response(id, rpc_event);
+        let resp = resp.map(|res| {
+            res.and_then(|(blobs, seen_timestamp)| {
+                if let Some(max_len) = blobs
+                    .first()
+                    .map(|blob| self.chain.spec.max_blobs_per_block(blob.epoch()) as usize)
+                {
+                    match to_fixed_blob_sidecar_list(blobs, max_len) {
+                        Ok(blobs) => Ok((blobs, seen_timestamp)),
+                        Err(e) => Err(e.into()),
+                    }
+                } else {
+                    Err(RpcResponseError::VerifyError(
+                        LookupVerifyError::InternalError(
+                            "Requested blobs for a block that has no blobs".to_string(),
+                        ),
+                    ))
+                }
+            })
+        });
+        self.on_rpc_response_result(id, "BlobsByRoot", resp, peer_id, |_| 1)
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn on_data_columns_by_root_response(
+        &mut self,
+        id: DataColumnsByRootRequestId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>> {
+        let resp = self
+            .data_columns_by_root_requests
+            .on_response(id, rpc_event);
+        self.on_rpc_response_result(id, "DataColumnsByRoot", resp, peer_id, |_| 1)
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn on_blocks_by_range_response(
+        &mut self,
+        id: BlocksByRangeRequestId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<SignedBeaconBlock<T::EthSpec>>>>> {
+        let resp = self.blocks_by_range_requests.on_response(id, rpc_event);
+        self.on_rpc_response_result(id, "BlocksByRange", resp, peer_id, |b| b.len())
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn on_blobs_by_range_response(
+        &mut self,
+        id: BlobsByRangeRequestId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<BlobSidecar<T::EthSpec>>>>> {
+        let resp = self.blobs_by_range_requests.on_response(id, rpc_event);
+        self.on_rpc_response_result(id, "BlobsByRangeRequest", resp, peer_id, |b| b.len())
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn on_data_columns_by_range_response(
+        &mut self,
+        id: DataColumnsByRangeRequestId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) -> Option<RpcResponseResult<DataColumnSidecarList<T::EthSpec>>> {
+        let resp = self
+            .data_columns_by_range_requests
+            .on_response(id, rpc_event);
+        self.on_rpc_response_result(id, "DataColumnsByRange", resp, peer_id, |d| d.len())
+    }
+
+    fn on_rpc_response_result<I: std::fmt::Display, R, F: FnOnce(&R) -> usize>(
+        &mut self,
+        id: I,
+        method: &'static str,
+        resp: Option<RpcResponseResult<R>>,
+        peer_id: PeerId,
+        get_count: F,
+    ) -> Option<RpcResponseResult<R>> {
+        match &resp {
+            None => {}
+            Some(Ok((v, _))) => {
+                debug!(
+                    self.log,
+                    "Sync RPC request completed";
+                    "id" => %id,
+                    "method" => method,
+                    "count" => get_count(v)
+                );
+            }
+            Some(Err(e)) => {
+                debug!(
+                    self.log,
+                    "Sync RPC request error";
+                    "id" => %id,
+                    "method" => method,
+                    "error" => ?e
+                );
+            }
+        }
+        if let Some(Err(RpcResponseError::VerifyError(e))) = &resp {
+            self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
+        }
+        resp
+    }
+
+    /// Insert a downloaded column into an active custody request. Then make progress on the
+    /// entire request.
+    ///
+    /// ### Returns
+    ///
+    /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
+    /// - `None`: Request still active, requester should do no action
+    #[allow(clippy::type_complexity)]
+    pub fn on_custody_by_root_response(
+        &mut self,
+        id: CustodyId,
+        req_id: DataColumnsByRootRequestId,
+        peer_id: PeerId,
+        resp: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
+    ) -> Option<CustodyByRootResult<T::EthSpec>> {
+        // Note: need to remove the request to borrow self again below. Otherwise we can't
+        // do nested requests
+        let Some(mut request) = self.custody_by_root_requests.remove(&id.requester) else {
+            // TOOD(das): This log can happen if the request is error'ed early and dropped
+            debug!(self.log, "Custody column downloaded event for unknown request"; "id" => ?id);
+            return None;
+        };
+
+        let result = request.on_data_column_downloaded(peer_id, req_id, resp, self);
+
+        self.handle_custody_by_root_result(id.requester, request, result)
+    }
+
+    fn handle_custody_by_root_result(
+        &mut self,
+        id: CustodyRequester,
+        request: ActiveCustodyRequest<T>,
+        result: CustodyRequestResult<T::EthSpec>,
+    ) -> Option<CustodyByRootResult<T::EthSpec>> {
+        let result = result
+            .map_err(RpcResponseError::CustodyRequestError)
+            .transpose();
+
+        // Convert a result from internal format of `ActiveCustodyRequest` (error first to use ?) to
+        // an Option first to use in an `if let Some() { act on result }` block.
+        match result.as_ref() {
+            Some(Ok((columns, peer_group))) => {
+                debug!(self.log, "Custody request success, removing"; "id" => ?id, "count" => columns.len(), "peers" => ?peer_group)
+            }
+            Some(Err(e)) => {
+                debug!(self.log, "Custody request failure, removing"; "id" => ?id, "error" => ?e)
+            }
+            None => {
+                self.custody_by_root_requests.insert(id, request);
+            }
+        }
+        result
+    }
+
+    pub fn send_block_for_processing(
+        &self,
+        id: Id,
+        block_root: Hash256,
+        block: RpcBlock<T::EthSpec>,
+        duration: Duration,
+    ) -> Result<(), SendErrorProcessor> {
+        let beacon_processor = self
+            .beacon_processor_if_enabled()
+            .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
+
+        debug!(self.log, "Sending block for processing"; "block" => ?block_root, "id" => id);
+        // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync
+        // must receive a single `SyncMessage::BlockComponentProcessed` with this process type
+        beacon_processor
+            .send_rpc_beacon_block(
+                block_root,
+                block,
+                duration,
+                BlockProcessType::SingleBlock { id },
+            )
+            .map_err(|e| {
+                error!(
+                    self.log,
+                    "Failed to send sync block to processor";
+                    "error" => ?e
+                );
+                SendErrorProcessor::SendError
+            })
+    }
+
+    pub fn send_blobs_for_processing(
+        &self,
+        id: Id,
+        block_root: Hash256,
+        blobs: FixedBlobSidecarList<T::EthSpec>,
+        duration: Duration,
+    ) -> Result<(), SendErrorProcessor> {
+        let beacon_processor = self
+            .beacon_processor_if_enabled()
+            .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
+
+        debug!(self.log, "Sending blobs for processing"; "block" => ?block_root, "id" => id);
+        // Lookup sync event safety: If `beacon_processor.send_rpc_blobs` returns Ok() sync
+        // must receive a single `SyncMessage::BlockComponentProcessed` event with this process type
+        beacon_processor
+            .send_rpc_blobs(
+                block_root,
+                blobs,
+                duration,
+                BlockProcessType::SingleBlob { id },
+            )
+            .map_err(|e| {
+                error!(
+                    self.log,
+                    "Failed to send sync blobs to processor";
+                    "error" => ?e
+                );
+                SendErrorProcessor::SendError
+            })
+    }
+
+    pub fn send_custody_columns_for_processing(
+        &self,
+        _id: Id,
+        block_root: Hash256,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
+        duration: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), SendErrorProcessor> {
+        let beacon_processor = self
+            .beacon_processor_if_enabled()
+            .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
+
+        debug!(self.log, "Sending custody columns for processing"; "block" => ?block_root, "process_type" => ?process_type);
+
+        beacon_processor
+            .send_rpc_custody_columns(block_root, custody_columns, duration, process_type)
+            .map_err(|e| {
+                error!(
+                    self.log,
+                    "Failed to send sync custody columns to processor";
+                    "error" => ?e
+                );
+                SendErrorProcessor::SendError
+            })
+    }
+
+    pub(crate) fn register_metrics(&self) {
+        for (id, count) in [
+            ("blocks_by_root", self.blocks_by_root_requests.len()),
+            ("blobs_by_root", self.blobs_by_root_requests.len()),
+            (
+                "data_columns_by_root",
+                self.data_columns_by_root_requests.len(),
+            ),
+            ("blocks_by_range", self.blocks_by_range_requests.len()),
+            ("blobs_by_range", self.blobs_by_range_requests.len()),
+            (
+                "data_columns_by_range",
+                self.data_columns_by_range_requests.len(),
+            ),
+            ("custody_by_root", self.custody_by_root_requests.len()),
+            (
+                "components_by_range",
+                self.components_by_range_requests.len(),
+            ),
+        ] {
+            metrics::set_gauge_vec(&metrics::SYNC_ACTIVE_NETWORK_REQUESTS, &[id], count as i64);
+        }
+    }
+}
+
+fn to_fixed_blob_sidecar_list<E: EthSpec>(
+    blobs: Vec<Arc<BlobSidecar<E>>>,
+    max_len: usize,
+) -> Result<FixedBlobSidecarList<E>, LookupVerifyError> {
+    let mut fixed_list = FixedBlobSidecarList::new(vec![None; max_len]);
+    for blob in blobs.into_iter() {
+        let index = blob.index as usize;
+        *fixed_list
+            .get_mut(index)
+            .ok_or(LookupVerifyError::UnrequestedIndex(index as u64))? = Some(blob)
+    }
+    Ok(fixed_list)
 }

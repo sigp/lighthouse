@@ -14,6 +14,8 @@ pub enum Error {
     SkippedKnownFailure,
     /// The test failed due to some internal error preventing the test from running.
     InternalError(String),
+    /// The test failed while making some comparison.
+    FailedComparison(String),
 }
 
 impl Error {
@@ -26,6 +28,7 @@ impl Error {
             Error::SkippedBls => "SkippedBls",
             Error::SkippedKnownFailure => "SkippedKnownFailure",
             Error::InternalError(_) => "InternalError",
+            Error::FailedComparison(_) => "FailedComparison",
         }
     }
 

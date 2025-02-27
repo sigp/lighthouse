@@ -17,8 +17,7 @@ use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Fork, Hash256, Slot,
-    Unsigned,
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot, Unsigned,
 };
 
 /// The number of sets of proposer indices that should be cached.
@@ -68,19 +67,19 @@ impl Default for BeaconProposerCache {
 impl BeaconProposerCache {
     /// If it is cached, returns the proposer for the block at `slot` where the block has the
     /// ancestor block root of `shuffling_decision_block` at `end_slot(slot.epoch() - 1)`.
-    pub fn get_slot<T: EthSpec>(
+    pub fn get_slot<E: EthSpec>(
         &mut self,
         shuffling_decision_block: Hash256,
         slot: Slot,
     ) -> Option<Proposer> {
-        let epoch = slot.epoch(T::slots_per_epoch());
+        let epoch = slot.epoch(E::slots_per_epoch());
         let key = (epoch, shuffling_decision_block);
         if let Some(cache) = self.cache.get(&key) {
             // This `if` statement is likely unnecessary, but it feels like good practice.
             if epoch == cache.epoch {
                 cache
                     .proposers
-                    .get(slot.as_usize() % T::SlotsPerEpoch::to_usize())
+                    .get(slot.as_usize() % E::SlotsPerEpoch::to_usize())
                     .map(|&index| Proposer {
                         index,
                         fork: cache.fork,
@@ -98,7 +97,7 @@ impl BeaconProposerCache {
     /// The nth slot in the returned `SmallVec` will be equal to the nth slot in the given `epoch`.
     /// E.g., if `epoch == 1` then `smallvec[0]` refers to slot 32 (assuming `SLOTS_PER_EPOCH ==
     /// 32`).
-    pub fn get_epoch<T: EthSpec>(
+    pub fn get_epoch<E: EthSpec>(
         &mut self,
         shuffling_decision_block: Hash256,
         epoch: Epoch,
@@ -145,10 +144,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     let (mut state, head_state_root, head_block_root) = {
         let head = chain.canonical_head.cached_head();
         // Take a copy of the head state.
-        let head_state = head
-            .snapshot
-            .beacon_state
-            .clone_with(CloneConfig::committee_caches_only());
+        let head_state = head.snapshot.beacon_state.clone();
         let head_state_root = head.head_state_root();
         let head_block_root = head.head_block_root();
         (head_state, head_state_root, head_block_root)

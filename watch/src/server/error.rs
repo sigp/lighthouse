@@ -6,6 +6,7 @@ use serde_json::json;
 use std::io::Error as IoError;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Error {
     Axum(AxumError),
     Hyper(HyperError),

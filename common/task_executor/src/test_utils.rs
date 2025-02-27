@@ -1,6 +1,6 @@
 use crate::TaskExecutor;
+pub use logging::test_logger;
 use slog::Logger;
-use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
 use tokio::runtime;
 
@@ -26,7 +26,7 @@ impl Default for TestRuntime {
     fn default() -> Self {
         let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let (runtime, handle) = if let Ok(handle) = runtime::Handle::try_current() {
             (None, handle)
@@ -65,11 +65,4 @@ impl TestRuntime {
         self.log = log.clone();
         self.task_executor.log = log;
     }
-}
-
-pub fn null_logger() -> Result<Logger, String> {
-    let log_builder = NullLoggerBuilder;
-    log_builder
-        .build()
-        .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }

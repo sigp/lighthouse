@@ -1,8 +1,8 @@
 use serde::Serialize;
 use std::sync::Arc;
 use types::{
-    beacon_state::CloneConfig, AbstractExecPayload, BeaconState, EthSpec, FullPayload, Hash256,
-    SignedBeaconBlock,
+    AbstractExecPayload, BeaconState, EthSpec, FullPayload, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock,
 };
 
 /// Represents some block and its associated state. Generally, this will be used for tracking the
@@ -12,6 +12,19 @@ pub struct BeaconSnapshot<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayl
     pub beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
     pub beacon_block_root: Hash256,
     pub beacon_state: BeaconState<E>,
+}
+
+/// This snapshot is to be used for verifying a child of `self.beacon_block`.
+#[derive(Debug)]
+pub struct PreProcessingSnapshot<T: EthSpec> {
+    /// This state is equivalent to the `self.beacon_block.state_root()` state that has been
+    /// advanced forward one slot using `per_slot_processing`. This state is "primed and ready" for
+    /// the application of another block.
+    pub pre_state: BeaconState<T>,
+    /// This value is only set to `Some` if the `pre_state` was *not* advanced forward.
+    pub beacon_state_root: Option<Hash256>,
+    pub beacon_block: SignedBlindedBeaconBlock<T>,
+    pub beacon_block_root: Hash256,
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconSnapshot<E, Payload> {
@@ -47,13 +60,5 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconSnapshot<E, Payload> {
         self.beacon_block = beacon_block;
         self.beacon_block_root = beacon_block_root;
         self.beacon_state = beacon_state;
-    }
-
-    pub fn clone_with(&self, clone_config: CloneConfig) -> Self {
-        Self {
-            beacon_block: self.beacon_block.clone(),
-            beacon_block_root: self.beacon_block_root,
-            beacon_state: self.beacon_state.clone_with(clone_config),
-        }
     }
 }

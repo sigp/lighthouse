@@ -4,6 +4,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::Value;
 use std::sync::Arc;
 
+pub trait ForkVersionDecode: Sized {
+    /// SSZ decode with explicit fork variant.
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError>;
+}
+
 pub trait ForkVersionDeserialize: Sized + DeserializeOwned {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
@@ -104,7 +109,8 @@ impl<T, M> ForkVersionedResponse<T, M> {
 #[cfg(test)]
 mod fork_version_response_tests {
     use crate::{
-        ExecutionPayload, ExecutionPayloadMerge, ForkName, ForkVersionedResponse, MainnetEthSpec,
+        ExecutionPayload, ExecutionPayloadBellatrix, ForkName, ForkVersionedResponse,
+        MainnetEthSpec,
     };
     use serde_json::json;
 
@@ -114,9 +120,9 @@ mod fork_version_response_tests {
 
         let response_json =
             serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {
-                version: Some(ForkName::Merge),
+                version: Some(ForkName::Bellatrix),
                 metadata: Default::default(),
-                data: ExecutionPayload::Merge(ExecutionPayloadMerge::default()),
+                data: ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()),
             }))
             .unwrap();
 
@@ -134,7 +140,7 @@ mod fork_version_response_tests {
             serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {
                 version: Some(ForkName::Capella),
                 metadata: Default::default(),
-                data: ExecutionPayload::Merge(ExecutionPayloadMerge::default()),
+                data: ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()),
             }))
             .unwrap();
 

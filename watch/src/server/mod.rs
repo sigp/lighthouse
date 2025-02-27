@@ -31,7 +31,7 @@ pub async fn serve(config: FullConfig) -> Result<(), Error> {
             )
         })?;
 
-    let server = start_server(&config, slots_per_epoch as u64, db)?;
+    let (_addr, server) = start_server(&config, slots_per_epoch as u64, db)?;
 
     server.await?;
 
@@ -58,7 +58,13 @@ pub fn start_server(
     config: &FullConfig,
     slots_per_epoch: u64,
     pool: PgPool,
-) -> Result<impl Future<Output = Result<(), std::io::Error>> + 'static, Error> {
+) -> Result<
+    (
+        SocketAddr,
+        impl Future<Output = Result<(), std::io::Error>> + 'static,
+    ),
+    Error,
+> {
     let mut routes = Router::new()
         .route("/v1/slots", get(handler::get_slots_by_range))
         .route("/v1/slots/:slot", get(handler::get_slot))
@@ -106,11 +112,15 @@ pub fn start_server(
     let addr = SocketAddr::new(config.server.listen_addr, config.server.listen_port);
     let listener = TcpListener::bind(addr)?;
     listener.set_nonblocking(true)?;
+
+    // Read the socket address (it may be different from `addr` if listening on port 0).
+    let socket_addr = listener.local_addr()?;
+
     let serve = axum::serve(tokio::net::TcpListener::from_std(listener)?, app);
 
     info!("HTTP server listening on {}", addr);
 
-    Ok(serve.into_future())
+    Ok((socket_addr, serve.into_future()))
 }
 
 // The default route indicating that no available routes matched the request.

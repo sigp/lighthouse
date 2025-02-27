@@ -56,7 +56,7 @@ where
     }
 }
 
-impl<'a, F, E, Hot, Cold> Iterator for ChunkedVectorIter<'a, F, E, Hot, Cold>
+impl<F, E, Hot, Cold> Iterator for ChunkedVectorIter<'_, F, E, Hot, Cold>
 where
     F: Field<E>,
     E: EthSpec,

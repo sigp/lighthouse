@@ -1,13 +1,14 @@
-use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
 use types::{Address, Graffiti, PublicKeyBytes};
+use zeroize::Zeroizing;
 
 pub use slashing_protection::interchange::Interchange;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct GetFeeRecipientResponse {
     pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::address_hex")]
     pub ethaddress: Address,
 }
 
@@ -40,7 +41,7 @@ pub struct SingleKeystoreResponse {
 #[serde(deny_unknown_fields)]
 pub struct ImportKeystoresRequest {
     pub keystores: Vec<KeystoreJsonStr>,
-    pub passwords: Vec<ZeroizeString>,
+    pub passwords: Vec<Zeroizing<String>>,
     pub slashing_protection: Option<InterchangeJsonStr>,
 }
 

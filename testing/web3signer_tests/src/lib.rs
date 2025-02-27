@@ -22,10 +22,14 @@ mod tests {
     };
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
-    use lazy_static::lazy_static;
+    use initialized_validators::{
+        load_pem_certificate, load_pkcs12_identity, InitializedValidators,
+    };
+    use logging::test_logger;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
+    use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fmt::Debug;
@@ -33,21 +37,15 @@ mod tests {
     use std::future::Future;
     use std::path::PathBuf;
     use std::process::{Child, Command, Stdio};
-    use std::sync::Arc;
+    use std::sync::{Arc, LazyLock};
     use std::time::{Duration, Instant};
     use task_executor::TaskExecutor;
     use tempfile::{tempdir, TempDir};
     use tokio::sync::OnceCell;
     use tokio::time::sleep;
-    use types::*;
+    use types::{attestation::AttestationBase, *};
     use url::Url;
-    use validator_client::{
-        initialized_validators::{
-            load_pem_certificate, load_pkcs12_identity, InitializedValidators,
-        },
-        validator_store::{Error as ValidatorStoreError, ValidatorStore},
-        SlashingDatabase, SLASHING_PROTECTION_FILENAME,
-    };
+    use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
@@ -57,12 +55,13 @@ mod tests {
     /// debugging.
     const SUPPRESS_WEB3SIGNER_LOGS: bool = true;
 
-    lazy_static! {
-        static ref TEMP_DIR: Arc<Mutex<TempDir>> = Arc::new(Mutex::new(
-            tempdir().expect("Failed to create temporary directory")
-        ));
-        static ref GET_WEB3SIGNER_BIN: OnceCell<()> = OnceCell::new();
-    }
+    static TEMP_DIR: LazyLock<Arc<Mutex<TempDir>>> = LazyLock::new(|| {
+        Arc::new(Mutex::new(
+            tempdir().expect("Failed to create temporary directory"),
+        ))
+    });
+
+    static GET_WEB3SIGNER_BIN: OnceCell<()> = OnceCell::const_new();
 
     type E = MainnetEthSpec;
 
@@ -131,7 +130,11 @@ mod tests {
     }
 
     fn client_identity_path() -> PathBuf {
-        tls_dir().join("lighthouse").join("key.p12")
+        if cfg!(target_os = "macos") {
+            tls_dir().join("lighthouse").join("key_legacy.p12")
+        } else {
+            tls_dir().join("lighthouse").join("key.p12")
+        }
     }
 
     fn client_identity_password() -> String {
@@ -170,17 +173,12 @@ mod tests {
     }
 
     impl Web3SignerRig {
+        // We need to hold that lock as we want to get the binary only once
+        #[allow(clippy::await_holding_lock)]
         pub async fn new(network: &str, listen_address: &str, listen_port: u16) -> Self {
             GET_WEB3SIGNER_BIN
                 .get_or_init(|| async {
-                    // Read a Github API token from the environment. This is intended to prevent rate-limits on CI.
-                    // We use a name that is unlikely to accidentally collide with anything the user has configured.
-                    let github_token = env::var("LIGHTHOUSE_GITHUB_TOKEN");
-                    download_binary(
-                        TEMP_DIR.lock().path().to_path_buf(),
-                        github_token.as_deref().unwrap_or(""),
-                    )
-                    .await;
+                    download_binary(TEMP_DIR.lock().path().to_path_buf()).await;
                 })
                 .await;
 
@@ -207,7 +205,7 @@ mod tests {
                 keystore_password_file: keystore_password_filename.to_string(),
             };
             let key_config_file =
-                File::create(&keystore_dir.path().join("key-config.yaml")).unwrap();
+                File::create(keystore_dir.path().join("key-config.yaml")).unwrap();
             serde_yaml::to_writer(key_config_file, &key_config).unwrap();
 
             let tls_keystore_file = tls_dir().join("web3signer").join("key.p12");
@@ -316,12 +314,12 @@ mod tests {
             validator_definitions: Vec<ValidatorDefinition>,
             slashing_protection_config: SlashingProtectionConfig,
             using_web3signer: bool,
-            spec: ChainSpec,
+            spec: Arc<ChainSpec>,
         ) -> Self {
-            let log = environment::null_logger().unwrap();
+            let log = test_logger();
             let validator_dir = TempDir::new().unwrap();
 
-            let config = validator_client::Config::default();
+            let config = initialized_validators::Config::default();
             let validator_definitions = ValidatorDefinitions::from(validator_definitions);
             let initialized_validators = InitializedValidators::from_definitions(
                 validator_definitions,
@@ -353,7 +351,7 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_client::Config {
+            let config = validator_store::Config {
                 enable_web3signer_slashing_protection: slashing_protection_config.local,
                 ..Default::default()
             };
@@ -407,7 +405,7 @@ mod tests {
         pub async fn new(
             network: &str,
             slashing_protection_config: SlashingProtectionConfig,
-            spec: ChainSpec,
+            spec: Arc<ChainSpec>,
             listen_port: u16,
         ) -> Self {
             let signer_rig =
@@ -542,7 +540,7 @@ mod tests {
 
     /// Get a generic, arbitrary attestation for signing.
     fn get_attestation() -> Attestation<E> {
-        Attestation {
+        Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(1).unwrap(),
             data: AttestationData {
                 slot: <_>::default(),
@@ -558,7 +556,7 @@ mod tests {
                 },
             },
             signature: AggregateSignature::empty(),
-        }
+        })
     }
 
     fn get_validator_registration(pubkey: PublicKeyBytes) -> ValidatorRegistrationData {
@@ -574,7 +572,7 @@ mod tests {
     /// Test all the "base" (phase 0) types.
     async fn test_base_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = &network_config.chain_spec::<E>().unwrap();
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
 
         TestingRig::new(
             network,
@@ -590,13 +588,16 @@ mod tests {
                 .unwrap()
         })
         .await
-        .assert_signatures_match("beacon_block_base", |pubkey, validator_store| async move {
-            let block = BeaconBlock::Base(BeaconBlockBase::empty(spec));
-            let block_slot = block.slot();
-            validator_store
-                .sign_block(pubkey, block, block_slot)
-                .await
-                .unwrap()
+        .assert_signatures_match("beacon_block_base", |pubkey, validator_store| {
+            let spec = spec.clone();
+            async move {
+                let block = BeaconBlock::Base(BeaconBlockBase::empty(&spec));
+                let block_slot = block.slot();
+                validator_store
+                    .sign_block(pubkey, block, block_slot)
+                    .await
+                    .unwrap()
+            }
         })
         .await
         .assert_signatures_match("attestation", |pubkey, validator_store| async move {
@@ -644,7 +645,7 @@ mod tests {
     /// Test all the Altair types.
     async fn test_altair_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = &network_config.chain_spec::<E>().unwrap();
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
         let altair_fork_slot = spec
             .altair_fork_epoch
             .unwrap()
@@ -657,17 +658,17 @@ mod tests {
             listen_port,
         )
         .await
-        .assert_signatures_match(
-            "beacon_block_altair",
-            |pubkey, validator_store| async move {
-                let mut altair_block = BeaconBlockAltair::empty(spec);
+        .assert_signatures_match("beacon_block_altair", |pubkey, validator_store| {
+            let spec = spec.clone();
+            async move {
+                let mut altair_block = BeaconBlockAltair::empty(&spec);
                 altair_block.slot = altair_fork_slot;
                 validator_store
                     .sign_block(pubkey, BeaconBlock::Altair(altair_block), altair_fork_slot)
                     .await
                     .unwrap()
-            },
-        )
+            }
+        })
         .await
         .assert_signatures_match(
             "sync_selection_proof",
@@ -724,11 +725,11 @@ mod tests {
         .await;
     }
 
-    /// Test all the Merge types.
-    async fn test_merge_types(network: &str, listen_port: u16) {
+    /// Test all the Bellatrix types.
+    async fn test_bellatrix_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = &network_config.chain_spec::<E>().unwrap();
-        let merge_fork_slot = spec
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
+        let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
             .start_slot(E::slots_per_epoch());
@@ -740,13 +741,20 @@ mod tests {
             listen_port,
         )
         .await
-        .assert_signatures_match("beacon_block_merge", |pubkey, validator_store| async move {
-            let mut merge_block = BeaconBlockMerge::empty(spec);
-            merge_block.slot = merge_fork_slot;
-            validator_store
-                .sign_block(pubkey, BeaconBlock::Merge(merge_block), merge_fork_slot)
-                .await
-                .unwrap()
+        .assert_signatures_match("beacon_block_bellatrix", |pubkey, validator_store| {
+            let spec = spec.clone();
+            async move {
+                let mut bellatrix_block = BeaconBlockBellatrix::empty(&spec);
+                bellatrix_block.slot = bellatrix_fork_slot;
+                validator_store
+                    .sign_block(
+                        pubkey,
+                        BeaconBlock::Bellatrix(bellatrix_block),
+                        bellatrix_fork_slot,
+                    )
+                    .await
+                    .unwrap()
+            }
         })
         .await;
     }
@@ -759,8 +767,8 @@ mod tests {
         let network = "mainnet";
 
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = &network_config.chain_spec::<E>().unwrap();
-        let merge_fork_slot = spec
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
+        let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
             .start_slot(E::slots_per_epoch());
@@ -771,35 +779,35 @@ mod tests {
 
         let first_attestation = || {
             let mut attestation = get_attestation();
-            attestation.data.source.epoch = Epoch::new(1);
-            attestation.data.target.epoch = Epoch::new(4);
+            attestation.data_mut().source.epoch = Epoch::new(1);
+            attestation.data_mut().target.epoch = Epoch::new(4);
             attestation
         };
 
         let double_vote_attestation = || {
             let mut attestation = first_attestation();
-            attestation.data.beacon_block_root = Hash256::from_low_u64_be(1);
+            attestation.data_mut().beacon_block_root = Hash256::from_low_u64_be(1);
             attestation
         };
 
         let surrounding_attestation = || {
             let mut attestation = first_attestation();
-            attestation.data.source.epoch = Epoch::new(0);
-            attestation.data.target.epoch = Epoch::new(5);
+            attestation.data_mut().source.epoch = Epoch::new(0);
+            attestation.data_mut().target.epoch = Epoch::new(5);
             attestation
         };
 
         let surrounded_attestation = || {
             let mut attestation = first_attestation();
-            attestation.data.source.epoch = Epoch::new(2);
-            attestation.data.target.epoch = Epoch::new(3);
+            attestation.data_mut().source.epoch = Epoch::new(2);
+            attestation.data_mut().target.epoch = Epoch::new(3);
             attestation
         };
 
         let first_block = || {
-            let mut merge_block = BeaconBlockMerge::empty(spec);
-            merge_block.slot = merge_fork_slot;
-            BeaconBlock::Merge(merge_block)
+            let mut bellatrix_block = BeaconBlockBellatrix::empty(&spec);
+            bellatrix_block.slot = bellatrix_fork_slot;
+            BeaconBlock::Bellatrix(bellatrix_block)
         };
 
         let double_vote_block = || {
@@ -894,13 +902,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prater_base_types() {
-        test_base_types("prater", 4246).await
+    async fn mainnet_bellatrix_types() {
+        test_bellatrix_types("mainnet", 4244).await
     }
 
     #[tokio::test]
-    async fn prater_altair_types() {
-        test_altair_types("prater", 4247).await
+    async fn holesky_bellatrix_types() {
+        // web3signer does not support forks prior to Bellatrix on Holesky
+        test_bellatrix_types("holesky", 4247).await
     }
 
     #[tokio::test]
@@ -914,8 +923,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sepolia_merge_types() {
-        test_merge_types("sepolia", 4252).await
+    async fn sepolia_bellatrix_types() {
+        test_bellatrix_types("sepolia", 4252).await
     }
 
     #[tokio::test]

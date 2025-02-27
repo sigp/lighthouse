@@ -109,9 +109,9 @@ pub fn get_active_config(conn: &mut PgConn) -> Result<Option<(String, i32)>, Err
         .optional()?)
 }
 
-///
-/// INSERT statements
-///
+/*
+ * INSERT statements
+ */
 
 /// Inserts a single row into the `canonical_slots` table.
 /// If `new_slot.beacon_block` is `None`, the value in the row will be `null`.
@@ -127,9 +127,9 @@ pub fn insert_canonical_slot(conn: &mut PgConn, new_slot: WatchCanonicalSlot) ->
     Ok(())
 }
 
-pub fn insert_beacon_block<T: EthSpec>(
+pub fn insert_beacon_block<E: EthSpec>(
     conn: &mut PgConn,
-    block: SignedBeaconBlock<T>,
+    block: SignedBeaconBlock<E>,
     root: WatchHash,
 ) -> Result<(), Error> {
     use self::canonical_slots::dsl::{beacon_block, slot as canonical_slot};
@@ -141,12 +141,12 @@ pub fn insert_beacon_block<T: EthSpec>(
     let parent_root = WatchHash::from_hash(block.parent_root());
     let proposer_index = block_message.proposer_index() as i32;
     let graffiti = block_message.body().graffiti().as_utf8_lossy();
-    let attestation_count = block_message.body().attestations().len() as i32;
+    let attestation_count = block_message.body().attestations_len() as i32;
 
     let full_payload = block_message.execution_payload().ok();
 
     let transaction_count: Option<i32> = if let Some(bellatrix_payload) =
-        full_payload.and_then(|payload| payload.execution_payload_merge().ok())
+        full_payload.and_then(|payload| payload.execution_payload_bellatrix().ok())
     {
         Some(bellatrix_payload.transactions.len() as i32)
     } else {
@@ -245,9 +245,9 @@ pub fn insert_batch_validators(
     Ok(())
 }
 
-///
-/// SELECT statements
-///
+/*
+ * SELECT statements
+ */
 
 /// Selects a single row of the `canonical_slots` table corresponding to a given `slot_query`.
 pub fn get_canonical_slot(
@@ -746,9 +746,9 @@ pub fn count_validators_activated_before_slot(
         .map_err(Error::Database)
 }
 
-///
-/// DELETE statements.
-///
+/*
+ * DELETE statements.
+ */
 
 /// Deletes all rows of the `canonical_slots` table which have `slot` greater than `slot_query`.
 ///

@@ -1,7 +1,6 @@
 # Validator Manager
 
 [Ethereum Staking Launchpad]: https://launchpad.ethereum.org/en/
-[Import Validators]: #import-validators
 
 ## Introduction
 
@@ -33,3 +32,4 @@ The `validator-manager` boasts the following features:
 
 - [Creating and importing validators using the `create` and `import` commands.](./validator-manager-create.md)
 - [Moving validators between two VCs using the `move` command.](./validator-manager-move.md)
+- [Managing validators such as delete, import and list validators.](./validator-manager-api.md)

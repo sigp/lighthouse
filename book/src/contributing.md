@@ -8,7 +8,6 @@
 [stable]: https://github.com/sigp/lighthouse/tree/stable
 [unstable]: https://github.com/sigp/lighthouse/tree/unstable
 
-
 Lighthouse welcomes contributions. If you are interested in contributing to the
 Ethereum ecosystem, and you want to learn Rust, Lighthouse is a great project
 to work on.
@@ -56,8 +55,8 @@ Please use [clippy](https://github.com/rust-lang/rust-clippy) and
 inconsistent code formatting:
 
 ```bash
-$ cargo clippy --all
-$ cargo fmt --all --check
+cargo clippy --all
+cargo fmt --all --check
 ```
 
 ### Panics
@@ -88,8 +87,9 @@ pub fn my_function(&mut self, _something &[u8]) -> Result<String, Error> {
 
 **General Comments**
 
-* Prefer line (``//``) comments to block comments (``/* ... */``)
-* Comments can appear on the line prior to the item or after a trailing space.
+- Prefer line (``//``) comments to block comments (``/* ... */``)
+- Comments can appear on the line prior to the item or after a trailing space.
+
 ```rust
 // Comment for this struct
 struct Lighthouse {}
@@ -98,8 +98,8 @@ fn make_blockchain() {} // A comment on the same line after a space
 
 **Doc Comments**
 
-* The ``///`` is used to generate comments for Docs.
-* The comments should come before attributes.
+- The ``///`` is used to generate comments for Docs.
+- The comments should come before attributes.
 
 ```rust
 /// Stores the core configuration for this Lighthouse instance.
@@ -123,9 +123,9 @@ introduction and tutorial for the language).
 Rust has a steep learning curve, but there are many resources to help. We
 suggest:
 
-* [Rust Book](https://doc.rust-lang.org/stable/book/)
-* [Rust by example](https://doc.rust-lang.org/stable/rust-by-example/)
-* [Learning Rust With Entirely Too Many Linked Lists](http://cglab.ca/~abeinges/blah/too-many-lists/book/)
-* [Rustlings](https://github.com/rustlings/rustlings)
-* [Rust Exercism](https://exercism.io/tracks/rust)
-* [Learn X in Y minutes - Rust](https://learnxinyminutes.com/docs/rust/)
+- [Rust Book](https://doc.rust-lang.org/stable/book/)
+- [Rust by example](https://doc.rust-lang.org/stable/rust-by-example/)
+- [Learning Rust With Entirely Too Many Linked Lists](http://cglab.ca/~abeinges/blah/too-many-lists/book/)
+- [Rustlings](https://github.com/rustlings/rustlings)
+- [Rust Exercism](https://exercism.io/tracks/rust)
+- [Learn X in Y minutes - Rust](https://learnxinyminutes.com/docs/rust/)

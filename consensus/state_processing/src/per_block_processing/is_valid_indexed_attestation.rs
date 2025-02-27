@@ -11,13 +11,13 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 }
 
 /// Verify an `IndexedAttestation`.
-pub fn is_valid_indexed_attestation<T: EthSpec>(
-    state: &BeaconState<T>,
-    indexed_attestation: &IndexedAttestation<T>,
+pub fn is_valid_indexed_attestation<E: EthSpec>(
+    state: &BeaconState<E>,
+    indexed_attestation: IndexedAttestationRef<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<()> {
-    let indices = &indexed_attestation.attesting_indices;
+    let indices = indexed_attestation.attesting_indices_to_vec();
 
     // Verify that indices aren't empty
     verify!(!indices.is_empty(), Invalid::IndicesEmpty);
@@ -36,14 +36,14 @@ pub fn is_valid_indexed_attestation<T: EthSpec>(
             })?;
         Ok(())
     };
-    check_sorted(indices)?;
+    check_sorted(&indices)?;
 
     if verify_signatures.is_true() {
         verify!(
             indexed_attestation_signature_set(
                 state,
                 |i| get_pubkey_from_state(state, i),
-                &indexed_attestation.signature,
+                indexed_attestation.signature(),
                 indexed_attestation,
                 spec
             )?

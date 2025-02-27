@@ -3,11 +3,13 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
+use lighthouse_version::{COMMIT_PREFIX, VERSION};
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 use tokio::sync::Mutex;
 
 use std::time::{Duration, Instant};
@@ -32,11 +34,15 @@ pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
+pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV4";
+pub const ENGINE_NEW_PAYLOAD_V5: &str = "engine_newPayloadV5";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
+pub const ENGINE_GET_PAYLOAD_V4: &str = "engine_getPayloadV4";
+pub const ENGINE_GET_PAYLOAD_V5: &str = "engine_getPayloadV5";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
@@ -51,6 +57,12 @@ pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
 pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
 pub const ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT: Duration = Duration::from_secs(1);
 
+pub const ENGINE_GET_CLIENT_VERSION_V1: &str = "engine_getClientVersionV1";
+pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
+
+pub const ENGINE_GET_BLOBS_V1: &str = "engine_getBlobsV1";
+pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
 /// This code is returned by all clients when a method is not supported
@@ -61,15 +73,33 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V1,
     ENGINE_NEW_PAYLOAD_V2,
     ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_NEW_PAYLOAD_V4,
+    ENGINE_NEW_PAYLOAD_V5,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3,
+    ENGINE_GET_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V5,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_CLIENT_VERSION_V1,
+    ENGINE_GET_BLOBS_V1,
 ];
+
+/// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
+/// for two reasons:
+/// 1. This saves the overhead of converting into Json for every engine call
+/// 2. The Json version lacks error checking so we can avoid calling `unwrap()`
+pub static LIGHTHOUSE_JSON_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
+    LazyLock::new(|| JsonClientVersionV1 {
+        code: ClientCode::Lighthouse.to_string(),
+        name: "Lighthouse".to_string(),
+        version: VERSION.replace("Lighthouse/", ""),
+        commit: COMMIT_PREFIX.to_string(),
+    });
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
@@ -132,9 +162,7 @@ pub mod deposit_log {
             };
 
             let signature_is_valid = deposit_pubkey_signature_message(&deposit_data, spec)
-                .map_or(false, |(public_key, signature, msg)| {
-                    signature.verify(&public_key, msg)
-                });
+                .is_some_and(|(public_key, signature, msg)| signature.verify(&public_key, msg));
 
             Ok(DepositLog {
                 deposit_data,
@@ -219,7 +247,6 @@ pub mod deposit_methods {
     /// Represents an eth1 chain/network id.
     #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
     pub enum Eth1Id {
-        Goerli,
         Mainnet,
         Custom(u64),
     }
@@ -239,11 +266,10 @@ pub mod deposit_methods {
         Latest,
     }
 
-    impl Into<u64> for Eth1Id {
-        fn into(self) -> u64 {
-            match self {
+    impl From<Eth1Id> for u64 {
+        fn from(from: Eth1Id) -> u64 {
+            match from {
                 Eth1Id::Mainnet => 1,
-                Eth1Id::Goerli => 5,
                 Eth1Id::Custom(id) => id,
             }
         }
@@ -254,7 +280,6 @@ pub mod deposit_methods {
             let into = |x: Eth1Id| -> u64 { x.into() };
             match id {
                 id if id == into(Eth1Id::Mainnet) => Eth1Id::Mainnet,
-                id if id == into(Eth1Id::Goerli) => Eth1Id::Goerli,
                 id => Eth1Id::Custom(id),
             }
         }
@@ -396,7 +421,7 @@ pub mod deposit_methods {
                     .ok_or("Block number was not string")?,
             )?;
 
-            if number <= usize::max_value() as u64 {
+            if number <= usize::MAX as u64 {
                 Ok(Block {
                     hash,
                     timestamp,
@@ -546,22 +571,21 @@ pub mod deposit_methods {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct CapabilitiesCacheEntry {
-    engine_capabilities: EngineCapabilities,
-    fetch_time: Instant,
+pub struct CachedResponse<T: Clone> {
+    pub data: T,
+    pub fetch_time: Instant,
 }
 
-impl CapabilitiesCacheEntry {
-    pub fn new(engine_capabilities: EngineCapabilities) -> Self {
+impl<T: Clone> CachedResponse<T> {
+    pub fn new(data: T) -> Self {
         Self {
-            engine_capabilities,
+            data,
             fetch_time: Instant::now(),
         }
     }
 
-    pub fn engine_capabilities(&self) -> EngineCapabilities {
-        self.engine_capabilities
+    pub fn data(&self) -> T {
+        self.data.clone()
     }
 
     pub fn age(&self) -> Duration {
@@ -570,7 +594,7 @@ impl CapabilitiesCacheEntry {
 
     /// returns `true` if the entry's age is >= age_limit
     pub fn older_than(&self, age_limit: Option<Duration>) -> bool {
-        age_limit.map_or(false, |limit| self.age() >= limit)
+        age_limit.is_some_and(|limit| self.age() >= limit)
     }
 }
 
@@ -578,7 +602,8 @@ pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
-    pub engine_capabilities_cache: Mutex<Option<CapabilitiesCacheEntry>>,
+    pub engine_capabilities_cache: Mutex<Option<CachedResponse<EngineCapabilities>>>,
+    pub engine_version_cache: Mutex<Option<CachedResponse<Vec<ClientVersionV1>>>>,
     auth: Option<Auth>,
 }
 
@@ -592,6 +617,7 @@ impl HttpJsonRpc {
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
+            engine_version_cache: Mutex::new(None),
             auth: None,
         })
     }
@@ -606,6 +632,7 @@ impl HttpJsonRpc {
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             engine_capabilities_cache: Mutex::new(None),
+            engine_version_cache: Mutex::new(None),
             auth: Some(auth),
         })
     }
@@ -681,9 +708,23 @@ impl HttpJsonRpc {
         }
     }
 
-    pub async fn get_block_by_number<'a>(
+    pub async fn get_blobs<E: EthSpec>(
         &self,
-        query: BlockByNumberQuery<'a>,
+        versioned_hashes: Vec<Hash256>,
+    ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
+        let params = json!([versioned_hashes]);
+
+        self.rpc_request(
+            ENGINE_GET_BLOBS_V1,
+            params,
+            ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
+    }
+
+    pub async fn get_block_by_number(
+        &self,
+        query: BlockByNumberQuery<'_>,
     ) -> Result<Option<ExecutionBlock>, Error> {
         let params = json!([query, RETURN_FULL_TRANSACTION_OBJECTS]);
 
@@ -709,49 +750,9 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn get_block_by_hash_with_txns<T: EthSpec>(
+    pub async fn new_payload_v1<E: EthSpec>(
         &self,
-        block_hash: ExecutionBlockHash,
-        fork: ForkName,
-    ) -> Result<Option<ExecutionBlockWithTransactions<T>>, Error> {
-        let params = json!([block_hash, true]);
-        Ok(Some(match fork {
-            ForkName::Merge => ExecutionBlockWithTransactions::Merge(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Capella => ExecutionBlockWithTransactions::Capella(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Deneb => ExecutionBlockWithTransactions::Deneb(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Base | ForkName::Altair => {
-                return Err(Error::UnsupportedForkVariant(format!(
-                    "called get_block_by_hash_with_txns with fork {:?}",
-                    fork
-                )))
-            }
-        }))
-    }
-
-    pub async fn new_payload_v1<T: EthSpec>(
-        &self,
-        execution_payload: ExecutionPayload<T>,
+        execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
@@ -766,9 +767,9 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v2<T: EthSpec>(
+    pub async fn new_payload_v2<E: EthSpec>(
         &self,
-        execution_payload: ExecutionPayload<T>,
+        execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
@@ -783,9 +784,9 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v3<T: EthSpec>(
+    pub async fn new_payload_v3_deneb<E: EthSpec>(
         &self,
-        new_payload_request_deneb: NewPayloadRequestDeneb<'_, T>,
+        new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
             JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
@@ -804,13 +805,62 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn get_payload_v1<T: EthSpec>(
+    pub async fn new_payload_v4_electra<E: EthSpec>(
+        &self,
+        new_payload_request_electra: NewPayloadRequestElectra<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::V4(new_payload_request_electra.execution_payload.clone().into()),
+            new_payload_request_electra.versioned_hashes,
+            new_payload_request_electra.parent_beacon_block_root,
+            new_payload_request_electra
+                .execution_requests
+                .get_execution_requests_list(),
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V4,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
+    pub async fn new_payload_v4_fulu<E: EthSpec>(
+        &self,
+        new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::V5(new_payload_request_fulu.execution_payload.clone().into()),
+            new_payload_request_fulu.versioned_hashes,
+            new_payload_request_fulu.parent_beacon_block_root,
+            new_payload_request_fulu
+                .execution_requests
+                .get_execution_requests_list(),
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V4,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn get_payload_v1<E: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let payload_v1: JsonExecutionPayloadV1<T> = self
+        let payload_v1: JsonExecutionPayloadV1<E> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_V1,
                 params,
@@ -818,70 +868,145 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(GetPayloadResponse::Merge(GetPayloadResponseMerge {
+        Ok(GetPayloadResponse::Bellatrix(GetPayloadResponseBellatrix {
             execution_payload: payload_v1.into(),
             // Set the V1 payload values from the EE to be zero. This simulates
             // the pre-block-value functionality of always choosing the builder
             // block.
-            block_value: Uint256::zero(),
+            block_value: Uint256::ZERO,
         }))
     }
 
-    pub async fn get_payload_v2<T: EthSpec>(
+    pub async fn get_payload_v2<E: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
-            ForkName::Merge => {
-                let response: JsonGetPayloadResponseV1<T> = self
+            ForkName::Bellatrix => {
+                let response: JsonGetPayloadResponseV1<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V1(response).into())
+                JsonGetPayloadResponse::V1(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
             ForkName::Capella => {
-                let response: JsonGetPayloadResponseV2<T> = self
+                let response: JsonGetPayloadResponseV2<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V2(response).into())
+                JsonGetPayloadResponse::V2(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
-            ForkName::Base | ForkName::Altair | ForkName::Deneb => Err(
-                Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
-            ),
+            _ => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v2 with {}",
+                fork_name
+            ))),
         }
     }
 
-    pub async fn get_payload_v3<T: EthSpec>(
+    pub async fn get_payload_v3<E: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
             ForkName::Deneb => {
-                let response: JsonGetPayloadResponseV3<T> = self
+                let response: JsonGetPayloadResponseV3<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V3,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V3(response).into())
+                JsonGetPayloadResponse::V3(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => Err(
-                Error::UnsupportedForkVariant(format!("called get_payload_v3 with {}", fork_name)),
-            ),
+            _ => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v3 with {}",
+                fork_name
+            ))),
+        }
+    }
+
+    pub async fn get_payload_v4<E: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<E>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        match fork_name {
+            ForkName::Electra => {
+                let response: JsonGetPayloadResponseV4<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V4,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                JsonGetPayloadResponse::V4(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
+            // TODO(fulu): remove when v5 method is ready.
+            ForkName::Fulu => {
+                let response: JsonGetPayloadResponseV5<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V4,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                JsonGetPayloadResponse::V5(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
+            _ => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v4 with {}",
+                fork_name
+            ))),
+        }
+    }
+
+    pub async fn get_payload_v5<E: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<E>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        match fork_name {
+            ForkName::Fulu => {
+                let response: JsonGetPayloadResponseV5<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V5,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                JsonGetPayloadResponse::V5(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
+            _ => Err(Error::UnsupportedForkVariant(format!(
+                "called get_payload_v5 with {}",
+                fork_name
+            ))),
         }
     }
 
@@ -1007,6 +1132,8 @@ impl HttpJsonRpc {
             new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
             new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
             new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
+            new_payload_v4: capabilities.contains(ENGINE_NEW_PAYLOAD_V4),
+            new_payload_v5: capabilities.contains(ENGINE_NEW_PAYLOAD_V5),
             forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
             forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
             forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
@@ -1017,6 +1144,10 @@ impl HttpJsonRpc {
             get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
             get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
             get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
+            get_payload_v4: capabilities.contains(ENGINE_GET_PAYLOAD_V4),
+            get_payload_v5: capabilities.contains(ENGINE_GET_PAYLOAD_V5),
+            get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
+            get_blobs_v1: capabilities.contains(ENGINE_GET_BLOBS_V1),
         })
     }
 
@@ -1039,24 +1170,87 @@ impl HttpJsonRpc {
     ) -> Result<EngineCapabilities, Error> {
         let mut lock = self.engine_capabilities_cache.lock().await;
 
-        if let Some(lock) = lock.as_ref().filter(|entry| !entry.older_than(age_limit)) {
-            Ok(lock.engine_capabilities())
+        if let Some(lock) = lock
+            .as_ref()
+            .filter(|cached_response| !cached_response.older_than(age_limit))
+        {
+            Ok(lock.data())
         } else {
             let engine_capabilities = self.exchange_capabilities().await?;
-            *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
+            *lock = Some(CachedResponse::new(engine_capabilities));
             Ok(engine_capabilities)
+        }
+    }
+
+    /// This method fetches the response from the engine without checking
+    /// any caches or storing the result in the cache. It is better to use
+    /// `get_engine_version(Some(Duration::ZERO))` if you want to force
+    /// fetching from the EE as this will cache the result.
+    pub async fn get_client_version_v1(&self) -> Result<Vec<ClientVersionV1>, Error> {
+        let params = json!([*LIGHTHOUSE_JSON_CLIENT_VERSION]);
+
+        let response: Vec<JsonClientVersionV1> = self
+            .rpc_request(
+                ENGINE_GET_CLIENT_VERSION_V1,
+                params,
+                ENGINE_GET_CLIENT_VERSION_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        response
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Error::InvalidClientVersion)
+    }
+
+    pub async fn clear_engine_version_cache(&self) {
+        *self.engine_version_cache.lock().await = None;
+    }
+
+    /// Returns the execution engine version resulting from a call to
+    /// engine_getClientVersionV1. If the version cache is not populated, or if it
+    /// is populated with a cached result of age >= `age_limit`, this method will
+    /// fetch the result from the execution engine and populate the cache before
+    /// returning it. Otherwise it will return the cached result from an earlier
+    /// call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_version(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<Vec<ClientVersionV1>, Error> {
+        // check engine capabilities first (avoids holding two locks at once)
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if !engine_capabilities.get_client_version_v1 {
+            // We choose an empty vec to denote that this method is not
+            // supported instead of an error since this method is optional
+            // & we don't want to log a warning and concern the user
+            return Ok(vec![]);
+        }
+        let mut lock = self.engine_version_cache.lock().await;
+        if let Some(lock) = lock
+            .as_ref()
+            .filter(|cached_response| !cached_response.older_than(age_limit))
+        {
+            Ok(lock.data())
+        } else {
+            let engine_version = self.get_client_version_v1().await?;
+            *lock = Some(CachedResponse::new(engine_version.clone()));
+            Ok(engine_version)
         }
     }
 
     // automatically selects the latest version of
     // new_payload that the execution engine supports
-    pub async fn new_payload<T: EthSpec>(
+    pub async fn new_payload<E: EthSpec>(
         &self,
-        new_payload_request: NewPayloadRequest<'_, T>,
+        new_payload_request: NewPayloadRequest<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match new_payload_request {
-            NewPayloadRequest::Merge(_) | NewPayloadRequest::Capella(_) => {
+            NewPayloadRequest::Bellatrix(_) | NewPayloadRequest::Capella(_) => {
                 if engine_capabilities.new_payload_v2 {
                     self.new_payload_v2(new_payload_request.into_execution_payload())
                         .await
@@ -1069,9 +1263,25 @@ impl HttpJsonRpc {
             }
             NewPayloadRequest::Deneb(new_payload_request_deneb) => {
                 if engine_capabilities.new_payload_v3 {
-                    self.new_payload_v3(new_payload_request_deneb).await
+                    self.new_payload_v3_deneb(new_payload_request_deneb).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV3"))
+                }
+            }
+            NewPayloadRequest::Electra(new_payload_request_electra) => {
+                if engine_capabilities.new_payload_v4 {
+                    self.new_payload_v4_electra(new_payload_request_electra)
+                        .await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
+                }
+            }
+            NewPayloadRequest::Fulu(new_payload_request_fulu) => {
+                // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
+                if engine_capabilities.new_payload_v4 {
+                    self.new_payload_v4_fulu(new_payload_request_fulu).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
             }
         }
@@ -1079,17 +1289,17 @@ impl HttpJsonRpc {
 
     // automatically selects the latest version of
     // get_payload that the execution engine supports
-    pub async fn get_payload<T: EthSpec>(
+    pub async fn get_payload<E: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<GetPayloadResponse<T>, Error> {
+    ) -> Result<GetPayloadResponse<E>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match fork_name {
-            ForkName::Merge | ForkName::Capella => {
+            ForkName::Bellatrix | ForkName::Capella => {
                 if engine_capabilities.get_payload_v2 {
                     self.get_payload_v2(fork_name, payload_id).await
-                } else if engine_capabilities.new_payload_v1 {
+                } else if engine_capabilities.get_payload_v1 {
                     self.get_payload_v1(payload_id).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_getPayload"))
@@ -1099,7 +1309,22 @@ impl HttpJsonRpc {
                 if engine_capabilities.get_payload_v3 {
                     self.get_payload_v3(fork_name, payload_id).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_getPayloadV3"))
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv3"))
+                }
+            }
+            ForkName::Electra => {
+                if engine_capabilities.get_payload_v4 {
+                    self.get_payload_v4(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv4"))
+                }
+            }
+            ForkName::Fulu => {
+                // TODO(fulu): switch to v5 when the EL is ready
+                if engine_capabilities.get_payload_v4 {
+                    self.get_payload_v4(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
                 }
             }
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
@@ -1164,7 +1389,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Unsigned};
+    use types::{FixedBytesExtended, MainnetEthSpec, Unsigned};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -1174,7 +1399,8 @@ mod test {
 
     impl Tester {
         pub fn new(with_auth: bool) -> Self {
-            let server = MockServer::unit_testing();
+            let spec = Arc::new(MainnetEthSpec::default_spec());
+            let server = MockServer::unit_testing(spec);
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
@@ -1527,8 +1753,8 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(
-                            ExecutionPayloadMerge {
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(
+                            ExecutionPayloadBellatrix {
                                 parent_hash: ExecutionBlockHash::repeat_byte(0),
                                 fee_recipient: Address::repeat_byte(1),
                                 state_root: Hash256::repeat_byte(1),
@@ -1574,8 +1800,8 @@ mod test {
         Tester::new(false)
             .assert_auth_failure(|client| async move {
                 client
-                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(
-                        ExecutionPayloadMerge {
+                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(
+                        ExecutionPayloadBellatrix {
                             parent_hash: ExecutionBlockHash::repeat_byte(0),
                             fee_recipient: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
@@ -1775,7 +2001,7 @@ mod test {
                         "extraData":"0x",
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c",
-                        "transactions":[]
+                        "transactions":[],
                     }
                 })],
                 |client| async move {
@@ -1785,7 +2011,7 @@ mod test {
                         .unwrap()
                         .into();
 
-                    let expected = ExecutionPayload::Merge(ExecutionPayloadMerge {
+                    let expected = ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -1799,7 +2025,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                        transactions: vec![].into(),
+                            transactions: vec![].into(),
                         });
 
                     assert_eq!(payload, expected);
@@ -1810,7 +2036,7 @@ mod test {
                 // engine_newPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge{
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix{
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -1846,7 +2072,7 @@ mod test {
                         "extraData":"0x",
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
-                        "transactions":[]
+                        "transactions":[],
                     }],
                 })
             )
@@ -1864,7 +2090,7 @@ mod test {
                 })],
                 |client| async move {
                     let response = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge::default()))
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()))
                         .await
                         .unwrap();
 

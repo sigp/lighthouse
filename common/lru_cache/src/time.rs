@@ -166,6 +166,12 @@ where
         self.map.contains(key)
     }
 
+    /// List known keys
+    pub fn keys(&mut self) -> impl Iterator<Item = &Key> {
+        self.update();
+        self.map.iter()
+    }
+
     /// Shrink the mappings to fit the current size.
     pub fn shrink_to_fit(&mut self) {
         self.map.shrink_to_fit();

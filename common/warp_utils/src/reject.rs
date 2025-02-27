@@ -2,7 +2,8 @@ use eth2::types::{ErrorMessage, Failure, IndexedErrorMessage};
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
-use warp::{http::StatusCode, reject::Reject};
+use std::fmt::Debug;
+use warp::{http::StatusCode, reject::Reject, reply::Response, Reply};
 
 #[derive(Debug)]
 pub struct ServerSentEventError(pub String);
@@ -17,15 +18,6 @@ impl fmt::Display for ServerSentEventError {
 
 pub fn server_sent_event_error(s: String) -> ServerSentEventError {
     ServerSentEventError(s)
-}
-
-#[derive(Debug)]
-pub struct BeaconChainError(pub beacon_chain::BeaconChainError);
-
-impl Reject for BeaconChainError {}
-
-pub fn beacon_chain_error(e: beacon_chain::BeaconChainError) -> warp::reject::Rejection {
-    warp::reject::custom(BeaconChainError(e))
 }
 
 #[derive(Debug)]
@@ -47,21 +39,12 @@ pub fn arith_error(e: safe_arith::ArithError) -> warp::reject::Rejection {
 }
 
 #[derive(Debug)]
-pub struct SlotProcessingError(pub state_processing::SlotProcessingError);
+pub struct UnhandledError(pub Box<dyn Debug + Send + Sync + 'static>);
 
-impl Reject for SlotProcessingError {}
+impl Reject for UnhandledError {}
 
-pub fn slot_processing_error(e: state_processing::SlotProcessingError) -> warp::reject::Rejection {
-    warp::reject::custom(SlotProcessingError(e))
-}
-
-#[derive(Debug)]
-pub struct BlockProductionError(pub beacon_chain::BlockProductionError);
-
-impl Reject for BlockProductionError {}
-
-pub fn block_production_error(e: beacon_chain::BlockProductionError) -> warp::reject::Rejection {
-    warp::reject::custom(BlockProductionError(e))
+pub fn unhandled_error<D: Debug + Send + Sync + 'static>(e: D) -> warp::reject::Rejection {
+    warp::reject::custom(UnhandledError(Box::new(e)))
 }
 
 #[derive(Debug)]
@@ -137,6 +120,15 @@ pub fn invalid_auth(msg: String) -> warp::reject::Rejection {
 }
 
 #[derive(Debug)]
+pub struct UnsupportedMediaType(pub String);
+
+impl Reject for UnsupportedMediaType {}
+
+pub fn unsupported_media_type(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(UnsupportedMediaType(msg))
+}
+
+#[derive(Debug)]
 pub struct IndexedBadRequestErrors {
     pub message: String,
     pub failures: Vec<Failure>,
@@ -170,6 +162,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;
         message = "NOT_FOUND".to_string();
+    } else if err.find::<crate::reject::UnsupportedMediaType>().is_some() {
+        code = StatusCode::UNSUPPORTED_MEDIA_TYPE;
+        message = "UNSUPPORTED_MEDIA_TYPE".to_string();
     } else if let Some(e) = err.find::<crate::reject::CustomDeserializeError>() {
         message = format!("BAD_REQUEST: body deserialize error: {}", e.0);
         code = StatusCode::BAD_REQUEST;
@@ -179,16 +174,7 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     } else if let Some(e) = err.find::<warp::reject::InvalidQuery>() {
         code = StatusCode::BAD_REQUEST;
         message = format!("BAD_REQUEST: invalid query: {}", e);
-    } else if let Some(e) = err.find::<crate::reject::BeaconChainError>() {
-        code = StatusCode::INTERNAL_SERVER_ERROR;
-        message = format!("UNHANDLED_ERROR: {:?}", e.0);
-    } else if let Some(e) = err.find::<crate::reject::BeaconStateError>() {
-        code = StatusCode::INTERNAL_SERVER_ERROR;
-        message = format!("UNHANDLED_ERROR: {:?}", e.0);
-    } else if let Some(e) = err.find::<crate::reject::SlotProcessingError>() {
-        code = StatusCode::INTERNAL_SERVER_ERROR;
-        message = format!("UNHANDLED_ERROR: {:?}", e.0);
-    } else if let Some(e) = err.find::<crate::reject::BlockProductionError>() {
+    } else if let Some(e) = err.find::<crate::reject::UnhandledError>() {
         code = StatusCode::INTERNAL_SERVER_ERROR;
         message = format!("UNHANDLED_ERROR: {:?}", e.0);
     } else if let Some(e) = err.find::<crate::reject::CustomNotFound>() {
@@ -242,4 +228,24 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     });
 
     Ok(warp::reply::with_status(json, code))
+}
+
+/// Convert a warp `Rejection` into a `Response`.
+///
+/// This function should *always* be used to convert rejections into responses. This prevents warp
+/// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
+pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Response {
+    match res {
+        Ok(response) => response.into_response(),
+        Err(e) => match handle_rejection(e).await {
+            Ok(reply) => reply.into_response(),
+            // We can simplify this once Rust 1.82 is MSRV
+            #[allow(unreachable_patterns)]
+            Err(_) => warp::reply::with_status(
+                warp::reply::json(&"unhandled error"),
+                eth2::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response(),
+        },
+    }
 }

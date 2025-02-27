@@ -6,7 +6,7 @@ use slog::{debug, Logger};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
 use types::{BeaconState, SignedBlindedBeaconBlock};
-use warp_utils::reject::{beacon_chain_error, custom_not_found};
+use warp_utils::reject::{custom_not_found, unhandled_error};
 
 pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
@@ -20,7 +20,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
 
     let reward_payload = chain
         .compute_sync_committee_rewards(block.message(), &mut state)
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error)?;
 
     let data = if reward_payload.is_empty() {
         debug!(log, "compute_sync_committee_rewards returned empty");
@@ -71,7 +71,7 @@ pub fn get_state_before_applying_block<T: BeaconChainTypes>(
         .state_root_iter([Ok((parent_block.state_root(), parent_block.slot()))].into_iter())
         .minimal_block_root_verification()
         .apply_blocks(vec![], Some(block.slot()))
-        .map_err(beacon_chain_error)?;
+        .map_err(unhandled_error::<BeaconChainError>)?;
 
     Ok(replayer.into_state())
 }

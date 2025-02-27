@@ -22,7 +22,7 @@
 //!  - Only one finalized chain can sync at a time
 //!  - The finalized chain with the largest peer pool takes priority.
 //!  - As one finalized chain completes, others are checked to see if we they can be continued,
-//!  otherwise they are removed.
+//!    otherwise they are removed.
 //!
 //!  ## Head Chain Sync
 //!
@@ -39,24 +39,23 @@
 //!  Each chain is downloaded in batches of blocks. The batched blocks are processed sequentially
 //!  and further batches are requested as current blocks are being processed.
 
-use super::block_storage::BlockStorage;
 use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
-use super::chain_collection::ChainCollection;
+use super::chain_collection::{ChainCollection, SyncChainStatus};
 use super::sync_type::RangeSyncType;
+use crate::metrics;
 use crate::status::ToStatusMessage;
-use crate::sync::manager::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
-use lighthouse_network::PeerId;
-use lighthouse_network::SyncInfo;
+use lighthouse_network::service::api_types::Id;
+use lighthouse_network::{PeerId, SyncInfo};
 use lru_cache::LRUTimeCache;
 use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256};
 
 /// For how long we store failed finalized chains to prevent retries.
 const FAILED_CHAINS_EXPIRY_SECONDS: u64 = 30;
@@ -64,27 +63,26 @@ const FAILED_CHAINS_EXPIRY_SECONDS: u64 = 30;
 /// The primary object dealing with long range/batch syncing. This contains all the active and
 /// non-active chains that need to be processed before the syncing is considered complete. This
 /// holds the current state of the long range sync.
-pub struct RangeSync<T: BeaconChainTypes, C = BeaconChain<T>> {
+pub struct RangeSync<T: BeaconChainTypes> {
     /// The beacon chain for processing.
-    beacon_chain: Arc<C>,
+    beacon_chain: Arc<BeaconChain<T>>,
     /// Last known sync info of our useful connected peers. We use this information to create Head
     /// chains after all finalized chains have ended.
     awaiting_head_peers: HashMap<PeerId, SyncInfo>,
     /// A collection of chains that need to be downloaded. This stores any head or finalized chains
     /// that need to be downloaded.
-    chains: ChainCollection<T, C>,
+    chains: ChainCollection<T>,
     /// Chains that have failed and are stored to prevent being retried.
     failed_chains: LRUTimeCache<Hash256>,
     /// The syncing logger.
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes, C> RangeSync<T, C>
+impl<T: BeaconChainTypes> RangeSync<T>
 where
-    C: BlockStorage + ToStatusMessage,
     T: BeaconChainTypes,
 {
-    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: slog::Logger) -> Self {
         RangeSync {
             beacon_chain: beacon_chain.clone(),
             chains: ChainCollection::new(beacon_chain, log.clone()),
@@ -96,9 +94,7 @@ where
         }
     }
 
-    pub fn state(
-        &self,
-    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
+    pub fn state(&self) -> SyncChainStatus {
         self.chains.state()
     }
 
@@ -210,11 +206,11 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        beacon_block: Option<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
-            chain.on_block_response(network, batch_id, &peer_id, request_id, beacon_block)
+            chain.on_block_response(network, batch_id, &peer_id, request_id, blocks)
         }) {
             Ok((removed_chain, sync_type)) => {
                 if let Some((removed_chain, remove_reason)) = removed_chain {
@@ -346,6 +342,12 @@ where
             }
         }
 
+        metrics::inc_counter_vec_by(
+            &metrics::SYNCING_CHAINS_DROPPED_BLOCKS,
+            &[sync_type.as_str()],
+            chain.pending_blocks() as u64,
+        );
+
         network.status_peers(self.beacon_chain.as_ref(), chain.peers());
 
         let status = self.beacon_chain.status_message();
@@ -374,446 +376,5 @@ where
                 "chain resumed",
             );
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::network_beacon_processor::NetworkBeaconProcessor;
-    use crate::service::RequestId;
-    use crate::NetworkMessage;
-
-    use super::*;
-    use crate::sync::network_context::BlockOrBlob;
-    use beacon_chain::builder::Witness;
-    use beacon_chain::eth1_chain::CachingEth1Backend;
-    use beacon_chain::parking_lot::RwLock;
-    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use beacon_chain::EngineState;
-    use beacon_processor::WorkEvent as BeaconWorkEvent;
-    use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
-    use slog::{o, Drain};
-    use slot_clock::TestingSlotClock;
-    use std::collections::HashSet;
-    use store::MemoryStore;
-    use tokio::sync::mpsc;
-    use types::{ForkName, MinimalEthSpec as E};
-
-    #[derive(Debug)]
-    struct FakeStorage {
-        known_blocks: RwLock<HashSet<Hash256>>,
-        status: RwLock<StatusMessage>,
-    }
-
-    impl Default for FakeStorage {
-        fn default() -> Self {
-            FakeStorage {
-                known_blocks: RwLock::new(HashSet::new()),
-                status: RwLock::new(StatusMessage {
-                    fork_digest: [0; 4],
-                    finalized_root: Hash256::zero(),
-                    finalized_epoch: 0usize.into(),
-                    head_root: Hash256::zero(),
-                    head_slot: 0usize.into(),
-                }),
-            }
-        }
-    }
-
-    impl FakeStorage {
-        fn remember_block(&self, block_root: Hash256) {
-            self.known_blocks.write().insert(block_root);
-        }
-
-        #[allow(dead_code)]
-        fn forget_block(&self, block_root: &Hash256) {
-            self.known_blocks.write().remove(block_root);
-        }
-    }
-
-    impl BlockStorage for FakeStorage {
-        fn is_block_known(&self, block_root: &store::Hash256) -> bool {
-            self.known_blocks.read().contains(block_root)
-        }
-    }
-
-    impl ToStatusMessage for FakeStorage {
-        fn status_message(&self) -> StatusMessage {
-            self.status.read().clone()
-        }
-    }
-
-    type TestBeaconChainType =
-        Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
-
-    fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-
-        if enabled {
-            slog::Logger::root(drain.filter_level(level).fuse(), o!())
-        } else {
-            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
-        }
-    }
-
-    #[allow(unused)]
-    struct TestRig {
-        log: slog::Logger,
-        /// To check what does sync send to the beacon processor.
-        beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<E>>,
-        /// To set up different scenarios where sync is told about known/unknown blocks.
-        chain: Arc<FakeStorage>,
-        /// Needed by range to handle communication with the network.
-        cx: SyncNetworkContext<TestBeaconChainType>,
-        /// To check what the network receives from Range.
-        network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-        /// To modify what the network declares about various global variables, in particular about
-        /// the sync state of a peer.
-        globals: Arc<NetworkGlobals<E>>,
-    }
-
-    impl RangeSync<TestBeaconChainType, FakeStorage> {
-        fn assert_state(&self, expected_state: RangeSyncType) {
-            assert_eq!(
-                self.state()
-                    .expect("State is ok")
-                    .expect("Range is syncing")
-                    .0,
-                expected_state
-            )
-        }
-
-        #[allow(dead_code)]
-        fn assert_not_syncing(&self) {
-            assert!(
-                self.state().expect("State is ok").is_none(),
-                "Range should not be syncing."
-            );
-        }
-    }
-
-    impl TestRig {
-        fn local_info(&self) -> SyncInfo {
-            let StatusMessage {
-                fork_digest: _,
-                finalized_root,
-                finalized_epoch,
-                head_root,
-                head_slot,
-            } = self.chain.status.read().clone();
-            SyncInfo {
-                head_slot,
-                head_root,
-                finalized_epoch,
-                finalized_root,
-            }
-        }
-
-        /// Reads an BlocksByRange request to a given peer from the network receiver channel.
-        #[track_caller]
-        fn grab_request(
-            &mut self,
-            expected_peer: &PeerId,
-            fork_name: ForkName,
-        ) -> (RequestId, Option<RequestId>) {
-            let block_req_id = if let Ok(NetworkMessage::SendRequest {
-                peer_id,
-                request: _,
-                request_id,
-            }) = self.network_rx.try_recv()
-            {
-                assert_eq!(&peer_id, expected_peer);
-                request_id
-            } else {
-                panic!("Should have sent a batch request to the peer")
-            };
-            let blob_req_id = match fork_name {
-                ForkName::Deneb => {
-                    if let Ok(NetworkMessage::SendRequest {
-                        peer_id,
-                        request: _,
-                        request_id,
-                    }) = self.network_rx.try_recv()
-                    {
-                        assert_eq!(&peer_id, expected_peer);
-                        Some(request_id)
-                    } else {
-                        panic!("Should have sent a batch request to the peer")
-                    }
-                }
-                _ => None,
-            };
-            (block_req_id, blob_req_id)
-        }
-
-        /// Produce a head peer
-        fn head_peer(
-            &self,
-        ) -> (
-            PeerId,
-            SyncInfo, /* Local info */
-            SyncInfo, /* Remote info */
-        ) {
-            let local_info = self.local_info();
-
-            // Get a peer with an advanced head
-            let head_root = Hash256::random();
-            let head_slot = local_info.head_slot + 1;
-            let remote_info = SyncInfo {
-                head_root,
-                head_slot,
-                ..local_info
-            };
-            let peer_id = PeerId::random();
-            (peer_id, local_info, remote_info)
-        }
-
-        fn finalized_peer(
-            &self,
-        ) -> (
-            PeerId,
-            SyncInfo, /* Local info */
-            SyncInfo, /* Remote info */
-        ) {
-            let local_info = self.local_info();
-
-            let finalized_root = Hash256::random();
-            let finalized_epoch = local_info.finalized_epoch + 2;
-            let head_slot = finalized_epoch.start_slot(E::slots_per_epoch());
-            let head_root = Hash256::random();
-            let remote_info = SyncInfo {
-                finalized_epoch,
-                finalized_root,
-                head_slot,
-                head_root,
-            };
-
-            let peer_id = PeerId::random();
-            (peer_id, local_info, remote_info)
-        }
-
-        #[track_caller]
-        fn expect_empty_processor(&mut self) {
-            match self.beacon_processor_rx.try_recv() {
-                Ok(work) => {
-                    panic!("Expected empty processor. Instead got {}", work.work_type());
-                }
-                Err(e) => match e {
-                    mpsc::error::TryRecvError::Empty => {}
-                    mpsc::error::TryRecvError::Disconnected => unreachable!("bad coded test?"),
-                },
-            }
-        }
-
-        #[track_caller]
-        fn expect_chain_segment(&mut self) {
-            match self.beacon_processor_rx.try_recv() {
-                Ok(work) => {
-                    assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
-                }
-                other => panic!("Expected chain segment process, found {:?}", other),
-            }
-        }
-    }
-
-    fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
-        let log = build_log(slog::Level::Trace, log_enabled);
-        // Initialise a new beacon chain
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
-            .default_spec()
-            .logger(log.clone())
-            .deterministic_keypairs(1)
-            .fresh_ephemeral_store()
-            .build();
-        let chain = harness.chain;
-
-        let fake_store = Arc::new(FakeStorage::default());
-        let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
-            fake_store.clone(),
-            log.new(o!("component" => "range")),
-        );
-        let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
-        let (network_beacon_processor, beacon_processor_rx) =
-            NetworkBeaconProcessor::null_for_testing(globals.clone());
-        let cx = SyncNetworkContext::new(
-            network_tx,
-            Arc::new(network_beacon_processor),
-            chain,
-            log.new(o!("component" => "network_context")),
-        );
-        let test_rig = TestRig {
-            log,
-            beacon_processor_rx,
-            chain: fake_store,
-            cx,
-            network_rx,
-            globals,
-        };
-        (test_rig, range_sync)
-    }
-
-    #[test]
-    fn head_chain_removed_while_finalized_syncing() {
-        // NOTE: this is a regression test.
-        let (mut rig, mut range) = range(false);
-
-        // Get a peer with an advanced head
-        let (head_peer, local_info, remote_info) = rig.head_peer();
-        range.add_peer(&mut rig.cx, local_info, head_peer, remote_info);
-        range.assert_state(RangeSyncType::Head);
-
-        let fork = rig
-            .cx
-            .chain
-            .spec
-            .fork_name_at_epoch(rig.cx.chain.epoch().unwrap());
-
-        // Sync should have requested a batch, grab the request.
-        let _ = rig.grab_request(&head_peer, fork);
-
-        // Now get a peer with an advanced finalized epoch.
-        let (finalized_peer, local_info, remote_info) = rig.finalized_peer();
-        range.add_peer(&mut rig.cx, local_info, finalized_peer, remote_info);
-        range.assert_state(RangeSyncType::Finalized);
-
-        // Sync should have requested a batch, grab the request
-        let _ = rig.grab_request(&finalized_peer, fork);
-
-        // Fail the head chain by disconnecting the peer.
-        range.remove_peer(&mut rig.cx, &head_peer);
-        range.assert_state(RangeSyncType::Finalized);
-    }
-
-    #[test]
-    fn state_update_while_purging() {
-        // NOTE: this is a regression test.
-        let (mut rig, mut range) = range(true);
-
-        // Get a peer with an advanced head
-        let (head_peer, local_info, head_info) = rig.head_peer();
-        let head_peer_root = head_info.head_root;
-        range.add_peer(&mut rig.cx, local_info, head_peer, head_info);
-        range.assert_state(RangeSyncType::Head);
-
-        let fork = rig
-            .cx
-            .chain
-            .spec
-            .fork_name_at_epoch(rig.cx.chain.epoch().unwrap());
-
-        // Sync should have requested a batch, grab the request.
-        let _ = rig.grab_request(&head_peer, fork);
-
-        // Now get a peer with an advanced finalized epoch.
-        let (finalized_peer, local_info, remote_info) = rig.finalized_peer();
-        let finalized_peer_root = remote_info.finalized_root;
-        range.add_peer(&mut rig.cx, local_info, finalized_peer, remote_info);
-        range.assert_state(RangeSyncType::Finalized);
-
-        // Sync should have requested a batch, grab the request
-        let _ = rig.grab_request(&finalized_peer, fork);
-
-        // Now the chain knows both chains target roots.
-        rig.chain.remember_block(head_peer_root);
-        rig.chain.remember_block(finalized_peer_root);
-
-        // Add an additional peer to the second chain to make range update it's status
-        let (finalized_peer, local_info, remote_info) = rig.finalized_peer();
-        range.add_peer(&mut rig.cx, local_info, finalized_peer, remote_info);
-    }
-
-    #[test]
-    fn pause_and_resume_on_ee_offline() {
-        let (mut rig, mut range) = range(true);
-        let fork = rig
-            .cx
-            .chain
-            .spec
-            .fork_name_at_epoch(rig.cx.chain.epoch().unwrap());
-
-        // add some peers
-        let (peer1, local_info, head_info) = rig.head_peer();
-        range.add_peer(&mut rig.cx, local_info, peer1, head_info);
-        let (block_req, blob_req_opt) = rig.grab_request(&peer1, fork);
-
-        let (chain1, batch1, id1) = if blob_req_opt.is_some() {
-            match block_req {
-                RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
-                    let _ = rig
-                        .cx
-                        .range_sync_block_and_blob_response(id, BlockOrBlob::Block(None));
-                    let (chain1, response) = rig
-                        .cx
-                        .range_sync_block_and_blob_response(id, BlockOrBlob::Blob(None))
-                        .unwrap();
-                    (chain1, response.batch_id, id)
-                }
-                other => panic!("unexpected request {:?}", other),
-            }
-        } else {
-            match block_req {
-                RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                    let (chain, batch) = rig.cx.range_sync_block_only_response(id, true).unwrap();
-                    (chain, batch, id)
-                }
-                other => panic!("unexpected request {:?}", other),
-            }
-        };
-
-        // make the ee offline
-        rig.cx.update_execution_engine_state(EngineState::Offline);
-
-        // send the response to the request
-        range.blocks_by_range_response(&mut rig.cx, peer1, chain1, batch1, id1, None);
-
-        // the beacon processor shouldn't have received any work
-        rig.expect_empty_processor();
-
-        // while the ee is offline, more peers might arrive. Add a new finalized peer.
-        let (peer2, local_info, finalized_info) = rig.finalized_peer();
-        range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
-        let (block_req, blob_req_opt) = rig.grab_request(&peer2, fork);
-
-        let (chain2, batch2, id2) = if blob_req_opt.is_some() {
-            match block_req {
-                RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
-                    let _ = rig
-                        .cx
-                        .range_sync_block_and_blob_response(id, BlockOrBlob::Block(None));
-                    let (chain2, response) = rig
-                        .cx
-                        .range_sync_block_and_blob_response(id, BlockOrBlob::Blob(None))
-                        .unwrap();
-                    (chain2, response.batch_id, id)
-                }
-                other => panic!("unexpected request {:?}", other),
-            }
-        } else {
-            match block_req {
-                RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                    let (chain, batch) = rig.cx.range_sync_block_only_response(id, true).unwrap();
-                    (chain, batch, id)
-                }
-                other => panic!("unexpected request {:?}", other),
-            }
-        };
-
-        // send the response to the request
-        range.blocks_by_range_response(&mut rig.cx, peer2, chain2, batch2, id2, None);
-
-        // the beacon processor shouldn't have received any work
-        rig.expect_empty_processor();
-
-        // make the beacon processor available again.
-        rig.cx.update_execution_engine_state(EngineState::Online);
-
-        // now resume range, we should have two processing requests in the beacon processor.
-        range.resume(&mut rig.cx);
-
-        rig.expect_chain_segment();
-        rig.expect_chain_segment();
     }
 }

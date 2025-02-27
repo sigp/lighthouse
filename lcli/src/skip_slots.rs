@@ -50,22 +50,24 @@ use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use eth2_network_config::Eth2NetworkConfig;
+use log::info;
 use ssz::Encode;
 use state_processing::state_advance::{complete_state_advance, partial_state_advance};
+use state_processing::AllCaches;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use types::{BeaconState, CloneConfig, EthSpec, Hash256};
+use types::{BeaconState, EthSpec, Hash256};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub fn run<T: EthSpec>(
-    env: Environment<T>,
+pub fn run<E: EthSpec>(
+    env: Environment<E>,
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
-    let spec = &network_config.chain_spec::<T>()?;
+    let spec = &network_config.chain_spec::<E>()?;
     let executor = env.core_context().executor;
 
     let output_path: Option<PathBuf> = parse_optional(matches, "output-path")?;
@@ -74,9 +76,9 @@ pub fn run<T: EthSpec>(
     let runs: usize = parse_required(matches, "runs")?;
     let slots: u64 = parse_required(matches, "slots")?;
     let cli_state_root: Option<Hash256> = parse_optional(matches, "state-root")?;
-    let partial: bool = matches.is_present("partial-state-advance");
+    let partial: bool = matches.get_flag("partial-state-advance");
 
-    info!("Using {} spec", T::spec_name());
+    info!("Using {} spec", E::spec_name());
     info!("Advancing {} slots", slots);
     info!("Doing {} runs", runs);
 
@@ -94,7 +96,7 @@ pub fn run<T: EthSpec>(
                 .ok_or("shutdown in progress")?
                 .block_on(async move {
                     client
-                        .get_debug_beacon_states::<T>(state_id)
+                        .get_debug_beacon_states::<E>(state_id)
                         .await
                         .map_err(|e| format!("Failed to download state: {:?}", e))
                 })
@@ -115,7 +117,7 @@ pub fn run<T: EthSpec>(
     let target_slot = initial_slot + slots;
 
     state
-        .build_caches(spec)
+        .build_all_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
 
     let state_root = if let Some(root) = cli_state_root.or(state_root) {
@@ -127,7 +129,7 @@ pub fn run<T: EthSpec>(
     };
 
     for i in 0..runs {
-        let mut state = state.clone_with(CloneConfig::all());
+        let mut state = state.clone();
 
         let start = Instant::now();
 

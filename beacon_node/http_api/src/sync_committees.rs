@@ -39,7 +39,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     // still dependent on the head. So using `is_optimistic_head` is fine for both cases.
     let execution_optimistic = chain
         .is_optimistic_or_invalid_head()
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     // Try using the head's sync committees to satisfy the request. This should be sufficient for
     // the vast majority of requests. Rather than checking if we think the request will succeed in a
@@ -55,7 +55,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
             ..
         }))
         | Err(BeaconChainError::SyncDutiesError(BeaconStateError::IncorrectStateVariant)) => (),
-        Err(e) => return Err(warp_utils::reject::beacon_chain_error(e)),
+        Err(e) => return Err(warp_utils::reject::unhandled_error(e)),
     }
 
     let duties = duties_from_state_load(request_epoch, request_indices, altair_fork_epoch, chain)
@@ -67,7 +67,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
             "invalid epoch: {}, current epoch: {}",
             request_epoch, current_epoch
         )),
-        e => warp_utils::reject::beacon_chain_error(e),
+        e => warp_utils::reject::unhandled_error(e),
     })?;
     Ok(convert_to_response(
         verify_unknown_validators(duties, request_epoch, chain)?,
@@ -164,7 +164,7 @@ fn verify_unknown_validators<T: BeaconChainTypes>(
             BeaconChainError::SyncDutiesError(BeaconStateError::UnknownValidator(idx)) => {
                 warp_utils::reject::custom_bad_request(format!("invalid validator index: {idx}"))
             }
-            e => warp_utils::reject::beacon_chain_error(e),
+            e => warp_utils::reject::unhandled_error(e),
         })
 }
 

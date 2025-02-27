@@ -5,6 +5,7 @@ use eth2::{Error as Eth2Error, SensitiveError};
 use std::fmt;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Error {
     BeaconChain(BeaconChainError),
     Eth2(Eth2Error),

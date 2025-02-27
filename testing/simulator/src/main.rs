@@ -1,10 +1,8 @@
-//! This crate provides a simluation that creates `n` beacon node and validator clients, each with
-//! `v` validators. A deposit contract is deployed at the start of the simulation using a local
-//! `anvil` instance (you must have `anvil` installed and avaliable on your path). All
-//! beacon nodes independently listen for genesis from the deposit contract, then start operating.
+//! This crate provides various simulations that create both beacon nodes and validator clients,
+//! each with `v` validators.
 //!
-//! As the simulation runs, there are checks made to ensure that all components are running
-//! correctly. If any of these checks fail, the simulation will exit immediately.
+//! When a simulation runs, there are checks made to ensure that all components are operating
+//! as expected. If any of these checks fail, the simulation will exit immediately.
 //!
 //! ## Future works
 //!
@@ -12,17 +10,12 @@
 //! simulation uses `println` to communicate some info. It might be nice if the nodes logged to
 //! easy-to-find files and stdout only contained info from the simulation.
 //!
-
-#[macro_use]
-extern crate clap;
-
+mod basic_sim;
 mod checks;
 mod cli;
-mod eth1_sim;
+mod fallback_sim;
 mod local_network;
-mod no_eth1_sim;
 mod retry;
-mod sync_sim;
 
 use cli::cli_app;
 use env_logger::{Builder, Env};
@@ -37,21 +30,14 @@ fn main() {
 
     let matches = cli_app().get_matches();
     match matches.subcommand() {
-        ("eth1-sim", Some(matches)) => match eth1_sim::run_eth1_sim(matches) {
+        Some(("basic-sim", matches)) => match basic_sim::run_basic_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);
                 std::process::exit(1)
             }
         },
-        ("no-eth1-sim", Some(matches)) => match no_eth1_sim::run_no_eth1_sim(matches) {
-            Ok(()) => println!("Simulation exited successfully"),
-            Err(e) => {
-                eprintln!("Simulation exited with error: {}", e);
-                std::process::exit(1)
-            }
-        },
-        ("syncing-sim", Some(matches)) => match sync_sim::run_syncing_sim(matches) {
+        Some(("fallback-sim", matches)) => match fallback_sim::run_fallback_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);

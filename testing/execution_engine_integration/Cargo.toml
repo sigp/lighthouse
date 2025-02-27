@@ -5,23 +5,22 @@ edition = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }
-tempfile = { workspace = true }
-serde_json = { workspace = true }
-task_executor = { workspace = true }
-tokio = { workspace = true }
-futures = { workspace = true }
-environment = { workspace = true }
-execution_layer = { workspace = true }
-sensitive_url = { workspace = true }
-types = { workspace = true }
-unused_port = { workspace = true }
+deposit_contract = { workspace = true }
 ethers-core = { workspace = true }
 ethers-providers = { workspace = true }
-deposit_contract = { workspace = true }
-reqwest = { workspace = true }
-hex = { workspace = true }
+execution_layer = { workspace = true }
 fork_choice = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
 logging = { workspace = true }
+reqwest = { workspace = true }
+sensitive_url = { workspace = true }
+serde_json = { workspace = true }
+task_executor = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }
+unused_port = { workspace = true }
 
 [features]
 portable = ["types/portable"]

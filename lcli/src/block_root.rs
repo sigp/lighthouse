@@ -32,18 +32,19 @@ use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use eth2_network_config::Eth2NetworkConfig;
+use log::info;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use types::{EthSpec, FullPayload, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub fn run<T: EthSpec>(
-    env: Environment<T>,
+pub fn run<E: EthSpec>(
+    env: Environment<E>,
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
-    let spec = &network_config.chain_spec::<T>()?;
+    let spec = &network_config.chain_spec::<E>()?;
     let executor = env.core_context().executor;
 
     /*
@@ -54,14 +55,14 @@ pub fn run<T: EthSpec>(
     let beacon_url: Option<SensitiveUrl> = parse_optional(matches, "beacon-url")?;
     let runs: usize = parse_required(matches, "runs")?;
 
-    info!("Using {} spec", T::spec_name());
+    info!("Using {} spec", E::spec_name());
     info!("Doing {} runs", runs);
 
     /*
      * Load the block and pre-state from disk or beaconAPI URL.
      */
 
-    let block: SignedBeaconBlock<T, FullPayload<T>> = match (block_path, beacon_url) {
+    let block: SignedBeaconBlock<E, FullPayload<E>> = match (block_path, beacon_url) {
         (Some(block_path), None) => {
             info!("Block path: {:?}", block_path);
             load_from_ssz_with(&block_path, spec, SignedBeaconBlock::from_ssz_bytes)?

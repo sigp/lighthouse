@@ -23,7 +23,6 @@ GENESIS_FORK_VERSION: 0x00000064
 # 6000 seconds (100 minutes)
 GENESIS_DELAY: 6000
 
-
 # Forking
 # ---------------------------------------------------------------
 # Some forks are disabled for now:
@@ -33,7 +32,7 @@ GENESIS_DELAY: 6000
 # Altair
 ALTAIR_FORK_VERSION: 0x01000064
 ALTAIR_FORK_EPOCH: 512
-# Merge
+# Bellatrix
 BELLATRIX_FORK_VERSION: 0x02000064
 BELLATRIX_FORK_EPOCH: 385536
 # Capella
@@ -42,13 +41,12 @@ CAPELLA_FORK_EPOCH: 648704
 # Deneb
 DENEB_FORK_VERSION: 0x04000064
 DENEB_FORK_EPOCH: 889856 # 2024-03-11T18:30:20.000Z
-# Sharding
-SHARDING_FORK_VERSION: 0x03000064
-SHARDING_FORK_EPOCH: 18446744073709551615
-
-# TBD, 2**32 is a placeholder. Merge transition approach is in active R&D.
-TRANSITION_TOTAL_DIFFICULTY: 4294967296
-
+# Electra
+ELECTRA_FORK_VERSION: 0x05000064
+ELECTRA_FORK_EPOCH: 18446744073709551615
+# Fulu
+FULU_FORK_VERSION: 0x06000064
+FULU_FORK_EPOCH: 18446744073709551615
 
 # Time parameters
 # ---------------------------------------------------------------
@@ -62,7 +60,6 @@ MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
 SHARD_COMMITTEE_PERIOD: 256
 # 2**10 (= 1024) ~1.4 hour
 ETH1_FOLLOW_DISTANCE: 1024
-
 
 # Validator cycle
 # ---------------------------------------------------------------
@@ -79,11 +76,16 @@ MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 2
 # 2**12 (= 4096)
 CHURN_LIMIT_QUOTIENT: 4096
 
-
 # Fork choice
 # ---------------------------------------------------------------
 # 40%
 PROPOSER_SCORE_BOOST: 40
+# 20%
+REORG_HEAD_WEIGHT_THRESHOLD: 20
+# 160%
+REORG_PARENT_WEIGHT_THRESHOLD: 160
+# `2` epochs
+REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
 
 # Deposit contract
 # ---------------------------------------------------------------
@@ -116,3 +118,12 @@ MAX_REQUEST_BLOB_SIDECARS: 768
 MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS: 16384
 # `6`
 BLOB_SIDECAR_SUBNET_COUNT: 6
+# `uint64(6)`
+MAX_BLOBS_PER_BLOCK: 6
+
+# DAS
+NUMBER_OF_COLUMNS: 128
+NUMBER_OF_CUSTODY_GROUPS: 128
+DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
+SAMPLES_PER_SLOT: 8
+CUSTODY_REQUIREMENT: 4

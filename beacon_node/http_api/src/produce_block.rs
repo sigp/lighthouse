@@ -20,6 +20,10 @@ use warp::{
     Reply,
 };
 
+/// If default boost factor is provided in validator/blocks v3 request, we will skip the calculation
+/// to keep the precision.
+const DEFAULT_BOOST_FACTOR: u64 = 100;
+
 pub fn get_randao_verification(
     query: &api_types::ValidatorBlocksQuery,
     randao_reveal_infinity: bool,
@@ -52,6 +56,11 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+    let builder_boost_factor = if query.builder_boost_factor == Some(DEFAULT_BOOST_FACTOR) {
+        None
+    } else {
+        query.builder_boost_factor
+    };
 
     let block_response_type = chain
         .produce_block_with_verification(
@@ -59,7 +68,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
             slot,
             query.graffiti,
             randao_verification,
-            query.builder_boost_factor,
+            builder_boost_factor,
             BlockProductionVersion::V3,
         )
         .await
@@ -138,13 +147,13 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti.map(Into::into),
+            query.graffiti,
             randao_verification,
             None,
             BlockProductionVersion::BlindedV2,
         )
         .await
-        .map_err(warp_utils::reject::block_production_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     build_response_v2(chain, block_response_type, endpoint_version, accept_header)
 }
@@ -169,13 +178,13 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti.map(Into::into),
+            query.graffiti,
             randao_verification,
             None,
             BlockProductionVersion::FullV2,
         )
         .await
-        .map_err(warp_utils::reject::block_production_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     build_response_v2(chain, block_response_type, endpoint_version, accept_header)
 }

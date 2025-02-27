@@ -1,7 +1,4 @@
-#![allow(deprecated)]
-
-use criterion::Criterion;
-use criterion::{black_box, criterion_group, criterion_main, Benchmark};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use swap_or_not_shuffle::{compute_shuffled_index, shuffle_list as fast_shuffle};
 
 const SHUFFLE_ROUND_COUNT: u8 = 90;
@@ -25,70 +22,32 @@ fn shuffles(c: &mut Criterion) {
         b.iter(|| black_box(shuffle_list(&seed, 8)))
     });
 
-    c.bench(
-        "whole list shuffle",
-        Benchmark::new("8 elements", move |b| {
-            let seed = vec![42; 32];
-            b.iter(|| black_box(shuffle_list(&seed, 8)))
-        }),
-    );
+    for size in [8, 16, 512, 16_384] {
+        c.bench_with_input(
+            BenchmarkId::new("whole list shuffle", format!("{size} elements")),
+            &size,
+            move |b, &n| {
+                let seed = vec![42; 32];
+                b.iter(|| black_box(shuffle_list(&seed, n)))
+            },
+        );
+    }
 
-    c.bench(
-        "whole list shuffle",
-        Benchmark::new("16 elements", move |b| {
-            let seed = vec![42; 32];
-            b.iter(|| black_box(shuffle_list(&seed, 16)))
-        }),
-    );
-
-    c.bench(
-        "whole list shuffle",
-        Benchmark::new("512 elements", move |b| {
-            let seed = vec![42; 32];
-            b.iter(|| black_box(shuffle_list(&seed, 512)))
-        })
-        .sample_size(10),
-    );
-
-    c.bench(
-        "_fast_ whole list shuffle",
-        Benchmark::new("512 elements", move |b| {
-            let seed = vec![42; 32];
-            let list: Vec<usize> = (0..512).collect();
-            b.iter(|| black_box(fast_shuffle(list.clone(), SHUFFLE_ROUND_COUNT, &seed, true)))
-        })
-        .sample_size(10),
-    );
-
-    c.bench(
-        "whole list shuffle",
-        Benchmark::new("16384 elements", move |b| {
-            let seed = vec![42; 32];
-            b.iter(|| black_box(shuffle_list(&seed, 16_384)))
-        })
-        .sample_size(10),
-    );
-
-    c.bench(
-        "_fast_ whole list shuffle",
-        Benchmark::new("16384 elements", move |b| {
-            let seed = vec![42; 32];
-            let list: Vec<usize> = (0..16384).collect();
-            b.iter(|| black_box(fast_shuffle(list.clone(), SHUFFLE_ROUND_COUNT, &seed, true)))
-        })
-        .sample_size(10),
-    );
-
-    c.bench(
-        "_fast_ whole list shuffle",
-        Benchmark::new("4m elements", move |b| {
-            let seed = vec![42; 32];
-            let list: Vec<usize> = (0..4_000_000).collect();
-            b.iter(|| black_box(fast_shuffle(list.clone(), SHUFFLE_ROUND_COUNT, &seed, true)))
-        })
-        .sample_size(10),
-    );
+    let mut group = c.benchmark_group("fast");
+    group.sample_size(10);
+    for size in [512, 16_384, 4_000_000] {
+        group.bench_with_input(
+            BenchmarkId::new("whole list shuffle", format!("{size} elements")),
+            &size,
+            move |b, &n| {
+                let seed = vec![42; 32];
+                let list: Vec<usize> = (0..n).collect();
+                b.iter(|| black_box(fast_shuffle(list.clone(), SHUFFLE_ROUND_COUNT, &seed, true)))
+            },
+        );
+    }
+    group.finish();
 }
 
-criterion_group!(benches, shuffles,);
+criterion_group!(benches, shuffles);
 criterion_main!(benches);

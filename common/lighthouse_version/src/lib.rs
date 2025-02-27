@@ -17,8 +17,26 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v5.1.2-",
-    fallback = "Lighthouse/v5.1.2"
+    prefix = "Lighthouse/v7.0.0-beta.1-",
+    fallback = "Lighthouse/v7.0.0-beta.1"
+);
+
+/// Returns the first eight characters of the latest commit hash for this build.
+///
+/// No indication is given if the tree is dirty. This is part of the standard
+/// for reporting the client version to the execution engine.
+pub const COMMIT_PREFIX: &str = git_version!(
+    args = [
+        "--always",
+        "--abbrev=8",
+        // NOTE: using --match instead of --exclude for compatibility with old Git
+        "--match=thiswillnevermatchlol"
+    ],
+    prefix = "",
+    suffix = "",
+    cargo_prefix = "",
+    cargo_suffix = "",
+    fallback = "00000000"
 );
 
 /// Returns `VERSION`, but with platform information appended to the end.
@@ -30,6 +48,22 @@ pub fn version_with_platform() -> String {
     format!("{}/{}-{}", VERSION, Target::arch(), Target::os())
 }
 
+/// Returns semantic versioning information only.
+///
+/// ## Example
+///
+/// `1.5.1`
+pub fn version() -> &'static str {
+    "7.0.0-beta.1"
+}
+
+/// Returns the name of the current client running.
+///
+/// This will usually be "Lighthouse"
+pub fn client_name() -> &'static str {
+    "Lighthouse"
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -37,13 +71,24 @@ mod test {
 
     #[test]
     fn version_formatting() {
-        let re =
-            Regex::new(r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-rc.[0-9])?(-[[:xdigit:]]{7})?\+?$")
-                .unwrap();
+        let re = Regex::new(
+            r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta).[0-9])?(-[[:xdigit:]]{7})?\+?$",
+        )
+        .unwrap();
         assert!(
             re.is_match(VERSION),
             "version doesn't match regex: {}",
             VERSION
+        );
+    }
+
+    #[test]
+    fn semantic_version_formatting() {
+        let re = Regex::new(r"^[0-9]+\.[0-9]+\.[0-9]+").unwrap();
+        assert!(
+            re.is_match(version()),
+            "semantic version doesn't match regex: {}",
+            version()
         );
     }
 }

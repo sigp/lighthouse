@@ -7,8 +7,8 @@ use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use superstruct::superstruct;
 use types::{
-    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
+    FixedBytesExtended, Hash256, Slot,
 };
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
@@ -70,7 +70,7 @@ impl InvalidationOperation {
 pub type ProtoNode = ProtoNodeV17;
 
 #[superstruct(
-    variants(V16, V17),
+    variants(V17),
     variant_attributes(derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)),
     no_enum
 )]
@@ -92,12 +92,6 @@ pub struct ProtoNode {
     pub root: Hash256,
     #[ssz(with = "four_byte_option_usize")]
     pub parent: Option<usize>,
-    #[superstruct(only(V16))]
-    #[ssz(with = "four_byte_option_checkpoint")]
-    pub justified_checkpoint: Option<Checkpoint>,
-    #[superstruct(only(V16))]
-    #[ssz(with = "four_byte_option_checkpoint")]
-    pub finalized_checkpoint: Option<Checkpoint>,
     #[superstruct(only(V17))]
     pub justified_checkpoint: Checkpoint,
     #[superstruct(only(V17))]
@@ -114,57 +108,6 @@ pub struct ProtoNode {
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     #[ssz(with = "four_byte_option_checkpoint")]
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
-}
-
-impl TryInto<ProtoNode> for ProtoNodeV16 {
-    type Error = Error;
-
-    fn try_into(self) -> Result<ProtoNode, Error> {
-        let result = ProtoNode {
-            slot: self.slot,
-            state_root: self.state_root,
-            target_root: self.target_root,
-            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
-            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
-            root: self.root,
-            parent: self.parent,
-            justified_checkpoint: self
-                .justified_checkpoint
-                .ok_or(Error::MissingJustifiedCheckpoint)?,
-            finalized_checkpoint: self
-                .finalized_checkpoint
-                .ok_or(Error::MissingFinalizedCheckpoint)?,
-            weight: self.weight,
-            best_child: self.best_child,
-            best_descendant: self.best_descendant,
-            execution_status: self.execution_status,
-            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
-        };
-        Ok(result)
-    }
-}
-
-impl Into<ProtoNodeV16> for ProtoNode {
-    fn into(self) -> ProtoNodeV16 {
-        ProtoNodeV16 {
-            slot: self.slot,
-            state_root: self.state_root,
-            target_root: self.target_root,
-            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
-            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
-            root: self.root,
-            parent: self.parent,
-            justified_checkpoint: Some(self.justified_checkpoint),
-            finalized_checkpoint: Some(self.finalized_checkpoint),
-            weight: self.weight,
-            best_child: self.best_child,
-            best_descendant: self.best_descendant,
-            execution_status: self.execution_status,
-            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
-        }
-    }
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -206,7 +149,7 @@ impl ProtoArray {
     /// - Update the node's weight with the corresponding delta.
     /// - Back-propagate each node's delta to its parents delta.
     /// - Compare the current node with the parents best-child, updating it if the current node
-    /// should become the best child.
+    ///   should become the best child.
     /// - If required, update the parents best-descendant with the current node or its best-descendant.
     #[allow(clippy::too_many_arguments)]
     pub fn apply_score_changes<E: EthSpec>(
@@ -525,7 +468,7 @@ impl ProtoArray {
         // 1. The `head_block_root` is a descendant of `latest_valid_ancestor_hash`
         // 2. The `latest_valid_ancestor_hash` is equal to or a descendant of the finalized block.
         let latest_valid_ancestor_is_descendant =
-            latest_valid_ancestor_root.map_or(false, |ancestor_root| {
+            latest_valid_ancestor_root.is_some_and(|ancestor_root| {
                 self.is_descendant(ancestor_root, head_block_root)
                     && self.is_finalized_checkpoint_or_descendant::<E>(ancestor_root)
             });
@@ -562,13 +505,13 @@ impl ProtoArray {
                         // head.
                         if node
                             .best_child
-                            .map_or(false, |i| invalidated_indices.contains(&i))
+                            .is_some_and(|i| invalidated_indices.contains(&i))
                         {
                             node.best_child = None
                         }
                         if node
                             .best_descendant
-                            .map_or(false, |i| invalidated_indices.contains(&i))
+                            .is_some_and(|i| invalidated_indices.contains(&i))
                         {
                             node.best_descendant = None
                         }
@@ -588,15 +531,7 @@ impl ProtoArray {
                 || latest_valid_ancestor_is_descendant
             {
                 match &node.execution_status {
-                    // It's illegal for an execution client to declare that some previously-valid block
-                    // is now invalid. This is a consensus failure on their behalf.
-                    ExecutionStatus::Valid(hash) => {
-                        return Err(Error::ValidExecutionStatusBecameInvalid {
-                            block_root: node.root,
-                            payload_block_hash: *hash,
-                        })
-                    }
-                    ExecutionStatus::Optimistic(hash) => {
+                    ExecutionStatus::Valid(hash) | ExecutionStatus::Optimistic(hash) => {
                         invalidated_indices.insert(index);
                         node.execution_status = ExecutionStatus::Invalid(*hash);
 
@@ -654,13 +589,9 @@ impl ProtoArray {
             if let Some(parent_index) = node.parent {
                 if invalidated_indices.contains(&parent_index) {
                     match &node.execution_status {
-                        ExecutionStatus::Valid(hash) => {
-                            return Err(Error::ValidExecutionStatusBecameInvalid {
-                                block_root: node.root,
-                                payload_block_hash: *hash,
-                            })
-                        }
-                        ExecutionStatus::Optimistic(hash) | ExecutionStatus::Invalid(hash) => {
+                        ExecutionStatus::Valid(hash)
+                        | ExecutionStatus::Optimistic(hash)
+                        | ExecutionStatus::Invalid(hash) => {
                             node.execution_status = ExecutionStatus::Invalid(*hash)
                         }
                         ExecutionStatus::Irrelevant(_) => {
@@ -1056,7 +987,7 @@ impl ProtoArray {
             node.unrealized_finalized_checkpoint,
             node.unrealized_justified_checkpoint,
         ] {
-            if checkpoint.map_or(false, |cp| cp == self.finalized_checkpoint) {
+            if checkpoint.is_some_and(|cp| cp == self.finalized_checkpoint) {
                 return true;
             }
         }
@@ -1094,7 +1025,7 @@ impl ProtoArray {
             .find(|node| {
                 node.execution_status
                     .block_hash()
-                    .map_or(false, |node_block_hash| node_block_hash == *block_hash)
+                    .is_some_and(|node_block_hash| node_block_hash == *block_hash)
             })
             .map(|node| node.root)
     }

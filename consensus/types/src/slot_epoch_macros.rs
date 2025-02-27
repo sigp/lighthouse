@@ -6,9 +6,9 @@ macro_rules! impl_from_into_u64 {
             }
         }
 
-        impl Into<u64> for $main {
-            fn into(self) -> u64 {
-                self.0
+        impl From<$main> for u64 {
+            fn from(from: $main) -> u64 {
+                from.0
             }
         }
 
@@ -28,9 +28,9 @@ macro_rules! impl_from_into_usize {
             }
         }
 
-        impl Into<usize> for $main {
-            fn into(self) -> usize {
-                self.0 as usize
+        impl From<$main> for usize {
+            fn from(from: $main) -> usize {
+                from.0 as usize
             }
         }
 
@@ -352,7 +352,7 @@ macro_rules! new_tests {
         fn new() {
             assert_eq!($type(0), $type::new(0));
             assert_eq!($type(3), $type::new(3));
-            assert_eq!($type(u64::max_value()), $type::new(u64::max_value()));
+            assert_eq!($type(u64::MAX), $type::new(u64::MAX));
         }
     };
 }
@@ -368,17 +368,17 @@ macro_rules! from_into_tests {
             let x: $other = $type(3).into();
             assert_eq!(x, 3);
 
-            let x: $other = $type(u64::max_value()).into();
+            let x: $other = $type(u64::MAX).into();
             // Note: this will fail on 32 bit systems. This is expected as we don't have a proper
             // 32-bit system strategy in place.
-            assert_eq!(x, $other::max_value());
+            assert_eq!(x, $other::MAX);
         }
 
         #[test]
         fn from() {
             assert_eq!($type(0), $type::from(0_u64));
             assert_eq!($type(3), $type::from(3_u64));
-            assert_eq!($type(u64::max_value()), $type::from($other::max_value()));
+            assert_eq!($type(u64::MAX), $type::from($other::MAX));
         }
     };
 }
@@ -396,8 +396,8 @@ macro_rules! math_between_tests {
 
             assert_partial_ord(1, Ordering::Less, 2);
             assert_partial_ord(2, Ordering::Greater, 1);
-            assert_partial_ord(0, Ordering::Less, u64::max_value());
-            assert_partial_ord(u64::max_value(), Ordering::Greater, 0);
+            assert_partial_ord(0, Ordering::Less, u64::MAX);
+            assert_partial_ord(u64::MAX, Ordering::Greater, 0);
         }
 
         #[test]
@@ -412,9 +412,9 @@ macro_rules! math_between_tests {
             assert_partial_eq(1, 0, false);
             assert_partial_eq(1, 1, true);
 
-            assert_partial_eq(u64::max_value(), u64::max_value(), true);
-            assert_partial_eq(0, u64::max_value(), false);
-            assert_partial_eq(u64::max_value(), 0, false);
+            assert_partial_eq(u64::MAX, u64::MAX, true);
+            assert_partial_eq(0, u64::MAX, false);
+            assert_partial_eq(u64::MAX, 0, false);
         }
 
         #[test]
@@ -436,8 +436,8 @@ macro_rules! math_between_tests {
             assert_add(7, 7, 14);
 
             // Addition should be saturating.
-            assert_add(u64::max_value(), 1, u64::max_value());
-            assert_add(u64::max_value(), u64::max_value(), u64::max_value());
+            assert_add(u64::MAX, 1, u64::MAX);
+            assert_add(u64::MAX, u64::MAX, u64::MAX);
         }
 
         #[test]
@@ -455,8 +455,8 @@ macro_rules! math_between_tests {
             assert_sub(1, 0, 1);
             assert_sub(2, 1, 1);
             assert_sub(14, 7, 7);
-            assert_sub(u64::max_value(), 1, u64::max_value() - 1);
-            assert_sub(u64::max_value(), u64::max_value(), 0);
+            assert_sub(u64::MAX, 1, u64::MAX - 1);
+            assert_sub(u64::MAX, u64::MAX, 0);
 
             // Subtraction should be saturating
             assert_sub(0, 1, 0);
@@ -480,7 +480,7 @@ macro_rules! math_between_tests {
             assert_mul(0, 2, 0);
 
             // Multiplication should be saturating.
-            assert_mul(u64::max_value(), 2, u64::max_value());
+            assert_mul(u64::MAX, 2, u64::MAX);
         }
 
         #[test]
@@ -499,7 +499,7 @@ macro_rules! math_between_tests {
             assert_div(2, 2, 1);
             assert_div(100, 50, 2);
             assert_div(128, 2, 64);
-            assert_div(u64::max_value(), 2, 2_u64.pow(63) - 1);
+            assert_div(u64::MAX, 2, 2_u64.pow(63) - 1);
         }
 
         #[test]
@@ -544,8 +544,8 @@ macro_rules! math_tests {
             assert_saturating_sub(1, 0, 1);
             assert_saturating_sub(2, 1, 1);
             assert_saturating_sub(14, 7, 7);
-            assert_saturating_sub(u64::max_value(), 1, u64::max_value() - 1);
-            assert_saturating_sub(u64::max_value(), u64::max_value(), 0);
+            assert_saturating_sub(u64::MAX, 1, u64::MAX - 1);
+            assert_saturating_sub(u64::MAX, u64::MAX, 0);
 
             // Subtraction should be saturating
             assert_saturating_sub(0, 1, 0);
@@ -565,8 +565,8 @@ macro_rules! math_tests {
             assert_saturating_add(7, 7, 14);
 
             // Addition should be saturating.
-            assert_saturating_add(u64::max_value(), 1, u64::max_value());
-            assert_saturating_add(u64::max_value(), u64::max_value(), u64::max_value());
+            assert_saturating_add(u64::MAX, 1, u64::MAX);
+            assert_saturating_add(u64::MAX, u64::MAX, u64::MAX);
         }
 
         #[test]
@@ -581,11 +581,11 @@ macro_rules! math_tests {
             assert_checked_div(2, 2, Some(1));
             assert_checked_div(100, 50, Some(2));
             assert_checked_div(128, 2, Some(64));
-            assert_checked_div(u64::max_value(), 2, Some(2_u64.pow(63) - 1));
+            assert_checked_div(u64::MAX, 2, Some(2_u64.pow(63) - 1));
 
             assert_checked_div(2, 0, None);
             assert_checked_div(0, 0, None);
-            assert_checked_div(u64::max_value(), 0, None);
+            assert_checked_div(u64::MAX, 0, None);
         }
 
         #[test]
@@ -607,7 +607,7 @@ macro_rules! math_tests {
             assert_is_power_of_two(4, true);
 
             assert_is_power_of_two(2_u64.pow(4), true);
-            assert_is_power_of_two(u64::max_value(), false);
+            assert_is_power_of_two(u64::MAX, false);
         }
 
         #[test]
@@ -619,8 +619,8 @@ macro_rules! math_tests {
 
             assert_ord(1, Ordering::Less, 2);
             assert_ord(2, Ordering::Greater, 1);
-            assert_ord(0, Ordering::Less, u64::max_value());
-            assert_ord(u64::max_value(), Ordering::Greater, 0);
+            assert_ord(0, Ordering::Less, u64::MAX);
+            assert_ord(u64::MAX, Ordering::Greater, 0);
         }
     };
 }
@@ -647,8 +647,8 @@ macro_rules! all_tests {
                 let x = $type(3).as_u64();
                 assert_eq!(x, 3);
 
-                let x = $type(u64::max_value()).as_u64();
-                assert_eq!(x, u64::max_value());
+                let x = $type(u64::MAX).as_u64();
+                assert_eq!(x, u64::MAX);
             }
         }
 
@@ -665,8 +665,8 @@ macro_rules! all_tests {
                 let x = $type(3).as_usize();
                 assert_eq!(x, 3);
 
-                let x = $type(u64::max_value()).as_usize();
-                assert_eq!(x, usize::max_value());
+                let x = $type(u64::MAX).as_usize();
+                assert_eq!(x, usize::MAX);
             }
         }
     };

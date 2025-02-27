@@ -1,3 +1,4 @@
+use crate::reject::convert_rejection;
 use serde::Serialize;
 use warp::reply::{Reply, Response};
 
@@ -24,14 +25,16 @@ where
 }
 
 /// A convenience wrapper around `blocking_task` for use with `warp` JSON responses.
-pub async fn blocking_json_task<F, T>(func: F) -> Result<Response, warp::Rejection>
+pub async fn blocking_json_task<F, T>(func: F) -> Response
 where
     F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
     T: Serialize + Send + 'static,
 {
-    blocking_response_task(|| {
+    let result = blocking_response_task(|| {
         let response = func()?;
         Ok(warp::reply::json(&response))
     })
-    .await
+    .await;
+
+    convert_rejection(result).await
 }

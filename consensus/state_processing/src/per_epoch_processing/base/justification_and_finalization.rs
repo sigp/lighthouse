@@ -7,14 +7,14 @@ use safe_arith::SafeArith;
 use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Update the justified and finalized checkpoints for matching target attestations.
-pub fn process_justification_and_finalization<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn process_justification_and_finalization<E: EthSpec>(
+    state: &BeaconState<E>,
     total_balances: &TotalBalances,
     _spec: &ChainSpec,
-) -> Result<JustificationAndFinalizationState<T>, Error> {
+) -> Result<JustificationAndFinalizationState<E>, Error> {
     let justification_and_finalization_state = JustificationAndFinalizationState::new(state);
 
-    if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
+    if state.current_epoch() <= E::genesis_epoch().safe_add(1)? {
         return Ok(justification_and_finalization_state);
     }
 

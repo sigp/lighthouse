@@ -1,16 +1,18 @@
 use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
-use crate::common::{get_attestation_participation_flag_indices, get_attesting_indices};
+use crate::common::{
+    attesting_indices_base::get_attesting_indices, get_attestation_participation_flag_indices,
+};
 use std::mem;
 use std::sync::Arc;
 use types::{
-    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
-    ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
+    BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
+    Fork, List, ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee,
 };
 
 /// Translate the participation information from the epoch prior to the fork into Altair's format.
 pub fn translate_participation<E: EthSpec>(
     state: &mut BeaconState<E>,
-    pending_attestations: &VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
+    pending_attestations: &List<PendingAttestation<E>, E::MaxPendingAttestations>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Previous epoch committee cache is required for `get_attesting_indices`.
@@ -51,8 +53,8 @@ pub fn upgrade_to_altair<E: EthSpec>(
     let pre = pre_state.as_base_mut()?;
 
     let default_epoch_participation =
-        VariableList::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
-    let inactivity_scores = VariableList::new(vec![0; pre.validators.len()])?;
+        List::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
+    let inactivity_scores = List::new(vec![0; pre.validators.len()])?;
 
     let temp_sync_committee = Arc::new(SyncCommittee::temporary());
 
@@ -106,13 +108,14 @@ pub fn upgrade_to_altair<E: EthSpec>(
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
-        tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
+        slashings_cache: mem::take(&mut pre.slashings_cache),
+        epoch_cache: EpochCache::default(),
     });
 
     // Fill in previous epoch participation from the pre state's pending attestations.
     translate_participation(&mut post, &pre.previous_epoch_attestations, spec)?;
 
-    initialize_progressive_balances_cache(&mut post, None, spec)?;
+    initialize_progressive_balances_cache(&mut post, spec)?;
 
     // Fill in sync committees
     // Note: A duplicate committee is assigned for the current and next committee at the fork
