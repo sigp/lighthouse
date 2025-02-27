@@ -114,7 +114,8 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::str::FromStr;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
@@ -158,6 +159,12 @@ const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
 /// 20 slots/second. Having a single fork-choice run interrupt syncing would have very little
 /// impact whilst having 8 epochs without a block is a comfortable grace period.
 const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 256;
+
+/// Invalid block root to be banned from processing and importing on Holesky network.
+static INVALID_HOLESKY_BLOCK_ROOT: LazyLock<Hash256> = LazyLock::new(|| {
+    Hash256::from_str("2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359")
+        .expect("valid block root")
+});
 
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
@@ -2862,6 +2869,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         chain_segment: Vec<RpcBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult {
+        for block in chain_segment.iter() {
+            if let Err(error) = self.check_invalid_block_roots(block.block_root()) {
+                return ChainSegmentResult::Failed {
+                    imported_blocks: vec![],
+                    error,
+                };
+            }
+        }
+
         let mut imported_blocks = vec![];
 
         // Filter uninteresting blocks from the chain segment in a blocking task.
@@ -3329,6 +3345,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_source: BlockImportSource,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        self.check_invalid_block_roots(block_root)?;
+
         self.reqresp_pre_import_cache
             .write()
             .insert(block_root, unverified_block.block_cloned());
@@ -3343,6 +3361,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await;
         self.remove_notified(&block_root, r)
+    }
+
+    /// Check for known and configured invalid block roots before processing.
+    fn check_invalid_block_roots(&self, block_root: Hash256) -> Result<(), BlockError> {
+        let is_invalid_holesky_block =
+            block_root == *INVALID_HOLESKY_BLOCK_ROOT && self.spec.deposit_chain_id == 17000;
+        if self.config.invalid_block_roots.contains(&block_root) || is_invalid_holesky_block {
+            Err(BlockError::KnownInvalidExecutionPayload(block_root))
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
