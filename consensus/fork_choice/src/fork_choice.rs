@@ -1255,6 +1255,11 @@ where
             .is_finalized_checkpoint_or_descendant::<E>(block_root)
     }
 
+    pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
+        self.proto_array
+            .is_descendant(ancestor_root, descendant_root)
+    }
+
     /// Returns `Ok(true)` if `block_root` has been imported optimistically or deemed invalid.
     ///
     /// Returns `Ok(false)` if `block_root`'s execution payload has been elected as fully VALID, if
