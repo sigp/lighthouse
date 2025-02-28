@@ -7282,6 +7282,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(None)
     }
+
+    /// Retrieves block roots within some slot range from fork choice.
+    /// Returns `None` if the provided slot is not found.
+    pub fn block_roots_from_fork_choice(
+        &self,
+        start_slot: u64,
+        count: u64,
+    ) -> Option<Vec<Hash256>> {
+        let head_block_root = self.canonical_head.cached_head().head_block_root();
+        let fork_choice_read_lock = self.canonical_head.fork_choice_read_lock();
+        let block_roots_iter = fork_choice_read_lock
+            .proto_array()
+            .iter_block_roots(&head_block_root);
+        let end_slot = start_slot.saturating_add(count);
+        let mut roots = vec![];
+
+        for (root, slot) in block_roots_iter {
+            if slot < end_slot && slot >= start_slot {
+                roots.push(root);
+            }
+            if slot < start_slot {
+                break;
+            }
+        }
+
+        if roots.is_empty() {
+            None
+        } else {
+            // return in ascending slot order
+            roots.reverse();
+            Some(roots)
+        }
+    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
