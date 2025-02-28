@@ -42,7 +42,7 @@ use crate::light_client_optimistic_update_verification::{
     Error as LightClientOptimisticUpdateError, VerifiedLightClientOptimisticUpdate,
 };
 use crate::light_client_server_cache::LightClientServerCache;
-use crate::migrate::BackgroundMigrator;
+use crate::migrate::{BackgroundMigrator, ManualFinalizationNotification};
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
     SyncContributionAggregateMap,
@@ -1705,6 +1705,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .ok_or(Error::AttestationCommitteeIndexNotSet)?,
             ),
         }
+    }
+
+    pub fn manually_finalize_state(&self, state_root: Hash256, checkpoint: Checkpoint) {
+        let notif = ManualFinalizationNotification {
+            state_root: state_root.into(),
+            checkpoint,
+            head_tracker: self.head_tracker.clone(),
+            genesis_block_root: self.genesis_block_root,
+        };
+        self.store_migrator.process_manual_finalization(notif)
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.

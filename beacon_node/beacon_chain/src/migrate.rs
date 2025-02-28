@@ -124,6 +124,14 @@ pub enum Notification {
     Finalization(FinalizationNotification),
     Reconstruction,
     PruneBlobs(Epoch),
+    ManualFinalization(ManualFinalizationNotification),
+}
+
+pub struct ManualFinalizationNotification {
+    pub state_root: BeaconStateHash,
+    pub checkpoint: Checkpoint,
+    pub head_tracker: Arc<HeadTracker>,
+    pub genesis_block_root: Hash256,
 }
 
 pub struct FinalizationNotification {
@@ -188,6 +196,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
 
         Ok(())
+    }
+
+    pub fn process_manual_finalization(&self, notif: ManualFinalizationNotification) {
+        let _ = self.send_background_notification(Notification::ManualFinalization(notif));
     }
 
     pub fn process_reconstruction(&self) {
@@ -287,6 +299,103 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         } else {
             Some(notif)
         }
+    }
+
+    fn run_manual_migration(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        notif: ManualFinalizationNotification,
+        log: &Logger,
+    ) {
+        let state_root = notif.state_root;
+        let block_root = notif.checkpoint.root;
+
+        let manually_finalized_state = match db.get_state(&state_root.into(), None) {
+            Ok(Some(state)) => state,
+            other => {
+                error!(
+                    log,
+                    "Manual migrator failed to load state";
+                    "state_root" => ?state_root,
+                    "error" => ?other
+                );
+                return;
+            }
+        };
+
+        let old_finalized_checkpoint = match Self::prune_abandoned_forks(
+            db.clone(),
+            notif.head_tracker,
+            state_root,
+            &manually_finalized_state,
+            notif.checkpoint,
+            notif.genesis_block_root,
+            log,
+        ) {
+            Ok(PruningOutcome::Successful {
+                old_finalized_checkpoint,
+            }) => old_finalized_checkpoint,
+            Ok(PruningOutcome::DeferredConcurrentHeadTrackerMutation) => {
+                warn!(
+                    log,
+                    "Pruning deferred because of a concurrent mutation";
+                    "message" => "this is expected only very rarely!"
+                );
+                return;
+            }
+            Ok(PruningOutcome::OutOfOrderFinalization {
+                old_finalized_checkpoint,
+                new_finalized_checkpoint,
+            }) => {
+                warn!(
+                    log,
+                    "Ignoring out of order finalization request";
+                    "old_finalized_epoch" => old_finalized_checkpoint.epoch,
+                    "new_finalized_epoch" => new_finalized_checkpoint.epoch,
+                    "message" => "this is expected occasionally due to a (harmless) race condition"
+                );
+                return;
+            }
+            Err(e) => {
+                warn!(log, "Block pruning failed"; "error" => ?e);
+                return;
+            }
+        };
+
+        match migrate_database(
+            db.clone(),
+            state_root.into(),
+            block_root,
+            &manually_finalized_state,
+        ) {
+            Ok(()) => {}
+            Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
+                debug!(
+                    log,
+                    "Database migration postponed, unaligned finalized block";
+                    "slot" => slot.as_u64()
+                );
+            }
+            Err(e) => {
+                warn!(
+                    log,
+                    "Database migration failed";
+                    "error" => format!("{:?}", e)
+                );
+                return;
+            }
+        };
+
+        // Finally, compact the database so that new free space is properly reclaimed.
+        if let Err(e) = Self::run_compaction(
+            db,
+            old_finalized_checkpoint.epoch,
+            notif.checkpoint.epoch,
+            log,
+        ) {
+            warn!(log, "Database compaction failed"; "error" => format!("{:?}", e));
+        }
+
+        debug!(log, "Database consolidation complete");
     }
 
     /// Perform the actual work of `process_finalization`.
@@ -422,16 +531,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             while let Ok(notif) = rx.recv() {
                 let mut reconstruction_notif = None;
                 let mut finalization_notif = None;
+                let mut manual_finalization_notif = None;
                 let mut prune_blobs_notif = None;
                 match notif {
                     Notification::Reconstruction => reconstruction_notif = Some(notif),
                     Notification::Finalization(fin) => finalization_notif = Some(fin),
+                    Notification::ManualFinalization(fin) => manual_finalization_notif = Some(fin),
                     Notification::PruneBlobs(dab) => prune_blobs_notif = Some(dab),
                 }
                 // Read the rest of the messages in the channel, taking the best of each type.
                 for notif in rx.try_iter() {
                     match notif {
                         Notification::Reconstruction => reconstruction_notif = Some(notif),
+                        Notification::ManualFinalization(fin) => {
+                            if let Some(current) = manual_finalization_notif.as_mut() {
+                                if fin.checkpoint.epoch > current.checkpoint.epoch {
+                                    *current = fin;
+                                }
+                            } else {
+                                manual_finalization_notif = Some(fin);
+                            }
+                        }
                         Notification::Finalization(fin) => {
                             if let Some(current) = finalization_notif.as_mut() {
                                 if fin.finalized_checkpoint.epoch
@@ -453,6 +573,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 // problem in previous LH versions).
                 if let Some(fin) = finalization_notif {
                     Self::run_migration(db.clone(), fin, &log);
+                }
+                if let Some(fin) = manual_finalization_notif {
+                    Self::run_manual_migration(db.clone(), fin, &log);
                 }
                 if let Some(dab) = prune_blobs_notif {
                     Self::run_prune_blobs(db.clone(), dab, &log);
