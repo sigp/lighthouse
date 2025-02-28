@@ -135,11 +135,11 @@ pub struct ManualFinalizationNotification {
 }
 
 pub struct FinalizationNotification {
-    finalized_state_root: BeaconStateHash,
-    finalized_checkpoint: Checkpoint,
-    head_tracker: Arc<HeadTracker>,
-    prev_migration: Arc<Mutex<PrevMigration>>,
-    genesis_block_root: Hash256,
+    pub finalized_state_root: BeaconStateHash,
+    pub finalized_checkpoint: Checkpoint,
+    pub head_tracker: Arc<HeadTracker>,
+    pub prev_migration: Arc<Mutex<PrevMigration>>,
+    pub genesis_block_root: Hash256,
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
@@ -306,96 +306,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         notif: ManualFinalizationNotification,
         log: &Logger,
     ) {
-        let state_root = notif.state_root;
-        let block_root = notif.checkpoint.root;
-
-        let manually_finalized_state = match db.get_state(&state_root.into(), None) {
-            Ok(Some(state)) => state,
-            other => {
-                error!(
-                    log,
-                    "Manual migrator failed to load state";
-                    "state_root" => ?state_root,
-                    "error" => ?other
-                );
-                return;
-            }
+        // We create a "dummy" prev migration
+        let prev_migration = PrevMigration {
+            epoch: Epoch::new(1),
+            epochs_per_migration: 2,
         };
-
-        let old_finalized_checkpoint = match Self::prune_abandoned_forks(
-            db.clone(),
-            notif.head_tracker,
-            state_root,
-            &manually_finalized_state,
-            notif.checkpoint,
-            notif.genesis_block_root,
-            log,
-        ) {
-            Ok(PruningOutcome::Successful {
-                old_finalized_checkpoint,
-            }) => old_finalized_checkpoint,
-            Ok(PruningOutcome::DeferredConcurrentHeadTrackerMutation) => {
-                warn!(
-                    log,
-                    "Pruning deferred because of a concurrent mutation";
-                    "message" => "this is expected only very rarely!"
-                );
-                return;
-            }
-            Ok(PruningOutcome::OutOfOrderFinalization {
-                old_finalized_checkpoint,
-                new_finalized_checkpoint,
-            }) => {
-                warn!(
-                    log,
-                    "Ignoring out of order finalization request";
-                    "old_finalized_epoch" => old_finalized_checkpoint.epoch,
-                    "new_finalized_epoch" => new_finalized_checkpoint.epoch,
-                    "message" => "this is expected occasionally due to a (harmless) race condition"
-                );
-                return;
-            }
-            Err(e) => {
-                warn!(log, "Block pruning failed"; "error" => ?e);
-                return;
-            }
+        let notif = FinalizationNotification {
+            finalized_state_root: notif.state_root,
+            finalized_checkpoint: notif.checkpoint,
+            head_tracker: notif.head_tracker,
+            prev_migration: Arc::new(prev_migration.into()),
+            genesis_block_root: notif.genesis_block_root,
         };
-
-        match migrate_database(
-            db.clone(),
-            state_root.into(),
-            block_root,
-            &manually_finalized_state,
-        ) {
-            Ok(()) => {}
-            Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
-                debug!(
-                    log,
-                    "Database migration postponed, unaligned finalized block";
-                    "slot" => slot.as_u64()
-                );
-            }
-            Err(e) => {
-                warn!(
-                    log,
-                    "Database migration failed";
-                    "error" => format!("{:?}", e)
-                );
-                return;
-            }
-        };
-
-        // Finally, compact the database so that new free space is properly reclaimed.
-        if let Err(e) = Self::run_compaction(
-            db,
-            old_finalized_checkpoint.epoch,
-            notif.checkpoint.epoch,
-            log,
-        ) {
-            warn!(log, "Database compaction failed"; "error" => format!("{:?}", e));
-        }
-
-        debug!(log, "Database consolidation complete");
+        Self::run_migration(db, notif, log);
     }
 
     /// Perform the actual work of `process_finalization`.
