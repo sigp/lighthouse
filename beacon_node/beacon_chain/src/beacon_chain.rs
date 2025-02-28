@@ -7283,13 +7283,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(None)
     }
 
-    /// Retrieves block roots within some slot range from fork choice.
-    /// Returns `None` if the provided slot is not found.
-    pub fn block_roots_from_fork_choice(
-        &self,
-        start_slot: u64,
-        count: u64,
-    ) -> Option<Vec<Hash256>> {
+    /// Retrieves block roots (in ascending slot order) within some slot range from fork choice.
+    pub fn block_roots_from_fork_choice(&self, start_slot: u64, count: u64) -> Vec<Hash256> {
         let head_block_root = self.canonical_head.cached_head().head_block_root();
         let fork_choice_read_lock = self.canonical_head.fork_choice_read_lock();
         let block_roots_iter = fork_choice_read_lock
@@ -7307,13 +7302,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        if roots.is_empty() {
-            None
-        } else {
-            // return in ascending slot order
-            roots.reverse();
-            Some(roots)
-        }
+        drop(fork_choice_read_lock);
+        // return in ascending slot order
+        roots.reverse();
+        roots
     }
 }
 
