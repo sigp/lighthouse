@@ -66,7 +66,7 @@ basically a portable slashing protection database!
 
 To import a slashing protection database to Lighthouse, you first need to export your existing client's database. Instructions to export the slashing protection database for other clients are listed below:
 
-* [Lodestar](https://chainsafe.github.io/lodestar/reference/cli/#validator-slashing-protection-export)
+* [Lodestar](https://chainsafe.github.io/lodestar/run/validator-management/validator-cli#validator-slashing-protection-export)
 * [Nimbus](https://nimbus.guide/migration.html#2-export-slashing-protection-history)
 * [Prysm](https://docs.prylabs.network/docs/wallet/slashing-protection#exporting-your-validators-slashing-protection-history)
 * [Teku](https://docs.teku.consensys.net/HowTo/Prevent-Slashing#export-a-slashing-protection-file)
