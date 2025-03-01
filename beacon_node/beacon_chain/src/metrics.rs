@@ -601,12 +601,6 @@ pub static BALANCES_CACHE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|
 /*
  * Persisting BeaconChain components to disk
  */
-pub static PERSIST_HEAD: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_persist_head",
-        "Time taken to persist the canonical head",
-    )
-});
 pub static PERSIST_OP_POOL: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_persist_op_pool",

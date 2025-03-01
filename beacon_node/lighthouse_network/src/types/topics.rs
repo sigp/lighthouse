@@ -25,104 +25,110 @@ pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
 pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
-pub const BASE_CORE_TOPICS: [GossipKind; 5] = [
-    GossipKind::BeaconBlock,
-    GossipKind::BeaconAggregateAndProof,
-    GossipKind::VoluntaryExit,
-    GossipKind::ProposerSlashing,
-    GossipKind::AttesterSlashing,
-];
-
-pub const ALTAIR_CORE_TOPICS: [GossipKind; 1] = [GossipKind::SignedContributionAndProof];
-
-pub const CAPELLA_CORE_TOPICS: [GossipKind; 1] = [GossipKind::BlsToExecutionChange];
-
-pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
-    GossipKind::LightClientFinalityUpdate,
-    GossipKind::LightClientOptimisticUpdate,
-];
-
 #[derive(Debug)]
 pub struct TopicConfig<'a> {
+    pub enable_light_client_server: bool,
+    pub subscribe_all_subnets: bool,
     pub subscribe_all_data_column_subnets: bool,
     pub sampling_subnets: &'a HashSet<DataColumnSubnetId>,
 }
 
-/// Returns the core topics associated with each fork that are new to the previous fork
-pub fn fork_core_topics<E: EthSpec>(
-    fork_name: &ForkName,
-    spec: &ChainSpec,
-    topic_config: &TopicConfig,
-) -> Vec<GossipKind> {
-    match fork_name {
-        ForkName::Base => BASE_CORE_TOPICS.to_vec(),
-        ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
-        ForkName::Bellatrix => vec![],
-        ForkName::Capella => CAPELLA_CORE_TOPICS.to_vec(),
-        ForkName::Deneb => {
-            // All of deneb blob topics are core topics
-            let mut deneb_blob_topics = Vec::new();
-            for i in 0..spec.blob_sidecar_subnet_count(ForkName::Deneb) {
-                deneb_blob_topics.push(GossipKind::BlobSidecar(i));
-            }
-            deneb_blob_topics
-        }
-        ForkName::Electra => {
-            // All of electra blob topics are core topics
-            let mut electra_blob_topics = Vec::new();
-            for i in 0..spec.blob_sidecar_subnet_count(ForkName::Electra) {
-                electra_blob_topics.push(GossipKind::BlobSidecar(i));
-            }
-            electra_blob_topics
-        }
-        ForkName::Fulu => {
-            let mut topics = vec![];
-            if topic_config.subscribe_all_data_column_subnets {
-                for column_subnet in 0..spec.data_column_sidecar_subnet_count {
-                    topics.push(GossipKind::DataColumnSidecar(DataColumnSubnetId::new(
-                        column_subnet,
-                    )));
-                }
-            } else {
-                for column_subnet in topic_config.sampling_subnets {
-                    topics.push(GossipKind::DataColumnSidecar(*column_subnet));
-                }
-            }
-            topics
-        }
-    }
-}
-
-/// Returns all the attestation and sync committee topics, for a given fork.
-pub fn attestation_sync_committee_topics<E: EthSpec>() -> impl Iterator<Item = GossipKind> {
-    (0..E::SubnetBitfieldLength::to_usize())
-        .map(|subnet_id| GossipKind::Attestation(SubnetId::new(subnet_id as u64)))
-        .chain(
-            (0..E::SyncCommitteeSubnetCount::to_usize()).map(|sync_committee_id| {
-                GossipKind::SyncCommitteeMessage(SyncSubnetId::new(sync_committee_id as u64))
-            }),
-        )
-}
-
-/// Returns all the topics that we need to subscribe to for a given fork
-/// including topics from older forks and new topics for the current fork.
+/// Returns all the topics the node should subscribe at `fork_name`
 pub fn core_topics_to_subscribe<E: EthSpec>(
-    mut current_fork: ForkName,
+    fork_name: ForkName,
+    opts: &TopicConfig,
     spec: &ChainSpec,
-    topic_config: &TopicConfig,
 ) -> Vec<GossipKind> {
-    let mut topics = fork_core_topics::<E>(&current_fork, spec, topic_config);
-    while let Some(previous_fork) = current_fork.previous_fork() {
-        let previous_fork_topics = fork_core_topics::<E>(&previous_fork, spec, topic_config);
-        topics.extend(previous_fork_topics);
-        current_fork = previous_fork;
+    let mut topics = vec![
+        GossipKind::BeaconBlock,
+        GossipKind::BeaconAggregateAndProof,
+        GossipKind::VoluntaryExit,
+        GossipKind::ProposerSlashing,
+        GossipKind::AttesterSlashing,
+    ];
+
+    if opts.subscribe_all_subnets {
+        for i in 0..spec.attestation_subnet_count {
+            topics.push(GossipKind::Attestation(i.into()));
+        }
     }
-    // Remove duplicates
+
+    if fork_name.altair_enabled() {
+        topics.push(GossipKind::SignedContributionAndProof);
+
+        if opts.subscribe_all_subnets {
+            for i in 0..E::SyncCommitteeSubnetCount::to_u64() {
+                topics.push(GossipKind::SyncCommitteeMessage(i.into()));
+            }
+        }
+
+        if opts.enable_light_client_server {
+            topics.push(GossipKind::LightClientFinalityUpdate);
+            topics.push(GossipKind::LightClientOptimisticUpdate);
+        }
+    }
+
+    if fork_name.capella_enabled() {
+        topics.push(GossipKind::BlsToExecutionChange);
+    }
+
+    if fork_name.deneb_enabled() && !fork_name.fulu_enabled() {
+        // All of deneb blob topics are core topics
+        for i in 0..spec.blob_sidecar_subnet_count(fork_name) {
+            topics.push(GossipKind::BlobSidecar(i));
+        }
+    }
+
+    if fork_name.fulu_enabled() {
+        if opts.subscribe_all_data_column_subnets {
+            for i in 0..spec.data_column_sidecar_subnet_count {
+                topics.push(GossipKind::DataColumnSidecar(i.into()));
+            }
+        } else {
+            for subnet in opts.sampling_subnets {
+                topics.push(GossipKind::DataColumnSidecar(*subnet));
+            }
+        }
+    }
+
     topics
-        .into_iter()
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect()
+}
+
+/// Returns true if a given non-core `GossipTopic` MAY be subscribe at this fork.
+///
+/// For example: the `Attestation` topic is not subscribed as a core topic if
+/// subscribe_all_subnets = false` but we may subscribe to it outside of a fork
+/// boundary if the node is an aggregator.
+pub fn is_fork_non_core_topic(topic: &GossipTopic, _fork_name: ForkName) -> bool {
+    match topic.kind() {
+        // Node may be aggregator of attestation and sync_committee_message topics for all known
+        // forks
+        GossipKind::Attestation(_) | GossipKind::SyncCommitteeMessage(_) => true,
+        // All these topics are core-only
+        GossipKind::BeaconBlock
+        | GossipKind::BeaconAggregateAndProof
+        | GossipKind::BlobSidecar(_)
+        | GossipKind::DataColumnSidecar(_)
+        | GossipKind::VoluntaryExit
+        | GossipKind::ProposerSlashing
+        | GossipKind::AttesterSlashing
+        | GossipKind::SignedContributionAndProof
+        | GossipKind::BlsToExecutionChange
+        | GossipKind::LightClientFinalityUpdate
+        | GossipKind::LightClientOptimisticUpdate => false,
+    }
+}
+
+pub fn all_topics_at_fork<E: EthSpec>(fork: ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
+    // Compute the worst case of all forks
+    let sampling_subnets = HashSet::from_iter(spec.all_data_column_sidecar_subnets());
+    let opts = TopicConfig {
+        enable_light_client_server: true,
+        subscribe_all_subnets: true,
+        subscribe_all_data_column_subnets: true,
+        sampling_subnets: &sampling_subnets,
+    };
+    core_topics_to_subscribe::<E>(fork, &opts, spec)
 }
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
@@ -368,10 +374,9 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
 
 #[cfg(test)]
 mod tests {
-    use types::MainnetEthSpec;
-
     use super::GossipKind::*;
     use super::*;
+    use types::{Epoch, MainnetEthSpec as E};
 
     const GOOD_FORK_DIGEST: &str = "e1925f3b";
     const BAD_PREFIX: &str = "tezos";
@@ -496,31 +501,94 @@ mod tests {
         assert_eq!("attester_slashing", AttesterSlashing.as_ref());
     }
 
+    fn get_spec() -> ChainSpec {
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(1));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(2));
+        spec.capella_fork_epoch = Some(Epoch::new(3));
+        spec.deneb_fork_epoch = Some(Epoch::new(4));
+        spec.electra_fork_epoch = Some(Epoch::new(5));
+        spec.fulu_fork_epoch = Some(Epoch::new(6));
+        spec
+    }
+
+    fn get_sampling_subnets() -> HashSet<DataColumnSubnetId> {
+        HashSet::new()
+    }
+
+    fn get_topic_config(sampling_subnets: &HashSet<DataColumnSubnetId>) -> TopicConfig {
+        TopicConfig {
+            enable_light_client_server: false,
+            subscribe_all_subnets: false,
+            subscribe_all_data_column_subnets: false,
+            sampling_subnets,
+        }
+    }
+
+    #[test]
+    fn base_topics_are_always_active() {
+        let spec = get_spec();
+        let s = get_sampling_subnets();
+        let topic_config = get_topic_config(&s);
+        for fork in ForkName::list_all() {
+            assert!(core_topics_to_subscribe::<E>(fork, &topic_config, &spec,)
+                .contains(&GossipKind::BeaconBlock));
+        }
+    }
+
+    #[test]
+    fn blobs_are_not_subscribed_in_peerdas() {
+        let spec = get_spec();
+        let s = get_sampling_subnets();
+        let topic_config = get_topic_config(&s);
+        assert!(
+            !core_topics_to_subscribe::<E>(ForkName::Fulu, &topic_config, &spec,)
+                .contains(&GossipKind::BlobSidecar(0))
+        );
+    }
+
+    #[test]
+    fn columns_are_subscribed_in_peerdas() {
+        let spec = get_spec();
+        let s = get_sampling_subnets();
+        let mut topic_config = get_topic_config(&s);
+        topic_config.subscribe_all_data_column_subnets = true;
+        assert!(
+            core_topics_to_subscribe::<E>(ForkName::Fulu, &topic_config, &spec)
+                .contains(&GossipKind::DataColumnSidecar(0.into()))
+        );
+    }
+
     #[test]
     fn test_core_topics_to_subscribe() {
-        type E = MainnetEthSpec;
-        let spec = E::default_spec();
-        let mut all_topics = Vec::new();
-        let topic_config = TopicConfig {
-            subscribe_all_data_column_subnets: false,
-            sampling_subnets: &HashSet::from_iter([1, 2].map(DataColumnSubnetId::new)),
-        };
-        let mut fulu_core_topics = fork_core_topics::<E>(&ForkName::Fulu, &spec, &topic_config);
-        let mut electra_core_topics =
-            fork_core_topics::<E>(&ForkName::Electra, &spec, &topic_config);
-        let mut deneb_core_topics = fork_core_topics::<E>(&ForkName::Deneb, &spec, &topic_config);
-        all_topics.append(&mut fulu_core_topics);
-        all_topics.append(&mut electra_core_topics);
-        all_topics.append(&mut deneb_core_topics);
-        all_topics.extend(CAPELLA_CORE_TOPICS);
-        all_topics.extend(ALTAIR_CORE_TOPICS);
-        all_topics.extend(BASE_CORE_TOPICS);
-
+        let spec = get_spec();
+        let s = HashSet::from_iter([1, 2].map(DataColumnSubnetId::new));
+        let mut topic_config = get_topic_config(&s);
+        topic_config.enable_light_client_server = true;
         let latest_fork = *ForkName::list_all().last().unwrap();
-        let core_topics = core_topics_to_subscribe::<E>(latest_fork, &spec, &topic_config);
+        let topics = core_topics_to_subscribe::<E>(latest_fork, &topic_config, &spec);
+
+        let mut expected_topics = vec![
+            GossipKind::BeaconBlock,
+            GossipKind::BeaconAggregateAndProof,
+            GossipKind::VoluntaryExit,
+            GossipKind::ProposerSlashing,
+            GossipKind::AttesterSlashing,
+            GossipKind::SignedContributionAndProof,
+            GossipKind::LightClientFinalityUpdate,
+            GossipKind::LightClientOptimisticUpdate,
+            GossipKind::BlsToExecutionChange,
+        ];
+        for subnet in s {
+            expected_topics.push(GossipKind::DataColumnSidecar(subnet));
+        }
         // Need to check all the topics exist in an order independent manner
-        for topic in all_topics {
-            assert!(core_topics.contains(&topic));
+        for expected_topic in expected_topics {
+            assert!(
+                topics.contains(&expected_topic),
+                "Should contain {:?}",
+                expected_topic
+            );
         }
     }
 }

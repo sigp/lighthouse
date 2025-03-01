@@ -68,7 +68,9 @@ impl<T> RpcEvent<T> {
 
 pub type RpcResponseResult<T> = Result<(T, Duration), RpcResponseError>;
 
-pub type CustodyByRootResult<T> = Result<(DataColumnSidecarList<T>, PeerGroup), RpcResponseError>;
+/// Duration = latest seen timestamp of all received data columns
+pub type CustodyByRootResult<T> =
+    Result<(DataColumnSidecarList<T>, PeerGroup, Duration), RpcResponseError>;
 
 #[derive(Debug)]
 pub enum RpcResponseError {
@@ -1190,7 +1192,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Convert a result from internal format of `ActiveCustodyRequest` (error first to use ?) to
         // an Option first to use in an `if let Some() { act on result }` block.
         match result.as_ref() {
-            Some(Ok((columns, peer_group))) => {
+            Some(Ok((columns, peer_group, _))) => {
                 debug!(self.log, "Custody request success, removing"; "id" => ?id, "count" => columns.len(), "peers" => ?peer_group)
             }
             Some(Err(e)) => {
@@ -1208,7 +1210,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: Id,
         block_root: Hash256,
         block: RpcBlock<T::EthSpec>,
-        duration: Duration,
+        seen_timestamp: Duration,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
             .beacon_processor_if_enabled()
@@ -1221,7 +1223,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send_rpc_beacon_block(
                 block_root,
                 block,
-                duration,
+                seen_timestamp,
                 BlockProcessType::SingleBlock { id },
             )
             .map_err(|e| {
@@ -1239,7 +1241,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: Id,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
-        duration: Duration,
+        seen_timestamp: Duration,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
             .beacon_processor_if_enabled()
@@ -1252,7 +1254,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send_rpc_blobs(
                 block_root,
                 blobs,
-                duration,
+                seen_timestamp,
                 BlockProcessType::SingleBlob { id },
             )
             .map_err(|e| {
@@ -1270,7 +1272,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         _id: Id,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        duration: Duration,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), SendErrorProcessor> {
         let beacon_processor = self
@@ -1280,7 +1282,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         debug!(self.log, "Sending custody columns for processing"; "block" => ?block_root, "process_type" => ?process_type);
 
         beacon_processor
-            .send_rpc_custody_columns(block_root, custody_columns, duration, process_type)
+            .send_rpc_custody_columns(block_root, custody_columns, seen_timestamp, process_type)
             .map_err(|e| {
                 error!(
                     self.log,

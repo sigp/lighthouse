@@ -1214,7 +1214,7 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
     assert_eq!(rig.get_finalized_checkpoints(), hashset! {});
 
-    assert!(rig.chain.knows_head(&stray_head));
+    rig.assert_knows_head(stray_head.into());
 
     // Trigger finalization
     let finalization_slots: Vec<Slot> = ((canonical_chain_slot + 1)
@@ -1262,7 +1262,7 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         );
     }
 
-    assert!(!rig.chain.knows_head(&stray_head));
+    assert!(!rig.knows_head(&stray_head));
 }
 
 #[tokio::test]
@@ -1388,7 +1388,7 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         );
     }
 
-    assert!(!rig.chain.knows_head(&stray_head));
+    assert!(!rig.knows_head(&stray_head));
     let chain_dump = rig.chain.chain_dump().unwrap();
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 }
@@ -1481,7 +1481,7 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
         );
     }
 
-    assert!(rig.chain.knows_head(&stray_head));
+    rig.assert_knows_head(stray_head.into());
 }
 
 #[tokio::test]
@@ -1565,7 +1565,7 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     // Precondition: Nothing is finalized yet
     assert_eq!(rig.get_finalized_checkpoints(), hashset! {},);
 
-    assert!(rig.chain.knows_head(&stray_head));
+    rig.assert_knows_head(stray_head.into());
 
     // Trigger finalization
     let canonical_slots: Vec<Slot> = (rig.epoch_start_slot(2)..=rig.epoch_start_slot(6))
@@ -1620,7 +1620,7 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
         );
     }
 
-    assert!(!rig.chain.knows_head(&stray_head));
+    assert!(!rig.knows_head(&stray_head));
 }
 
 // This is to check if state outside of normal block processing are pruned correctly.
@@ -2776,8 +2776,8 @@ async fn finalizes_after_resuming_from_db() {
 
     harness
         .chain
-        .persist_head_and_fork_choice()
-        .expect("should persist the head and fork choice");
+        .persist_fork_choice()
+        .expect("should persist fork choice");
     harness
         .chain
         .persist_op_pool()
@@ -2990,11 +2990,13 @@ async fn revert_minority_fork_on_resume() {
     resumed_harness.chain.recompute_head_at_current_slot().await;
     assert_eq!(resumed_harness.head_slot(), fork_slot - 1);
 
-    // Head track should know the canonical head and the rogue head.
-    assert_eq!(resumed_harness.chain.heads().len(), 2);
-    assert!(resumed_harness
-        .chain
-        .knows_head(&resumed_harness.head_block_root().into()));
+    // Fork choice should only know the canonical head. When we reverted the head we also should
+    // have called `reset_fork_choice_to_finalization` which rebuilds fork choice from scratch
+    // without the reverted block.
+    assert_eq!(
+        resumed_harness.chain.heads(),
+        vec![(resumed_harness.head_block_root(), fork_slot - 1)]
+    );
 
     // Apply blocks from the majority chain and trigger finalization.
     let initial_split_slot = resumed_harness.chain.store.get_split_slot();
