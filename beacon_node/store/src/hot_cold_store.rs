@@ -3169,11 +3169,16 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
             // Store slot -> state_root and state_root -> slot mappings.
             store.store_cold_state_summary(&state_root, slot, &mut cold_db_ops)?;
         } else {
+            // TODO(holesky)
+            // I've updated to immediately commit the state to the cold db
+            // instead of doing it in batches so we don't load tons of states into memory
+            let mut immediate_cold_op = vec![];
             let state: BeaconState<E> = store
                 .get_hot_state(&state_root)?
                 .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
 
-            store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
+            store.store_cold_state(&state_root, &state, &mut immediate_cold_op)?;
+            store.cold_db.do_atomically(immediate_cold_op)?;
         }
 
         // Cold states are diffed with respect to each other, so we need to finish writing previous
