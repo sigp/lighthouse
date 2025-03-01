@@ -740,6 +740,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(self.log, "Finalized or earlier block processed";);
                 Ok(())
             }
+            BlockError::NotFinalizedDescendant { block_parent_root } => {
+                debug!(
+                    self.log,
+                    "Not syncing to a chain that conflicts with the canonical or manual finalized checkpoint"
+                );
+                Err(ChainSegmentFailed {
+                    message: format!(
+                        "Block with parent_root {} conflicts with our checkpoint state",
+                        block_parent_root
+                    ),
+                    peer_action: Some(PeerAction::Fatal),
+                })
+            }
             BlockError::GenesisBlock => {
                 debug!(self.log, "Genesis block was processed");
                 Ok(())
