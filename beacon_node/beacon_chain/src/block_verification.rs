@@ -1782,17 +1782,14 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
     fork_choice: &BeaconForkChoice<T>,
     block: B,
 ) -> Result<B, BlockError> {
-    if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root()) {
+    // If we have a split block newer than finalization then we also ban blocks which are not
+    // descended from that split block.
+    let split = chain.store.get_split_info();
+    if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root())
+        && fork_choice.is_descendant(split.block_root, block.parent_root())
+    {
         Ok(block)
     } else {
-        // If we have a split block newer than finalization then we also ban blocks which are not
-        // descended from that split block.
-        let split = chain.store.get_split_info();
-        if !fork_choice.is_descendant(split.block_root, block.parent_root()) {
-            Err(BlockError::NotFinalizedDescendant {
-                block_parent_root: block.parent_root(),
-            })
-        }
         // If fork choice does *not* consider the parent to be a descendant of the finalized block,
         // then there are two more cases:
         //
@@ -1801,7 +1798,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
         //    pre-finalization or conflicting with finalization.
         // 2. The parent is unknown to us, we probably want to download it since it might actually
         //    descend from the finalized root.
-        else if chain
+        if chain
             .store
             .block_exists(&block.parent_root())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
