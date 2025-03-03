@@ -14,6 +14,7 @@ use futures::StreamExt;
 use lighthouse_network::rpc::{RequestId, RequestType};
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
+use lighthouse_network::Enr;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RpcErrorResponse},
@@ -78,7 +79,9 @@ pub enum NetworkMessage<E: EthSpec> {
         id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
-    Publish { messages: Vec<PubsubMessage<E>> },
+    Publish {
+        messages: Vec<PubsubMessage<E>>,
+    },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
@@ -101,6 +104,7 @@ pub enum NetworkMessage<E: EthSpec> {
         reason: GoodbyeReason,
         source: ReportSource,
     },
+    ConnectToPeer(Enr),
 }
 
 /// Messages triggered by validators that may trigger a subscription to a subnet.
@@ -688,6 +692,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 reason,
                 source,
             } => self.libp2p.goodbye_peer(&peer_id, reason, source),
+            NetworkMessage::ConnectToPeer(enr) => {
+                self.libp2p.dial_trusted_peer(enr);
+            }
             NetworkMessage::SubscribeCoreTopics => {
                 if self.subscribed_core_topics() {
                     return;
