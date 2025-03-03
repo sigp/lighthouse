@@ -190,7 +190,7 @@ impl StateId {
         };
 
         let state = chain
-            .get_state(&state_root, slot_opt)
+            .get_state(&state_root, slot_opt, true)
             .map_err(warp_utils::reject::unhandled_error)
             .and_then(|opt| {
                 opt.ok_or_else(|| {

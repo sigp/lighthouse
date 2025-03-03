@@ -44,7 +44,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         .ok_or_else(|| custom_bad_request(format!("prior state at slot {} unknown", prior_slot)))?;
 
     let mut state = chain
-        .get_state(&state_root, Some(prior_slot))
+        .get_state(&state_root, Some(prior_slot), true)
         .and_then(|maybe_state| maybe_state.ok_or(BeaconChainError::MissingBeaconState(state_root)))
         .map_err(unhandled_error)?;
 
@@ -134,7 +134,7 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
                 })?;
 
             let parent_state = chain
-                .get_state(&parent_block.state_root(), Some(parent_block.slot()))
+                .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)
                 .map_err(unhandled_error)?
                 .ok_or_else(|| {
                     custom_bad_request(format!(

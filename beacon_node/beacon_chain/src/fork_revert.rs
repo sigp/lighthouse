@@ -117,7 +117,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     // Advance finalized state to finalized epoch (to handle skipped slots).
     let finalized_state_root = finalized_block.state_root();
     let mut finalized_state = store
-        .get_state(&finalized_state_root, Some(finalized_block.slot()))
+        .get_state(&finalized_state_root, Some(finalized_block.slot()), true)
         .map_err(|e| format!("Error loading finalized state: {:?}", e))?
         .ok_or_else(|| {
             format!(

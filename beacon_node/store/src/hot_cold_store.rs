@@ -945,6 +945,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
+        update_cache: bool,
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_GET_COUNT);
 
@@ -956,10 +957,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // chain. This way we avoid returning a state that doesn't match `state_root`.
                 self.load_cold_state(state_root)
             } else {
-                self.get_hot_state(state_root)
+                self.get_hot_state(state_root, update_cache)
             }
         } else {
-            match self.get_hot_state(state_root)? {
+            match self.get_hot_state(state_root, update_cache)? {
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
@@ -1505,7 +1506,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Get a post-finalization state from the database or store.
-    pub fn get_hot_state(&self, state_root: &Hash256) -> Result<Option<BeaconState<E>>, Error> {
+    pub fn get_hot_state(
+        &self,
+        state_root: &Hash256,
+        update_cache: bool,
+    ) -> Result<Option<BeaconState<E>>, Error> {
         if let Some(state) = self.state_cache.lock().get_by_state_root(*state_root) {
             return Ok(Some(state));
         }
@@ -1522,17 +1527,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let state_from_disk = self.load_hot_state(state_root)?;
 
         if let Some((mut state, block_root)) = state_from_disk {
-            state.update_tree_hash_cache()?;
-            state.build_all_caches(&self.spec)?;
-            self.state_cache
-                .lock()
-                .put_state(*state_root, block_root, &state)?;
-            debug!(
-                self.log,
-                "Cached state";
-                "state_root" => ?state_root,
-                "slot" => state.slot(),
-            );
+            if update_cache {
+                state.update_tree_hash_cache()?;
+                state.build_all_caches(&self.spec)?;
+                self.state_cache
+                    .lock()
+                    .put_state(*state_root, block_root, &state)?;
+                debug!(
+                    self.log,
+                    "Cached state";
+                    "state_root" => ?state_root,
+                    "slot" => state.slot(),
+                );
+            } else {
+                debug!(
+                    self.log,
+                    "Did not cache state";
+                    "state_root" => ?state_root,
+                    "slot" => state.slot(),
+                );
+            }
+
             Ok(Some(state))
         } else {
             Ok(None)
@@ -2668,10 +2683,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(());
         };
 
-        // Load the split state so we can backtrack to find execution payloads.
-        let split_state = self.get_state(&split.state_root, Some(split.slot))?.ok_or(
-            HotColdDBError::MissingSplitState(split.state_root, split.slot),
-        )?;
+        // Load the split state so we can backtrack to find execution payloads. The split state
+        // should be in the cold db already(?), but we set `update_cache`` to false just in case
+        let split_state = self
+            .get_state(&split.state_root, Some(split.slot), false)?
+            .ok_or(HotColdDBError::MissingSplitState(
+                split.state_root,
+                split.slot,
+            ))?;
 
         // The finalized block may or may not have its execution payload stored, depending on
         // whether it was at a skipped slot. However for a fully pruned database its parent
@@ -3169,8 +3188,9 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
             // Store slot -> state_root and state_root -> slot mappings.
             store.store_cold_state_summary(&state_root, slot, &mut cold_db_ops)?;
         } else {
+            // We purposely do not update the state cache to store this state
             let state: BeaconState<E> = store
-                .get_hot_state(&state_root)?
+                .get_hot_state(&state_root, false)?
                 .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
 
             store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;

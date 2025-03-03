@@ -655,6 +655,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_full_block(&new_view.head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
+                // TODO(holesky) when we calculate the new snapshot we might be missing a state
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(

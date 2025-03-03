@@ -320,7 +320,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         // Compute the value, handling potential errors.
         let mut state = store
-            .get_state(block_state_root, Some(block_slot))?
+            .get_state(block_state_root, Some(block_slot), false)?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", block_state_root))
             })?;
