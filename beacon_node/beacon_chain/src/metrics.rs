@@ -108,7 +108,7 @@ pub static BLOCK_PROCESSING_POST_EXEC_PROCESSING: LazyLock<Result<Histogram>> =
         try_create_histogram_with_buckets(
             "beacon_block_processing_post_exec_pre_attestable_seconds",
             "Time between finishing execution processing and the block becoming attestable",
-            linear_buckets(5e-3, 5e-3, 10),
+            linear_buckets(0.01, 0.01, 15),
         )
     });
 pub static BLOCK_PROCESSING_DATA_COLUMNS_WAIT: LazyLock<Result<Histogram>> = LazyLock::new(|| {
