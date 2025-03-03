@@ -118,8 +118,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
-    BlobSidecarListFromRoot, DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore,
-    KeyValueStoreOp, StoreItem, StoreOp,
+    BlobSidecarListFromRoot, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
+    KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::sync::oneshot;
@@ -1707,14 +1707,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    pub fn manually_finalize_state(&self, state_root: Hash256, checkpoint: Checkpoint) {
+    pub fn manually_finalize_state(
+        &self,
+        state_root: Hash256,
+        checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        let HotStateSummary {
+            slot,
+            latest_block_root,
+            ..
+        } = self
+            .store
+            .load_hot_state_summary(&state_root)
+            .map_err(BeaconChainError::DBError)?
+            .ok_or(BeaconChainError::MissingHotStateSummary(state_root))?;
+
+        if slot != checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch())
+            || latest_block_root != *checkpoint.root
+        {
+            return Err(BeaconChainError::InvalidCheckpoint {
+                state_root,
+                checkpoint,
+            });
+        }
+
         let notif = ManualFinalizationNotification {
             state_root: state_root.into(),
             checkpoint,
             head_tracker: self.head_tracker.clone(),
             genesis_block_root: self.genesis_block_root,
         };
-        self.store_migrator.process_manual_finalization(notif)
+
+        self.store_migrator.process_manual_finalization(notif);
+        Ok(())
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.

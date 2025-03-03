@@ -199,7 +199,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     }
 
     pub fn process_manual_finalization(&self, notif: ManualFinalizationNotification) {
-        let _ = self.send_background_notification(Notification::ManualFinalization(notif));
+        if let Some(Notification::ManualFinalization(notif)) =
+            self.send_background_notification(Notification::ManualFinalization(notif))
+        {
+            Self::run_manual_migration(self.db.clone(), notif, &self.log);
+        }
     }
 
     pub fn process_reconstruction(&self) {
