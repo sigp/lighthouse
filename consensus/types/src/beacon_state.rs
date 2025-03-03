@@ -2470,6 +2470,11 @@ impl<E: EthSpec> BeaconState<E> {
         // rebuild and likely to be re-usable from the base state.
         self.rebase_caches_on(base, spec)?;
 
+        // Perform an intra-rebase of the inactivity scores (if any).
+        if let Ok(inactivity_scores) = self.inactivity_scores_mut() {
+            inactivity_scores.intra_rebase()?;
+        }
+
         Ok(())
     }
 

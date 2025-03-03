@@ -449,6 +449,11 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             next_epoch_cache.into_epoch_cache(next_epoch_activation_queue, spec)?;
     }
 
+    // As an optimisation, perform an intra-rebase on `inactivity_scores`. They have a tendency to
+    // be exactly the same for large swathes of consecutive validator indices, so this helps reduce
+    // memory usage quite a lot.
+    state.inactivity_scores_mut()?.intra_rebase()?;
+
     Ok(summary)
 }
 
