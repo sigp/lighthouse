@@ -4026,9 +4026,15 @@ pub fn serve<T: BeaconChainTypes>(
                         epoch: request_data.epoch,
                         root: request_data.block_root,
                     };
-                    chain.manually_finalize_state(request_data.state_root, checkpoint);
 
-                    Ok(api_types::GenericResponse::from(request_data))
+                    chain
+                        .manually_finalize_state(request_data.state_root, checkpoint)
+                        .map(|_| api_types::GenericResponse::from(request_data))
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "Failed to finalize state due to error: {e:?}"
+                            ))
+                        })
                 })
             },
         );
