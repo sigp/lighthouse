@@ -821,7 +821,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .block_roots_from_fork_choice(req_start_slot, req_count),
                 "fork_choice",
             )
-        } else if req_start_slot + req_count <= finalized_slot.as_u64() + 1 {
+        } else if req_start_slot + req_count <= finalized_slot.as_u64() {
             // If the entire requested range is before finalization, use store
             (
                 self.get_block_roots_from_store(req_start_slot, req_count)?,
@@ -829,9 +829,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             )
         } else {
             // Split the request at the finalization boundary
-            let count_from_store = finalized_slot.as_u64() - req_start_slot + 1;
+            let count_from_store = finalized_slot.as_u64() - req_start_slot;
             let count_from_fork_choice = req_count - count_from_store;
-            let start_slot_fork_choice = finalized_slot.as_u64() + 1;
+            let start_slot_fork_choice = finalized_slot.as_u64();
 
             // Get roots from store (up to and including finalized slot)
             let mut roots_from_store =
