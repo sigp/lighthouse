@@ -815,16 +815,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .start_slot(T::EthSpec::slots_per_epoch());
 
         let (block_roots, block_roots_source) = if req_start_slot >= finalized_slot.as_u64() {
+            // If the entire requested range is after finalization, use fork_choice
             (
                 self.chain
                     .block_roots_from_fork_choice(req_start_slot, req_count),
                 "fork_choice",
             )
-        } else {
+        } else if req_start_slot + req_count <= finalized_slot.as_u64() {
+            // If the entire requested range is before finalization, use store
             (
                 self.get_block_roots_from_store(req_start_slot, req_count)?,
                 "store",
             )
+        } else {
+            // Split the request at the finalization boundary
+            let count_from_store = finalized_slot.as_u64() - req_start_slot;
+            let count_from_fork_choice = req_count - count_from_store;
+            let start_slot_fork_choice = finalized_slot.as_u64();
+
+            // Get roots from store (up to and including finalized slot)
+            let mut roots_from_store =
+                self.get_block_roots_from_store(req_start_slot, count_from_store)?;
+
+            // Get roots from fork choice (after finalized slot)
+            let roots_from_fork_choice = self
+                .chain
+                .block_roots_from_fork_choice(start_slot_fork_choice, count_from_fork_choice);
+
+            roots_from_store.extend(roots_from_fork_choice);
+
+            (roots_from_store, "mixed")
         };
 
         debug!(
@@ -835,7 +855,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "count" => req_count,
             "block_roots_count" => block_roots.len(),
             "block_roots_source" => block_roots_source,
-            "elapsed" => ?block_roots_timer.elapsed()
+            "elapsed" => ?block_roots_timer.elapsed(),
+            "finalized_slot" => finalized_slot
         );
 
         Ok(block_roots)

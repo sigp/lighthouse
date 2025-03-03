@@ -28,6 +28,7 @@ metrics = { workspace = true }
 network = { workspace = true }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
+proto_array = { workspace = true }
 rand = { workspace = true }
 safe_arith = { workspace = true }
 sensitive_url = { workspace = true }
