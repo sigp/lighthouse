@@ -2472,6 +2472,7 @@ impl<E: EthSpec> BeaconState<E> {
 
         // Perform an intra-rebase of the inactivity scores (if any).
         if let Ok(inactivity_scores) = self.inactivity_scores_mut() {
+            inactivity_scores.tree_hash_root();
             inactivity_scores.intra_rebase()?;
         }
 

@@ -11,6 +11,7 @@ use itertools::izip;
 use safe_arith::{SafeArith, SafeArithIter};
 use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
+use tree_hash::TreeHash;
 use types::{
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
@@ -452,6 +453,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // As an optimisation, perform an intra-rebase on `inactivity_scores`. They have a tendency to
     // be exactly the same for large swathes of consecutive validator indices, so this helps reduce
     // memory usage quite a lot.
+    state.inactivity_scores()?.tree_hash_root();
     state.inactivity_scores_mut()?.intra_rebase()?;
 
     Ok(summary)
