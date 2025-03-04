@@ -1764,7 +1764,6 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
     let is_descendant_from_split_block =
         split.slot == 0 || fork_choice.is_descendant(split.block_root, block.parent_root());
 
-    println!("Block is descendant: {:?}", is_descendant_from_split_block);
     if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root())
         && is_descendant_from_split_block
     {
