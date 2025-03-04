@@ -9,7 +9,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
@@ -77,6 +77,19 @@ impl<E: EthSpec> PeerDB<E> {
     /// Returns an iterator over all peers in the db.
     pub fn peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<E>)> {
         self.peers.iter()
+    }
+
+    pub fn set_trusted_peer(&mut self, enr: Enr) {
+        match self.peers.entry(enr.peer_id()) {
+            Entry::Occupied(mut info) => {
+                let entry = info.get_mut();
+                entry.score = Score::max_score();
+                entry.is_trusted = true;
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(PeerInfo::trusted_peer_info());
+            }
+        }
     }
 
     /// Gives the ids of all known peers.
