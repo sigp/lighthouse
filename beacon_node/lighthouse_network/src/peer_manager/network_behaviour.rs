@@ -37,7 +37,10 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         // no events from the dummy handler
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Self::ToSwarm, void::Void>> {
+    fn poll(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<ToSwarm<Self::ToSwarm, std::convert::Infallible>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
@@ -198,7 +201,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 .peers
                 .read()
                 .peer_info(&peer_id)
-                .map_or(true, |peer| !peer.has_future_duty())
+                .is_none_or(|peer| !peer.has_future_duty())
         {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: too many connections",
@@ -237,7 +240,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 .peers
                 .read()
                 .peer_info(&peer_id)
-                .map_or(true, |peer| !peer.has_future_duty())
+                .is_none_or(|peer| !peer.has_future_duty())
         {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: too many connections",

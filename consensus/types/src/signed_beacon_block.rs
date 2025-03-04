@@ -86,6 +86,17 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub signature: Signature,
 }
 
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDecode
+    for SignedBeaconBlock<E, Payload>
+{
+    /// SSZ decode with explicit fork variant.
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        Self::from_ssz_bytes_with(bytes, |bytes| {
+            BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+        })
+    }
+}
+
 pub type SignedBlindedBeaconBlock<E> = SignedBeaconBlock<E, BlindedPayload<E>>;
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> {
@@ -106,16 +117,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// SSZ decode with fork variant determined by slot.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         Self::from_ssz_bytes_with(bytes, |bytes| BeaconBlock::from_ssz_bytes(bytes, spec))
-    }
-
-    /// SSZ decode with explicit fork variant.
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes_with(bytes, |bytes| {
-            BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
-        })
     }
 
     /// SSZ decode which attempts to decode all variants (slow).

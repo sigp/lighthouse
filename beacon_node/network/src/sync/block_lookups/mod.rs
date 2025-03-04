@@ -36,6 +36,7 @@ use beacon_chain::data_availability_checker::{
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::RequestState;
 use fnv::FnvHashMap;
+use itertools::Itertools;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
@@ -478,8 +479,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // continue_request will send for  processing as the request state is AwaitingProcessing
             }
             Err(e) => {
-                // TODO(das): is it okay to not log the peer source of request failures? Then we
-                // should log individual requests failures in the SyncNetworkContext
+                // No need to log peer source here. When sending a DataColumnsByRoot request we log
+                // the peer and the request ID which is linked to this `id` value here.
                 debug!(self.log,
                     "Received lookup download failure";
                     "block_root" => ?block_root,
@@ -644,8 +645,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             // but future errors may follow the same pattern. Generalize this
                             // pattern with https://github.com/sigp/lighthouse/pull/6321
                             BlockError::AvailabilityCheck(
-                                AvailabilityCheckError::InvalidColumn(index, _),
-                            ) => peer_group.of_index(index as usize).collect(),
+                                AvailabilityCheckError::InvalidColumn(errors),
+                            ) => errors
+                                .iter()
+                                // Collect all peers that sent a column that was invalid. Must
+                                // run .unique as a single peer can send multiple invalid
+                                // columns. Penalize once to avoid insta-bans
+                                .flat_map(|(index, _)| peer_group.of_index((*index) as usize))
+                                .unique()
+                                .collect(),
                             _ => peer_group.all().collect(),
                         };
                         for peer in peers_to_penalize {

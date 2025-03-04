@@ -1,7 +1,6 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
 use crate::metrics;
-use crate::metrics::PEERS_PER_COLUMN_SUBNET;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
@@ -10,7 +9,6 @@ use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
-use metrics::set_int_gauge;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use slog::{crit, debug, o, warn};
@@ -265,40 +263,21 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        {
-            // A stream termination has been sent. This batch has ended. Process a completed batch.
-            // Remove the request from the peer's active batches
-            self.peers
-                .get_mut(peer_id)
-                .map(|active_requests| active_requests.remove(&batch_id));
+        // A stream termination has been sent. This batch has ended. Process a completed batch.
+        // Remove the request from the peer's active batches
+        self.peers
+            .get_mut(peer_id)
+            .map(|active_requests| active_requests.remove(&batch_id));
 
-            match batch.download_completed(blocks) {
-                Ok(received) => {
-                    let awaiting_batches = batch_id
-                        .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
-                        / EPOCHS_PER_BATCH;
-                    debug!(self.log, "Batch downloaded"; "epoch" => batch_id, "blocks" => received, "batch_state" => self.visualize_batch_state(), "awaiting_batches" => awaiting_batches);
+        let received = batch.download_completed(blocks)?;
+        let awaiting_batches = batch_id
+            .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
+            / EPOCHS_PER_BATCH;
+        debug!(self.log, "Batch downloaded"; "epoch" => batch_id, "blocks" => received, "batch_state" => self.visualize_batch_state(), "awaiting_batches" => awaiting_batches);
 
-                    // pre-emptively request more blocks from peers whilst we process current blocks,
-                    self.request_batches(network)?;
-                    self.process_completed_batches(network)
-                }
-                Err(result) => {
-                    let (expected_boundary, received_boundary, outcome) = result?;
-                    warn!(self.log, "Batch received out of range blocks"; "expected_boundary" => expected_boundary, "received_boundary" => received_boundary,
-                        "peer_id" => %peer_id, batch);
-
-                    if let BatchOperationOutcome::Failed { blacklist } = outcome {
-                        return Err(RemoveChain::ChainFailed {
-                            blacklist,
-                            failing_batch: batch_id,
-                        });
-                    }
-                    // this batch can't be used, so we need to request it again.
-                    self.retry_batch_download(network, batch_id)
-                }
-            }
-        }
+        // pre-emptively request more blocks from peers whilst we process current blocks,
+        self.request_batches(network)?;
+        self.process_completed_batches(network)
     }
 
     /// Processes the batch with the given id.
@@ -1125,11 +1104,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .good_custody_subnet_peer(*subnet_id)
                         .count();
 
-                    set_int_gauge(
-                        &PEERS_PER_COLUMN_SUBNET,
-                        &[&subnet_id.to_string()],
-                        peer_count as i64,
-                    );
                     peer_count > 0
                 });
             peers_on_all_custody_subnets

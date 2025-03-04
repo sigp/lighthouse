@@ -283,6 +283,12 @@ mod ssz_static {
     }
 
     #[test]
+    fn single_attestation() {
+        SszStaticHandler::<SingleAttestation, MinimalEthSpec>::electra_and_later().run();
+        SszStaticHandler::<SingleAttestation, MainnetEthSpec>::electra_and_later().run();
+    }
+
+    #[test]
     fn attester_slashing() {
         SszStaticHandler::<AttesterSlashingBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra()
             .run();
@@ -881,6 +887,12 @@ fn fork_choice_get_proposer_head() {
 }
 
 #[test]
+fn fork_choice_deposit_with_reorg() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("deposit_with_reorg").run();
+    // There is no mainnet variant for this test.
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();
@@ -943,13 +955,9 @@ fn kzg_recover_cells_and_proofs() {
 }
 
 #[test]
-fn beacon_state_merkle_proof_validity() {
-    BeaconStateMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn beacon_block_body_merkle_proof_validity() {
-    BeaconBlockBodyMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+fn light_client_merkle_proof_validity() {
+    MerkleProofValidityHandler::<MinimalEthSpec>::default().run();
+    MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

@@ -28,6 +28,8 @@ Options:
           network. Multiaddr is also supported.
       --builder <builder>
           The URL of a service compatible with the MEV-boost API.
+      --builder-disable-ssz
+          Disables sending requests using SSZ over the builder API.
       --builder-fallback-epochs-since-finalization <builder-fallback-epochs-since-finalization>
           If this node is proposing a block and the chain has not finalized
           within this number of epochs, it will NOT query any connected
@@ -230,7 +232,7 @@ Options:
           peer without an ENR.
       --listen-address [<ADDRESS>...]
           The address lighthouse will listen for UDP and TCP connections. To
-          listen over IpV4 and IpV6 set this flag twice with the different
+          listen over IPv4 and IPv6 set this flag twice with the different
           values.
           Examples:
           - --listen-address '0.0.0.0' will listen over IPv4.
@@ -238,7 +240,8 @@ Options:
           - --listen-address '0.0.0.0' --listen-address '::' will listen over
           both IPv4 and IPv6. The order of the given addresses is not relevant.
           However, multiple IPv4, or multiple IPv6 addresses will not be
-          accepted. [default: 0.0.0.0]
+          accepted. If omitted, Lighthouse will listen on all interfaces, for
+          both IPv4 and IPv6.
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
@@ -301,8 +304,8 @@ Options:
           [default: 9000]
       --port6 <PORT>
           The TCP/UDP ports to listen on over IPv6 when listening over both IPv4
-          and IPv6. Defaults to 9090 when required. The Quic UDP port will be
-          set to this value + 1. [default: 9090]
+          and IPv6. Defaults to --port. The Quic UDP port will be set to this
+          value + 1.
       --prepare-payload-lookahead <MILLISECONDS>
           The time before the start of a proposal slot at which payload
           attributes should be sent. Low values are useful for execution nodes
@@ -458,6 +461,8 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
+      --disable-light-client-server
+          Disables light client support on the p2p network
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
@@ -511,8 +516,7 @@ Flags:
           already-subscribed subnets, use with --subscribe-all-subnets to ensure
           all attestations are received for import.
       --light-client-server
-          Act as a full node supporting light clients on the p2p network
-          [experimental]
+          DEPRECATED
       --log-color
           Force outputting colors when emitting logs to the terminal.
       --logfile-compress

@@ -1,4 +1,5 @@
 //! A collection of variables that are accessible outside of the network thread itself.
+use super::TopicConfig;
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV3};
 use crate::types::{BackFillState, SyncState};
@@ -181,6 +182,16 @@ impl<E: EthSpec> NetworkGlobals<E> {
             ))
             .cloned()
             .collect::<Vec<_>>()
+    }
+
+    /// Returns the TopicConfig to compute the set of Gossip topics for a given fork
+    pub fn as_topic_config(&self) -> TopicConfig {
+        TopicConfig {
+            enable_light_client_server: self.config.enable_light_client_server,
+            subscribe_all_subnets: self.config.subscribe_all_subnets,
+            subscribe_all_data_column_subnets: self.config.subscribe_all_data_column_subnets,
+            sampling_subnets: &self.sampling_subnets,
+        }
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.

@@ -1,4 +1,4 @@
-use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::block_verification_types::RpcBlock;
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::PeerId;
@@ -271,42 +271,9 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     pub fn download_completed(
         &mut self,
         blocks: Vec<RpcBlock<E>>,
-    ) -> Result<
-        usize, /* Received blocks */
-        Result<(Slot, Slot, BatchOperationOutcome), WrongState>,
-    > {
+    ) -> Result<usize /* Received blocks */, WrongState> {
         match self.state.poison() {
             BatchState::Downloading(peer, _request_id) => {
-                // verify that blocks are in range
-                if let Some(last_slot) = blocks.last().map(|b| b.slot()) {
-                    // the batch is non-empty
-                    let first_slot = blocks[0].slot();
-
-                    let failed_range = if first_slot < self.start_slot {
-                        Some((self.start_slot, first_slot))
-                    } else if self.end_slot < last_slot {
-                        Some((self.end_slot, last_slot))
-                    } else {
-                        None
-                    };
-
-                    if let Some((expected, received)) = failed_range {
-                        // this is a failed download, register the attempt and check if the batch
-                        // can be tried again
-                        self.failed_download_attempts.push(peer);
-                        self.state = if self.failed_download_attempts.len()
-                            >= B::max_batch_download_attempts() as usize
-                        {
-                            BatchState::Failed
-                        } else {
-                            // drop the blocks
-                            BatchState::AwaitingDownload
-                        };
-
-                        return Err(Ok((expected, received, self.outcome())));
-                    }
-                }
-
                 let received = blocks.len();
                 self.state = BatchState::AwaitingProcessing(peer, blocks, Instant::now());
                 Ok(received)
@@ -314,10 +281,10 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(Err(WrongState(format!(
+                Err(WrongState(format!(
                     "Download completed for batch in wrong state {:?}",
                     self.state
-                ))))
+                )))
             }
         }
     }

@@ -175,7 +175,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let base_reward_per_increment =
                 BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
-            for effective_balance_eth in 1..=self.max_effective_balance_increment_steps()? {
+            for effective_balance_eth in
+                1..=self.max_effective_balance_increment_steps(previous_epoch)?
+            {
                 let effective_balance =
                     effective_balance_eth.safe_mul(spec.effective_balance_increment)?;
                 let base_reward =
@@ -321,11 +323,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    fn max_effective_balance_increment_steps(&self) -> Result<u64, BeaconChainError> {
+    fn max_effective_balance_increment_steps(
+        &self,
+        rewards_epoch: Epoch,
+    ) -> Result<u64, BeaconChainError> {
         let spec = &self.spec;
-        let max_steps = spec
-            .max_effective_balance
-            .safe_div(spec.effective_balance_increment)?;
+        let fork_name = spec.fork_name_at_epoch(rewards_epoch);
+        let max_effective_balance = spec.max_effective_balance_for_fork(fork_name);
+        let max_steps = max_effective_balance.safe_div(spec.effective_balance_increment)?;
         Ok(max_steps)
     }
 
@@ -386,7 +391,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut ideal_attestation_rewards_list = Vec::new();
         let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_balances.current_epoch());
-        for effective_balance_step in 1..=self.max_effective_balance_increment_steps()? {
+        for effective_balance_step in
+            1..=self.max_effective_balance_increment_steps(previous_epoch)?
+        {
             let effective_balance =
                 effective_balance_step.safe_mul(spec.effective_balance_increment)?;
             let base_reward =

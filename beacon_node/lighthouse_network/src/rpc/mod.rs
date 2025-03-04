@@ -232,14 +232,14 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
                 }
             }
         } else {
-            ToSwarm::NotifyHandler {
-                peer_id,
-                handler: NotifyHandler::Any,
-                event: RPCSend::Request(request_id, req),
-            }
+            RPCSend::Request(request_id, req)
         };
 
-        self.events.push(event);
+        self.events.push(BehaviourAction::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::Any,
+            event,
+        });
     }
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This

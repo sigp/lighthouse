@@ -8,7 +8,7 @@ use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::TrustedSetup;
 use clap::{parser::ValueSource, ArgMatches, Id};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::{parse_flag, parse_required};
+use clap_utils::{parse_flag, parse_optional, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -175,12 +175,20 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.duplicate_block_status_code =
             parse_required(cli_args, "http-duplicate-block-status")?;
 
-        client_config.http_api.enable_light_client_server =
-            cli_args.get_flag("light-client-server");
+        client_config.http_api.sync_tolerance_epochs =
+            parse_optional(cli_args, "sync-tolerance-epochs")?;
     }
 
     if cli_args.get_flag("light-client-server") {
-        client_config.chain.enable_light_client_server = true;
+        warn!(
+            log,
+            "The --light-client-server flag is deprecated. The light client server is enabled \
+             by default"
+        );
+    }
+
+    if cli_args.get_flag("disable-light-client-server") {
+        client_config.chain.enable_light_client_server = false;
     }
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
@@ -338,6 +346,8 @@ pub fn get_config<E: EthSpec>(
         el_config.builder_header_timeout =
             clap_utils::parse_optional(cli_args, "builder-header-timeout")?
                 .map(Duration::from_millis);
+
+        el_config.disable_builder_ssz_requests = cli_args.get_flag("builder-disable-ssz");
     }
 
     // Set config values from parse values.
@@ -887,6 +897,14 @@ pub fn get_config<E: EthSpec>(
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
 
+    if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-block-publishing")? {
+        client_config.chain.block_publishing_delay = Some(Duration::from_secs_f64(delay));
+    }
+
+    if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-data-column-publishing")? {
+        client_config.chain.data_column_publishing_delay = Some(Duration::from_secs_f64(delay));
+    }
+
     Ok(client_config)
 }
 
@@ -897,12 +915,13 @@ pub fn parse_listening_addresses(
 ) -> Result<ListenAddress, String> {
     let listen_addresses_str = cli_args
         .get_many::<String>("listen-address")
-        .expect("--listen_addresses has a default value");
+        .unwrap_or_default();
     let use_zero_ports = parse_flag(cli_args, "zero-ports");
 
     // parse the possible ips
     let mut maybe_ipv4 = None;
     let mut maybe_ipv6 = None;
+
     for addr_str in listen_addresses_str {
         let addr = addr_str.parse::<IpAddr>().map_err(|parse_error| {
             format!("Failed to parse listen-address ({addr_str}) as an Ip address: {parse_error}")
@@ -912,8 +931,8 @@ pub fn parse_listening_addresses(
             IpAddr::V4(v4_addr) => match &maybe_ipv4 {
                 Some(first_ipv4_addr) => {
                     return Err(format!(
-                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
-                                Got two IpV4 addresses {first_ipv4_addr} and {v4_addr}"
+                                "When setting the --listen-address option twice, use an IPv4 address and an IPv6 address. \
+                                Got two IPv4 addresses {first_ipv4_addr} and {v4_addr}"
                             ));
                 }
                 None => maybe_ipv4 = Some(v4_addr),
@@ -921,8 +940,8 @@ pub fn parse_listening_addresses(
             IpAddr::V6(v6_addr) => match &maybe_ipv6 {
                 Some(first_ipv6_addr) => {
                     return Err(format!(
-                                "When setting the --listen-address option twice, use an IpV4 address and an Ipv6 address. \
-                                Got two IpV6 addresses {first_ipv6_addr} and {v6_addr}"
+                                "When setting the --listen-address option twice, use an IPv4 address and an IPv6 address. \
+                                Got two IPv6 addresses {first_ipv6_addr} and {v6_addr}"
                             ));
                 }
                 None => maybe_ipv6 = Some(v6_addr),
@@ -936,12 +955,11 @@ pub fn parse_listening_addresses(
         .expect("--port has a default value")
         .parse::<u16>()
         .map_err(|parse_error| format!("Failed to parse --port as an integer: {parse_error}"))?;
-    let port6 = cli_args
+    let maybe_port6 = cli_args
         .get_one::<String>("port6")
         .map(|s| str::parse::<u16>(s))
         .transpose()
-        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?
-        .unwrap_or(9090);
+        .map_err(|parse_error| format!("Failed to parse --port6 as an integer: {parse_error}"))?;
 
     // parse the possible discovery ports.
     let maybe_disc_port = cli_args
@@ -977,17 +995,32 @@ pub fn parse_listening_addresses(
             format!("Failed to parse --quic6-port as an integer: {parse_error}")
         })?;
 
+    // Here we specify the default listening addresses for Lighthouse.
+    // By default, we listen on 0.0.0.0.
+    //
+    // IF the host supports a globally routable IPv6 address, we also listen on ::.
+    if matches!((maybe_ipv4, maybe_ipv6), (None, None)) {
+        maybe_ipv4 = Some(Ipv4Addr::UNSPECIFIED);
+
+        if NetworkConfig::is_ipv6_supported() {
+            maybe_ipv6 = Some(Ipv6Addr::UNSPECIFIED);
+        }
+    }
+
     // Now put everything together
     let listening_addresses = match (maybe_ipv4, maybe_ipv6) {
         (None, None) => {
-            // This should never happen unless clap is broken
-            return Err("No listening addresses provided".into());
+            unreachable!("This path is handled above this match statement");
         }
         (None, Some(ipv6)) => {
             // A single ipv6 address was provided. Set the ports
             if cli_args.value_source("port6") == Some(ValueSource::CommandLine) {
                 warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.");
             }
+
+            // If we are only listening on ipv6 and the user has specified --port6, lets just use
+            // that.
+            let port = maybe_port6.unwrap_or(port);
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
@@ -1055,6 +1088,9 @@ pub fn parse_listening_addresses(
             })
         }
         (Some(ipv4), Some(ipv6)) => {
+            // If --port6 is not set, we use --port
+            let port6 = maybe_port6.unwrap_or(port);
+
             let ipv4_tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp4_port)
                 .transpose()?
@@ -1074,7 +1110,7 @@ pub fn parse_listening_addresses(
                     ipv4_tcp_port + 1
                 });
 
-            // Defaults to 9090 when required
+            // Defaults to 9000 when required
             let ipv6_tcp_port = use_zero_ports
                 .then(unused_port::unused_tcp6_port)
                 .transpose()?
@@ -1413,7 +1449,7 @@ pub fn set_network_config(
     }
 
     // Light client server config.
-    config.enable_light_client_server = parse_flag(cli_args, "light-client-server");
+    config.enable_light_client_server = !parse_flag(cli_args, "disable-light-client-server");
 
     // The self limiter is enabled by default. If the `self-limiter-protocols` flag is not provided,
     // the default params will be used.

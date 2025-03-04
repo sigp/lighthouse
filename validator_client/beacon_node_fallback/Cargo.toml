@@ -9,6 +9,7 @@ name = "beacon_node_fallback"
 path = "src/lib.rs"
 
 [dependencies]
+clap = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
 futures = { workspace = true }
@@ -20,3 +21,7 @@ strum = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
+
+[dev-dependencies]
+logging = { workspace = true }
+validator_test_rig = { workspace = true }

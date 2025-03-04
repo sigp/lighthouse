@@ -21,8 +21,8 @@ use crate::block_verification_types::{
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
-    Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
-    DataColumnReconstructionResult,
+    Availability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
+    DataAvailabilityChecker, DataColumnReconstructionResult,
 };
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
@@ -2974,10 +2974,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Only completed sampling results are received. Blocks are unavailable by default and should
     /// be pruned on finalization, on a timeout or by a max count.
     pub async fn process_sampling_completed(self: &Arc<Self>, block_root: Hash256) {
-        // TODO(das): update fork-choice
+        // TODO(das): update fork-choice, act on sampling result, adjust log level
         // NOTE: It is possible that sampling complets before block is imported into fork choice,
         // in that case we may need to update availability cache.
-        // TODO(das): These log levels are too high, reduce once DAS matures
         info!(self.log, "Sampling completed"; "block_root" => %block_root);
     }
 
@@ -3170,7 +3169,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
+        // process_engine_blobs is called for both pre and post PeerDAS. However, post PeerDAS
+        // consumers don't expect the blobs event to fire erratically.
+        if !self
+            .spec
+            .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
+        {
+            self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
+        }
 
         let r = self
             .check_engine_blob_availability_and_import(slot, block_root, blobs, data_column_recv)
@@ -3641,9 +3647,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         self.check_blobs_for_slashability(block_root, &blobs)?;
-        let availability =
-            self.data_availability_checker
-                .put_engine_blobs(block_root, blobs, data_column_recv)?;
+        let availability = self.data_availability_checker.put_engine_blobs(
+            block_root,
+            slot.epoch(T::EthSpec::slots_per_epoch()),
+            blobs,
+            data_column_recv,
+        )?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await
@@ -3728,7 +3737,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             parent_eth1_finalization_data,
             confirmed_state_roots,
             consensus_context,
-            data_column_recv,
         } = import_data;
 
         // Record the time at which this block's blobs became available.
@@ -3756,7 +3764,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         parent_block,
                         parent_eth1_finalization_data,
                         consensus_context,
-                        data_column_recv,
                     )
                 },
                 "payload_verification_handle",
@@ -3795,7 +3802,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
         parent_eth1_finalization_data: Eth1FinalizationData,
         mut consensus_context: ConsensusContext<T::EthSpec>,
-        data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
     ) -> Result<Hash256, BlockError> {
         // ----------------------------- BLOCK NOT YET ATTESTABLE ----------------------------------
         // Everything in this initial section is on the hot path between processing the block and
@@ -3893,7 +3899,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     if let Some(proto_block) = fork_choice.get_block(&block_root) {
                         if let Err(e) = self.early_attester_cache.add_head_block(
                             block_root,
-                            signed_block.clone(),
+                            &signed_block,
                             proto_block,
                             &state,
                             &self.spec,
@@ -3962,15 +3968,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (_, signed_block, blobs, data_columns) = signed_block.deconstruct();
+        let (_, signed_block, block_data) = signed_block.deconstruct();
 
-        match self.get_blobs_or_columns_store_op(
-            block_root,
-            signed_block.epoch(),
-            blobs,
-            data_columns,
-            data_column_recv,
-        ) {
+        match self.get_blobs_or_columns_store_op(block_root, block_data) {
             Ok(Some(blobs_or_columns_store_op)) => {
                 ops.push(blobs_or_columns_store_op);
             }
@@ -6506,9 +6506,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns `true` if the given slot is prior to the `bellatrix_fork_epoch`.
     pub fn slot_is_prior_to_bellatrix(&self, slot: Slot) -> bool {
-        self.spec.bellatrix_fork_epoch.map_or(true, |bellatrix| {
-            slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix
-        })
+        self.spec
+            .bellatrix_fork_epoch
+            .is_none_or(|bellatrix| slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix)
     }
 
     /// Returns the value of `execution_optimistic` for `block`.
@@ -7219,29 +7219,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    fn get_blobs_or_columns_store_op(
+    pub(crate) fn get_blobs_or_columns_store_op(
         &self,
         block_root: Hash256,
-        block_epoch: Epoch,
-        blobs: Option<BlobSidecarList<T::EthSpec>>,
-        data_columns: Option<DataColumnSidecarList<T::EthSpec>>,
-        data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
+        block_data: AvailableBlockData<T::EthSpec>,
     ) -> Result<Option<StoreOp<T::EthSpec>>, String> {
-        if self.spec.is_peer_das_enabled_for_epoch(block_epoch) {
-            // TODO(das) we currently store all subnet sampled columns. Tracking issue to exclude non
-            // custody columns: https://github.com/sigp/lighthouse/issues/6465
-            let custody_columns_count = self.data_availability_checker.get_sampling_column_count();
+        // TODO(das) we currently store all subnet sampled columns. Tracking issue to exclude non
+        // custody columns: https://github.com/sigp/lighthouse/issues/6465
+        let _custody_columns_count = self.data_availability_checker.get_sampling_column_count();
 
-            let custody_columns_available = data_columns
-                .as_ref()
-                .as_ref()
-                .is_some_and(|columns| columns.len() == custody_columns_count);
-
-            let data_columns_to_persist = if custody_columns_available {
-                // If the block was made available via custody columns received from gossip / rpc, use them
-                // since we already have them.
-                data_columns
-            } else if let Some(data_column_recv) = data_column_recv {
+        match block_data {
+            AvailableBlockData::NoData => Ok(None),
+            AvailableBlockData::Blobs(blobs) => {
+                debug!(
+                    self.log, "Writing blobs to store";
+                    "block_root" => %block_root,
+                    "count" => blobs.len(),
+                );
+                Ok(Some(StoreOp::PutBlobs(block_root, blobs)))
+            }
+            AvailableBlockData::DataColumns(data_columns) => {
+                debug!(
+                    self.log, "Writing data columns to store";
+                    "block_root" => %block_root,
+                    "count" => data_columns.len(),
+                );
+                Ok(Some(StoreOp::PutDataColumns(block_root, data_columns)))
+            }
+            AvailableBlockData::DataColumnsRecv(data_column_recv) => {
                 // Blobs were available from the EL, in this case we wait for the data columns to be computed (blocking).
                 let _column_recv_timer =
                     metrics::start_timer(&metrics::BLOCK_PROCESSING_DATA_COLUMNS_WAIT);
@@ -7251,34 +7256,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let computed_data_columns = data_column_recv
                     .blocking_recv()
                     .map_err(|e| format!("Did not receive data columns from sender: {e:?}"))?;
-                Some(computed_data_columns)
-            } else {
-                // No blobs in the block.
-                None
-            };
-
-            if let Some(data_columns) = data_columns_to_persist {
-                if !data_columns.is_empty() {
-                    debug!(
-                        self.log, "Writing data_columns to store";
-                        "block_root" => %block_root,
-                        "count" => data_columns.len(),
-                    );
-                    return Ok(Some(StoreOp::PutDataColumns(block_root, data_columns)));
-                }
-            }
-        } else if let Some(blobs) = blobs {
-            if !blobs.is_empty() {
                 debug!(
-                    self.log, "Writing blobs to store";
+                    self.log, "Writing data columns to store";
                     "block_root" => %block_root,
-                    "count" => blobs.len(),
+                    "count" => computed_data_columns.len(),
                 );
-                return Ok(Some(StoreOp::PutBlobs(block_root, blobs)));
+                // TODO(das): Store only this node's custody columns
+                Ok(Some(StoreOp::PutDataColumns(
+                    block_root,
+                    computed_data_columns,
+                )))
             }
         }
-
-        Ok(None)
     }
 }
 

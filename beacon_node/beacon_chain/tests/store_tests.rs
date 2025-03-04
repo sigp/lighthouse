@@ -47,7 +47,11 @@ type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
-    get_store_generic(db_path, StoreConfig::default(), test_spec::<E>())
+    let store_config = StoreConfig {
+        prune_payloads: false,
+        ..StoreConfig::default()
+    };
+    get_store_generic(db_path, store_config, test_spec::<E>())
 }
 
 fn get_store_generic(
@@ -2513,18 +2517,13 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
 
     // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
     // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
-    let mut batch_with_invalid_first_block = available_blocks.clone();
+    let mut batch_with_invalid_first_block =
+        available_blocks.iter().map(clone_block).collect::<Vec<_>>();
     batch_with_invalid_first_block[0] = {
-        let (block_root, block, blobs, data_columns) = available_blocks[0].clone().deconstruct();
+        let (block_root, block, data) = clone_block(&available_blocks[0]).deconstruct();
         let mut corrupt_block = (*block).clone();
         *corrupt_block.signature_mut() = Signature::empty();
-        AvailableBlock::__new_for_testing(
-            block_root,
-            Arc::new(corrupt_block),
-            blobs,
-            data_columns,
-            Arc::new(spec),
-        )
+        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), data, Arc::new(spec))
     };
 
     // Importing the invalid batch should error.
@@ -2536,8 +2535,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     ));
 
     // Importing the batch with valid signatures should succeed.
+    let available_blocks_dup = available_blocks.iter().map(clone_block).collect::<Vec<_>>();
     beacon_chain
-        .import_historical_block_batch(available_blocks.clone())
+        .import_historical_block_batch(available_blocks_dup)
         .unwrap();
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
@@ -2571,6 +2571,15 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         if block_root != prev_block_root {
             assert_eq!(block.slot(), slot);
         }
+
+        // Prune_payloads is set to false in the default config, so the payload should exist
+        if block.message().execution_payload().is_ok() {
+            assert!(beacon_chain
+                .store
+                .execution_payload_exists(&block_root)
+                .unwrap(),);
+        }
+
         prev_block_root = block_root;
     }
 
@@ -3558,7 +3567,6 @@ fn check_split_slot(
 /// Check that all the states in a chain dump have the correct tree hash.
 fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
     let mut chain_dump = harness.chain.chain_dump().unwrap();
-    let split_slot = harness.chain.store.get_split_slot();
 
     assert_eq!(chain_dump.len() as u64, expected_len);
 
@@ -3585,13 +3593,12 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
 
         // Check presence of execution payload on disk.
         if harness.chain.spec.bellatrix_fork_epoch.is_some() {
-            assert_eq!(
+            assert!(
                 harness
                     .chain
                     .store
                     .execution_payload_exists(&checkpoint.beacon_block_root)
                     .unwrap(),
-                checkpoint.beacon_block.slot() >= split_slot,
                 "incorrect payload storage for block at slot {}: {:?}",
                 checkpoint.beacon_block.slot(),
                 checkpoint.beacon_block_root,
@@ -3678,4 +3685,8 @@ fn get_blocks(
         .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()
+}
+
+fn clone_block<E: EthSpec>(block: &AvailableBlock<E>) -> AvailableBlock<E> {
+    block.__clone_without_recv().unwrap()
 }

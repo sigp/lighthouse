@@ -94,6 +94,10 @@ pub struct ChainConfig {
     /// The delay in milliseconds applied by the node between sending each blob or data column batch.
     /// This doesn't apply if the node is the block proposer.
     pub blob_publication_batch_interval: Duration,
+    /// Artificial delay for block publishing. For PeerDAS testing only.
+    pub block_publishing_delay: Option<Duration>,
+    /// Artificial delay for data column publishing. For PeerDAS testing only.
+    pub data_column_publishing_delay: Option<Duration>,
 }
 
 impl Default for ChainConfig {
@@ -124,11 +128,13 @@ impl Default for ChainConfig {
             genesis_backfill: false,
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
-            enable_light_client_server: false,
+            enable_light_client_server: true,
             malicious_withhold_count: 0,
             enable_sampling: false,
             blob_publication_batches: 4,
             blob_publication_batch_interval: Duration::from_millis(300),
+            block_publishing_delay: None,
+            data_column_publishing_delay: None,
         }
     }
 }

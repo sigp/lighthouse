@@ -516,7 +516,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .ok_or(Error::AddPayloadLogicError)
     }
 
-    /// Prepare a signed beacon block for storage in the datbase *without* its payload.
+    /// Prepare a signed beacon block for storage in the database *without* its payload.
     pub fn blinded_block_as_kv_store_ops(
         &self,
         key: &Hash256,
@@ -666,7 +666,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .hot_db
             .get_bytes(ExecutionPayload::<E>::db_column(), key)?
         {
-            Some(bytes) => Ok(Some(ExecutionPayload::from_ssz_bytes(&bytes, fork_name)?)),
+            Some(bytes) => Ok(Some(ExecutionPayload::from_ssz_bytes_by_fork(
+                &bytes, fork_name,
+            )?)),
             None => Ok(None),
         }
     }
@@ -901,7 +903,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: &Hash256,
         summary: HotStateSummary,
     ) -> Result<(), Error> {
-        self.hot_db.put(state_root, &summary).map_err(Into::into)
+        self.hot_db.put(state_root, &summary)
     }
 
     /// Store a state in the store.
@@ -1246,7 +1248,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         state_root.as_slice().to_vec(),
                     ));
 
-                    if slot.map_or(true, |slot| slot % E::slots_per_epoch() == 0) {
+                    if slot.is_none_or(|slot| slot % E::slots_per_epoch() == 0) {
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(
                             DBColumn::BeaconState,
                             state_root.as_slice().to_vec(),

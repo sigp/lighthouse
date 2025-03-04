@@ -34,14 +34,12 @@ impl ForkName {
     }
 
     pub fn list_all_fork_epochs(spec: &ChainSpec) -> Vec<(ForkName, Option<Epoch>)> {
-        vec![
-            (ForkName::Altair, spec.altair_fork_epoch),
-            (ForkName::Bellatrix, spec.bellatrix_fork_epoch),
-            (ForkName::Capella, spec.capella_fork_epoch),
-            (ForkName::Deneb, spec.deneb_fork_epoch),
-            (ForkName::Electra, spec.electra_fork_epoch),
-            (ForkName::Fulu, spec.fulu_fork_epoch),
-        ]
+        ForkName::list_all()
+            .into_iter()
+            // Skip Base
+            .skip(1)
+            .map(|fork| (fork, spec.fork_epoch(fork)))
+            .collect()
     }
 
     pub fn latest() -> ForkName {
