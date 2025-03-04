@@ -1541,9 +1541,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let state_from_disk = self.load_hot_state(state_root, update_cache)?;
 
         if let Some((mut state, block_root)) = state_from_disk {
+            state.update_tree_hash_cache()?;
+            state.build_all_caches(&self.spec)?;
+
             if update_cache {
-                state.update_tree_hash_cache()?;
-                state.build_all_caches(&self.spec)?;
                 self.state_cache
                     .lock()
                     .put_state(*state_root, block_root, &state)?;
