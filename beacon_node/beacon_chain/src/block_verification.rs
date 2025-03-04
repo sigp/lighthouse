@@ -90,7 +90,6 @@ use std::borrow::Cow;
 use std::fmt::Debug;
 use std::fs;
 use std::io::Write;
-use std::str::FromStr;
 use std::sync::Arc;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use strum::AsRefStr;
@@ -1330,19 +1329,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError> {
-        let invalid_holesky_block = {
-            if let Ok(invalid_block_root) = Hash256::from_str(
-                "2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359",
-            ) {
-                block_root == invalid_block_root && chain.spec.deposit_chain_id == 17000
-            } else {
-                false
-            }
-        };
-        if chain.config.invalid_block_roots.contains(&block_root) || invalid_holesky_block {
-            return Err(BlockError::KnownInvalidExecutionPayload(block_root));
-        }
-
         chain
             .observed_slashable
             .write()
