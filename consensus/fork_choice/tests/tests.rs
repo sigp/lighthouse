@@ -373,7 +373,7 @@ impl ForkChoiceTest {
         let state = harness
             .chain
             .store
-            .get_state(&state_root, None)
+            .get_state(&state_root, None, true)
             .unwrap()
             .unwrap();
         let balances = state

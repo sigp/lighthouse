@@ -755,7 +755,10 @@ async fn unaggregated_gossip_verification() {
 
         // Load the block and state for the given root.
         let block = chain.get_block(&root).await.unwrap().unwrap();
-        let mut state = chain.get_state(&block.state_root(), None).unwrap().unwrap();
+        let mut state = chain
+            .get_state(&block.state_root(), None, true)
+            .unwrap()
+            .unwrap();
 
         // Advance the state to simulate a pre-state for block production.
         let slot = valid_sync_committee_message.slot + 1;

@@ -36,6 +36,8 @@ pub struct StateCache<E: EthSpec> {
     states: LruCache<Hash256, BeaconState<E>>,
     block_map: BlockMap,
     max_epoch: Epoch,
+    head_block_root: Hash256,
+    headroom: usize,
 }
 
 #[derive(Debug)]
@@ -47,12 +49,14 @@ pub enum PutStateOutcome {
 
 #[allow(clippy::len_without_is_empty)]
 impl<E: EthSpec> StateCache<E> {
-    pub fn new(capacity: NonZeroUsize) -> Self {
+    pub fn new(capacity: NonZeroUsize, headroom: usize) -> Self {
         StateCache {
             finalized_state: None,
             states: LruCache::new(capacity),
             block_map: BlockMap::default(),
             max_epoch: Epoch::new(0),
+            head_block_root: Hash256::ZERO,
+            headroom,
         }
     }
 
@@ -96,6 +100,13 @@ impl<E: EthSpec> StateCache<E> {
         // Update finalized state.
         self.finalized_state = Some(FinalizedState { state_root, state });
         Ok(())
+    }
+
+    /// Update the state cache's view of the enshrined head block.
+    ///
+    /// We never prune the unadvanced state for the head block.
+    pub fn update_head_block_root(&mut self, head_block_root: Hash256) {
+        self.head_block_root = head_block_root;
     }
 
     /// Rebase the given state on the finalized state in order to reduce its memory consumption.
@@ -148,7 +159,8 @@ impl<E: EthSpec> StateCache<E> {
 
         // If the cache is full, use the custom cull routine to make room.
         if let Some(over_capacity) = self.len().checked_sub(self.capacity()) {
-            self.cull(over_capacity + 1);
+            // The `over_capacity` should always be 0, but we add it here just in case.
+            self.cull((over_capacity + self.headroom).max(1));
         }
 
         // Insert the full state into the cache.
@@ -222,6 +234,7 @@ impl<E: EthSpec> StateCache<E> {
         let mut mid_epoch_state_roots = vec![];
         let mut old_boundary_state_roots = vec![];
         let mut good_boundary_state_roots = vec![];
+
         for (&state_root, state) in self.states.iter().skip(cull_exempt) {
             let is_advanced = state.slot() > state.latest_block_header().slot;
             let is_boundary = state.slot() % E::slots_per_epoch() == 0;
@@ -236,7 +249,7 @@ impl<E: EthSpec> StateCache<E> {
                 }
             } else if is_advanced {
                 advanced_state_roots.push(state_root);
-            } else {
+            } else if state.get_latest_block_root(state_root) != self.head_block_root {
                 mid_epoch_state_roots.push(state_root);
             }
 
@@ -250,8 +263,8 @@ impl<E: EthSpec> StateCache<E> {
         // This could probably be more efficient in how it interacts with the block map.
         for state_root in advanced_state_roots
             .iter()
-            .chain(mid_epoch_state_roots.iter())
             .chain(old_boundary_state_roots.iter())
+            .chain(mid_epoch_state_roots.iter())
             .chain(good_boundary_state_roots.iter())
             .take(count)
         {

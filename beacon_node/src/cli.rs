@@ -777,6 +777,15 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("state-cache-headroom")
+                .long("state-cache-headroom")
+                .value_name("N")
+                .help("Minimum number of states to cull from the state cache when it gets full")
+                .default_value("1")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("block-cache-size")
                 .long("block-cache-size")
                 .value_name("SIZE")

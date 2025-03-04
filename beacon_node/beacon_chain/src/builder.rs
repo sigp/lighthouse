@@ -299,7 +299,11 @@ where
             .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
-            .get_state(&genesis_block.state_root(), Some(genesis_block.slot()))
+            .get_state(
+                &genesis_block.state_root(),
+                Some(genesis_block.slot()),
+                true,
+            )
             .map_err(|e| descriptive_db_error("genesis state", &e))?
             .ok_or("Genesis state not found in store")?;
 
