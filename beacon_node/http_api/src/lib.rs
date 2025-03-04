@@ -4176,7 +4176,10 @@ pub fn serve<T: BeaconChainTypes>(
                     Ok(api_types::GenericResponse::from(String::from(
                         "Triggered manual compaction",
                     )))
-    
+                })
+            },
+        );
+
     // POST lighthouse/add_peer
     let post_lighthouse_add_peer = warp::path("lighthouse")
         .and(warp::path("add_peer"))
@@ -4207,7 +4210,6 @@ pub fn serve<T: BeaconChainTypes>(
                     publish_network_message(&network_tx, NetworkMessage::ConnectToPeer(enr))?;
 
                     Ok(api_types::GenericResponse::from(()))
->>>>>>> 9436f238431d61ee0b921f0aaed99468c0540566
                 })
             },
         );
@@ -5013,6 +5015,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_ui_validator_info)
                     .uor(post_lighthouse_finalize)
                     .uor(post_lighthouse_compaction)
+                    .uor(post_lighthouse_add_peer)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )
