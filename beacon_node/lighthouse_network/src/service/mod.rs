@@ -1236,6 +1236,11 @@ impl<E: EthSpec> Network<E> {
         }
     }
 
+    pub fn dial_trusted_peer(&mut self, enr: Enr) {
+        self.peer_manager_mut().add_trusted_peer(enr.clone());
+        self.peer_manager_mut().dial_peer(enr);
+    }
+
     /* Sub-behaviour event handling functions */
 
     /// Handle a gossipsub event.
