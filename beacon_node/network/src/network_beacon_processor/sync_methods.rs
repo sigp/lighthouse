@@ -809,7 +809,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 Err(ChainSegmentFailed {
                     message: format!("Banned block: {block_root:?}"),
-                    peer_action: Some(PeerAction::LowToleranceError),
+                    peer_action: Some(PeerAction::Fatal),
                 })
             }
             other => {
