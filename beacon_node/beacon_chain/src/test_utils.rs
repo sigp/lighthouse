@@ -890,7 +890,7 @@ where
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain
             .store
-            .load_hot_state(&state_hash.into())
+            .load_hot_state(&state_hash.into(), true)
             .unwrap()
             .map(|(state, _)| state)
     }

@@ -35,6 +35,8 @@ pub struct StoreConfig {
     pub block_cache_size: NonZeroUsize,
     /// Maximum number of states to store in the in-memory state cache.
     pub state_cache_size: NonZeroUsize,
+    /// Minimum number of states to cull from the state cache upon fullness.
+    pub state_cache_headroom: usize,
     /// Compression level for blocks, state diffs and other compressed values.
     pub compression_level: i32,
     /// Maximum number of historic states to store in the in-memory historic state cache.
@@ -107,6 +109,7 @@ impl Default for StoreConfig {
         Self {
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
             state_cache_size: DEFAULT_STATE_CACHE_SIZE,
+            state_cache_headroom: 1,
             historic_state_cache_size: DEFAULT_HISTORIC_STATE_CACHE_SIZE,
             hdiff_buffer_cache_size: DEFAULT_HDIFF_BUFFER_CACHE_SIZE,
             compression_level: DEFAULT_COMPRESSION_LEVEL,

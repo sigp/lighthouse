@@ -73,7 +73,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// Cache of beacon states.
     ///
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
-    state_cache: Mutex<StateCache<E>>,
+    pub state_cache: Mutex<StateCache<E>>,
     /// Cache of historic states and hierarchical diff buffers.
     ///
     /// This cache is never pruned. It is only populated in response to historical queries from the
@@ -218,7 +218,10 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             blobs_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
-            state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
+            state_cache: Mutex::new(StateCache::new(
+                config.state_cache_size,
+                config.state_cache_headroom,
+            )),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
                 config.hdiff_buffer_cache_size,
                 config.historic_state_cache_size,
@@ -264,7 +267,10 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
             cold_db: BeaconNodeBackend::open(&config, cold_path)?,
             hot_db,
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
-            state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
+            state_cache: Mutex::new(StateCache::new(
+                config.state_cache_size,
+                config.state_cache_headroom,
+            )),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
                 config.hdiff_buffer_cache_size,
                 config.historic_state_cache_size,
@@ -1016,7 +1022,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             state_root
         };
         let mut opt_state = self
-            .load_hot_state(&state_root)?
+            .load_hot_state(&state_root, true)?
             .map(|(state, _block_root)| (state_root, state));
 
         if let Some((state_root, state)) = opt_state.as_mut() {
@@ -1127,6 +1133,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Load an epoch boundary state by using the hot state summary look-up.
     ///
     /// Will fall back to the cold DB if a hot state summary is not found.
+    ///
+    /// NOTE: only used in tests at the moment
     pub fn load_epoch_boundary_state(
         &self,
         state_root: &Hash256,
@@ -1137,9 +1145,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }) = self.load_hot_state_summary(state_root)?
         {
             // NOTE: minor inefficiency here because we load an unnecessary hot state summary
-            let (state, _) = self.load_hot_state(&epoch_boundary_state_root)?.ok_or(
-                HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root),
-            )?;
+            let (state, _) = self
+                .load_hot_state(&epoch_boundary_state_root, true)?
+                .ok_or(HotColdDBError::MissingEpochBoundaryState(
+                    epoch_boundary_state_root,
+                ))?;
             Ok(Some(state))
         } else {
             // Try the cold DB
@@ -1524,7 +1534,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             );
         }
 
-        let state_from_disk = self.load_hot_state(state_root)?;
+        let state_from_disk = self.load_hot_state(state_root, update_cache)?;
 
         if let Some((mut state, block_root)) = state_from_disk {
             if update_cache {
@@ -1563,6 +1573,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn load_hot_state(
         &self,
         state_root: &Hash256,
+        update_cache: bool,
     ) -> Result<Option<(BeaconState<E>, Hash256)>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
@@ -1594,11 +1605,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let mut state = if slot % E::slots_per_epoch() == 0 {
                 boundary_state
             } else {
-                // Cache ALL intermediate states that are reached during block replay. We may want
-                // to restrict this in future to only cache epoch boundary states. At worst we will
-                // cache up to 32 states for each state loaded, which should not flush out the cache
-                // entirely.
+                // If replaying blocks, and `update_cache` is true, also cache the epoch boundary
+                // state that this state is based on. It may be useful as the basis of more states
+                // in the same epoch.
                 let state_cache_hook = |state_root, state: &mut BeaconState<E>| {
+                    if !update_cache || state.slot() % E::slots_per_epoch() != 0 {
+                        return Ok(());
+                    }
                     // Ensure all caches are built before attempting to cache.
                     state.update_tree_hash_cache()?;
                     state.build_all_caches(&self.spec)?;
@@ -1613,7 +1626,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                             self.log,
                             "Cached ancestor state";
                             "state_root" => ?state_root,
-                            "slot" => slot,
+                            "state_slot" => state.slot(),
+                            "descendant_slot" => slot,
                         );
                     }
                     Ok(())
@@ -2684,9 +2698,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
 
         // Load the split state so we can backtrack to find execution payloads. The split state
-        // should be in the cold db already(?), but we set `update_cache`` to false just in case
+        // should be in the state cache as the enshrined finalized state, so this should never
+        // cache miss.
         let split_state = self
-            .get_state(&split.state_root, Some(split.slot), false)?
+            .get_state(&split.state_root, Some(split.slot), true)?
             .ok_or(HotColdDBError::MissingSplitState(
                 split.state_root,
                 split.slot,
