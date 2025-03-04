@@ -82,33 +82,19 @@ pub struct RPCRateLimiter {
     prune_interval: Interval,
     /// Creation time of the rate limiter.
     init_time: Instant,
-    /// Goodbye rate limiter.
     goodbye_rl: Limiter<PeerId>,
-    /// Ping rate limiter.
     ping_rl: Limiter<PeerId>,
-    /// MetaData rate limiter.
     metadata_rl: Limiter<PeerId>,
-    /// Status rate limiter.
     status_rl: Limiter<PeerId>,
-    /// BlocksByRange rate limiter.
     bbrange_rl: Limiter<PeerId>,
-    /// BlocksByRoot rate limiter.
     bbroots_rl: Limiter<PeerId>,
-    /// BlobsByRange rate limiter.
     blbrange_rl: Limiter<PeerId>,
-    /// BlobsByRoot rate limiter.
     blbroot_rl: Limiter<PeerId>,
-    /// DataColumnssByRoot rate limiter.
     dcbroot_rl: Limiter<PeerId>,
-    /// DataColumnsByRange rate limiter.
     dcbrange_rl: Limiter<PeerId>,
-    /// LightClientBootstrap rate limiter.
     lc_bootstrap_rl: Limiter<PeerId>,
-    /// LightClientOptimisticUpdate rate limiter.
     lc_optimistic_update_rl: Limiter<PeerId>,
-    /// LightClientFinalityUpdate rate limiter.
     lc_finality_update_rl: Limiter<PeerId>,
-    /// LightClientUpdatesByRange rate limiter.
     lc_updates_by_range_rl: Limiter<PeerId>,
     fork_context: Arc<ForkContext>,
 }
@@ -125,33 +111,19 @@ pub enum RateLimitedErr {
 /// User-friendly builder of a `RPCRateLimiter`
 #[derive(Default, Clone)]
 pub struct RPCRateLimiterBuilder {
-    /// Quota for the Goodbye protocol.
     goodbye_quota: Option<Quota>,
-    /// Quota for the Ping protocol.
     ping_quota: Option<Quota>,
-    /// Quota for the MetaData protocol.
     metadata_quota: Option<Quota>,
-    /// Quota for the Status protocol.
     status_quota: Option<Quota>,
-    /// Quota for the BlocksByRange protocol.
     bbrange_quota: Option<Quota>,
-    /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
-    /// Quota for the BlobsByRange protocol.
     blbrange_quota: Option<Quota>,
-    /// Quota for the BlobsByRoot protocol.
     blbroot_quota: Option<Quota>,
-    /// Quota for the DataColumnsByRoot protocol.
     dcbroot_quota: Option<Quota>,
-    /// Quota for the DataColumnsByRange protocol.
     dcbrange_quota: Option<Quota>,
-    /// Quota for the LightClientBootstrap protocol.
     lcbootstrap_quota: Option<Quota>,
-    /// Quota for the LightClientOptimisticUpdate protocol.
     lc_optimistic_update_quota: Option<Quota>,
-    /// Quota for the LightClientOptimisticUpdate protocol.
     lc_finality_update_quota: Option<Quota>,
-    /// Quota for the LightClientUpdatesByRange protocol.
     lc_updates_by_range_quota: Option<Quota>,
 }
 

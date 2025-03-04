@@ -147,27 +147,16 @@ pub enum RequestId {
 //       `RPCCodedResponse`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Response<E: EthSpec> {
-    /// A Status message.
     Status(StatusMessage),
-    /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
     BlocksByRange(Option<Arc<SignedBeaconBlock<E>>>),
-    /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
     BlobsByRange(Option<Arc<BlobSidecar<E>>>),
-    /// A response to a get DATA_COLUMN_SIDECARS_BY_Range request.
     DataColumnsByRange(Option<Arc<DataColumnSidecar<E>>>),
-    /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
-    /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
-    /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
     DataColumnsByRoot(Option<Arc<DataColumnSidecar<E>>>),
-    /// A response to a LightClientUpdate request.
     LightClientBootstrap(Arc<LightClientBootstrap<E>>),
-    /// A response to a LightClientOptimisticUpdate request.
     LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
-    /// A response to a LightClientFinalityUpdate request.
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
-    /// A response to a LightClientUpdatesByRange request.
     LightClientUpdatesByRange(Option<Arc<LightClientUpdate<E>>>),
 }
 

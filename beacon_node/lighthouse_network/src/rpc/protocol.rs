@@ -235,43 +235,29 @@ fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimit
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, AsRefStr, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum Protocol {
-    /// The Status protocol name.
     Status,
-    /// The Goodbye protocol name.
     Goodbye,
-    /// The `BlocksByRange` protocol name.
     #[strum(serialize = "beacon_blocks_by_range")]
     BlocksByRange,
-    /// The `BlocksByRoot` protocol name.
     #[strum(serialize = "beacon_blocks_by_root")]
     BlocksByRoot,
-    /// The `BlobsByRange` protocol name.
     #[strum(serialize = "blob_sidecars_by_range")]
     BlobsByRange,
-    /// The `BlobsByRoot` protocol name.
     #[strum(serialize = "blob_sidecars_by_root")]
     BlobsByRoot,
-    /// The `DataColumnSidecarsByRoot` protocol name.
     #[strum(serialize = "data_column_sidecars_by_root")]
     DataColumnsByRoot,
-    /// The `DataColumnSidecarsByRange` protocol name.
     #[strum(serialize = "data_column_sidecars_by_range")]
     DataColumnsByRange,
-    /// The `Ping` protocol name.
     Ping,
-    /// The `MetaData` protocol name.
     #[strum(serialize = "metadata")]
     MetaData,
-    /// The `LightClientBootstrap` protocol name.
     #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
-    /// The `LightClientOptimisticUpdate` protocol name.
     #[strum(serialize = "light_client_optimistic_update")]
     LightClientOptimisticUpdate,
-    /// The `LightClientFinalityUpdate` protocol name.
     #[strum(serialize = "light_client_finality_update")]
     LightClientFinalityUpdate,
-    /// The `LightClientUpdatesByRange` protocol name
     #[strum(serialize = "light_client_updates_by_range")]
     LightClientUpdatesByRange,
 }
@@ -329,24 +315,26 @@ pub enum SupportedProtocol {
 impl SupportedProtocol {
     pub fn version_string(&self) -> &'static str {
         match self {
-            SupportedProtocol::StatusV1 => "1",
-            SupportedProtocol::GoodbyeV1 => "1",
-            SupportedProtocol::BlocksByRangeV1 => "1",
-            SupportedProtocol::BlocksByRangeV2 => "2",
-            SupportedProtocol::BlocksByRootV1 => "1",
-            SupportedProtocol::BlocksByRootV2 => "2",
-            SupportedProtocol::BlobsByRangeV1 => "1",
-            SupportedProtocol::BlobsByRootV1 => "1",
-            SupportedProtocol::DataColumnsByRootV1 => "1",
-            SupportedProtocol::DataColumnsByRangeV1 => "1",
-            SupportedProtocol::PingV1 => "1",
-            SupportedProtocol::MetaDataV1 => "1",
-            SupportedProtocol::MetaDataV2 => "2",
+            SupportedProtocol::StatusV1
+            | SupportedProtocol::GoodbyeV1
+            | SupportedProtocol::BlocksByRangeV1
+            | SupportedProtocol::BlocksByRootV1
+            | SupportedProtocol::BlobsByRangeV1
+            | SupportedProtocol::BlobsByRootV1
+            | SupportedProtocol::DataColumnsByRootV1
+            | SupportedProtocol::DataColumnsByRangeV1
+            | SupportedProtocol::PingV1
+            | SupportedProtocol::MetaDataV1
+            | SupportedProtocol::LightClientBootstrapV1
+            | SupportedProtocol::LightClientOptimisticUpdateV1
+            | SupportedProtocol::LightClientFinalityUpdateV1
+            | SupportedProtocol::LightClientUpdatesByRangeV1 => "1",
+
+            SupportedProtocol::BlocksByRangeV2
+            | SupportedProtocol::BlocksByRootV2
+            | SupportedProtocol::MetaDataV2 => "2",
+
             SupportedProtocol::MetaDataV3 => "3",
-            SupportedProtocol::LightClientBootstrapV1 => "1",
-            SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
-            SupportedProtocol::LightClientFinalityUpdateV1 => "1",
-            SupportedProtocol::LightClientUpdatesByRangeV1 => "1",
         }
     }
 
@@ -884,20 +872,21 @@ impl<E: EthSpec> RequestType<E> {
 
     pub fn expect_exactly_one_response(&self) -> bool {
         match self {
-            RequestType::Status(_) => true,
-            RequestType::Goodbye(_) => false,
-            RequestType::BlocksByRange(_) => false,
-            RequestType::BlocksByRoot(_) => false,
-            RequestType::BlobsByRange(_) => false,
-            RequestType::BlobsByRoot(_) => false,
-            RequestType::DataColumnsByRoot(_) => false,
-            RequestType::DataColumnsByRange(_) => false,
-            RequestType::Ping(_) => true,
-            RequestType::MetaData(_) => true,
-            RequestType::LightClientBootstrap(_) => true,
-            RequestType::LightClientOptimisticUpdate => true,
-            RequestType::LightClientFinalityUpdate => true,
-            RequestType::LightClientUpdatesByRange(_) => true,
+            RequestType::Status(_)
+            | RequestType::Ping(_)
+            | RequestType::MetaData(_)
+            | RequestType::LightClientBootstrap(_)
+            | RequestType::LightClientOptimisticUpdate
+            | RequestType::LightClientFinalityUpdate
+            | RequestType::LightClientUpdatesByRange(_) => true,
+
+            RequestType::Goodbye(_)
+            | RequestType::BlocksByRange(_)
+            | RequestType::BlocksByRoot(_)
+            | RequestType::BlobsByRange(_)
+            | RequestType::BlobsByRoot(_)
+            | RequestType::DataColumnsByRoot(_)
+            | RequestType::DataColumnsByRange(_) => false,
         }
     }
 }
@@ -977,17 +966,17 @@ impl std::error::Error for RPCError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
             // NOTE: this does have a source
-            RPCError::SSZDecodeError(_) => None,
-            RPCError::IoError(_) => None,
-            RPCError::StreamTimeout => None,
-            RPCError::UnsupportedProtocol => None,
-            RPCError::IncompleteStream => None,
-            RPCError::InvalidData(_) => None,
-            RPCError::InternalError(_) => None,
-            RPCError::ErrorResponse(_, _) => None,
-            RPCError::NegotiationTimeout => None,
-            RPCError::HandlerRejected => None,
-            RPCError::Disconnected => None,
+            RPCError::SSZDecodeError(_)
+            | RPCError::IoError(_)
+            | RPCError::StreamTimeout
+            | RPCError::UnsupportedProtocol
+            | RPCError::IncompleteStream
+            | RPCError::InvalidData(_)
+            | RPCError::InternalError(_)
+            | RPCError::ErrorResponse(_, _)
+            | RPCError::NegotiationTimeout
+            | RPCError::HandlerRejected
+            | RPCError::Disconnected => None,
         }
     }
 }

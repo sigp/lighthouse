@@ -540,69 +540,30 @@ impl LightClientUpdatesByRangeRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RpcSuccessResponse<E: EthSpec> {
-    /// A HELLO message.
     Status(StatusMessage),
-
-    /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
-    /// batch.
     BlocksByRange(Arc<SignedBeaconBlock<E>>),
-
-    /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Arc<SignedBeaconBlock<E>>),
-
-    /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobSidecar<E>>),
-
-    /// A response to a get LIGHT_CLIENT_BOOTSTRAP request.
     LightClientBootstrap(Arc<LightClientBootstrap<E>>),
-
-    /// A response to a get LIGHT_CLIENT_OPTIMISTIC_UPDATE request.
     LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
-
-    /// A response to a get LIGHT_CLIENT_FINALITY_UPDATE request.
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
-
-    /// A response to a get LIGHT_CLIENT_UPDATES_BY_RANGE request.
     LightClientUpdatesByRange(Arc<LightClientUpdate<E>>),
-
-    /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<E>>),
-
-    /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
     DataColumnsByRoot(Arc<DataColumnSidecar<E>>),
-
-    /// A response to a get DATA_COLUMN_SIDECARS_BY_RANGE request.
     DataColumnsByRange(Arc<DataColumnSidecar<E>>),
-
-    /// A PONG response to a PING request.
     Pong(Ping),
-
-    /// A response to a META_DATA request.
     MetaData(MetaData<E>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
 #[derive(Debug, Clone)]
 pub enum ResponseTermination {
-    /// Blocks by range stream termination.
     BlocksByRange,
-
-    /// Blocks by root stream termination.
     BlocksByRoot,
-
-    /// Blobs by range stream termination.
     BlobsByRange,
-
-    /// Blobs by root stream termination.
     BlobsByRoot,
-
-    /// Data column sidecars by root stream termination.
     DataColumnsByRoot,
-
-    /// Data column sidecars by range stream termination.
     DataColumnsByRange,
-
-    /// Light client updates by range stream termination.
     LightClientUpdatesByRange,
 }
 
@@ -610,9 +571,7 @@ pub enum ResponseTermination {
 /// and the contents of the response
 #[derive(Debug, Clone)]
 pub enum RpcResponse<E: EthSpec> {
-    /// The response is a successful.
     Success(RpcSuccessResponse<E>),
-
     Error(RpcErrorResponse, ErrorType),
 
     /// Received a stream termination indicating which response is being terminated.
