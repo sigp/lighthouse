@@ -125,6 +125,7 @@ pub enum Notification {
     Reconstruction,
     PruneBlobs(Epoch),
     ManualFinalization(ManualFinalizationNotification),
+    ManualCompaction,
 }
 
 pub struct ManualFinalizationNotification {
@@ -196,6 +197,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
 
         Ok(())
+    }
+
+    pub fn process_manual_compaction(&self) {
+        if let Some(Notification::ManualCompaction) =
+            self.send_background_notification(Notification::ManualCompaction)
+        {
+            Self::run_manual_compaction(self.db.clone(), &self.log);
+        }
     }
 
     pub fn process_manual_finalization(&self, notif: ManualFinalizationNotification) {
@@ -445,6 +454,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         debug!(log, "Database consolidation complete");
     }
 
+    fn run_manual_compaction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
+        debug!(log, "Running manual compaction");
+        if let Err(e) = db.compact() {
+            warn!(log, "Database compaction failed"; "error" => format!("{:?}", e));
+        } else {
+            debug!(log, "Manual compaction completed");
+        }
+    }
+
     /// Spawn a new child thread to run the migration process.
     ///
     /// Return a channel handle for sending requests to the thread.
@@ -459,17 +477,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 let mut reconstruction_notif = None;
                 let mut finalization_notif = None;
                 let mut manual_finalization_notif = None;
+                let mut manual_compaction_notif = None;
                 let mut prune_blobs_notif = None;
                 match notif {
                     Notification::Reconstruction => reconstruction_notif = Some(notif),
                     Notification::Finalization(fin) => finalization_notif = Some(fin),
                     Notification::ManualFinalization(fin) => manual_finalization_notif = Some(fin),
                     Notification::PruneBlobs(dab) => prune_blobs_notif = Some(dab),
+                    Notification::ManualCompaction => manual_compaction_notif = Some(notif),
                 }
                 // Read the rest of the messages in the channel, taking the best of each type.
                 for notif in rx.try_iter() {
                     match notif {
                         Notification::Reconstruction => reconstruction_notif = Some(notif),
+                        Notification::ManualCompaction => manual_compaction_notif = Some(notif),
                         Notification::ManualFinalization(fin) => {
                             if let Some(current) = manual_finalization_notif.as_mut() {
                                 if fin.checkpoint.epoch > current.checkpoint.epoch {
@@ -509,6 +530,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 }
                 if reconstruction_notif.is_some() {
                     Self::run_reconstruction(db.clone(), Some(inner_tx.clone()), &log);
+                }
+                if manual_compaction_notif.is_some() {
+                    Self::run_manual_compaction(db.clone(), &log);
                 }
             }
         });
