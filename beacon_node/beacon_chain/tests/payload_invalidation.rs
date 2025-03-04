@@ -471,19 +471,11 @@ async fn immediate_forkchoice_update_payload_invalid() {
 }
 
 #[tokio::test]
-// Failing since this change on `holesky-rescue`. We've lift this restriction so the previously
-// valid block can be marked invalid on Holesky.
-// https://github.com/sigp/lighthouse/commit/19fc31a75be727ff811f54c249db19159003e90b
-#[ignore]
 async fn immediate_forkchoice_update_payload_invalid_block_hash() {
     immediate_forkchoice_update_invalid_test(|_| Payload::InvalidBlockHash).await
 }
 
 #[tokio::test]
-// Failing since this change on `holesky-rescue`. We've lift this restriction so the previously
-// valid block can be marked invalid on Holesky.
-// https://github.com/sigp/lighthouse/commit/19fc31a75be727ff811f54c249db19159003e90b
-#[ignore]
 async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
     immediate_forkchoice_update_invalid_test(|_| Payload::Invalid {
         latest_valid_hash: Some(ExecutionBlockHash::zero()),

@@ -4603,34 +4603,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    let post_lighthouse_fork_choice_invalidate = warp::path("lighthouse")
-        .and(warp::path("fork_choice"))
-        .and(warp::path("invalidate"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .and(warp_utils::json::json())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             block_root: Hash256| {
-                task_spawner.blocking_json_task(Priority::P0, move || {
-                    let invalidation =
-                        proto_array::InvalidationOperation::InvalidateOne { block_root };
-                    chain
-                        .canonical_head
-                        .fork_choice_write_lock()
-                        .on_invalid_execution_payload(&invalidation)
-                        .map_err(|e| {
-                            warp_utils::reject::custom_server_error(format!(
-                                "not invalidated due to error: {e:?}"
-                            ))
-                        })?;
-                    Ok("invalidated")
-                })
-            },
-        );
-
     // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -4992,7 +4964,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
-                    .uor(post_lighthouse_fork_choice_invalidate)
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)
