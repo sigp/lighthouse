@@ -1785,8 +1785,11 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
     // If we have a split block newer than finalization then we also ban blocks which are not
     // descended from that split block.
     let split = chain.store.get_split_info();
+    let is_descendant_from_split_block =
+        split.slot == 0 || fork_choice.is_descendant(split.block_root, block.parent_root());
+
     if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root())
-        && fork_choice.is_descendant(split.block_root, block.parent_root())
+        && is_descendant_from_split_block
     {
         Ok(block)
     } else {

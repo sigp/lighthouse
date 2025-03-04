@@ -80,6 +80,9 @@ Options:
           Specifies the verbosity level used when emitting logs to the terminal.
           [default: info] [possible values: info, debug, trace, warn, error,
           crit]
+      --disable-attesting
+          Turn off attestation related APIs so that we have some hope of
+          producing blocks
       --discovery-port <PORT>
           The UDP port that discovery will listen on. Defaults to `port`
       --discovery-port6 <PORT>
@@ -385,12 +388,18 @@ Options:
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
           DEPRECATED. This flag has no effect.
+      --state-cache-headroom <N>
+          Minimum number of states to cull from the state cache when it gets
+          full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 128]
+          Specifies the size of the state cache [default: 32]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the
           validator client instead of (or in addition to) setting it here.
+      --sync-tolerance-epochs <sync-tolerance-epochs>
+          If the beacon node is within this many epochs from the head, we
+          declare it to be synced regardless of the network sync state
   -t, --testnet-dir <DIR>
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
