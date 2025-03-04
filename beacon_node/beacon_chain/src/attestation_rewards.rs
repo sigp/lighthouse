@@ -48,7 +48,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BeaconChainError::NoStateForSlot(state_slot))?;
 
         let state = self
-            .get_state(&state_root, Some(state_slot))?
+            .get_state(&state_root, Some(state_slot), true)?
             .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
 
         if state.fork_name_unchecked().altair_enabled() {

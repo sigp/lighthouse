@@ -549,7 +549,7 @@ impl<E: EthSpec> Tester<E> {
                 let mut state = self
                     .harness
                     .chain
-                    .get_state(&parent_state_root, Some(parent_block.slot()))
+                    .get_state(&parent_state_root, Some(parent_block.slot()), true)
                     .unwrap()
                     .unwrap();
 

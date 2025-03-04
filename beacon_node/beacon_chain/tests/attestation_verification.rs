@@ -1225,7 +1225,7 @@ async fn attestation_that_skips_epochs() {
 
     let mut state = harness
         .chain
-        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .get_state(&earlier_block.state_root(), Some(earlier_slot), true)
         .expect("should not error getting state")
         .expect("should find state");
 
@@ -1331,7 +1331,7 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
     let current_slot = harness.get_current_slot();
     let mut state = harness
         .chain
-        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .get_state(&earlier_block.state_root(), Some(earlier_slot), true)
         .expect("should not error getting state")
         .expect("should find state");
 
@@ -1399,7 +1399,7 @@ async fn attestation_to_finalized_block() {
 
     let mut state = harness
         .chain
-        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .get_state(&earlier_block.state_root(), Some(earlier_slot), true)
         .expect("should not error getting state")
         .expect("should find state");
 

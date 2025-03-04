@@ -287,6 +287,7 @@ impl AttesterCache {
         Ok(())
     }
 
+    // TODO(holesky) check this out
     /// Read the state identified by `state_root` from the database, advance it to the required
     /// slot, use it to prime the cache and return the values for the provided `slot` and
     /// `committee_index`.
@@ -326,7 +327,7 @@ impl AttesterCache {
         }
 
         let mut state: BeaconState<T::EthSpec> = chain
-            .get_state(&state_root, None)?
+            .get_state(&state_root, None, true)?
             .ok_or(Error::MissingBeaconState(state_root))?;
 
         if state.slot() > slot {

@@ -655,6 +655,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_full_block(&new_view.head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
+                // TODO(holesky) when we calculate the new snapshot we might be missing a state
                 let (_, beacon_state) = self
                     .store
                     .get_advanced_hot_state(
@@ -783,6 +784,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let new_head_is_optimistic = new_head_proto_block
             .execution_status
             .is_optimistic_or_invalid();
+
+        // Update the state cache so it doesn't mistakenly prune the new head.
+        self.store
+            .state_cache
+            .lock()
+            .update_head_block_root(new_cached_head.head_block_root());
 
         // Detect and potentially report any re-orgs.
         let reorg_distance = detect_reorg(

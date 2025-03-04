@@ -27,8 +27,10 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         &self,
         store: &'a HotColdDB<E, Hot, Cold>,
     ) -> Option<BlockRootsIterator<'a, E, Hot, Cold>> {
+        // ancestor roots and their states are probably in the cold db
+        // but we set `update_cache` to false just in case
         let state = store
-            .get_state(&self.message().state_root(), Some(self.slot()))
+            .get_state(&self.message().state_root(), Some(self.slot()), false)
             .ok()??;
 
         Some(BlockRootsIterator::owned(store, state))
@@ -190,7 +192,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> RootsIterator<'a, E,
             .get_blinded_block(&block_hash)?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash.into()))?;
         let state = store
-            .get_state(&block.state_root(), Some(block.slot()))?
+            .get_state(&block.state_root(), Some(block.slot()), false)?
             .ok_or_else(|| BeaconStateError::MissingBeaconState(block.state_root().into()))?;
         Ok(Self::owned(store, state))
     }
@@ -363,7 +365,7 @@ fn next_historical_root_backtrack_state<E: EthSpec, Hot: ItemStore<E>, Cold: Ite
     if new_state_slot >= historic_state_upper_limit {
         let new_state_root = current_state.get_state_root(new_state_slot)?;
         Ok(store
-            .get_state(new_state_root, Some(new_state_slot))?
+            .get_state(new_state_root, Some(new_state_slot), false)?
             .ok_or_else(|| BeaconStateError::MissingBeaconState((*new_state_root).into()))?)
     } else {
         Err(Error::HistoryUnavailable)

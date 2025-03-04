@@ -127,7 +127,7 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     // Load state for block replay.
     let state_root = prior_block.state_root();
     let state = chain
-        .get_state(&state_root, Some(prior_slot))
+        .get_state(&state_root, Some(prior_slot), true)
         .and_then(|maybe_state| maybe_state.ok_or(BeaconChainError::MissingBeaconState(state_root)))
         .map_err(unhandled_error)?;
 

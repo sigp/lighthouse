@@ -1116,7 +1116,7 @@ async fn block_replayer_peeking_state_roots() {
         .unwrap();
     let parent_state = harness
         .chain
-        .get_state(&parent_block.state_root(), Some(parent_block.slot()))
+        .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)
         .unwrap()
         .unwrap();
 

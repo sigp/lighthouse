@@ -117,7 +117,7 @@ async fn test_sync_committee_rewards() {
         .unwrap()
         .unwrap();
     let parent_state = chain
-        .get_state(&parent_block.state_root(), Some(parent_block.slot()))
+        .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)
         .unwrap()
         .unwrap();
 
