@@ -1709,6 +1709,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    pub fn manually_compact_database(&self) {
+        self.store_migrator.process_manual_compaction();
+    }
+
     pub fn manually_finalize_state(
         &self,
         state_root: Hash256,
