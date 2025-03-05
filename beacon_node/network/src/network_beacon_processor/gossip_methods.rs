@@ -2193,7 +2193,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     LightClientFinalityUpdateError::Disabled
                     | LightClientFinalityUpdateError::TooLate => debug!(
                         self.log,
-                        ":ight client finality update ignored";
+                        "Light client finality update ignored";
                         "peer" => %peer_id,
                         "error" => ?e
                     ),
