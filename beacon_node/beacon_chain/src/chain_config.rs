@@ -17,7 +17,7 @@ pub const DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR: u32 = 3;
 pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
 /// Default sync tolerance epochs.
-pub const DEFAULT_SYNC_TOLERANCE_EPOCHS: u64 = 16;
+pub const DEFAULT_SYNC_TOLERANCE_EPOCHS: u64 = 2;
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
