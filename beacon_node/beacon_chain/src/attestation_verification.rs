@@ -266,6 +266,16 @@ pub enum Error {
         attestation: Hash256,
         expected: Option<Hash256>,
     },
+    /// The attestation conflicts with finalization, no need to propagate.
+    ///
+    /// ## Peer scoring
+    ///
+    /// It's unclear if this attestation is valid, but it conflicts with finality and shouldn't be
+    /// propogated.
+    NotFinalizedDescendant {
+        attestation_block_root: Hash256,
+        attestation_slot: Slot,
+    },
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -848,6 +858,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // [New in Electra:EIP7549]
         verify_committee_index(attestation)?;
 
+        // Do not process an attestation that doesn't descend from the finalized root.
+        verify_attestation_is_finalized_checkpoint_or_descendant(attestation, chain)?;
+
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
         //
@@ -1359,6 +1372,30 @@ pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Res
         }
     }
     Ok(())
+}
+
+fn verify_attestation_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
+    attestation: AttestationRef<T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<(), Error> {
+    // If we have a split block newer than finalization then we also ban attestations which are not
+    // descended from that split block.
+    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+    let split = chain.store.get_split_info();
+    let attestation_block_root = attestation.data().beacon_block_root;
+    let is_descendant_from_split_block =
+        split.slot == 0 || fork_choice.is_descendant(split.block_root, attestation_block_root);
+
+    if fork_choice.is_finalized_checkpoint_or_descendant(attestation_block_root)
+        && is_descendant_from_split_block
+    {
+        Ok(())
+    } else {
+        Err(Error::NotFinalizedDescendant {
+            attestation_block_root,
+            attestation_slot: attestation.data().slot,
+        })
+    }
 }
 
 /// Assists in readability.

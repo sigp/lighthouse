@@ -2893,6 +2893,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
+            AttnError::NotFinalizedDescendant {
+                attestation_block_root,
+                attestation_slot,
+            } => {
+                error!(
+                    self.log,
+                    "Could not verify the attestation for gossip. Rejecting the attestation";
+                    "attestation_block_root" => ?attestation_block_root,
+                    "slot" => ?attestation_slot,
+                    "type" => ?attestation_type,
+                    "peer_id" => %peer_id,
+                );
+                // There's no reason for an honest and non-buggy client to be gossiping
+                // attestations that blatantly conflict with finalization.
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_attestation_invalid",
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+            }
         }
 
         debug!(
