@@ -8,7 +8,6 @@ use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::head_tracker::HeadTracker;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
@@ -40,8 +39,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Epoch, EthSpec, FixedBytesExtended,
+    Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -92,7 +91,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
     light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
-    head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: Arc<ChainSpec>,
     chain_config: ChainConfig,
@@ -136,7 +134,6 @@ where
             slot_clock: None,
             shutdown_sender: None,
             light_client_server_tx: None,
-            head_tracker: None,
             validator_pubkey_cache: None,
             spec: Arc::new(E::default_spec()),
             chain_config: ChainConfig::default(),
@@ -329,10 +326,6 @@ where
 
         self.genesis_block_root = Some(chain.genesis_block_root);
         self.genesis_state_root = Some(genesis_block.state_root());
-        self.head_tracker = Some(
-            HeadTracker::from_ssz_container(&chain.ssz_head_tracker)
-                .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
-        );
         self.validator_pubkey_cache = Some(pubkey_cache);
         self.fork_choice = Some(fork_choice);
 
@@ -398,8 +391,21 @@ where
     }
 
     /// Starts a new chain from a genesis state.
-    pub fn genesis_state(mut self, beacon_state: BeaconState<E>) -> Result<Self, String> {
+    pub fn genesis_state(mut self, mut beacon_state: BeaconState<E>) -> Result<Self, String> {
         let store = self.store.clone().ok_or("genesis_state requires a store")?;
+
+        // Initialize anchor info before attempting to write the genesis state
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        let genesis_beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(
+                    genesis_beacon_block.message().parent_root(),
+                    Slot::new(0),
+                    retain_historic_states,
+                )
+                .map_err(|e| format!("Failed to initialize genesis anchor: {:?}", e))?,
+        );
 
         let (genesis, updated_builder) = self.set_genesis_state(beacon_state)?;
         self = updated_builder;
@@ -407,12 +413,6 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
         // historic states from being retained (unless `--reconstruct-historic-states` is set).
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
-        self.pending_io_batch.push(
-            store
-                .init_anchor_info(genesis.beacon_block.message(), retain_historic_states)
-                .map_err(|e| format!("Failed to initialize genesis anchor: {:?}", e))?,
-        );
         self.pending_io_batch.push(
             store
                 .init_blob_info(genesis.beacon_block.slot())
@@ -530,6 +530,14 @@ where
             }
         }
 
+        debug!(
+            log,
+            "Storing split from weak subjectivity state";
+            "slot" => weak_subj_slot,
+            "state_root" => ?weak_subj_state_root,
+            "block_root" => ?weak_subj_block_root,
+        );
+
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
         store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
@@ -551,6 +559,19 @@ where
             .do_atomically(block_root_batch)
             .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
 
+        // Write the anchor to memory before calling `put_state` otherwise hot hdiff can't store
+        // states that do not align with the start_slot grid
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(
+                    weak_subj_block.message().parent_root(),
+                    weak_subj_slot,
+                    retain_historic_states,
+                )
+                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
+        );
+
         // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
         store
@@ -560,6 +581,8 @@ where
                 weak_subj_state.clone(),
             )
             .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
+        // Note: post hot hdiff must update the anchor info before attempting to put_state otherwise
+        // the write will fail if the weak_subj_slot is not aligned with the snapshot moduli.
         store
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {e:?}"))?;
@@ -596,13 +619,7 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
         // info or split point is written before the `PersistedBeaconChain`.
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
         self.pending_io_batch.push(store.store_split_in_batch());
-        self.pending_io_batch.push(
-            store
-                .init_anchor_info(weak_subj_block.message(), retain_historic_states)
-                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
-        );
         self.pending_io_batch.push(
             store
                 .init_blob_info(weak_subj_block.slot())
@@ -613,13 +630,6 @@ where
                 .init_data_column_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
-
-        // Store pruning checkpoint to prevent attempting to prune before the anchor state.
-        self.pending_io_batch
-            .push(store.pruning_checkpoint_store_op(Checkpoint {
-                root: weak_subj_block_root,
-                epoch: weak_subj_state.slot().epoch(E::slots_per_epoch()),
-            }));
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
@@ -750,7 +760,6 @@ where
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
-        let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
         let mut validator_monitor = ValidatorMonitor::new(
@@ -795,8 +804,6 @@ where
                         &log,
                     )?;
 
-                    // Update head tracker.
-                    head_tracker.register_block(block_root, block.parent_root(), block.slot());
                     (block_root, block, true)
                 }
                 Err(e) => return Err(descriptive_db_error("head block", &e)),
@@ -852,12 +859,7 @@ where
         })?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
-        let store_migrator = BackgroundMigrator::new(
-            store.clone(),
-            migrator_config,
-            genesis_block_root,
-            log.clone(),
-        );
+        let store_migrator = BackgroundMigrator::new(store.clone(), migrator_config, log.clone());
 
         if let Some(slot) = slot_clock.now() {
             validator_monitor.process_valid_state(
@@ -882,11 +884,10 @@ where
         //
         // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
-        let head_tracker_reader = head_tracker.0.read();
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
-            genesis_block_root, &head_tracker_reader
+            genesis_block_root
         ));
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
@@ -897,7 +898,6 @@ where
             .hot_db
             .do_atomically(self.pending_io_batch)
             .map_err(|e| format!("Error writing chain & metadata to disk: {:?}", e))?;
-        drop(head_tracker_reader);
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
@@ -978,7 +978,6 @@ where
             fork_choice_signal_tx,
             fork_choice_signal_rx,
             event_handler: self.event_handler,
-            head_tracker,
             shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,

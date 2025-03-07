@@ -381,10 +381,10 @@ fn slot_of_prev_restore_point<E: EthSpec>(current_slot: Slot) -> Slot {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::StoreConfig as Config;
+    use crate::{MemoryStore, StoreConfig as Config};
     use beacon_chain::test_utils::BeaconChainHarness;
     use beacon_chain::types::{ChainSpec, MainnetEthSpec};
-    use sloggers::{null::NullLoggerBuilder, Build};
+    use logging::test_logger;
     use std::sync::Arc;
     use types::FixedBytesExtended;
 
@@ -398,12 +398,33 @@ mod test {
         harness.get_current_state()
     }
 
-    #[test]
-    fn block_root_iter() {
-        let log = NullLoggerBuilder.build().unwrap();
+    fn get_store<E: EthSpec>() -> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
+        let log = test_logger();
         let store =
             HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
                 .unwrap();
+        // Init achor info so anchor slot is set. Use a random block as it is only used for the
+        // parent_root
+        let _ = store
+            .init_anchor_info(Hash256::ZERO, Slot::new(0), false)
+            .unwrap();
+        // Write a state with state root 0 which is the base `put_state` below tries to diff from
+        {
+            let harness = BeaconChainHarness::builder(E::default())
+                .default_spec()
+                .deterministic_keypairs(1)
+                .fresh_ephemeral_store()
+                .build();
+            let genesis_state = harness.get_current_state();
+            store.put_state(&Hash256::ZERO, &genesis_state).unwrap();
+        }
+        store
+    }
+
+    #[test]
+    fn block_root_iter() {
+        let store = get_store::<MainnetEthSpec>();
+
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -449,10 +470,8 @@ mod test {
 
     #[test]
     fn state_root_iter() {
-        let log = NullLoggerBuilder.build().unwrap();
-        let store =
-            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
-                .unwrap();
+        let store = get_store::<MainnetEthSpec>();
+
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();

@@ -2,9 +2,9 @@ use crate::{DBColumn, Error, StoreItem};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use types::{Checkpoint, Hash256, Slot};
+use types::{Hash256, Slot};
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(22);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(24);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //
@@ -12,7 +12,8 @@ pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(22);
 pub const SCHEMA_VERSION_KEY: Hash256 = Hash256::repeat_byte(0);
 pub const CONFIG_KEY: Hash256 = Hash256::repeat_byte(1);
 pub const SPLIT_KEY: Hash256 = Hash256::repeat_byte(2);
-pub const PRUNING_CHECKPOINT_KEY: Hash256 = Hash256::repeat_byte(3);
+// DEPRECATED
+// pub const PRUNING_CHECKPOINT_KEY: Hash256 = Hash256::repeat_byte(3);
 pub const COMPACTION_TIMESTAMP_KEY: Hash256 = Hash256::repeat_byte(4);
 pub const ANCHOR_INFO_KEY: Hash256 = Hash256::repeat_byte(5);
 pub const BLOB_INFO_KEY: Hash256 = Hash256::repeat_byte(6);
@@ -65,30 +66,6 @@ impl StoreItem for SchemaVersion {
     }
 }
 
-/// The checkpoint used for pruning the database.
-///
-/// Updated whenever pruning is successful.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PruningCheckpoint {
-    pub checkpoint: Checkpoint,
-}
-
-impl StoreItem for PruningCheckpoint {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconMeta
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.checkpoint.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(PruningCheckpoint {
-            checkpoint: Checkpoint::from_ssz_bytes(bytes)?,
-        })
-    }
-}
-
 /// The last time the database was compacted.
 pub struct CompactionTimestamp(pub u64);
 
@@ -111,7 +88,8 @@ impl StoreItem for CompactionTimestamp {
 pub struct AnchorInfo {
     /// The slot at which the anchor state is present and which we cannot revert. Values on start:
     /// - Genesis start: 0
-    /// - Checkpoint sync: Slot of the finalized checkpoint block
+    /// - Checkpoint sync: Slot of the finalized state advanced to the checkpoint epoch
+    /// - Existing DB prior to v23: Finalized state slot at the migration moment
     ///
     /// Immutable
     pub anchor_slot: Slot,

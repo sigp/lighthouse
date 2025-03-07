@@ -25,7 +25,10 @@ pub enum Error {
     NoContinuationData,
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),
-    SchemaMigrationError(String),
+    MigrationError(String),
+    /// The store's `anchor_info` is still the default unitialized value when attempting a state
+    /// write
+    AnchorUninitialized,
     /// The store's `anchor_info` was mutated concurrently, the latest modification wasn't applied.
     AnchorInfoConcurrentMutation,
     /// The store's `blob_info` was mutated concurrently, the latest modification wasn't applied.
@@ -47,11 +50,25 @@ pub enum Error {
         expected: Hash256,
         computed: Hash256,
     },
+    MissingState(Hash256),
+    // Hot summaries should never be missing. Includes the current of summaries to ease debugging.
+    // The list could be very long (thouands of entries in non-finality).
+    MissingHotStateSummary {
+        state_root: Hash256,
+        existing_summaries: Vec<(Hash256, Slot)>,
+    },
+    MissingHotStateSnapshot {
+        state_root: Hash256,
+        slot: Slot,
+        existing_snapshots: Vec<Hash256>,
+    },
     MissingGenesisState,
     MissingSnapshot(Slot),
+    LoadingHotHdiffBufferError(String, Hash256, Box<Error>),
+    LoadingHotStateError(String, Hash256, Box<Error>),
     BlockReplayError(BlockReplayError),
     AddPayloadLogicError,
-    InvalidKey,
+    InvalidKey(String),
     InvalidBytes,
     InconsistentFork(InconsistentFork),
     #[cfg(feature = "leveldb")]
@@ -75,6 +92,17 @@ pub enum Error {
     MissingBlock(Hash256),
     GenesisStateUnknown,
     ArithError(safe_arith::ArithError),
+    MissmatchDiffBaseStateRoot {
+        expected_slot: Slot,
+        stored_slot: Slot,
+    },
+    LoadAnchorInfo(Box<Error>),
+    LoadSplit(Box<Error>),
+    LoadBlobInfo(Box<Error>),
+    LoadDataColumnInfo(Box<Error>),
+    LoadConfig(Box<Error>),
+    LoadHotStateSummary(Hash256, Box<Error>),
+    LoadHotStateSummaryForSplit(Box<Error>),
 }
 
 pub trait HandleUnavailable<T> {

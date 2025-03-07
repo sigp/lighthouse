@@ -890,7 +890,6 @@ mod test {
             state,
             parent_block,
             parent_eth1_finalization_data,
-            confirmed_state_roots: vec![],
             consensus_context,
             data_column_recv: None,
         };
@@ -1281,7 +1280,6 @@ mod pending_components_tests {
                     eth1_data: Default::default(),
                     eth1_deposit_index: 0,
                 },
-                confirmed_state_roots: vec![],
                 consensus_context: ConsensusContext::new(Slot::new(0)),
                 data_column_recv: None,
             },
