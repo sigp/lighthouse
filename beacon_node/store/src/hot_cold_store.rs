@@ -1083,15 +1083,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if let Some((state_root, state)) = opt_state.as_mut() {
             state.update_tree_hash_cache()?;
             state.build_all_caches(&self.spec)?;
-            self.state_cache
-                .lock()
-                .put_state(*state_root, block_root, state)?;
-            debug!(
-                self.log,
-                "Cached state";
-                "state_root" => ?state_root,
-                "slot" => state.slot(),
-            );
+            if let PutStateOutcome::New(deleted_states) =
+                self.state_cache
+                    .lock()
+                    .put_state(*state_root, block_root, state)?
+            {
+                debug!(
+                    self.log,
+                    "Cached state";
+                    "location" => "get_advanced_hot_state",
+                    "deleted_states" => ?deleted_states,
+                    "state_root" => ?state_root,
+                    "slot" => state.slot(),
+                );
+            }
         }
         drop(split);
         Ok(opt_state)
@@ -1523,19 +1528,32 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Avoid storing states in the database if they already exist in the state cache.
         // The exception to this is the finalized state, which must exist in the cache before it
         // is stored on disk.
-        if let PutStateOutcome::Duplicate = self.state_cache.lock().put_state(
+        match self.state_cache.lock().put_state(
             *state_root,
             state.get_latest_block_root(*state_root),
             state,
         )? {
-            debug!(
-                self.log,
-                "State already exists in state cache";
-                "slot" => state.slot(),
-                "state_root" => ?state_root
-            );
-            // Write the state anyway. Testing of this branch shows that states may exist in the
-            // cache but not be yet ever stored in the DB
+            PutStateOutcome::New(deleted_states) => {
+                debug!(
+                    self.log,
+                    "Cached state";
+                    "location" => "store_hot_state",
+                    "deleted_states" => ?deleted_states,
+                    "state_root" => ?state_root,
+                    "slot" => state.slot(),
+                );
+            }
+            PutStateOutcome::Duplicate => {
+                debug!(
+                    self.log,
+                    "State already exists in state cache";
+                    "slot" => state.slot(),
+                    "state_root" => ?state_root
+                );
+                // Write the state anyway. Testing of this branch shows that states may exist in the
+                // cache but not be yet ever stored in the DB
+            }
+            PutStateOutcome::Finalized => {} // ignore
         }
 
         // TODO(hdiff): is this optimization necessary? Computing diffs is expensive so we may want
@@ -1673,15 +1691,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             state.build_all_caches(&self.spec)?;
 
             if update_cache {
-                self.state_cache
-                    .lock()
-                    .put_state(*state_root, block_root, &state)?;
-                debug!(
-                    self.log,
-                    "Cached state";
-                    "state_root" => ?state_root,
-                    "slot" => state.slot(),
-                );
+                if let PutStateOutcome::New(deleted_states) =
+                    self.state_cache
+                        .lock()
+                        .put_state(*state_root, block_root, &state)?
+                {
+                    debug!(
+                        self.log,
+                        "Cached state";
+                        "location" => "get_hot_state",
+                        "deleted_states" => ?deleted_states,
+                        "state_root" => ?state_root,
+                        "slot" => state.slot(),
+                    );
+                }
             } else {
                 debug!(
                     self.log,
