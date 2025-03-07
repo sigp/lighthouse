@@ -51,17 +51,8 @@ pub enum Error {
         computed: Hash256,
     },
     MissingState(Hash256),
-    // Hot summaries should never be missing. Includes the current of summaries to ease debugging.
-    // The list could be very long (thouands of entries in non-finality).
-    MissingHotStateSummary {
-        state_root: Hash256,
-        existing_summaries: Vec<(Hash256, Slot)>,
-    },
-    MissingHotStateSnapshot {
-        state_root: Hash256,
-        slot: Slot,
-        existing_snapshots: Vec<Hash256>,
-    },
+    MissingHotStateSummary(Hash256),
+    MissingHotStateSnapshot(Hash256, Slot),
     MissingGenesisState,
     MissingSnapshot(Slot),
     LoadingHotHdiffBufferError(String, Hash256, Box<Error>),

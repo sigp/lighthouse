@@ -1712,16 +1712,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .collect::<Vec<(Hash256, Slot)>>();
             existing_summaries.sort_by(|a, b| a.1.cmp(&b.1));
             // Hot summaries should never be missing, dump the current list of summaries to ease debug
+            // TODO(hdiff): this log is for debug and can include a very long list of roots,
+            // thousands in non-finality.
             debug!(
                 self.log,
                 "MissingHotStateSummary";
                 "requested" => ?state_root,
                 "existing_summaries" => ?existing_summaries,
             );
-            return Err(Error::MissingHotStateSummary {
-                state_root,
-                existing_summaries,
-            });
+            return Err(Error::MissingHotStateSummary(state_root));
         };
 
         match self.hot_storage_strategy(slot)? {
@@ -1729,11 +1728,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // FIXME(tree-states): rename error
                 let Some(state) = self.load_hot_state_as_snapshot(state_root)? else {
                     let existing_snapshots = self.load_hot_state_snapshot_roots()?;
-                    return Err(Error::MissingHotStateSnapshot {
-                        state_root,
-                        slot,
-                        existing_snapshots,
-                    });
+                    // TODO(hdiff): this log is for debug and can include a very long list of roots,
+                    // thousands in non-finality.
+                    debug!(
+                        self.log,
+                        "MissingHotStateSnapshot";
+                        "requested" => ?state_root,
+                        "existing_snapshots" => ?existing_snapshots,
+                    );
+                    return Err(Error::MissingHotStateSnapshot(state_root, slot));
                 };
                 let buffer = HDiffBuffer::from_state(state);
                 Ok(buffer)
