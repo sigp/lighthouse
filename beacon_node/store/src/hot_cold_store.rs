@@ -1530,7 +1530,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )? {
             debug!(
                 self.log,
-                "Skipping storage of cached state";
+                "State already exists in state cache";
+                "slot" => state.slot(),
+                "state_root" => ?state_root
+            );
+            // Write the state anyway. Testing of this branch shows that states may exist in the
+            // cache but not be yet ever stored in the DB
+        }
+
+        // TODO(hdiff): is this optimization necessary? Computing diffs is expensive so we may want
+        // to avoid it.
+        if self.load_hot_state_summary(state_root)?.is_some() {
+            debug!(
+                self.log,
+                "Skipping storage of state already in the db";
                 "slot" => state.slot(),
                 "state_root" => ?state_root
             );
