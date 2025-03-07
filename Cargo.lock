@@ -2656,7 +2656,7 @@ dependencies = [
  "bls",
  "hex",
  "num-bigint-dig",
- "ring 0.16.20",
+ "ring 0.17.8",
  "sha2 0.9.9",
  "zeroize",
 ]
