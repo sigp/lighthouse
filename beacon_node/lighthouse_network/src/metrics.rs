@@ -213,6 +213,13 @@ pub static SELF_LIMITER_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::
     )
 });
 
+pub static RESPONSE_LIMITER_RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "response_limiter_idling_seconds",
+        "The time our response remained idle in the response limiter",
+    )
+});
+
 pub fn scrape_discovery_metrics() {
     let metrics =
         discv5::metrics::Metrics::from(discv5::Discv5::<discv5::DefaultProtocolId>::raw_metrics());

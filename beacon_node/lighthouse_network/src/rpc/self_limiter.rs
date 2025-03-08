@@ -303,7 +303,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
 }
 
 /// Returns the duration since the unix epoch.
-fn timestamp_now() -> Duration {
+pub fn timestamp_now() -> Duration {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_secs(0))

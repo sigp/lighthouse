@@ -1,5 +1,6 @@
 use crate::rpc::config::InboundRateLimiterConfig;
 use crate::rpc::rate_limiter::{RPCRateLimiter, RateLimitedErr};
+use crate::rpc::self_limiter::timestamp_now;
 use crate::rpc::{Protocol, RpcResponse, SubstreamId};
 use crate::PeerId;
 use futures::FutureExt;
@@ -22,6 +23,7 @@ pub(super) struct QueuedResponse<E: EthSpec> {
     pub substream_id: SubstreamId,
     pub response: RpcResponse<E>,
     pub protocol: Protocol,
+    pub queued_at: Duration,
 }
 
 pub(super) struct ResponseLimiter<E: EthSpec> {
@@ -44,7 +46,6 @@ impl<E: EthSpec> ResponseLimiter<E> {
     ) -> Result<Self, &'static str> {
         Ok(ResponseLimiter {
             limiter: RPCRateLimiter::new_with_config(config.0, fork_context)?,
-            // .expect("Inbound limiter configuration parameters are valid"),
             delayed_responses: HashMap::new(),
             next_response: DelayQueue::new(),
             log,
@@ -69,6 +70,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
                 substream_id,
                 response,
                 protocol,
+                queued_at: timestamp_now(),
             });
             return false;
         }
@@ -89,6 +91,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
                     substream_id,
                     response,
                     protocol,
+                    queued_at: timestamp_now(),
                 });
             self.next_response.insert((peer_id, protocol), wait_time);
             return false;
@@ -151,7 +154,13 @@ impl<E: EthSpec> ResponseLimiter<E> {
                         response.protocol,
                         &self.log,
                     ) {
-                        Ok(()) => responses.push(response),
+                        Ok(()) => {
+                            metrics::observe_duration(
+                                &crate::metrics::RESPONSE_LIMITER_RESPONSE_IDLING,
+                                timestamp_now().saturating_sub(response.queued_at),
+                            );
+                            responses.push(response)
+                        }
                         Err(wait_time) => {
                             // The response was taken from the queue, but the limiter didn't allow it.
                             queue.push_front(response);
