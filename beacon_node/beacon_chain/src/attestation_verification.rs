@@ -858,9 +858,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // [New in Electra:EIP7549]
         verify_committee_index(attestation)?;
 
-        // Do not process an attestation that doesn't descend from the finalized root.
-        verify_attestation_is_finalized_checkpoint_or_descendant(attestation, chain)?;
-
         // Attestations must be for a known block. If the block is unknown, we simply drop the
         // attestation and do not delay consideration for later.
         //
@@ -870,6 +867,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
         // Check the attestation target root is consistent with the head root.
         verify_attestation_target_root::<T::EthSpec>(&head_block, attestation)?;
+
+        // Do not process an attestation that doesn't descend from the finalized root.
+        verify_attestation_is_finalized_checkpoint_or_descendant(attestation, chain)?;
 
         Ok(())
     }
