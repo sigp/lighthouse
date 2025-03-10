@@ -684,8 +684,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "count" => req_count,
         );
 
-        let block_roots =
-            self.get_block_roots_for_slot_range(req_start_slot, req_count, "BlocksByRange")?;
+        // Spawn a blocking handle since get_block_roots_for_slot_range takes a sync lock on the
+        // fork-choice.
+        let network_beacon_processor = self.clone();
+        let block_roots = self
+            .executor
+            .spawn_blocking_handle(
+                move || {
+                    network_beacon_processor.get_block_roots_for_slot_range(
+                        req_start_slot,
+                        req_count,
+                        "BlocksByRange",
+                    )
+                },
+                "get_block_roots_for_slot_range",
+            )
+            .ok_or((RpcErrorResponse::ServerError, "shutting down"))?
+            .await
+            .map_err(|_| (RpcErrorResponse::ServerError, "tokio join"))??;
+
         let current_slot = self
             .chain
             .slot()
