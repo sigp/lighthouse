@@ -878,7 +878,7 @@ where
             }
             RequestType::BlobsByRange(request) => {
                 let max_requested_blobs = request
-                    .count
+                    .count()
                     .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
                 let max_allowed = spec.max_request_blob_sidecars(current_fork) as u64;
                 if max_requested_blobs > max_allowed {

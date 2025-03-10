@@ -293,8 +293,11 @@ impl ssz::Decode for GoodbyeReason {
 }
 
 /// Request a number of beacon block roots from a peer.
+///
+/// V2_3845 implements the spec proposal https://github.com/ethereum/consensus-specs/pull/3845 on
+/// top of version V2
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V2_3845),
     variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
 )]
 #[derive(Clone, Debug, PartialEq)]
@@ -304,12 +307,24 @@ pub struct BlocksByRangeRequest {
 
     /// The number of blocks from the start slot.
     pub count: u64,
+
+    /// The root to base the chain to query from
+    #[superstruct(only(V2_3845))]
+    pub block_root: Hash256,
 }
 
 impl BlocksByRangeRequest {
     /// The default request is V2
-    pub fn new(start_slot: u64, count: u64) -> Self {
-        Self::V2(BlocksByRangeRequestV2 { start_slot, count })
+    pub fn new(start_slot: u64, count: u64, block_root: Option<Hash256>) -> Self {
+        if let Some(block_root) = block_root {
+            Self::V2_3845(BlocksByRangeRequestV2_3845 {
+                start_slot,
+                count,
+                block_root,
+            })
+        } else {
+            Self::V2(BlocksByRangeRequestV2 { start_slot, count })
+        }
     }
 
     pub fn new_v1(start_slot: u64, count: u64) -> Self {
@@ -318,24 +333,54 @@ impl BlocksByRangeRequest {
 }
 
 /// Request a number of beacon blobs from a peer.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+///
+/// V1_3845 implements the spec proposal https://github.com/ethereum/consensus-specs/pull/3845 on
+/// top of version V1
+#[superstruct(
+    variants(V1, V1_3845),
+    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
+)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlobsByRangeRequest {
     /// The starting slot to request blobs.
     pub start_slot: u64,
 
     /// The number of slots from the start slot.
     pub count: u64,
+
+    /// The root to base the chain to query from
+    #[superstruct(only(V1_3845))]
+    pub block_root: Hash256,
 }
 
 impl BlobsByRangeRequest {
+    pub fn new(start_slot: u64, count: u64, block_root: Option<Hash256>) -> Self {
+        if let Some(block_root) = block_root {
+            Self::V1_3845(BlobsByRangeRequestV1_3845 {
+                start_slot,
+                count,
+                block_root,
+            })
+        } else {
+            Self::V1(BlobsByRangeRequestV1 { start_slot, count })
+        }
+    }
+
     pub fn max_blobs_requested(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
         let max_blobs_per_block = spec.max_blobs_per_block_by_fork(current_fork);
-        self.count.saturating_mul(max_blobs_per_block)
+        self.count().saturating_mul(max_blobs_per_block)
     }
 }
 
 /// Request a number of beacon data columns from a peer.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+///
+/// V1_3845 implements the spec proposal https://github.com/ethereum/consensus-specs/pull/3845 on
+/// top of version V1
+#[superstruct(
+    variants(V1, V1_3845),
+    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
+)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DataColumnsByRangeRequest {
     /// The starting slot to request data columns.
     pub start_slot: u64,
@@ -343,15 +388,40 @@ pub struct DataColumnsByRangeRequest {
     pub count: u64,
     /// The list column indices being requested.
     pub columns: Vec<ColumnIndex>,
+    /// The root to base the chain to query from
+    #[superstruct(only(V1_3845))]
+    pub block_root: Hash256,
 }
 
 impl DataColumnsByRangeRequest {
+    pub fn new(
+        start_slot: u64,
+        count: u64,
+        columns: Vec<ColumnIndex>,
+        block_root: Option<Hash256>,
+    ) -> Self {
+        if let Some(block_root) = block_root {
+            Self::V1_3845(DataColumnsByRangeRequestV1_3845 {
+                start_slot,
+                count,
+                columns,
+                block_root,
+            })
+        } else {
+            Self::V1(DataColumnsByRangeRequestV1 {
+                start_slot,
+                count,
+                columns,
+            })
+        }
+    }
+
     pub fn max_requested<E: EthSpec>(&self) -> u64 {
-        self.count.saturating_mul(self.columns.len() as u64)
+        self.count().saturating_mul(self.columns().len() as u64)
     }
 
     pub fn ssz_min_len() -> usize {
-        DataColumnsByRangeRequest {
+        DataColumnsByRangeRequestV1 {
             start_slot: 0,
             count: 0,
             columns: vec![0],
@@ -361,10 +431,11 @@ impl DataColumnsByRangeRequest {
     }
 
     pub fn ssz_max_len(spec: &ChainSpec) -> usize {
-        DataColumnsByRangeRequest {
+        DataColumnsByRangeRequestV1_3845 {
             start_slot: 0,
             count: 0,
             columns: vec![0; spec.number_of_columns as usize],
+            block_root: Hash256::ZERO,
         }
         .as_ssz_bytes()
         .len()
@@ -372,8 +443,11 @@ impl DataColumnsByRangeRequest {
 }
 
 /// Request a number of beacon block roots from a peer.
+///
+/// V2_3845 implements the spec proposal https://github.com/ethereum/consensus-specs/pull/3845 on
+/// top of version V2
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V2_3845),
     variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq))
 )]
 #[derive(Clone, Debug, PartialEq)]
@@ -390,6 +464,10 @@ pub struct OldBlocksByRangeRequest {
     /// A value of 2 returns every second block.
     /// A value of 3 returns every third block and so on.
     pub step: u64,
+
+    /// The root to base the chain to query from
+    #[superstruct(only(V2_3845))]
+    pub block_root: Hash256,
 }
 
 impl OldBlocksByRangeRequest {
@@ -426,6 +504,14 @@ impl From<BlocksByRangeRequest> for OldBlocksByRangeRequest {
                     start_slot: req.start_slot,
                     count: req.count,
                     step: 1,
+                })
+            }
+            BlocksByRangeRequest::V2_3845(ref req) => {
+                OldBlocksByRangeRequest::V2_3845(OldBlocksByRangeRequestV2_3845 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                    block_root: req.block_root,
                 })
             }
         }
@@ -845,13 +931,25 @@ impl std::fmt::Display for BlobsByRootRequest {
     }
 }
 
+// TODO: can delete this?
 impl std::fmt::Display for BlobsByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Request: BlobsByRange: Start Slot: {}, Count: {}",
-            self.start_slot, self.count
-        )
+        if let Ok(block_root) = self.block_root() {
+            write!(
+                f,
+                "Request: BlobsByRange: Start Slot: {}, Count: {}, Root {:?}",
+                self.start_slot(),
+                self.count(),
+                block_root,
+            )
+        } else {
+            write!(
+                f,
+                "Request: BlobsByRange: Start Slot: {}, Count: {}",
+                self.start_slot(),
+                self.count(),
+            )
+        }
     }
 }
 

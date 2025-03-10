@@ -333,14 +333,21 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
             RequestType::BlocksByRange(r) => match r {
                 OldBlocksByRangeRequest::V1(req) => req.as_ssz_bytes(),
                 OldBlocksByRangeRequest::V2(req) => req.as_ssz_bytes(),
+                OldBlocksByRangeRequest::V2_3845(req) => req.as_ssz_bytes(),
             },
             RequestType::BlocksByRoot(r) => match r {
                 BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
                 BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
             },
-            RequestType::BlobsByRange(req) => req.as_ssz_bytes(),
+            RequestType::BlobsByRange(r) => match r {
+                BlobsByRangeRequest::V1(req) => req.as_ssz_bytes(),
+                BlobsByRangeRequest::V1_3845(req) => req.as_ssz_bytes(),
+            },
             RequestType::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
-            RequestType::DataColumnsByRange(req) => req.as_ssz_bytes(),
+            RequestType::DataColumnsByRange(r) => match r {
+                DataColumnsByRangeRequest::V1(req) => req.as_ssz_bytes(),
+                DataColumnsByRangeRequest::V1_3845(req) => req.as_ssz_bytes(),
+            },
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
             RequestType::Ping(req) => req.as_ssz_bytes(),
             RequestType::LightClientBootstrap(req) => req.as_ssz_bytes(),
@@ -558,6 +565,11 @@ fn handle_rpc_request<E: EthSpec>(
         SupportedProtocol::GoodbyeV1 => Ok(Some(RequestType::Goodbye(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
+        SupportedProtocol::BlocksByRangeV2_3845 => Ok(Some(RequestType::BlocksByRange(
+            OldBlocksByRangeRequest::V2_3845(OldBlocksByRangeRequestV2_3845::from_ssz_bytes(
+                decoded_buffer,
+            )?),
+        ))),
         SupportedProtocol::BlocksByRangeV2 => Ok(Some(RequestType::BlocksByRange(
             OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2::from_ssz_bytes(decoded_buffer)?),
         ))),
@@ -581,7 +593,12 @@ fn handle_rpc_request<E: EthSpec>(
             }),
         ))),
         SupportedProtocol::BlobsByRangeV1 => Ok(Some(RequestType::BlobsByRange(
-            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            BlobsByRangeRequest::V1(BlobsByRangeRequestV1::from_ssz_bytes(decoded_buffer)?),
+        ))),
+        SupportedProtocol::BlobsByRangeV1_3845 => Ok(Some(RequestType::BlobsByRange(
+            BlobsByRangeRequest::V1_3845(BlobsByRangeRequestV1_3845::from_ssz_bytes(
+                decoded_buffer,
+            )?),
         ))),
         SupportedProtocol::BlobsByRootV1 => {
             Ok(Some(RequestType::BlobsByRoot(BlobsByRootRequest {
@@ -592,7 +609,14 @@ fn handle_rpc_request<E: EthSpec>(
             })))
         }
         SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(RequestType::DataColumnsByRange(
-            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            DataColumnsByRangeRequest::V1(DataColumnsByRangeRequestV1::from_ssz_bytes(
+                decoded_buffer,
+            )?),
+        ))),
+        SupportedProtocol::DataColumnsByRangeV1_3845 => Ok(Some(RequestType::DataColumnsByRange(
+            DataColumnsByRangeRequest::V1_3845(DataColumnsByRangeRequestV1_3845::from_ssz_bytes(
+                decoded_buffer,
+            )?),
         ))),
         SupportedProtocol::DataColumnsByRootV1 => Ok(Some(RequestType::DataColumnsByRoot(
             DataColumnsByRootRequest {
@@ -678,27 +702,29 @@ fn handle_rpc_response<E: EthSpec>(
         SupportedProtocol::BlocksByRootV1 => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
-        SupportedProtocol::BlobsByRangeV1 => match fork_name {
-            Some(fork_name) => {
-                if fork_name.deneb_enabled() {
-                    Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
-                        BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-                    ))))
-                } else {
-                    Err(RPCError::ErrorResponse(
-                        RpcErrorResponse::InvalidRequest,
-                        "Invalid fork name for blobs by range".to_string(),
-                    ))
+        SupportedProtocol::BlobsByRangeV1 | SupportedProtocol::BlobsByRangeV1_3845 => {
+            match fork_name {
+                Some(fork_name) => {
+                    if fork_name.deneb_enabled() {
+                        Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
+                            BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+                        ))))
+                    } else {
+                        Err(RPCError::ErrorResponse(
+                            RpcErrorResponse::InvalidRequest,
+                            "Invalid fork name for blobs by range".to_string(),
+                        ))
+                    }
                 }
+                None => Err(RPCError::ErrorResponse(
+                    RpcErrorResponse::InvalidRequest,
+                    format!(
+                        "No context bytes provided for {:?} response",
+                        versioned_protocol
+                    ),
+                )),
             }
-            None => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                format!(
-                    "No context bytes provided for {:?} response",
-                    versioned_protocol
-                ),
-            )),
-        },
+        }
         SupportedProtocol::BlobsByRootV1 => match fork_name {
             Some(fork_name) => {
                 if fork_name.deneb_enabled() {
@@ -741,27 +767,29 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
-        SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
-            Some(fork_name) => {
-                if fork_name.fulu_enabled() {
-                    Ok(Some(RpcSuccessResponse::DataColumnsByRange(Arc::new(
-                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
-                    ))))
-                } else {
-                    Err(RPCError::ErrorResponse(
-                        RpcErrorResponse::InvalidRequest,
-                        "Invalid fork name for data columns by range".to_string(),
-                    ))
+        SupportedProtocol::DataColumnsByRangeV1 | SupportedProtocol::DataColumnsByRangeV1_3845 => {
+            match fork_name {
+                Some(fork_name) => {
+                    if fork_name.fulu_enabled() {
+                        Ok(Some(RpcSuccessResponse::DataColumnsByRange(Arc::new(
+                            DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                        ))))
+                    } else {
+                        Err(RPCError::ErrorResponse(
+                            RpcErrorResponse::InvalidRequest,
+                            "Invalid fork name for data columns by range".to_string(),
+                        ))
+                    }
                 }
+                None => Err(RPCError::ErrorResponse(
+                    RpcErrorResponse::InvalidRequest,
+                    format!(
+                        "No context bytes provided for {:?} response",
+                        versioned_protocol
+                    ),
+                )),
             }
-            None => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                format!(
-                    "No context bytes provided for {:?} response",
-                    versioned_protocol
-                ),
-            )),
-        },
+        }
         SupportedProtocol::PingV1 => Ok(Some(RpcSuccessResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -832,43 +860,49 @@ fn handle_rpc_response<E: EthSpec>(
         SupportedProtocol::MetaDataV2 => Ok(Some(RpcSuccessResponse::MetaData(MetaData::V2(
             MetaDataV2::from_ssz_bytes(decoded_buffer)?,
         )))),
-        SupportedProtocol::BlocksByRangeV2 => match fork_name {
-            Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
-            )))),
+        SupportedProtocol::BlocksByRangeV2 | SupportedProtocol::BlocksByRangeV2_3845 => {
+            match fork_name {
+                Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
 
-            Some(ForkName::Base) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Bellatrix) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Capella) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Electra) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            None => Err(RPCError::ErrorResponse(
-                RpcErrorResponse::InvalidRequest,
-                format!(
-                    "No context bytes provided for {:?} response",
-                    versioned_protocol
-                ),
-            )),
-        },
+                Some(ForkName::Base) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
+                )))),
+                Some(ForkName::Bellatrix) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
+                Some(ForkName::Capella) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
+                Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
+                Some(ForkName::Electra) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
+                Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
+                )))),
+                None => Err(RPCError::ErrorResponse(
+                    RpcErrorResponse::InvalidRequest,
+                    format!(
+                        "No context bytes provided for {:?} response",
+                        versioned_protocol
+                    ),
+                )),
+            }
+        }
         SupportedProtocol::BlocksByRootV2 => match fork_name {
             Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
                 SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
@@ -1056,18 +1090,18 @@ mod tests {
     }
 
     fn blbrange_request() -> BlobsByRangeRequest {
-        BlobsByRangeRequest {
+        BlobsByRangeRequest::V1(BlobsByRangeRequestV1 {
             start_slot: 0,
             count: 10,
-        }
+        })
     }
 
     fn dcbrange_request() -> DataColumnsByRangeRequest {
-        DataColumnsByRangeRequest {
+        DataColumnsByRangeRequest::V1(DataColumnsByRangeRequestV1 {
             start_slot: 0,
             count: 10,
             columns: vec![1, 2, 3],
-        }
+        })
     }
 
     fn dcbroot_request(spec: &ChainSpec) -> DataColumnsByRootRequest {

@@ -655,15 +655,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let req_start_slot = *req.start_slot();
         let req_count = *req.count();
+        let req_block_root = req.block_root().ok().copied();
 
         debug!(self.log, "Received BlocksByRange Request";
             "peer_id" => %peer_id,
             "start_slot" => req_start_slot,
             "count" => req_count,
+            "block_root" => ?req_block_root,
         );
 
-        let block_roots =
-            self.get_block_roots_for_slot_range(req_start_slot, req_count, "BlocksByRange")?;
+        let block_roots = self.get_block_roots_for_slot_range(
+            req_start_slot,
+            req_count,
+            req_block_root,
+            "BlocksByRange",
+        )?;
         let current_slot = self
             .chain
             .slot()
@@ -781,6 +787,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         req_start_slot: u64,
         req_count: u64,
+        req_block_root: Option<Hash256>,
         req_type: &str,
     ) -> Result<Vec<Hash256>, (RpcErrorResponse, &'static str)> {
         let block_roots_timer = std::time::Instant::now();
@@ -796,7 +803,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // If the entire requested range is after finalization, use fork_choice
             (
                 self.chain
-                    .block_roots_from_fork_choice(req_start_slot, req_count),
+                    .block_roots_from_fork_choice(req_start_slot, req_count, req_block_root),
                 "fork_choice",
             )
         } else if req_start_slot + req_count <= finalized_slot.as_u64() {
@@ -816,9 +823,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.get_block_roots_from_store(req_start_slot, count_from_store)?;
 
             // Get roots from fork choice (after finalized slot)
-            let roots_from_fork_choice = self
-                .chain
-                .block_roots_from_fork_choice(start_slot_fork_choice, count_from_fork_choice);
+            let roots_from_fork_choice = self.chain.block_roots_from_fork_choice(
+                start_slot_fork_choice,
+                count_from_fork_choice,
+                req_block_root,
+            );
 
             roots_from_store.extend(roots_from_fork_choice);
 
@@ -938,11 +947,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(self.log, "Received BlobsByRange Request";
             "peer_id" => %peer_id,
-            "count" => req.count,
-            "start_slot" => req.start_slot,
+            "count" => req.count(),
+            "start_slot" => req.start_slot(),
+            "block_root" => ?req.block_root().ok(),
         );
 
-        let request_start_slot = Slot::from(req.start_slot);
+        let request_start_slot = Slot::from(*req.start_slot());
 
         let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
@@ -980,8 +990,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
         }
 
-        let block_roots =
-            self.get_block_roots_for_slot_range(req.start_slot, req.count, "BlobsByRange")?;
+        let block_roots = self.get_block_roots_for_slot_range(
+            *req.start_slot(),
+            *req.count(),
+            req.block_root().ok().copied(),
+            "BlobsByRange",
+        )?;
 
         let current_slot = self
             .chain
@@ -993,9 +1007,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.log,
                 "BlobsByRange outgoing response processed";
                 "peer" => %peer_id,
-                "start_slot" => req.start_slot,
+                "start_slot" => req.start_slot(),
+                "block_root" => ?req.block_root().ok(),
                 "current_slot" => current_slot,
-                "requested" => req.count,
+                "requested" => req.count(),
                 "returned" => blobs_sent
             );
         };
@@ -1074,8 +1089,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(self.log, "Received DataColumnsByRange Request";
             "peer_id" => %peer_id,
-            "count" => req.count,
-            "start_slot" => req.start_slot,
+            "count" => req.count(),
+            "start_slot" => req.start_slot(),
+            "block_root" => ?req.block_root().ok(),
         );
 
         // Should not send more than max request data columns
@@ -1086,7 +1102,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             ));
         }
 
-        let request_start_slot = Slot::from(req.start_slot);
+        let request_start_slot = Slot::from(*req.start_slot());
 
         let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
@@ -1125,12 +1141,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
         }
 
-        let block_roots =
-            self.get_block_roots_for_slot_range(req.start_slot, req.count, "DataColumnsByRange")?;
+        let block_roots = self.get_block_roots_for_slot_range(
+            *req.start_slot(),
+            *req.count(),
+            req.block_root().ok().copied(),
+            "DataColumnsByRange",
+        )?;
         let mut data_columns_sent = 0;
 
         for root in block_roots {
-            for index in &req.columns {
+            for index in req.columns() {
                 match self.chain.get_data_column(&root, index) {
                     Ok(Some(data_column_sidecar)) => {
                         data_columns_sent += 1;
@@ -1171,9 +1191,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.log,
             "DataColumnsByRange Response processed";
             "peer" => %peer_id,
-            "start_slot" => req.start_slot,
+            "start_slot" => req.start_slot(),
+            "block_root" => ?req.block_root().ok(),
             "current_slot" => current_slot,
-            "requested" => req.count,
+            "requested" => req.count(),
             "returned" => data_columns_sent
         );
 

@@ -324,10 +324,11 @@ fn test_blobs_by_range_chunked_rpc() {
         .await;
 
         // BlobsByRange Request
-        let rpc_request = RequestType::BlobsByRange(BlobsByRangeRequest {
-            start_slot: 0,
-            count: slot_count,
-        });
+        let rpc_request =
+            RequestType::BlobsByRange(BlobsByRangeRequest::V1(BlobsByRangeRequestV1 {
+                start_slot: 0,
+                count: slot_count,
+            }));
 
         // BlocksByRange Response
         let blob = BlobSidecar::<E>::empty();

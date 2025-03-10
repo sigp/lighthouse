@@ -10,8 +10,8 @@ use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use beacon_chain::{block_verification_types::RpcBlock, EngineState, NotifyExecutionLayer};
 use beacon_processor::WorkType;
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, DataColumnsByRangeRequest, OldBlocksByRangeRequest,
-    OldBlocksByRangeRequestV2,
+    BlobsByRangeRequest, BlobsByRangeRequestV1, DataColumnsByRangeRequest,
+    DataColumnsByRangeRequestV1, OldBlocksByRangeRequest, OldBlocksByRangeRequestV2,
 };
 use lighthouse_network::rpc::{RequestType, StatusMessage};
 use lighthouse_network::service::api_types::{
@@ -237,9 +237,9 @@ impl TestRig {
                 NetworkMessage::SendRequest {
                     peer_id,
                     request:
-                        RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
-                            start_slot, ..
-                        }),
+                        RequestType::DataColumnsByRange(DataColumnsByRangeRequest::V1(
+                            DataColumnsByRangeRequestV1 { start_slot, .. },
+                        )),
                     request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
                 } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                 _ => None,
@@ -255,7 +255,7 @@ impl TestRig {
                 .pop_received_network_event(|ev| match ev {
                     NetworkMessage::SendRequest {
                         peer_id,
-                        request: RequestType::BlobsByRange(BlobsByRangeRequest { start_slot, .. }),
+                        request: RequestType::BlobsByRange(BlobsByRangeRequest::V1(BlobsByRangeRequestV1 { start_slot, .. })),
                         request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
                     } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                     _ => None,

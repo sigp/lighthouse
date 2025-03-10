@@ -372,10 +372,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let blobs_req_id = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
             Some(self.send_blobs_by_range_request(
                 peer_id,
-                BlobsByRangeRequest {
-                    start_slot: *request.start_slot(),
-                    count: *request.count(),
-                },
+                BlobsByRangeRequest::new(
+                    *request.start_slot(),
+                    *request.count(),
+                    request.block_root().ok().copied(),
+                ),
                 id,
             )?)
         } else {
@@ -387,12 +388,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let column_indexes = self.network_globals().sampling_columns.clone();
 
                 let data_column_requests = self
-                    .make_columns_by_range_requests(request, &column_indexes)?
+                    .make_columns_by_range_requests(&column_indexes)?
                     .into_iter()
-                    .map(|(peer_id, columns_by_range_request)| {
+                    .map(|(peer_id, columns_to_request)| {
                         self.send_data_columns_by_range_request(
                             peer_id,
-                            columns_by_range_request,
+                            DataColumnsByRangeRequest::new(
+                                *request.start_slot(),
+                                *request.count(),
+                                columns_to_request,
+                                request.block_root().ok().copied(),
+                            ),
                             id,
                         )
                     })
@@ -419,10 +425,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     fn make_columns_by_range_requests(
         &self,
-        request: BlocksByRangeRequest,
         custody_indexes: &HashSet<ColumnIndex>,
-    ) -> Result<HashMap<PeerId, DataColumnsByRangeRequest>, RpcRequestSendError> {
-        let mut peer_id_to_request_map = HashMap::new();
+    ) -> Result<HashMap<PeerId, Vec<ColumnIndex>>, RpcRequestSendError> {
+        let mut peer_id_to_request_map = HashMap::<PeerId, Vec<ColumnIndex>>::new();
 
         for column_index in custody_indexes {
             // TODO(das): The peer selection logic here needs to be improved - we should probably
@@ -437,15 +442,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 return Err(RpcRequestSendError::NoCustodyPeers);
             };
 
-            let columns_by_range_request = peer_id_to_request_map
-                .entry(custody_peer)
-                .or_insert_with(|| DataColumnsByRangeRequest {
-                    start_slot: *request.start_slot(),
-                    count: *request.count(),
-                    columns: vec![],
-                });
+            let columns_by_range_request = peer_id_to_request_map.entry(custody_peer).or_default();
 
-            columns_by_range_request.columns.push(*column_index);
+            columns_by_range_request.push(*column_index);
         }
 
         Ok(peer_id_to_request_map)
@@ -818,7 +817,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             id: self.next_id(),
             parent_request_id,
         };
-        let request_epoch = Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch());
+        let request_epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
 
         // Create the blob request based on the blocks request.
         self.network_send
@@ -833,7 +832,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sync RPC request sent";
             "method" => "BlobsByRange",
-            "slots" => request.count,
+            "slots" => request.count(),
             "epoch" => request_epoch,
             "peer" => %peer_id,
             "id" => %id,
@@ -873,9 +872,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.log,
             "Sync RPC request sent";
             "method" => "DataColumnsByRange",
-            "slots" => request.count,
-            "epoch" => Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
-            "columns" => ?request.columns,
+            "slots" => request.count(),
+            "epoch" => Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch()),
+            "columns" => ?request.columns(),
             "peer" => %peer_id,
             "id" => %id,
         );

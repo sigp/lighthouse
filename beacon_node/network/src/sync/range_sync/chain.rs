@@ -190,6 +190,19 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .sum()
     }
 
+    fn end_block_root(&self) -> Option<Hash256> {
+        match self.chain_type {
+            // https://github.com/ethereum/consensus-specs/pull/3845 may be spec-ed such that only
+            // blocks up to head_root are returned if the count exceeds that block. When syncing the
+            // last epoch of chain (the epoch including head_root) we may query blocks descendant of
+            // that block. Depending on the final spec we should edit this logic to not request
+            // above `target_head_slot`.
+            SyncingChainType::Head => Some(self.target_head_root),
+            SyncingChainType::Finalized => None,
+            SyncingChainType::Backfill => None,
+        }
+    }
+
     /// Removes a peer from the chain.
     /// If the peer has active batches, those are considered failed and re-requested.
     pub fn remove_peer(
@@ -1062,7 +1075,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             if let Entry::Vacant(entry) = self.batches.entry(epoch) {
                 if let Some(peer) = idle_peers.pop() {
                     let batch_type = network.batch_type(epoch);
-                    let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH, batch_type);
+                    let optimistic_batch =
+                        BatchInfo::new(&epoch, EPOCHS_PER_BATCH, self.end_block_root(), batch_type);
                     entry.insert(optimistic_batch);
                     self.send_batch(network, epoch, peer)?;
                 }
@@ -1164,7 +1178,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             Entry::Vacant(entry) => {
                 let batch_type = network.batch_type(batch_id);
-                entry.insert(BatchInfo::new(&batch_id, EPOCHS_PER_BATCH, batch_type));
+                entry.insert(BatchInfo::new(
+                    &batch_id,
+                    EPOCHS_PER_BATCH,
+                    self.end_block_root(),
+                    batch_type,
+                ));
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
                 Some(batch_id)
             }

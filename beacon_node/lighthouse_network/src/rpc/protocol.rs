@@ -310,12 +310,15 @@ pub enum SupportedProtocol {
     GoodbyeV1,
     BlocksByRangeV1,
     BlocksByRangeV2,
+    BlocksByRangeV2_3845,
     BlocksByRootV1,
     BlocksByRootV2,
     BlobsByRangeV1,
+    BlobsByRangeV1_3845,
     BlobsByRootV1,
     DataColumnsByRootV1,
     DataColumnsByRangeV1,
+    DataColumnsByRangeV1_3845,
     PingV1,
     MetaDataV1,
     MetaDataV2,
@@ -333,12 +336,15 @@ impl SupportedProtocol {
             SupportedProtocol::GoodbyeV1 => "1",
             SupportedProtocol::BlocksByRangeV1 => "1",
             SupportedProtocol::BlocksByRangeV2 => "2",
+            SupportedProtocol::BlocksByRangeV2_3845 => "2_3845",
             SupportedProtocol::BlocksByRootV1 => "1",
             SupportedProtocol::BlocksByRootV2 => "2",
             SupportedProtocol::BlobsByRangeV1 => "1",
+            SupportedProtocol::BlobsByRangeV1_3845 => "1_3845",
             SupportedProtocol::BlobsByRootV1 => "1",
             SupportedProtocol::DataColumnsByRootV1 => "1",
             SupportedProtocol::DataColumnsByRangeV1 => "1",
+            SupportedProtocol::DataColumnsByRangeV1_3845 => "1_3845",
             SupportedProtocol::PingV1 => "1",
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
@@ -356,12 +362,15 @@ impl SupportedProtocol {
             SupportedProtocol::GoodbyeV1 => Protocol::Goodbye,
             SupportedProtocol::BlocksByRangeV1 => Protocol::BlocksByRange,
             SupportedProtocol::BlocksByRangeV2 => Protocol::BlocksByRange,
+            SupportedProtocol::BlocksByRangeV2_3845 => Protocol::BlocksByRange,
             SupportedProtocol::BlocksByRootV1 => Protocol::BlocksByRoot,
             SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
             SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
+            SupportedProtocol::BlobsByRangeV1_3845 => Protocol::BlobsByRange,
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
             SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
             SupportedProtocol::DataColumnsByRangeV1 => Protocol::DataColumnsByRange,
+            SupportedProtocol::DataColumnsByRangeV1_3845 => Protocol::DataColumnsByRange,
             SupportedProtocol::PingV1 => Protocol::Ping,
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
@@ -379,7 +388,8 @@ impl SupportedProtocol {
         let mut supported = vec![
             ProtocolId::new(Self::StatusV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::GoodbyeV1, Encoding::SSZSnappy),
-            // V2 variants have higher preference then V1
+            // Newer variants have higher preference then V1
+            ProtocolId::new(Self::BlocksByRangeV2_3845, Encoding::SSZSnappy),
             ProtocolId::new(Self::BlocksByRangeV2, Encoding::SSZSnappy),
             ProtocolId::new(Self::BlocksByRangeV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::BlocksByRootV2, Encoding::SSZSnappy),
@@ -402,12 +412,17 @@ impl SupportedProtocol {
         if fork_context.fork_exists(ForkName::Deneb) {
             supported.extend_from_slice(&[
                 ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlobsByRangeV1_3845, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
         if fork_context.spec.is_peer_das_scheduled() {
             supported.extend_from_slice(&[
                 ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
+                ProtocolId::new(
+                    SupportedProtocol::DataColumnsByRangeV1_3845,
+                    Encoding::SSZSnappy,
+                ),
                 ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
@@ -510,13 +525,13 @@ impl ProtocolId {
             ),
             // V1 and V2 requests are the same
             Protocol::BlocksByRange => RpcLimits::new(
-                <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
-                <OldBlocksByRangeRequestV2 as Encode>::ssz_fixed_len(),
+                <OldBlocksByRangeRequestV2_3845 as Encode>::ssz_fixed_len(),
+                <OldBlocksByRangeRequestV2_3845 as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlocksByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
             Protocol::BlobsByRange => RpcLimits::new(
-                <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
-                <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
+                <BlobsByRangeRequestV1_3845 as Encode>::ssz_fixed_len(),
+                <BlobsByRangeRequestV1_3845 as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
             Protocol::DataColumnsByRoot => RpcLimits::new(0, spec.max_data_columns_by_root_request),
@@ -587,12 +602,15 @@ impl ProtocolId {
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
         match self.versioned_protocol {
-            SupportedProtocol::BlocksByRangeV2
+            SupportedProtocol::BlocksByRangeV2_3845
+            | SupportedProtocol::BlocksByRangeV2
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::BlobsByRangeV1
+            | SupportedProtocol::BlobsByRangeV1_3845
             | SupportedProtocol::BlobsByRootV1
             | SupportedProtocol::DataColumnsByRootV1
             | SupportedProtocol::DataColumnsByRangeV1
+            | SupportedProtocol::DataColumnsByRangeV1_3845
             | SupportedProtocol::LightClientBootstrapV1
             | SupportedProtocol::LightClientOptimisticUpdateV1
             | SupportedProtocol::LightClientFinalityUpdateV1
@@ -768,6 +786,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlocksByRange(req) => match req {
                 OldBlocksByRangeRequest::V1(_) => SupportedProtocol::BlocksByRangeV1,
                 OldBlocksByRangeRequest::V2(_) => SupportedProtocol::BlocksByRangeV2,
+                OldBlocksByRangeRequest::V2_3845(_) => SupportedProtocol::BlocksByRangeV2_3845,
             },
             RequestType::BlocksByRoot(req) => match req {
                 BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,

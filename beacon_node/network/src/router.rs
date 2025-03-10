@@ -223,7 +223,10 @@ impl<T: BeaconChainTypes> Router<T> {
                         BlocksByRangeRequest::new_v1(req.start_slot, count)
                     }
                     methods::OldBlocksByRangeRequest::V2(req) => {
-                        BlocksByRangeRequest::new(req.start_slot, count)
+                        BlocksByRangeRequest::new(req.start_slot, count, None)
+                    }
+                    methods::OldBlocksByRangeRequest::V2_3845(req) => {
+                        BlocksByRangeRequest::new(req.start_slot, count, Some(req.block_root))
                     }
                 };
 

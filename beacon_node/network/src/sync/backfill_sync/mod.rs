@@ -1073,6 +1073,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 entry.insert(BatchInfo::new(
                     &batch_id,
                     BACKFILL_EPOCHS_PER_BATCH,
+                    // We are requesting finalized blocks, no need to request a specific root. If
+                    // requesting a specific root becomes mandatory just query the finalized root at
+                    // the start of the backfill process.
+                    None,
                     batch_type,
                 ));
                 if self.would_complete(batch_id) {

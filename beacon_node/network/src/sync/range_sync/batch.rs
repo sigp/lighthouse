@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use strum::Display;
-use types::{Epoch, EthSpec, Slot};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// The number of times to retry a batch before it is considered failed.
 const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
@@ -99,6 +99,8 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     start_slot: Slot,
     /// End slot of the batch.
     end_slot: Slot,
+    /// Target root to sync the batch too
+    end_block_root: Option<Hash256>,
     /// The `Attempts` that have been made and failed to send us this batch.
     failed_processing_attempts: Vec<Attempt>,
     /// Number of processing attempts that have failed but we do not count.
@@ -157,12 +159,19 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     /// fork boundary will be of mixed type (all blocks and one last blockblob), and I don't want to
     /// deal with this for now.
     /// This means finalization might be slower in deneb
-    pub fn new(start_epoch: &Epoch, num_of_epochs: u64, batch_type: ByRangeRequestType) -> Self {
+    pub fn new(
+        start_epoch: &Epoch,
+        num_of_epochs: u64,
+        // TODO: make sure that end_slot is less than this block root
+        end_block_root: Option<Hash256>,
+        batch_type: ByRangeRequestType,
+    ) -> Self {
         let start_slot = start_epoch.start_slot(E::slots_per_epoch());
         let end_slot = start_slot + num_of_epochs * E::slots_per_epoch();
         BatchInfo {
             start_slot,
             end_slot,
+            end_block_root,
             failed_processing_attempts: Vec::new(),
             failed_download_attempts: Vec::new(),
             non_faulty_processing_attempts: 0,
@@ -238,6 +247,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             BlocksByRangeRequest::new(
                 self.start_slot.into(),
                 self.end_slot.sub(self.start_slot).into(),
+                self.end_block_root,
             ),
             self.batch_type,
         )
