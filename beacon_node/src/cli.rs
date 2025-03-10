@@ -1009,7 +1009,7 @@ pub fn cli_app() -> Command {
                        database when they are older than the data availability boundary \
                        relative to the current epoch.")
                 .action(ArgAction::Set)
-                .default_value("1")
+                .default_value("256")
                 .display_order(0)
         )
         .arg(
