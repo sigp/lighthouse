@@ -164,7 +164,7 @@ impl<E: EthSpec> StateCache<E> {
         let mut deleted_states =
             if let Some(over_capacity) = self.len().checked_sub(self.capacity()) {
                 // The `over_capacity` should always be 0, but we add it here just in case.
-                self.cull((over_capacity + self.headroom.get()).max(1))
+                self.cull(over_capacity + self.headroom.get())
             } else {
                 vec![]
             };
