@@ -1783,10 +1783,17 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
     block: B,
 ) -> Result<B, BlockError> {
     // If we have a split block newer than finalization then we also ban blocks which are not
-    // descended from that split block.
+    // descended from that split block. It's important not to try checking `is_descendant` if
+    // finality is ahead of the split and the split block has been pruned, as `is_descendant` will
+    // return `false` in this case.
+    let finalized_slot = fork_choice
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch());
     let split = chain.store.get_split_info();
-    let is_descendant_from_split_block =
-        split.slot == 0 || fork_choice.is_descendant(split.block_root, block.parent_root());
+    let is_descendant_from_split_block = split.slot == 0
+        || split.slot <= finalized_slot
+        || fork_choice.is_descendant(split.block_root, block.parent_root());
 
     if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root())
         && is_descendant_from_split_block
