@@ -1534,9 +1534,9 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_bls12_381"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48603155907d588e487aea229f61a28d9a918c95c9aa987055ba29502225810b"
+checksum = "76f9cdad245e39a3659bc4c8958e93de34bd31ba3131ead14ccfb4b2cd60e52d"
 dependencies = [
  "blst",
  "blstrs",
@@ -1548,9 +1548,9 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_erasure_codes"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdf616e4b4f1799191bb1e70b8a29f65e95ab5d74c59972a34998de488d01efd"
+checksum = "581d28bcc93eecd97a04cebc5293271e0f41650f03c102f24d6cd784cbedb9f2"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_polynomial",
@@ -1558,24 +1558,24 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_maybe_rayon"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1ddd0330f34f0b92a9f0b29bc3f8494b30d596ab8b951233ec90b2d72ab132c"
+checksum = "06fc0f984e585ea984a766c5b58d6bf6c51e463b0a0835b0dd4652d358b506b3"
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_polynomial"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7488314261926373e1c20121c404fabf5b57ca09f48eddc7fef38be1df79a006"
+checksum = "56dff7a45e2d80308b21abdbc5520ec23c3ebfb3a94fafc02edfa7f356af6d7f"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
 ]
 
 [[package]]
 name = "crate_crypto_kzg_multi_open_fk20"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d24efdb64e7518848f11069dd9de23bd04455146a9fd5486345d99ed8bfdb049"
+checksum = "1a0c2f82695a88809e713e1ff9534cb90ceffab0a08f4bd33245db711f9d356f"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_maybe_rayon",
@@ -7423,9 +7423,9 @@ dependencies = [
 
 [[package]]
 name = "rust_eth_kzg"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a237a478ee68e491a0f40bbcbb958b79ba9b37aacce459f7ab3ba78f3cbfa9d0"
+checksum = "3f83b5559e1dcd3f7721838909288faf4500fb466eff98eac99b67ac04335b93"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_erasure_codes",
