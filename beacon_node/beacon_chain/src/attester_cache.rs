@@ -287,7 +287,6 @@ impl AttesterCache {
         Ok(())
     }
 
-    // TODO(holesky) check this out
     /// Read the state identified by `state_root` from the database, advance it to the required
     /// slot, use it to prime the cache and return the values for the provided `slot` and
     /// `committee_index`.
