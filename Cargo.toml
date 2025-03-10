@@ -137,8 +137,8 @@ discv5 = { version = "0.9", features = ["libp2p"] }
 env_logger = "0.9"
 ethereum_hashing = "0.7.0"
 ethereum_serde_utils = "0.7"
-ethereum_ssz = "0.7"
-ethereum_ssz_derive = "0.7"
+ethereum_ssz = "0.8.2"
+ethereum_ssz_derive = "0.8.2"
 ethers-core = "1"
 ethers-providers = { version = "1", default-features = false }
 exit-future = "0.2"
@@ -154,7 +154,7 @@ libsecp256k1 = "0.7"
 log = "0.4"
 lru = "0.12"
 maplit = "1"
-milhouse = "0.3"
+milhouse = "0.5"
 mockito = "1.5.0"
 num_cpus = "1"
 parking_lot = "0.12"
@@ -192,7 +192,7 @@ slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
-ssz_types = "0.8"
+ssz_types = "0.10"
 strum = { version = "0.24", features = ["derive"] }
 superstruct = "0.8"
 syn = "1"
@@ -211,8 +211,8 @@ tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tree_hash = "0.8"
-tree_hash_derive = "0.8"
+tree_hash = "0.9"
+tree_hash_derive = "0.9"
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 warp = { version = "0.3.7", default-features = false, features = ["tls"] }
