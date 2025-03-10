@@ -191,6 +191,12 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_light_client_server = false;
     }
 
+    if let Some(sync_tolerance_epochs) =
+        clap_utils::parse_optional(cli_args, "sync-tolerance-epochs")?
+    {
+        client_config.chain.sync_tolerance_epochs = sync_tolerance_epochs;
+    }
+
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
     }

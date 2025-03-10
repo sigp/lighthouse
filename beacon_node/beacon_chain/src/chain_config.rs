@@ -16,6 +16,9 @@ pub const DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR: u32 = 3;
 /// Fraction of a slot lookahead for fork choice in the state advance timer (500ms on mainnet).
 pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
+/// Default sync tolerance epochs.
+pub const DEFAULT_SYNC_TOLERANCE_EPOCHS: u64 = 2;
+
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
     /// Maximum number of slots to skip when importing an attestation.
@@ -94,6 +97,9 @@ pub struct ChainConfig {
     /// The delay in milliseconds applied by the node between sending each blob or data column batch.
     /// This doesn't apply if the node is the block proposer.
     pub blob_publication_batch_interval: Duration,
+    /// The max distance between the head block and the current slot at which Lighthouse will
+    /// consider itself synced and still serve validator-related requests.
+    pub sync_tolerance_epochs: u64,
     /// Artificial delay for block publishing. For PeerDAS testing only.
     pub block_publishing_delay: Option<Duration>,
     /// Artificial delay for data column publishing. For PeerDAS testing only.
@@ -133,6 +139,7 @@ impl Default for ChainConfig {
             enable_sampling: false,
             blob_publication_batches: 4,
             blob_publication_batch_interval: Duration::from_millis(300),
+            sync_tolerance_epochs: DEFAULT_SYNC_TOLERANCE_EPOCHS,
             block_publishing_delay: None,
             data_column_publishing_delay: None,
         }
