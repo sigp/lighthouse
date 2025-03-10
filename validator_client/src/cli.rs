@@ -99,6 +99,15 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        help = "Disable the performance of attestation duties (and sync committee duties). This \
+                flag should only be used in emergencies to prioritise block proposal duties.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_attesting: bool,
+
+    #[clap(
+        long,
         help = "If present, the validator client will use longer timeouts for requests \
                 made to the beacon node. This flag is generally not recommended, \
                 longer timeouts can cause missed duties when fallbacks are used.",
@@ -106,6 +115,20 @@ pub struct ValidatorClient {
         help_heading = FLAG_HEADER
     )]
     pub use_long_timeouts: bool,
+
+    #[clap(
+        long,
+        requires = "use_long_timeouts",
+        default_value_t = 1,
+        help = "If present, the validator client will use a multiplier for the timeout \
+                when making requests to the beacon node. This only takes effect when \
+                the `--use-long-timeouts` flag is present. The timeouts will be the slot \
+                duration multiplied by this value. This flag is generally not recommended, \
+                longer timeouts can cause missed duties when fallbacks are used.",
+        display_order = 0,
+        help_heading = FLAG_HEADER,
+    )]
+    pub long_timeouts_multiplier: u32,
 
     #[clap(
         long,
