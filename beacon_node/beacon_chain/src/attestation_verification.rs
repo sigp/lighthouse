@@ -266,16 +266,6 @@ pub enum Error {
         attestation: Hash256,
         expected: Option<Hash256>,
     },
-    /// The attestation conflicts with finalization, no need to propagate.
-    ///
-    /// ## Peer scoring
-    ///
-    /// It's unclear if this attestation is valid, but it conflicts with finality and shouldn't be
-    /// propogated.
-    NotFinalizedDescendant {
-        attestation_block_root: Hash256,
-        attestation_slot: Slot,
-    },
     /// There was an error whilst processing the attestation. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -1391,9 +1381,8 @@ fn verify_attestation_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>
     {
         Ok(())
     } else {
-        Err(Error::NotFinalizedDescendant {
+        Err(Error::HeadBlockFinalized {
             attestation_block_root,
-            attestation_slot: attestation.data().slot,
         })
     }
 }
