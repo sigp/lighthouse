@@ -4448,6 +4448,23 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/supply/{state_root}
+    let get_lighthouse_supply = warp::path("lighthouse")
+        .and(warp::path("supply"))
+        .and(warp::path::param::<StateId>())
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(|state_id: StateId, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+            task_spawner.blocking_json_task(Priority::P1, move || {
+                state_id
+                    .map_state_and_execution_optimistic_and_finalized(&chain, |state, execution_optimistic, finalized| {
+                        Ok((state.balances().iter().sum::<u64>(), execution_optimistic, finalized))
+                    })
+                    .map(api_types::GenericResponse::from)
+            })
+        });
+
     // GET lighthouse/analysis/attestation_performance/{index}
     let get_lighthouse_attestation_performance = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -4720,6 +4737,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
                 .uor(get_lighthouse_block_rewards)
+                .uor(get_lighthouse_supply)
                 .uor(get_lighthouse_attestation_performance)
                 .uor(get_beacon_light_client_optimistic_update)
                 .uor(get_beacon_light_client_finality_update)
