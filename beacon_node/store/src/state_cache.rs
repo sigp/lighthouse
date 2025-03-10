@@ -37,7 +37,7 @@ pub struct StateCache<E: EthSpec> {
     block_map: BlockMap,
     max_epoch: Epoch,
     head_block_root: Hash256,
-    headroom: usize,
+    headroom: NonZeroUsize,
 }
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ pub enum PutStateOutcome {
 
 #[allow(clippy::len_without_is_empty)]
 impl<E: EthSpec> StateCache<E> {
-    pub fn new(capacity: NonZeroUsize, headroom: usize) -> Self {
+    pub fn new(capacity: NonZeroUsize, headroom: NonZeroUsize) -> Self {
         StateCache {
             finalized_state: None,
             states: LruCache::new(capacity),
@@ -160,7 +160,7 @@ impl<E: EthSpec> StateCache<E> {
         // If the cache is full, use the custom cull routine to make room.
         if let Some(over_capacity) = self.len().checked_sub(self.capacity()) {
             // The `over_capacity` should always be 0, but we add it here just in case.
-            self.cull((over_capacity + self.headroom).max(1));
+            self.cull(over_capacity + self.headroom.get());
         }
 
         // Insert the full state into the cache.
