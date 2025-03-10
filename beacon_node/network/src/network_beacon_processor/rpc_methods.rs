@@ -4,7 +4,7 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use itertools::process_results;
+use itertools::{process_results, Itertools};
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
@@ -917,20 +917,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
 
         // Pick out the required blocks, ignoring skip-slots.
-        let mut last_block_root = None;
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
             iter.take_while(|(_, slot)| slot.as_u64() < start_slot.saturating_add(count))
-                // map skip slots to None
-                .map(|(root, _)| {
-                    let result = if Some(root) == last_block_root {
-                        None
-                    } else {
-                        Some(root)
-                    };
-                    last_block_root = Some(root);
-                    result
-                })
-                .collect::<Vec<Option<Hash256>>>()
+                .collect::<Vec<_>>()
         });
 
         let block_roots = match maybe_block_roots {
@@ -945,8 +934,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        // remove all skip slots
-        Ok(block_roots.into_iter().flatten().collect::<Vec<_>>())
+        // remove all skip slots i.e. duplicated roots
+        Ok(block_roots
+            .into_iter()
+            .map(|(root, _)| root)
+            .unique()
+            .collect::<Vec<_>>())
     }
 
     /// Handle a `BlobsByRange` request from the peer.
