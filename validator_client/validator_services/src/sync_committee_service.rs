@@ -88,7 +88,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         if self.duties_service.disable_attesting {
-            info!(log, "Sync committee service disabled");
+            info!("Sync committee service disabled");
             return Ok(());
         }
 
