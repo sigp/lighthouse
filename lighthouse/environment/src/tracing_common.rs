@@ -67,11 +67,11 @@ pub fn parse_level(level: &str) -> LevelFilter {
 
 fn filter_dependency_log(meta: &tracing::Metadata<'_>) -> bool {
     if let Some(file) = meta.file() {
+        let target = meta.target();
         if file.contains("/.cargo/") {
-            let target = meta.target();
             return target.contains("discv5") || target.contains("libp2p");
         } else {
-            return !file.contains("gossipsub");
+            return !file.contains("gossipsub") && !target.contains("hyper")
         }
     }
     true
