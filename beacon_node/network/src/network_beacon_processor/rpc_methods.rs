@@ -1,3 +1,4 @@
+use crate::metrics;
 use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -822,7 +823,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         req_count: u64,
         req_type: &str,
     ) -> Result<Vec<Hash256>, (RpcErrorResponse, &'static str)> {
-        let block_roots_timer = std::time::Instant::now();
+        let start_time = std::time::Instant::now();
         let finalized_slot = self
             .chain
             .canonical_head
@@ -831,7 +832,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 
-        let (block_roots, block_roots_source) = if req_start_slot >= finalized_slot.as_u64() {
+        let (block_roots, source) = if req_start_slot >= finalized_slot.as_u64() {
             // If the entire requested range is after finalization, use fork_choice
             (
                 self.chain
@@ -864,15 +865,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             (roots_from_store, "mixed")
         };
 
+        let elapsed = start_time.elapsed();
+        metrics::observe_timer_vec(
+            &metrics::BEACON_PROCESSOR_GET_BLOCK_ROOTS_TIME,
+            &[source],
+            elapsed,
+        );
+
         debug!(
             self.log,
             "Range request block roots retrieved";
             "req_type" => req_type,
             "start_slot" => req_start_slot,
-            "count" => req_count,
-            "block_roots_count" => block_roots.len(),
-            "block_roots_source" => block_roots_source,
-            "elapsed" => ?block_roots_timer.elapsed(),
+            "req_count" => req_count,
+            "roots_count" => block_roots.len(),
+            "source" => source,
+            "elapsed" => ?elapsed,
             "finalized_slot" => finalized_slot
         );
 
