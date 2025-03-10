@@ -1190,7 +1190,7 @@ impl<E: EthSpec> Network<E> {
     ) {
         let metadata = self.network_globals.local_metadata.read().clone();
         // The encoder is responsible for sending the negotiated version of the metadata
-        let event = RpcResponse::Success(RpcSuccessResponse::MetaData(metadata));
+        let event = RpcResponse::Success(RpcSuccessResponse::MetaData(Arc::new(metadata)));
         self.eth2_rpc_mut()
             .send_response(peer_id, id, request_id, event);
     }
@@ -1605,7 +1605,7 @@ impl<E: EthSpec> Network<E> {
                     }
                     RpcSuccessResponse::MetaData(meta_data) => {
                         self.peer_manager_mut()
-                            .meta_data_response(&peer_id, meta_data);
+                            .meta_data_response(&peer_id, meta_data.as_ref().clone());
                         None
                     }
                     /* Network propagated protocols */
