@@ -64,6 +64,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
     ) -> bool {
         // First check that there are not already other responses waiting to be sent.
         if let Some(queue) = self.delayed_responses.get_mut(&(peer_id, protocol)) {
+            debug!(self.log, "Response rate limiting since there are already other responses waiting to be sent"; "protocol" => %protocol, "peer_id" => %peer_id);
             queue.push_back(QueuedResponse {
                 peer_id,
                 connection_id,

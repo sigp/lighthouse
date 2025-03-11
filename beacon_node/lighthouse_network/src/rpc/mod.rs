@@ -244,6 +244,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
                 request.substream_id,
                 event.clone(),
             ) {
+                // Response is logged and queued internally in the response limiter.
                 return;
             }
         }
