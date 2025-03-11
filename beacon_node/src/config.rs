@@ -8,7 +8,7 @@ use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::TrustedSetup;
 use clap::{parser::ValueSource, ArgMatches, Id};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::{parse_flag, parse_optional, parse_required};
+use clap_utils::{parse_flag, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -177,9 +177,6 @@ pub fn get_config<E: EthSpec>(
 
         client_config.http_api.enable_light_client_server =
             !cli_args.get_flag("disable-light-client-server");
-
-        client_config.http_api.sync_tolerance_epochs =
-            parse_optional(cli_args, "sync-tolerance-epochs")?;
     }
 
     if cli_args.get_flag("light-client-server") {
@@ -192,6 +189,12 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.get_flag("disable-light-client-server") {
         client_config.chain.enable_light_client_server = false;
+    }
+
+    if let Some(sync_tolerance_epochs) =
+        clap_utils::parse_optional(cli_args, "sync-tolerance-epochs")?
+    {
+        client_config.chain.sync_tolerance_epochs = sync_tolerance_epochs;
     }
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
