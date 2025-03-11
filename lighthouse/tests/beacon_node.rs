@@ -1,7 +1,7 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
 };
 use beacon_node::{
     beacon_chain::graffiti_calculator::GraffitiOrigin,
@@ -2576,6 +2576,30 @@ fn light_client_http_server_disabled() {
             assert!(!config.http_api.enable_light_client_server);
             assert!(!config.network.enable_light_client_server);
             assert!(!config.chain.enable_light_client_server);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("sync-tolerance-epochs", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.sync_tolerance_epochs, 0);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.sync_tolerance_epochs,
+                DEFAULT_SYNC_TOLERANCE_EPOCHS
+            );
         });
 }
 

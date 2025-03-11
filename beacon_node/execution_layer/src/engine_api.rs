@@ -142,9 +142,16 @@ pub struct ExecutionBlock {
     pub block_number: u64,
 
     pub parent_hash: ExecutionBlockHash,
-    pub total_difficulty: Uint256,
+    pub total_difficulty: Option<Uint256>,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
+}
+
+impl ExecutionBlock {
+    pub fn terminal_total_difficulty_reached(&self, terminal_total_difficulty: Uint256) -> bool {
+        self.total_difficulty
+            .is_none_or(|td| td >= terminal_total_difficulty)
+    }
 }
 
 #[superstruct(
