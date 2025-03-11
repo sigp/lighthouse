@@ -607,7 +607,7 @@ pub enum ResponseTermination {
 }
 
 impl ResponseTermination {
-    pub fn protocol(&self) -> Protocol {
+    pub fn as_protocol(&self) -> Protocol {
         match self {
             ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
             ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,

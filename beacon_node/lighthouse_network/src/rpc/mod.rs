@@ -520,7 +520,7 @@ where
                     }
                     RPCReceived::EndOfStream(_id, response_termination) => {
                         self.outbound_request_limiter
-                            .request_completed(&peer_id, response_termination.protocol());
+                            .request_completed(&peer_id, response_termination.as_protocol());
                     }
                 }
 
