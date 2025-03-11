@@ -100,6 +100,10 @@ pub struct ChainConfig {
     /// The max distance between the head block and the current slot at which Lighthouse will
     /// consider itself synced and still serve validator-related requests.
     pub sync_tolerance_epochs: u64,
+    /// Block roots of "banned" blocks which Lighthouse will refuse to import.
+    ///
+    /// On Holesky there is also another banned block which is hardcoded and cannot be unbanned
+    /// without editing the source.
     pub invalid_block_roots: HashSet<Hash256>,
 }
 
