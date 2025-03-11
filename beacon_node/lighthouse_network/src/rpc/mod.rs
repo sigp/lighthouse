@@ -533,8 +533,7 @@ where
             HandlerEvent::Err(err) => {
                 // Inform the limiter that the request has ended with an error.
                 let protocol = match err {
-                    HandlerErr::Inbound { proto, .. } => proto,
-                    HandlerErr::Outbound { proto, .. } => proto,
+                    HandlerErr::Inbound { proto, .. } | HandlerErr::Outbound { proto, .. } => proto,
                 };
                 self.outbound_request_limiter
                     .request_completed(&peer_id, protocol);
