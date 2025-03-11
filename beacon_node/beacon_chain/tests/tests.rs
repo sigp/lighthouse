@@ -12,8 +12,8 @@ use operation_pool::PersistedOperationPool;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
-    BeaconState, BeaconStateError, BlockImportSource, EthSpec, Hash256, Keypair, MinimalEthSpec,
-    RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, Checkpoint, EthSpec, Hash256, Keypair,
+    MinimalEthSpec, RelativeEpoch, Slot,
 };
 
 // Should ideally be divisible by 3.
@@ -867,5 +867,123 @@ async fn block_roots_skip_slot_behaviour() {
             .unwrap()
             .is_none(),
         "WhenSlotSkipped::Prev should return None on a future slot"
+    );
+}
+
+#[tokio::test]
+async fn pseudo_finalize_test() {
+    // This test ensures that after pseudo finalization, we can still finalize the chain without issues
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    let one_third = (VALIDATOR_COUNT / 3) * 1;
+    let attesters = (0..one_third).collect();
+
+    // extend the chain, but don't finalize
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(attesters),
+        )
+        .await;
+
+    harness.advance_slot();
+
+    let head = harness.chain.head_snapshot();
+    let state = &head.beacon_state;
+    let split = harness.chain.store.get_split_info();
+
+    assert_eq!(
+        state.slot(),
+        num_blocks_produced,
+        "head should be at the current slot"
+    );
+    assert_eq!(
+        state.current_epoch(),
+        num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
+        "head should be at the expected epoch"
+    );
+    assert_eq!(
+        state.current_justified_checkpoint().epoch,
+        0,
+        "There should be no justified checkpoint"
+    );
+    assert_eq!(
+        state.finalized_checkpoint().epoch,
+        0,
+        "There should be no finalized checkpoint"
+    );
+    assert_eq!(split.slot, 0, "Our split point should be unset");
+
+    let checkpoint = Checkpoint {
+        epoch: head.beacon_state.current_epoch(),
+        root: head.beacon_block_root,
+    };
+
+    // pseudo finalize
+    harness
+        .chain
+        .manually_finalize_state(head.beacon_state_root(), checkpoint)
+        .unwrap();
+
+    let split = harness.chain.store.get_split_info();
+
+    assert_eq!(
+        state.current_justified_checkpoint().epoch,
+        0,
+        "We pseudo finalized, but our justified checkpoint should still be unset"
+    );
+    assert_eq!(
+        state.finalized_checkpoint().epoch,
+        0,
+        "We pseudo finalized, but our finalized checkpoint should still be unset"
+    );
+    assert_eq!(
+        split.slot,
+        head.beacon_state.slot(),
+        "We pseudo finalized, our split point should be at the current head slot"
+    );
+
+    // finalize the chain
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    let head = harness.chain.head_snapshot();
+    let state = &head.beacon_state;
+    let split = harness.chain.store.get_split_info();
+
+    assert_eq!(
+        state.slot(),
+        num_blocks_produced * 2,
+        "head should be at the current slot"
+    );
+    assert_eq!(
+        state.current_epoch(),
+        (num_blocks_produced * 2) / MinimalEthSpec::slots_per_epoch(),
+        "head should be at the expected epoch"
+    );
+    assert_eq!(
+        state.current_justified_checkpoint().epoch,
+        state.current_epoch() - 1,
+        "the head should be justified one behind the current epoch"
+    );
+    assert_eq!(
+        state.finalized_checkpoint().epoch,
+        state.current_epoch() - 2,
+        "the head should be finalized two behind the current epoch"
+    );
+    assert_eq!(
+        split.slot,
+        u64::from((state.current_epoch() - 2) * MinimalEthSpec::slots_per_epoch()),
+        "We finalized, our split point should be at the finalized slot"
     );
 }
