@@ -386,7 +386,7 @@ Options:
       --slots-per-restore-point <SLOT_COUNT>
           DEPRECATED. This flag has no effect.
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 128]
+          Specifies the size of the state cache [default: 32]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the

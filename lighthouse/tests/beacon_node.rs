@@ -1,7 +1,7 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
 };
 use beacon_node::{
     beacon_chain::graffiti_calculator::GraffitiOrigin,
@@ -1873,7 +1873,7 @@ fn block_cache_size_flag() {
 fn state_cache_size_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(32)));
 }
 #[test]
 fn state_cache_size_flag() {
@@ -2586,7 +2586,20 @@ fn sync_tolerance_epochs() {
         .flag("sync-tolerance-epochs", Some("0"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.http_api.sync_tolerance_epochs, Some(0));
+            assert_eq!(config.chain.sync_tolerance_epochs, 0);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.sync_tolerance_epochs,
+                DEFAULT_SYNC_TOLERANCE_EPOCHS
+            );
         });
 }
 
