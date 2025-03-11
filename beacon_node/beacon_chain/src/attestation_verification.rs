@@ -858,9 +858,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // Check the attestation target root is consistent with the head root.
         verify_attestation_target_root::<T::EthSpec>(&head_block, attestation)?;
 
-        // Do not process an attestation that doesn't descend from the finalized root.
-        verify_attestation_is_finalized_checkpoint_or_descendant(attestation, chain)?;
-
         Ok(())
     }
 
@@ -1132,7 +1129,9 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         }
 
         Ok(block)
-    } else if chain.is_pre_finalization_block(attestation.data().beacon_block_root)? {
+    } else if chain.is_pre_finalization_block(attestation.data().beacon_block_root)?
+        || verify_attestation_is_finalized_checkpoint_or_descendant(attestation.data(), chain)
+    {
         Err(Error::HeadBlockFinalized {
             beacon_block_root: attestation.data().beacon_block_root,
         })
@@ -1365,26 +1364,19 @@ pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Res
 }
 
 fn verify_attestation_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
-    attestation: AttestationRef<T::EthSpec>,
+    attestation_data: &AttestationData,
     chain: &BeaconChain<T>,
-) -> Result<(), Error> {
+) -> bool {
     // If we have a split block newer than finalization then we also ban attestations which are not
     // descended from that split block.
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
     let split = chain.store.get_split_info();
-    let attestation_block_root = attestation.data().beacon_block_root;
+    let attestation_block_root = attestation_data.beacon_block_root;
     let is_descendant_from_split_block =
         split.slot == 0 || fork_choice.is_descendant(split.block_root, attestation_block_root);
 
-    if fork_choice.is_finalized_checkpoint_or_descendant(attestation_block_root)
+    fork_choice.is_finalized_checkpoint_or_descendant(attestation_block_root)
         && is_descendant_from_split_block
-    {
-        Ok(())
-    } else {
-        Err(Error::HeadBlockFinalized {
-            attestation_block_root,
-        })
-    }
 }
 
 /// Assists in readability.
