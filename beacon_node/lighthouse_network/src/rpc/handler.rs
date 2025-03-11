@@ -326,7 +326,7 @@ where
         if matches!(self.state, HandlerState::Deactivated) {
             // we no longer send responses after the handler is deactivated
             debug!(self.log, "Response not sent. Deactivated handler";
-                        "response" => %response, "id" => inbound_id);
+                "response" => %response, "id" => inbound_id);
             return;
         }
 
