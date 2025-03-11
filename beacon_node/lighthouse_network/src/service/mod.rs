@@ -941,17 +941,8 @@ impl<E: EthSpec> Network<E> {
         // unsubscribe from the topic
         let libp2p_topic: Topic = topic.clone().into();
 
-        match self.gossipsub_mut().unsubscribe(&libp2p_topic) {
-            Err(_) => {
-                warn!(topic = %libp2p_topic, "Failed to unsubscribe from topic");
-                false
-            }
-            Ok(v) => {
-                // Inform the network
-                debug!(%topic, "Unsubscribed to topic");
-                v
-            }
-        }
+        debug!(%topic, "Unsubscribed to topic");
+        self.gossipsub_mut().unsubscribe(&libp2p_topic)
     }
 
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
@@ -1046,18 +1037,11 @@ impl<E: EthSpec> Network<E> {
             }
         }
 
-        if let Err(e) = self.gossipsub_mut().report_message_validation_result(
+        self.gossipsub_mut().report_message_validation_result(
             &message_id,
             propagation_source,
             validation_result,
-        ) {
-            warn!(
-                %message_id,
-                peer_id = %propagation_source,
-                error = ?e,
-                "Failed to report message validation"
-            );
-        }
+        );
     }
 
     /// Updates the current gossipsub scoring parameters based on the validator count and current
@@ -1513,18 +1497,11 @@ impl<E: EthSpec> Network<E> {
                     Err(e) => {
                         debug!(topic = ?gs_msg.topic, error = e, "Could not decode gossipsub message");
                         //reject the message
-                        if let Err(e) = self.gossipsub_mut().report_message_validation_result(
+                        self.gossipsub_mut().report_message_validation_result(
                             &id,
                             &propagation_source,
                             MessageAcceptance::Reject,
-                        ) {
-                            warn!(
-                                message_id = %id,
-                                peer_id = %propagation_source,
-                                error = ?e,
-                                "Failed to report message validation"
-                            );
-                        }
+                        );
                     }
                     Ok(msg) => {
                         // Notify the network
@@ -1620,7 +1597,7 @@ impl<E: EthSpec> Network<E> {
                     "Slow gossipsub peer"
                 );
                 // Punish the peer if it cannot handle priority messages
-                if failed_messages.total_timeout() > 10 {
+                if failed_messages.timeout > 10 {
                     debug!(%peer_id, "Slow gossipsub peer penalized for priority failure");
                     self.peer_manager_mut().report_peer(
                         &peer_id,
