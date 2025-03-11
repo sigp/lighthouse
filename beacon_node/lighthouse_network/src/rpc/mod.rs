@@ -509,26 +509,28 @@ where
                     message: Ok(RPCReceived::Request(request)),
                 }));
             }
-            HandlerEvent::Ok(rpc) => {
-                // Inform the limiter that a response has been received.
-                match &rpc {
-                    RPCReceived::Request(_) => unreachable!(),
-                    RPCReceived::Response(_id, response) => {
-                        if response.protocol().terminator().is_none() {
-                            self.outbound_request_limiter
-                                .request_completed(&peer_id, response.protocol());
-                        }
-                    }
-                    RPCReceived::EndOfStream(_id, response_termination) => {
-                        self.outbound_request_limiter
-                            .request_completed(&peer_id, response_termination.as_protocol());
-                    }
+            HandlerEvent::Ok(RPCReceived::Response(id, response)) => {
+                if response.protocol().terminator().is_none() {
+                    // Inform the limiter that a response has been received.
+                    self.outbound_request_limiter
+                        .request_completed(&peer_id, response.protocol());
                 }
 
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
                     conn_id,
-                    message: Ok(rpc),
+                    message: Ok(RPCReceived::Response(id, response)),
+                }));
+            }
+            HandlerEvent::Ok(RPCReceived::EndOfStream(id, response_termination)) => {
+                // Inform the limiter that a response has been received.
+                self.outbound_request_limiter
+                    .request_completed(&peer_id, response_termination.as_protocol());
+
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id,
+                    message: Ok(RPCReceived::EndOfStream(id, response_termination)),
                 }));
             }
             HandlerEvent::Err(err) => {
