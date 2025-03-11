@@ -344,7 +344,7 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         // Ensure we're only storing a single light client update for the given sync committee period
         if light_client_updates.len() != 1 {
             return Err(format!(
-                "{} light client update(s) was returned when only one was expected.",
+                "{} light client updates was returned when only one was expected.",
                 light_client_updates.len()
             ));
         }
