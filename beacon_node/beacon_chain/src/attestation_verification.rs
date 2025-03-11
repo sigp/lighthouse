@@ -1128,10 +1128,14 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
             }
         }
 
+        if !verify_attestation_is_finalized_checkpoint_or_descendant(attestation.data(), chain) {
+            return Err(Error::HeadBlockFinalized {
+                beacon_block_root: attestation.data().beacon_block_root,
+            });
+        }
+
         Ok(block)
-    } else if chain.is_pre_finalization_block(attestation.data().beacon_block_root)?
-        || verify_attestation_is_finalized_checkpoint_or_descendant(attestation.data(), chain)
-    {
+    } else if chain.is_pre_finalization_block(attestation.data().beacon_block_root)? {
         Err(Error::HeadBlockFinalized {
             beacon_block_root: attestation.data().beacon_block_root,
         })
