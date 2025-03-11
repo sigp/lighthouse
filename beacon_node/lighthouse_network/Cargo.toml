@@ -17,7 +17,7 @@ ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
-gossipsub = { workspace = true }
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", tag = "sigp-gossipsub-0.1" }
 hex = { workspace = true }
 itertools = { workspace = true }
 libp2p-mplex = "0.43"
@@ -46,9 +46,6 @@ tokio-util = { workspace = true }
 types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
 unused_port = { workspace = true }
-
-# Local dependencies
-void = "1.0.2"
 
 [dependencies.libp2p]
 version = "0.55"
