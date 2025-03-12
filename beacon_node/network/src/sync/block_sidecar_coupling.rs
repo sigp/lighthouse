@@ -105,7 +105,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             .map(|block| {
                 let block_root = get_block_root(&block);
                 let max_blobs_per_block = spec.max_blobs_per_block(block.epoch()) as usize;
-                let mut blobs = blobs_by_block.remove(&block_root).unwrap_or_default();
+                let blobs = blobs_by_block.remove(&block_root).unwrap_or_default();
                 // BlobsByRange request handler enforces that blobs are sorted by index
                 let blobs = RuntimeVariableList::new(blobs, max_blobs_per_block)
                     .map_err(|_| "Blobs returned exceeds max length".to_string())?;
