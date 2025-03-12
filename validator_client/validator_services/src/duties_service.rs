@@ -230,6 +230,7 @@ pub struct DutiesService<T, E: EthSpec> {
     pub enable_high_validator_count_metrics: bool,
     /// If this validator is running in distributed mode.
     pub distributed: bool,
+    pub disable_attesting: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
@@ -402,6 +403,11 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
         },
         "duties_service_proposers",
     );
+
+    // Skip starting attestation duties or sync committee services.
+    if core_duties_service.disable_attesting {
+        return;
+    }
 
     /*
      * Spawn the task which keeps track of local attestation duties.
@@ -843,10 +849,10 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         local_pubkeys
             .iter()
             .filter(|pubkey| {
-                attesters.get(pubkey).map_or(true, |duties| {
+                attesters.get(pubkey).is_none_or(|duties| {
                     duties
                         .get(&epoch)
-                        .map_or(true, |(prior, _)| *prior != dependent_root)
+                        .is_none_or(|(prior, _)| *prior != dependent_root)
                 })
             })
             .collect::<Vec<_>>()
@@ -974,7 +980,7 @@ fn get_uninitialized_validators<T: SlotClock + 'static, E: EthSpec>(
         .filter(|pubkey| {
             attesters
                 .get(pubkey)
-                .map_or(true, |duties| !duties.contains_key(epoch))
+                .is_none_or(|duties| !duties.contains_key(epoch))
         })
         .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
         .collect::<Vec<_>>()

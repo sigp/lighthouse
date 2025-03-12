@@ -271,10 +271,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     pub fn download_completed(
         &mut self,
         blocks: Vec<RpcBlock<E>>,
-    ) -> Result<
-        usize, /* Received blocks */
-        Result<(Slot, Slot, BatchOperationOutcome), WrongState>,
-    > {
+    ) -> Result<usize /* Received blocks */, WrongState> {
         match self.state.poison() {
             BatchState::Downloading(peer, _request_id) => {
                 let received = blocks.len();
@@ -284,10 +281,10 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(Err(WrongState(format!(
+                Err(WrongState(format!(
                     "Download completed for batch in wrong state {:?}",
                     self.state
-                ))))
+                )))
             }
         }
     }

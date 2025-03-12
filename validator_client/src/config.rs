@@ -49,6 +49,8 @@ pub struct Config {
     pub init_slashing_protection: bool,
     /// If true, use longer timeouts for requests made to the beacon node.
     pub use_long_timeouts: bool,
+    /// Multiplier to use for long timeouts.
+    pub long_timeouts_multiplier: u32,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Option<Graffiti>,
     /// Graffiti file to load per validator graffitis.
@@ -85,6 +87,7 @@ pub struct Config {
     /// Configuration for the initialized validators
     #[serde(flatten)]
     pub initialized_validators: InitializedValidatorsConfig,
+    pub disable_attesting: bool,
 }
 
 impl Default for Config {
@@ -111,6 +114,7 @@ impl Default for Config {
             disable_auto_discover: false,
             init_slashing_protection: false,
             use_long_timeouts: false,
+            long_timeouts_multiplier: 1,
             graffiti: None,
             graffiti_file: None,
             http_api: <_>::default(),
@@ -126,6 +130,7 @@ impl Default for Config {
             validator_registration_batch_size: 500,
             distributed: false,
             initialized_validators: <_>::default(),
+            disable_attesting: false,
         }
     }
 }
@@ -194,6 +199,7 @@ impl Config {
         config.disable_auto_discover = validator_client_config.disable_auto_discover;
         config.init_slashing_protection = validator_client_config.init_slashing_protection;
         config.use_long_timeouts = validator_client_config.use_long_timeouts;
+        config.long_timeouts_multiplier = validator_client_config.long_timeouts_multiplier;
 
         if let Some(graffiti_file_path) = validator_client_config.graffiti_file.as_ref() {
             let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());
@@ -378,6 +384,8 @@ impl Config {
             } else {
                 true
             };
+
+        config.disable_attesting = validator_client_config.disable_attesting;
 
         Ok(config)
     }

@@ -767,7 +767,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         // Disabling an already disabled validator *with no other changes* is a
                         // no-op.
                         (Some(false), None)
-                            if body.enabled.map_or(true, |enabled| !enabled)
+                            if body.enabled.is_none_or(|enabled| !enabled)
                                 && body.gas_limit.is_none()
                                 && body.builder_boost_factor.is_none()
                                 && body.builder_proposals.is_none()

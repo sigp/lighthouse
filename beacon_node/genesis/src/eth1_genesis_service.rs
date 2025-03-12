@@ -263,7 +263,7 @@ impl Eth1GenesisService {
             // again later.
             if eth1_service
                 .highest_safe_block()
-                .map_or(true, |n| block.number > n)
+                .is_none_or(|n| block.number > n)
             {
                 continue;
             }
