@@ -1,5 +1,6 @@
 use kzg::{
-    Blob as KzgBlob, Bytes48, CellRef as KzgCellRef, CellsAndKzgProofs, Error as KzgError, Kzg,
+    Blob as KzgBlob, Bytes48, Cell as KzgCell, CellRef as KzgCellRef, CellsAndKzgProofs,
+    Error as KzgError, Kzg,
 };
 use rayon::prelude::*;
 use ssz_types::FixedVector;
@@ -41,6 +42,33 @@ pub fn validate_blob<E: EthSpec>(
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
     let kzg_blob = ssz_blob_to_crypto_blob_boxed::<E>(blob)?;
     kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
+}
+
+// TODO
+pub fn verify_cell_proof_batch<'a, E: EthSpec>(
+    _kzg: &Kzg,
+    _cells: Vec<Cell<E>>,
+    _cell_indices: Vec<u64>,
+    _kzg_proofs: Vec<KzgProof>,
+    _kzg_commitments: Vec<KzgCommitment>,
+) -> Result<(), KzgError> {
+    todo!()
+    // let cells = cells
+    //     .into_iter()
+    //     .map(ssz_cell_to_crypto_cell::<E>)
+    //     .collect::<Result<Vec<_>, KzgError>>()?;
+    //
+    // let proofs = kzg_proofs
+    //     .into_iter()
+    //     .map(|&proof| Bytes48::from(proof))
+    //     .collect::<Vec<_>>();
+    //
+    // let commitments = kzg_commitments
+    //     .into_iter()
+    //     .map(|&commitment| Bytes48::from(commitment))
+    //     .collect::<Vec<_>>();
+    //
+    // kzg.verify_cell_proof_batch(&cells, &proofs, cell_indices, &commitments)
 }
 
 /// Validate a batch of `DataColumnSidecar`.
@@ -198,6 +226,23 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
         spec,
     )
     .map_err(DataColumnSidecarError::BuildSidecarFailed)
+}
+
+pub fn compute_cells<E: EthSpec>(blobs: &[&Blob<E>], kzg: &Kzg) -> Result<Vec<KzgCell>, KzgError> {
+    let cells_vec = blobs
+        .into_par_iter()
+        .map(|blob| {
+            let blob = blob
+                .as_ref()
+                .try_into()
+                .expect("blob should have a guaranteed size due to FixedVector");
+
+            kzg.compute_cells(blob)
+        })
+        .collect::<Result<Vec<_>, KzgError>>()?;
+
+    let cells_flattened: Vec<KzgCell> = cells_vec.into_iter().flatten().collect();
+    Ok(cells_flattened)
 }
 
 pub(crate) fn build_data_column_sidecars<E: EthSpec>(

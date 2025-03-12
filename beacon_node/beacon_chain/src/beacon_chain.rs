@@ -5903,15 +5903,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let kzg_proofs = Vec::from(proofs);
 
                 let kzg = self.kzg.as_ref();
-
-                // TODO(fulu): we no longer need blob proofs from PeerDAS and could avoid computing.
-                kzg_utils::validate_blobs::<T::EthSpec>(
-                    kzg,
-                    expected_kzg_commitments,
-                    blobs.iter().collect(),
-                    &kzg_proofs,
-                )
-                .map_err(BlockProductionError::KzgError)?;
+                if self
+                    .spec
+                    .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
+                {
+                    // TODO: extend blobs and verify cells against proofs
+                    // let cells = kzg_utils::compute_cells(kzg, &blobs.iter().collect::<Vec<_>>())
+                    //     .map_err(BlockProductionError::KzgError)?;
+                    // kzg_utils::verify_cell_proof_batch::<T::EthSpec>(
+                    //     kzg,
+                    //     &cells,
+                    //     cell_indices,
+                    //     kzg_proofs,
+                    //     kzg_commitments,
+                    // )
+                    // .map_err(BlockProductionError::KzgError)?;
+                } else {
+                    kzg_utils::validate_blobs::<T::EthSpec>(
+                        kzg,
+                        expected_kzg_commitments,
+                        blobs.iter().collect(),
+                        &kzg_proofs,
+                    )
+                    .map_err(BlockProductionError::KzgError)?;
+                }
 
                 Some((kzg_proofs.into(), blobs))
             }

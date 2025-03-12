@@ -1013,14 +1013,10 @@ mod test {
 
     #[test]
     fn valid_test_blobs_bundle_v2() {
-        assert!(
-            validate_blob_bundle_v2::<MainnetEthSpec>().is_ok(),
-            "Mainnet preset test blobs bundle v2 should contain valid proofs"
-        );
-        assert!(
-            validate_blob_bundle_v2::<MinimalEthSpec>().is_ok(),
-            "Minimal preset test blobs bundle v2 should contain valid proofs"
-        );
+        validate_blob_bundle_v2::<MainnetEthSpec>()
+            .expect("Mainnet preset test blobs bundle v2 should contain valid proofs");
+        validate_blob_bundle_v2::<MinimalEthSpec>()
+            .expect("Minimal preset test blobs bundle v2 should contain valid proofs");
     }
 
     fn validate_blob_bundle_v1<E: EthSpec>() -> Result<(), String> {
@@ -1039,7 +1035,7 @@ mod test {
             load_test_blobs_bundle_v2::<E>().map(|(commitment, proofs, blob)| {
                 let kzg_blob: KzgBlobRef = blob.as_ref().try_into().unwrap();
                 (
-                    vec![Bytes48::from(commitment)],
+                    vec![Bytes48::from(commitment); proofs.len()],
                     proofs.into_iter().map(|p| p.into()).collect::<Vec<_>>(),
                     kzg.compute_cells(kzg_blob).unwrap(),
                 )
