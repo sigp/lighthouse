@@ -4,8 +4,8 @@ use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
     bit::B0, UInt, U0, U1, U10, U1024, U1048576, U1073741824, U1099511627776, U128, U131072,
-    U134217728, U16, U16777216, U17, U2, U2048, U256, U262144, U32, U4, U4096, U512, U625, U64,
-    U65536, U8, U8192, U524288,
+    U134217728, U16, U16777216, U17, U2, U2048, U256, U262144, U32, U4, U4096, U512, U524288, U625,
+    U64, U65536, U8, U8192,
 };
 use std::fmt::{self, Debug};
 use std::str::FromStr;
@@ -147,7 +147,7 @@ pub trait EthSpec:
     type BytesPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     /// The maximum number of cell commitments per block
-    /// 
+    ///
     /// MaxBlobCommitmentsPerBlock * FieldElementsPerExtendedBlob / FieldElementsPerCell
     type MaxCellCommitmentsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
@@ -480,6 +480,7 @@ impl EthSpec for MinimalEthSpec {
     type MaxWithdrawalRequestsPerPayload = U2;
     type FieldElementsPerCell = U64;
     type FieldElementsPerExtBlob = U8192;
+    type MaxCellCommitmentsPerBlock = U524288;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
 
@@ -572,6 +573,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxPendingDepositsPerEpoch = U16;
     type FieldElementsPerCell = U64;
     type FieldElementsPerExtBlob = U8192;
+    type MaxCellCommitmentsPerBlock = U524288;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
 

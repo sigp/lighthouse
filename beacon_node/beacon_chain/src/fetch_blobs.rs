@@ -11,7 +11,7 @@ use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_data_sidecars::DoNotObserve;
 use crate::{metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
-use execution_layer::json_structures::BlobAndProofV1;
+use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use execution_layer::Error as ExecutionLayerError;
 use metrics::{inc_counter, inc_counter_by, TryExt};
 use slog::{debug, error, o, Logger};
@@ -21,13 +21,19 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::{
-    BeaconStateError, BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockHeader,
+    BeaconStateError, Blob, BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
+    EthSpec, FullPayload, Hash256, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader,
+    VersionedHash,
 };
 
 pub enum BlobsOrDataColumns<T: BeaconChainTypes> {
     Blobs(Vec<GossipVerifiedBlob<T, DoNotObserve>>),
     DataColumns(DataColumnSidecarList<T::EthSpec>),
+}
+
+pub enum EngineGetBlobsOutput<E: EthSpec> {
+    Blobs(FixedBlobSidecarList<E>),
+    DataColumnReceiver(oneshot::Receiver<DataColumnSidecarList<E>>),
 }
 
 #[derive(Debug)]
@@ -74,20 +80,37 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         return Ok(None);
     };
 
-    let num_expected_blobs = versioned_hashes.len();
+    debug!(
+        log,
+        "Fetching blobs from the EL";
+        "num_expected_blobs" => versioned_hashes.len(),
+    );
 
+    if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+        fetch_and_process_blobs_v2(chain, block_root, block, versioned_hashes, publish_fn, log)
+            .await
+    } else {
+        fetch_and_process_blobs_v1(chain, block_root, block, versioned_hashes, publish_fn, log)
+            .await
+    }
+}
+
+async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    block_root: Hash256,
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    versioned_hashes: Vec<VersionedHash>,
+    publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + Sized,
+    log: Logger,
+) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
+    let num_expected_blobs = versioned_hashes.len();
     let execution_layer = chain
         .execution_layer
         .as_ref()
         .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
 
-    debug!(
-        log,
-        "Fetching blobs from the EL";
-        "num_expected_blobs" => num_expected_blobs,
-    );
     let response = execution_layer
-        .get_blobs(versioned_hashes)
+        .get_blobs_v1(versioned_hashes)
         .await
         .map_err(FetchEngineBlobError::RequestFailed)?;
 
@@ -148,51 +171,9 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         .collect::<Result<Vec<_>, _>>()
         .map_err(FetchEngineBlobError::GossipBlob)?;
 
-    let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
-
-    let data_columns_receiver_opt = if peer_das_enabled {
-        // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
-        if num_fetched_blobs != num_expected_blobs {
-            debug!(
-                log,
-                "Not all blobs fetched from the EL";
-                "info" => "Unable to compute data columns",
-                "num_fetched_blobs" => num_fetched_blobs,
-                "num_expected_blobs" => num_expected_blobs,
-            );
-            return Ok(None);
-        }
-
-        if chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
-            // Avoid computing columns if block has already been imported.
-            debug!(
-                log,
-                "Ignoring EL blobs response";
-                "info" => "block has already been imported",
-            );
-            return Ok(None);
-        }
-
-        let data_columns_receiver = spawn_compute_and_publish_data_columns_task(
-            &chain,
-            block.clone(),
-            fixed_blob_sidecar_list.clone(),
-            publish_fn,
-            log.clone(),
-        );
-
-        Some(data_columns_receiver)
-    } else {
-        if !blobs_to_import_and_publish.is_empty() {
-            publish_fn(BlobsOrDataColumns::Blobs(blobs_to_import_and_publish));
-        }
-
-        None
-    };
+    if !blobs_to_import_and_publish.is_empty() {
+        publish_fn(BlobsOrDataColumns::Blobs(blobs_to_import_and_publish));
+    }
 
     debug!(
         log,
@@ -204,8 +185,114 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         .process_engine_blobs(
             block.slot(),
             block_root,
-            fixed_blob_sidecar_list.clone(),
-            data_columns_receiver_opt,
+            EngineGetBlobsOutput::Blobs(fixed_blob_sidecar_list.clone()),
+        )
+        .await
+        .map_err(FetchEngineBlobError::BlobProcessingError)?;
+
+    Ok(Some(availability_processing_status))
+}
+
+async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    block_root: Hash256,
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    versioned_hashes: Vec<VersionedHash>,
+    publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
+    log: Logger,
+) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
+    let num_expected_blobs = versioned_hashes.len();
+    let execution_layer = chain
+        .execution_layer
+        .as_ref()
+        .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
+
+    let response = execution_layer
+        .get_blobs_v2(versioned_hashes)
+        .await
+        .map_err(FetchEngineBlobError::RequestFailed)?;
+
+    let (blobs, proofs): (Vec<_>, Vec<_>) = response
+        .into_iter()
+        .filter_map(|blob_and_proof_opt| {
+            blob_and_proof_opt.map(|blob_and_proof| {
+                let BlobAndProofV2 { blob, cell_proofs } = blob_and_proof;
+                (blob, cell_proofs)
+            })
+        })
+        .unzip();
+
+    if blobs.is_empty() {
+        debug!(
+           log,
+            "No blobs fetched from the EL";
+            "num_expected_blobs" => num_expected_blobs,
+        );
+        inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
+        return Ok(None);
+    } else {
+        inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
+    }
+
+    let num_fetched_blobs = blobs.len();
+
+    inc_counter_by(
+        &metrics::BLOBS_FROM_EL_EXPECTED_TOTAL,
+        num_expected_blobs as u64,
+    );
+    inc_counter_by(
+        &metrics::BLOBS_FROM_EL_RECEIVED_TOTAL,
+        num_fetched_blobs as u64,
+    );
+
+    // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
+    if num_fetched_blobs != num_expected_blobs {
+        debug!(
+            log,
+            "Not all blobs fetched from the EL";
+            "info" => "Unable to compute data columns",
+            "num_fetched_blobs" => num_fetched_blobs,
+            "num_expected_blobs" => num_expected_blobs,
+        );
+        return Ok(None);
+    }
+
+    if chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .contains_block(&block_root)
+    {
+        // Avoid computing columns if block has already been imported.
+        debug!(
+            log,
+            "Ignoring EL blobs response";
+            "info" => "block has already been imported",
+        );
+        return Ok(None);
+    }
+
+    // TODO: we could get rid of the receiver and just await on the blocking task, given the
+    // compute cell operation is very cheap.
+    let data_columns_receiver = spawn_compute_and_publish_data_columns_task(
+        &chain,
+        block.clone(),
+        blobs,
+        proofs,
+        publish_fn,
+        log.clone(),
+    );
+
+    debug!(
+        log,
+        "Processing engine blobs";
+        "num_fetched_blobs" => num_fetched_blobs,
+    );
+
+    let availability_processing_status = chain
+        .process_engine_blobs(
+            block.slot(),
+            block_root,
+            EngineGetBlobsOutput::DataColumnReceiver(data_columns_receiver),
         )
         .await
         .map_err(FetchEngineBlobError::BlobProcessingError)?;
@@ -224,7 +311,8 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    blobs: FixedBlobSidecarList<T::EthSpec>,
+    blobs: Vec<Blob<T::EthSpec>>,
+    proofs: Vec<KzgProofs<T::EthSpec>>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
     log: Logger,
 ) -> oneshot::Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
@@ -237,12 +325,12 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
                 &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
                 &[&blobs.len().to_string()],
             );
-            let blob_refs = blobs
-                .iter()
-                .filter_map(|b| b.as_ref().map(|b| &b.blob))
-                .collect::<Vec<_>>();
+
+            let blob_refs = blobs.iter().collect::<Vec<_>>();
+            let cell_proofs = proofs.into_iter().flatten().collect();
             let data_columns_result = blobs_to_data_column_sidecars(
                 &blob_refs,
+                cell_proofs,
                 &block,
                 &chain_cloned.kzg,
                 &chain_cloned.spec,

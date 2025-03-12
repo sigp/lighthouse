@@ -1,14 +1,15 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_GET_BLOBS_V1, ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V1,
-    ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_GET_BLOBS_V1, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
 };
 use eth2::types::{
-    BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
-    SsePayloadAttributesV3,
+    BlobsBundle, BlobsBundleRef, BlobsBundleV1, BlobsBundleV2, SsePayloadAttributes,
+    SsePayloadAttributesV1, SsePayloadAttributesV2, SsePayloadAttributesV3,
 };
 use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
@@ -291,8 +292,10 @@ pub struct GetPayloadResponse<E: EthSpec> {
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     pub execution_payload: ExecutionPayloadFulu<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu))]
-    pub blobs_bundle: BlobsBundle<E>,
+    #[superstruct(only(Deneb, Electra), partial_getter(rename = "blobs_bundle_v1"))]
+    pub blobs_bundle: BlobsBundleV1<E>,
+    #[superstruct(only(Fulu), partial_getter(rename = "blobs_bundle_v2"))]
+    pub blobs_bundle: BlobsBundleV2<E>,
     #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
     pub should_override_builder: bool,
     #[superstruct(only(Electra, Fulu))]
@@ -310,6 +313,18 @@ impl<E: EthSpec> GetPayloadResponse<E> {
 
     pub fn block_number(&self) -> u64 {
         ExecutionPayloadRef::from(self.to_ref()).block_number()
+    }
+
+    pub fn blobs_bundle(&self) -> Result<BlobsBundleRef<E>, Error> {
+        match self {
+            GetPayloadResponse::Bellatrix(_) | GetPayloadResponse::Capella(_) => {
+                Err(Error::IncorrectStateVariant)
+            }
+            GetPayloadResponse::Deneb(_) | GetPayloadResponse::Electra(_) => {
+                self.blobs_bundle_v1().map(|b| b.into())
+            }
+            GetPayloadResponse::Fulu(_) => self.blobs_bundle_v2().map(|b| b.into()),
+        }
     }
 }
 
@@ -354,19 +369,19 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
             GetPayloadResponse::Deneb(inner) => (
                 ExecutionPayload::Deneb(inner.execution_payload),
                 inner.block_value,
-                Some(inner.blobs_bundle),
+                Some(BlobsBundle::V1(inner.blobs_bundle)),
                 None,
             ),
             GetPayloadResponse::Electra(inner) => (
                 ExecutionPayload::Electra(inner.execution_payload),
                 inner.block_value,
-                Some(inner.blobs_bundle),
+                Some(BlobsBundle::V1(inner.blobs_bundle)),
                 Some(inner.requests),
             ),
             GetPayloadResponse::Fulu(inner) => (
                 ExecutionPayload::Fulu(inner.execution_payload),
                 inner.block_value,
-                Some(inner.blobs_bundle),
+                Some(BlobsBundle::V2(inner.blobs_bundle)),
                 Some(inner.requests),
             ),
         }
@@ -553,6 +568,7 @@ pub struct EngineCapabilities {
     pub get_payload_v5: bool,
     pub get_client_version_v1: bool,
     pub get_blobs_v1: bool,
+    pub get_blobs_v2: bool,
 }
 
 impl EngineCapabilities {
@@ -608,6 +624,9 @@ impl EngineCapabilities {
         }
         if self.get_blobs_v1 {
             response.push(ENGINE_GET_BLOBS_V1);
+        }
+        if self.get_blobs_v2 {
+            response.push(ENGINE_GET_BLOBS_V2);
         }
 
         response

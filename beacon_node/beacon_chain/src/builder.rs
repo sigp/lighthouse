@@ -569,15 +569,21 @@ where
             {
                 // After PeerDAS recompute columns from blobs to not force the checkpointz server
                 // into exposing another route.
-                let blobs = blobs
+                // FIXME: the getBlobs endpoint only returns blob proofs - we need to use
+                // getBlobsSidecarV2 or compute cell proofs.
+
+                let (blobs, proofs): (Vec<_>, Vec<_>) = blobs
                     .iter()
-                    .map(|blob_sidecar| &blob_sidecar.blob)
-                    .collect::<Vec<_>>();
-                let data_columns =
-                    blobs_to_data_column_sidecars(&blobs, &weak_subj_block, &self.kzg, &self.spec)
-                        .map_err(|e| {
-                            format!("Failed to compute weak subjectivity data_columns: {e:?}")
-                        })?;
+                    .map(|blob_sidecar| (&blob_sidecar.blob, blob_sidecar.kzg_proof))
+                    .unzip();
+                let data_columns = blobs_to_data_column_sidecars(
+                    &blobs,
+                    proofs,
+                    &weak_subj_block,
+                    &self.kzg,
+                    &self.spec,
+                )
+                .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?;
                 // TODO(das): only persist the columns under custody
                 store
                     .put_data_columns(&weak_subj_block_root, data_columns)

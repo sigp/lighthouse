@@ -2031,14 +2031,15 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadAndBlobs<E> {
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
         builder.register_anonymous_variable_length_item()?;
-        builder.register_type::<BlobsBundle<E>>()?;
+        builder.register_anonymous_variable_length_item()?;
         let mut decoder = builder.build()?;
 
         if fork_name.deneb_enabled() {
             let execution_payload = decoder.decode_next_with(|bytes| {
                 ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
             })?;
-            let blobs_bundle = decoder.decode_next()?;
+            let blobs_bundle = decoder
+                .decode_next_with(|bytes| BlobsBundle::from_ssz_bytes_by_fork(bytes, fork_name))?;
             Ok(Self {
                 execution_payload,
                 blobs_bundle,
@@ -2059,18 +2060,80 @@ pub enum ContentType {
 
 #[superstruct(
     variants(V1, V2),
-    variant_attributes(derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode),),
+    variant_attributes(
+        derive(
+            Clone,
+            Debug,
+            Default,
+            PartialEq,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode
+        ),
+        serde(bound = "E: EthSpec")
+    )
 )]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
 #[serde(bound = "E: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct BlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
     #[superstruct(only(V1))]
     pub proofs: KzgProofs<E>,
     #[superstruct(only(V2))]
-    pub cell_proofs: Vec<KzgProof<E>>,
+    pub cell_proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
+}
+
+impl<E: EthSpec> BlobsBundle<E> {
+    pub fn try_into_v1(self) -> Result<BlobsBundleV1<E>, String> {
+        match self {
+            BlobsBundle::V1(b) => Ok(b),
+            BlobsBundle::V2(_) => Err("Incorrect BlobsBundle variant".to_string()),
+        }
+    }
+
+    pub fn try_into_v2(self) -> Result<BlobsBundleV2<E>, String> {
+        match self {
+            BlobsBundle::V1(_) => Err("Incorrect BlobsBundle variant".to_string()),
+            BlobsBundle::V2(b) => Ok(b),
+        }
+    }
+
+    pub fn deconstruct(self) -> (BlobsList<E>, KzgProofs<E>, KzgCommitments<E>) {
+        match self {
+            BlobsBundle::V1(b) => (b.blobs, b.proofs, b.commitments),
+            BlobsBundle::V2(b) => (b.blobs, b.cell_proofs, b.commitments),
+        }
+    }
+}
+
+impl<'a, E: EthSpec> From<BlobsBundleRef<'a, E>> for BlobsBundle<E> {
+    fn from(blobs_bundle_ref: BlobsBundleRef<'a, E>) -> Self {
+        map_blobs_bundle_ref!(&'a _, blobs_bundle_ref, move |blobs_bundle, cons| {
+            cons(blobs_bundle);
+            blobs_bundle.clone().into()
+        })
+    }
+}
+
+impl<E: EthSpec> ForkVersionDecode for BlobsBundle<E> {
+    /// SSZ decode with explicit fork variant.
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
+                Err(DecodeError::BytesInvalid(format!(
+                    "Unsupported fork for BlobsBundle: {fork_name}",
+                )))
+            }
+            ForkName::Deneb | ForkName::Electra => {
+                BlobsBundleV1::from_ssz_bytes(bytes).map(Self::V1)
+            }
+            ForkName::Fulu => BlobsBundleV2::from_ssz_bytes(bytes).map(Self::V2),
+        }
+    }
 }
 
 #[cfg(test)]

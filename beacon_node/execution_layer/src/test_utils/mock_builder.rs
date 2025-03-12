@@ -489,11 +489,14 @@ impl<E: EthSpec> MockBuilder<E> {
             self.log,
             "Got full payload, sending to local beacon node for propagation";
             "txs_count" => payload.transactions().len(),
-            "blob_count" => blobs.as_ref().map(|b| b.commitments.len())
+            "blob_count" => blobs.as_ref().map(|b| b.commitments().len())
         );
         let publish_block_request = PublishBlockRequest::new(
             Arc::new(full_block),
-            blobs.clone().map(|b| (b.proofs, b.blobs)),
+            blobs.clone().map(|b| {
+                let (blobs, proofs, _) = b.deconstruct();
+                (proofs, blobs)
+            }),
         );
         self.beacon_client
             .post_beacon_blocks_v2(&publish_block_request, Some(BroadcastValidation::Gossip))
@@ -564,7 +567,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
                         blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
+                            .map(|b| b.commitments().clone())
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
@@ -576,7 +579,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
                         blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
+                            .map(|b| b.commitments().clone())
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
@@ -588,7 +591,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
                         blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
+                            .map(|b| b.commitments().clone())
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),

@@ -220,7 +220,7 @@ impl Kzg {
         .map_err(Into::into)
     }
 
-    /// Computes the cells and associated proofs for a given `blob` at index `index`.
+    /// Computes the cells and associated proofs for a given `blob`.
     pub fn compute_cells_and_proofs(
         &self,
         blob: KzgBlobRef<'_>,
@@ -233,6 +233,13 @@ impl Kzg {
         // Convert the proof type to a c-kzg proof type
         let c_kzg_proof = proofs.map(KzgProof);
         Ok((cells, c_kzg_proof))
+    }
+
+    /// Computes the cells for a given `blob`.
+    pub fn compute_cells(&self, blob: KzgBlobRef<'_>) -> Result<[Cell; CELLS_PER_EXT_BLOB], Error> {
+        self.context()
+            .compute_cells(blob)
+            .map_err(Error::PeerDASKZG)
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.

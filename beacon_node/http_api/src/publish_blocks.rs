@@ -10,7 +10,7 @@ use beacon_chain::{
     BeaconChainTypes, BlockError, IntoGossipVerifiedBlock, NotifyExecutionLayer,
 };
 use eth2::types::{
-    BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
+    BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
     PublishBlockRequest, SignedBlockContents,
 };
 use execution_layer::ProvenancedPayload;
@@ -384,8 +384,9 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
                     Ok((gossip_verified_blobs, vec![]))
                 } else {
                     // Post PeerDAS: construct data columns.
-                    let gossip_verified_data_columns =
-                        build_gossip_verified_data_columns(&chain, &block, blobs, &log)?;
+                    let gossip_verified_data_columns = build_gossip_verified_data_columns(
+                        &chain, &block, blobs, kzg_proofs, &log,
+                    )?;
                     Ok((vec![], gossip_verified_data_columns))
                 }
             },
@@ -404,11 +405,12 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     blobs: BlobsList<T::EthSpec>,
+    kzg_cell_proofs: KzgProofs<T::EthSpec>,
     log: &Logger,
 ) -> Result<Vec<Option<GossipVerifiedDataColumn<T>>>, Rejection> {
     let slot = block.slot();
     let data_column_sidecars =
-        build_blob_data_column_sidecars(chain, block, blobs).map_err(|e| {
+        build_blob_data_column_sidecars(chain, block, blobs, kzg_cell_proofs).map_err(|e| {
             error!(
                 log,
                 "Invalid data column - not publishing block";
@@ -865,11 +867,7 @@ pub fn into_full_block_and_blobs<T: BeaconChainTypes>(
                 .try_into_full_block(Some(execution_payload))
                 .ok_or("Failed to build full block with payload".to_string())?;
 
-            let BlobsBundle {
-                commitments: _,
-                proofs,
-                blobs,
-            } = blobs_bundle;
+            let (blobs, proofs, _commitments) = blobs_bundle.deconstruct();
 
             Ok((Arc::new(signed_block), Some((proofs, blobs))))
         }

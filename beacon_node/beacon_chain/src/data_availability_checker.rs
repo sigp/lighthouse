@@ -252,29 +252,32 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_engine_blobs(
         &self,
         block_root: Hash256,
-        block_epoch: Epoch,
         blobs: FixedBlobSidecarList<T::EthSpec>,
-        data_columns_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // `data_columns_recv` is always Some if block_root is post-PeerDAS
-        if let Some(data_columns_recv) = data_columns_recv {
-            self.availability_cache.put_computed_data_columns_recv(
-                block_root,
-                block_epoch,
-                data_columns_recv,
-                &self.log,
-            )
-        } else {
-            let seen_timestamp = self
-                .slot_clock
-                .now_duration()
-                .ok_or(AvailabilityCheckError::SlotClockError)?;
-            self.availability_cache.put_kzg_verified_blobs(
-                block_root,
-                KzgVerifiedBlobList::from_verified(blobs.iter().flatten().cloned(), seen_timestamp),
-                &self.log,
-            )
-        }
+        let seen_timestamp = self
+            .slot_clock
+            .now_duration()
+            .ok_or(AvailabilityCheckError::SlotClockError)?;
+        self.availability_cache.put_kzg_verified_blobs(
+            block_root,
+            KzgVerifiedBlobList::from_verified(blobs.iter().flatten().cloned(), seen_timestamp),
+            &self.log,
+        )
+    }
+
+    /// Puts a data column receiver for the block into the availability cache.
+    pub fn put_data_column_receiver(
+        &self,
+        block_root: Hash256,
+        block_epoch: Epoch,
+        data_columns_recv: oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache.put_computed_data_columns_recv(
+            block_root,
+            block_epoch,
+            data_columns_recv,
+            &self.log,
+        )
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
