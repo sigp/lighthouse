@@ -109,6 +109,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         duplicate_cache: DuplicateCache,
     ) {
+        // Do not process a block that is known to be invalid
+        if self.chain.check_invalid_block_roots(block_root).is_err() {
+            return;
+        }
         // Check if the block is already being imported through another source
         let Some(handle) = duplicate_cache.check_and_insert(block_root) else {
             debug!(

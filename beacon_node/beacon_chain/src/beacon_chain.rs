@@ -3345,8 +3345,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_source: BlockImportSource,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        self.check_invalid_block_roots(block_root)?;
-
         self.reqresp_pre_import_cache
             .write()
             .insert(block_root, unverified_block.block_cloned());
@@ -3364,7 +3362,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Check for known and configured invalid block roots before processing.
-    fn check_invalid_block_roots(&self, block_root: Hash256) -> Result<(), BlockError> {
+    pub fn check_invalid_block_roots(&self, block_root: Hash256) -> Result<(), BlockError> {
         let is_invalid_holesky_block =
             block_root == *INVALID_HOLESKY_BLOCK_ROOT && self.spec.deposit_chain_id == 17000;
         if self.config.invalid_block_roots.contains(&block_root) || is_invalid_holesky_block {
