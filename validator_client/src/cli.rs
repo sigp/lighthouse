@@ -389,7 +389,6 @@ pub struct ValidatorClient {
         long,
         value_name = "INTEGER",
         default_value_t = 30_000_000,
-        requires = "builder_proposals",
         help = "The gas limit to be used in all builder proposals for all validators managed \
                 by this validator client. Note this will not necessarily be used if the gas limit \
                 set here moves too far from the previous block's gas limit.",

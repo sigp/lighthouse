@@ -487,7 +487,6 @@ fn no_gas_limit_flag() {
 fn gas_limit_flag() {
     CommandLineTest::new()
         .flag("gas-limit", Some("600"))
-        .flag("builder-proposals", None)
         .run()
         .with_config(|config| assert_eq!(config.validator_store.gas_limit, Some(600)));
 }
