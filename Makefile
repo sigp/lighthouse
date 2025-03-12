@@ -250,7 +250,7 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	cargo audit --ignore RUSTSEC-2025-0009 --ignore RUSTSEC-2024-0437
+	cargo audit --ignore RUSTSEC-2024-0437
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:
