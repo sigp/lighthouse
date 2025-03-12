@@ -16,6 +16,9 @@ pub const DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR: u32 = 3;
 /// Fraction of a slot lookahead for fork choice in the state advance timer (500ms on mainnet).
 pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
+/// Default sync tolerance epochs.
+pub const DEFAULT_SYNC_TOLERANCE_EPOCHS: u64 = 2;
+
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
     /// Maximum number of slots to skip when importing an attestation.
@@ -94,6 +97,13 @@ pub struct ChainConfig {
     /// The delay in milliseconds applied by the node between sending each blob or data column batch.
     /// This doesn't apply if the node is the block proposer.
     pub blob_publication_batch_interval: Duration,
+    /// The max distance between the head block and the current slot at which Lighthouse will
+    /// consider itself synced and still serve validator-related requests.
+    pub sync_tolerance_epochs: u64,
+    /// Block roots of "banned" blocks which Lighthouse will refuse to import.
+    ///
+    /// On Holesky there is also another banned block which is hardcoded and cannot be unbanned
+    /// without editing the source.
     pub invalid_block_roots: HashSet<Hash256>,
 }
 
@@ -130,6 +140,7 @@ impl Default for ChainConfig {
             enable_sampling: false,
             blob_publication_batches: 4,
             blob_publication_batch_interval: Duration::from_millis(300),
+            sync_tolerance_epochs: DEFAULT_SYNC_TOLERANCE_EPOCHS,
             invalid_block_roots: HashSet::new(),
         }
     }

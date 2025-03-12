@@ -175,6 +175,10 @@ Flags:
           If this flag is set, Lighthouse will query the Beacon Node for only
           block headers during proposals and will sign over headers. Useful for
           outsourcing execution payload construction during proposals.
+      --disable-attesting
+          Disable the performance of attestation duties (and sync committee
+          duties). This flag should only be used in emergencies to prioritise
+          block proposal duties.
       --disable-auto-discover
           If present, do not attempt to discover new validators in the
           validators-dir. Validators will need to be manually added to the
@@ -247,6 +251,13 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
+      --long-timeouts-multiplier <LONG_TIMEOUTS_MULTIPLIER>
+          If present, the validator client will use a multiplier for the timeout
+          when making requests to the beacon node. This only takes effect when
+          the `--use-long-timeouts` flag is present. The timeouts will be the
+          slot duration multiplied by this value. This flag is generally not
+          recommended, longer timeouts can cause missed duties when fallbacks
+          are used. [default: 1]
       --metrics
           Enable the Prometheus metrics HTTP server. Disabled by default.
       --prefer-builder-proposals
