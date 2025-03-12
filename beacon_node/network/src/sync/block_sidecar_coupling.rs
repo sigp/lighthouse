@@ -24,6 +24,7 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     custody_columns_streams_terminated: usize,
     /// Used to determine if this accumulator should wait for a sidecars stream termination
     expects_blobs: bool,
+    /// Used to construct RpcBlocks and enfore they contain the expected column custody set.
     expects_custody_columns: Option<Vec<ColumnIndex>>,
     /// Used to determine if the number of data columns stream termination this accumulator should
     /// wait for. This may be less than the number of `expects_custody_columns` due to request batching.
