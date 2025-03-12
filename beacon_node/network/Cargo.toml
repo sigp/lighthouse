@@ -9,7 +9,7 @@ bls = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 genesis = { workspace = true }
-gossipsub = { workspace = true }
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", tag = "sigp-gossipsub-0.1" }
 k256 = "0.13.4"
 kzg = { workspace = true }
 matches = "0.1.8"

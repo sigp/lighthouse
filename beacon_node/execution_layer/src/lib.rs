@@ -621,7 +621,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Get the current difficulty of the PoW chain.
-    pub async fn get_current_difficulty(&self) -> Result<Uint256, ApiError> {
+    pub async fn get_current_difficulty(&self) -> Result<Option<Uint256>, ApiError> {
         let block = self
             .engine()
             .api
@@ -1680,7 +1680,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
         self.execution_blocks().await.put(block.block_hash, block);
 
         loop {
-            let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
+            let block_reached_ttd =
+                block.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
             if block_reached_ttd {
                 if block.parent_hash == ExecutionBlockHash::zero() {
                     return Ok(Some(block));
@@ -1689,7 +1690,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     .get_pow_block(engine, block.parent_hash)
                     .await?
                     .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
-                let parent_reached_ttd = parent.total_difficulty >= spec.terminal_total_difficulty;
+                let parent_reached_ttd =
+                    parent.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
 
                 if block_reached_ttd && !parent_reached_ttd {
                     return Ok(Some(block));
@@ -1765,9 +1767,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
         parent: ExecutionBlock,
         spec: &ChainSpec,
     ) -> bool {
-        let is_total_difficulty_reached = block.total_difficulty >= spec.terminal_total_difficulty;
-        let is_parent_total_difficulty_valid =
-            parent.total_difficulty < spec.terminal_total_difficulty;
+        let is_total_difficulty_reached =
+            block.terminal_total_difficulty_reached(spec.terminal_total_difficulty);
+        let is_parent_total_difficulty_valid = parent
+            .total_difficulty
+            .is_some_and(|td| td < spec.terminal_total_difficulty);
         is_total_difficulty_reached && is_parent_total_difficulty_valid
     }
 
