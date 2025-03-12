@@ -2474,6 +2474,79 @@ impl BeaconNodeHttpClient {
         .await
     }
 
+    /// `POST lighthouse/import_attestations`
+    pub async fn post_lighthouse_slasher_import_attestations<E: EthSpec>(
+        &self,
+        attestations: Vec<IndexedAttestation<E>>,
+    ) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("slasher")
+            .push("import_attestations");
+
+        self.post_with_timeout(path, &attestations, self.timeouts.liveness)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST lighthouse/export_attestations`
+    pub async fn post_lighthouse_slasher_export_attestations<E: EthSpec>(
+        &self,
+        block: Either<SignedBeaconBlock<E>, SignedBlindedBeaconBlock<E>>,
+    ) -> Result<GenericResponse<Vec<IndexedAttestation<E>>>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("slasher")
+            .push("export_attestations");
+
+        let attestations = match block {
+            Either::Left(signed_block) => {
+                self.post_with_timeout_and_response(path, &signed_block, self.timeouts.liveness)
+                    .await?
+            }
+            Either::Right(blinded_block) => {
+                self.post_with_timeout_and_response(path, &blinded_block, self.timeouts.liveness)
+                    .await?
+            }
+        };
+
+        Ok(attestations)
+    }
+
+    /// `POST lighthouse/import_block`
+    pub async fn post_lighthouse_slasher_import_block<E: EthSpec>(
+        &self,
+        block: Either<SignedBeaconBlock<E>, SignedBlindedBeaconBlock<E>>,
+    ) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("slasher")
+            .push("import_block");
+
+        match block {
+            Either::Left(signed_block) => {
+                self.post_with_timeout(path, &signed_block, self.timeouts.liveness)
+                    .await?;
+            }
+            Either::Right(blinded_block) => {
+                self.post_with_timeout(path, &blinded_block, self.timeouts.liveness)
+                    .await?;
+            }
+        };
+
+        Ok(())
+    }
+
     /// `POST validator/liveness/{epoch}`
     pub async fn post_validator_liveness_epoch(
         &self,

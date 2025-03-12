@@ -5714,6 +5714,75 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_lighthouse_slasher_import_block(self) -> Self {
+        let block = self
+            .chain
+            .block_at_slot(Slot::new(CHAIN_LENGTH - 1), WhenSlotSkipped::Prev)
+            .unwrap()
+            .unwrap();
+
+        self.client
+            .post_lighthouse_slasher_import_block(Either::Right(block.clone()))
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn test_post_lighthouse_slasher_import_attestations(self) -> Self {
+        let block = self
+            .chain
+            .block_at_slot(Slot::new(CHAIN_LENGTH - 1), WhenSlotSkipped::Prev)
+            .unwrap()
+            .unwrap();
+
+        // export attestations that we can then import
+        let indexed_attestations = self
+            .client
+            .post_lighthouse_slasher_export_attestations(Either::Right(block.clone()))
+            .await
+            .unwrap()
+            .data;
+
+        self.client
+            .post_lighthouse_slasher_import_attestations(indexed_attestations)
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn test_post_lighthouse_slasher_export_attestations(self) -> Self {
+        let block = self
+            .chain
+            .block_at_slot(Slot::new(CHAIN_LENGTH - 1), WhenSlotSkipped::Prev)
+            .unwrap()
+            .unwrap();
+
+        let indexed_attestations = self
+            .client
+            .post_lighthouse_slasher_export_attestations(Either::Right(block.clone()))
+            .await
+            .unwrap()
+            .data;
+
+        let attestations = block.message().body().attestations();
+
+        let mut num_set_agg_bits = 0;
+        for attestation in attestations {
+            num_set_agg_bits += attestation.num_set_aggregation_bits();
+        }
+
+        let mut num_attesting_indices = 0;
+        for indexed_attestation in indexed_attestations {
+            num_attesting_indices += indexed_attestation.attesting_indices_len();
+        }
+
+        assert_eq!(num_set_agg_bits, num_attesting_indices);
+
+        self
+    }
+
     pub async fn test_post_lighthouse_liveness(self) -> Self {
         let epoch = self.chain.epoch().unwrap();
         let head_state = self.chain.head_beacon_state_cloned();
@@ -7264,6 +7333,12 @@ async fn lighthouse_endpoints() {
         .test_post_lighthouse_database_reconstruct()
         .await
         .test_post_lighthouse_liveness()
+        .await
+        .test_post_lighthouse_slasher_export_attestations()
+        .await
+        .test_post_lighthouse_slasher_import_attestations()
+        .await
+        .test_post_lighthouse_slasher_import_block()
         .await;
 }
 

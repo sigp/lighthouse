@@ -4537,10 +4537,15 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_response_task(Priority::P0, move || {
                     if let Some(block) = deserialize_block_payload::<T>(payload) {
                         if let Some(attestations) = export_indexed_attestations(block, chain) {
-                            return Ok(warp::reply::json(&attestations));
+                            return Ok::<_, warp::reject::Rejection>(
+                                warp::reply::json(&api_types::GenericResponse::from(attestations))
+                                    .into_response(),
+                            );
                         }
                     }
-                    Ok(warp::reply::json(&()))
+                    return Err(warp_utils::reject::custom_server_error(
+                        "Unable to export attestations".to_string(),
+                    ));
                 })
             },
         );
@@ -4548,7 +4553,7 @@ pub fn serve<T: BeaconChainTypes>(
     // POST lighthouse/slasher/import_block
     let post_lighthouse_slasher_import_block = warp::path("lighthouse")
         .and(warp::path("slasher"))
-        .and(warp::path("export_attestations"))
+        .and(warp::path("import_block"))
         .and(warp_utils::json::json())
         .and(warp::path::end())
         .and(task_spawner_filter.clone())

@@ -136,6 +136,8 @@ impl<E: EthSpec> IndexedAttestation<E> {
         }
     }
 
+    /// Returns a list of indexed attestations from the provided `attestation`. Note that
+    /// if the `attestation` is unaggregated, only one indexed attestation will be created.
     pub fn from_attestation(
         attestation: AttestationRef<E>,
         committees: &[BeaconCommittee],
