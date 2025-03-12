@@ -176,7 +176,7 @@ reqwest = { version = "0.11", default-features = false, features = [
     "rustls-tls",
     "native-tls-vendored",
 ] }
-ring = "0.16"
+ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
