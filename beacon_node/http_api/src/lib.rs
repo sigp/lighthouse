@@ -20,6 +20,7 @@ mod produce_block;
 mod proposer_duties;
 mod publish_attestations;
 mod publish_blocks;
+mod slasher;
 mod standard_block_rewards;
 mod state_id;
 mod sync_committee_rewards;
@@ -64,6 +65,10 @@ pub use publish_blocks::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use slasher::{
+    deserialize_block_payload, export_indexed_attestations, import_block,
+    import_indexed_attestations,
+};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -87,10 +92,10 @@ use tokio_stream::{
 use types::{
     fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
     AttesterSlashing, BeaconStateError, ChainSpec, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
-    ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing,
-    RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    ForkName, ForkVersionedResponse, Hash256, IndexedAttestation, ProposerPreparationData,
+    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -4500,6 +4505,65 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/slasher/import_attestations
+    let post_lighthouse_slasher_import_attestations = warp::path("lighthouse")
+        .and(warp::path("slasher"))
+        .and(warp::path("import_attestations"))
+        .and(warp_utils::json::json())
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |indexed_attestations: Vec<IndexedAttestation<T::EthSpec>>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    import_indexed_attestations(indexed_attestations, chain);
+                    Ok(warp::reply::json(&()))
+                })
+            },
+        );
+
+    // POST lighthouse/slasher/export_attestations
+    let post_lighthouse_slasher_export_attestations = warp::path("lighthouse")
+        .and(warp::path("slasher"))
+        .and(warp::path("export_attestations"))
+        .and(warp_utils::json::json())
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |payload: Value, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    if let Some(block) = deserialize_block_payload::<T>(payload) {
+                        if let Some(attestations) = export_indexed_attestations(block, chain) {
+                            return Ok(warp::reply::json(&attestations));
+                        }
+                    }
+                    Ok(warp::reply::json(&()))
+                })
+            },
+        );
+
+    // POST lighthouse/slasher/import_block
+    let post_lighthouse_slasher_import_block = warp::path("lighthouse")
+        .and(warp::path("slasher"))
+        .and(warp::path("export_attestations"))
+        .and(warp_utils::json::json())
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |payload: Value, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    if let Some(block) = deserialize_block_payload::<T>(payload) {
+                        import_block(block, chain);
+                    }
+                    Ok(warp::reply::json(&()))
+                })
+            },
+        );
+
     let get_events = eth_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -4780,6 +4844,9 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)
+                    .uor(post_lighthouse_slasher_import_block)
+                    .uor(post_lighthouse_slasher_export_attestations)
+                    .uor(post_lighthouse_slasher_import_attestations)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )

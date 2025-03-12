@@ -409,7 +409,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Process an unaggregated attestation requiring conversion.
     ///
-    /// This function performs the conversion, and if successfull queues a new message to be
+    /// This function performs the conversion, and if successful queues a new message to be
     /// processed by `process_gossip_attestation`. If unsuccessful due to block unavailability,
     /// a retry message will be pushed to the `reprocess_tx` if it is `Some`.
     #[allow(clippy::too_many_arguments)]

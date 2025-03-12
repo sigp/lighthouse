@@ -1,4 +1,7 @@
-use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
+use crate::{
+    test_utils::TestRandom, AggregateSignature, AttestationData, AttestationRef, BeaconCommittee,
+    EthSpec, VariableList,
+};
 use core::slice::Iter;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
@@ -131,6 +134,54 @@ impl<E: EthSpec> IndexedAttestation<E> {
             }
             Self::Electra(att) => att,
         }
+    }
+
+    pub fn from_attestation(
+        attestation: AttestationRef<E>,
+        committees: &[BeaconCommittee],
+    ) -> Vec<IndexedAttestation<E>> {
+        let (committee_indices, aggregation_bits) = match attestation {
+            AttestationRef::Base(base_attestation) => (
+                vec![base_attestation.data.index],
+                base_attestation.get_aggregation_bits(),
+            ),
+            AttestationRef::Electra(electra_attestation) => (
+                electra_attestation.get_committee_indices(),
+                electra_attestation.get_aggregation_bits(),
+            ),
+        };
+
+        committee_indices
+            .iter()
+            .filter_map(|&index| committees.get(index as usize))
+            .map(|beacon_committee| {
+                let attesting_indices: Vec<u64> = beacon_committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, &validator_index)| {
+                        aggregation_bits.get(i).map(|_| validator_index as u64)
+                    })
+                    .collect();
+
+                match &attestation {
+                    AttestationRef::Base(base_attestation) => {
+                        IndexedAttestation::Base(IndexedAttestationBase {
+                            attesting_indices: attesting_indices.into(),
+                            data: base_attestation.data.clone(),
+                            signature: base_attestation.signature.clone(),
+                        })
+                    }
+                    AttestationRef::Electra(electra_attestation) => {
+                        IndexedAttestation::Electra(IndexedAttestationElectra {
+                            attesting_indices: attesting_indices.into(),
+                            data: electra_attestation.data.clone(),
+                            signature: electra_attestation.signature.clone(),
+                        })
+                    }
+                }
+            })
+            .collect()
     }
 }
 

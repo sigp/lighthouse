@@ -394,6 +394,14 @@ impl<E: EthSpec> AttestationBase<E> {
         self.signature.add_assign_aggregate(&other.signature);
     }
 
+    pub fn get_aggregation_bits(&self) -> Vec<u64> {
+        self.aggregation_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
+    }
+
     /// Signs `self`, setting the `committee_position`'th bit of `aggregation_bits` to `true`.
     ///
     /// Returns an `AlreadySigned` error if the `committee_position`'th bit is already `true`.
