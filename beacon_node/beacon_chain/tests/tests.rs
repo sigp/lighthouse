@@ -877,7 +877,7 @@ async fn pseudo_finalize_test() {
 
     let harness = get_harness(VALIDATOR_COUNT);
 
-    let one_third = (VALIDATOR_COUNT / 3) * 1;
+    let one_third = VALIDATOR_COUNT / 3;
     let attesters = (0..one_third).collect();
 
     // extend the chain, but don't finalize
