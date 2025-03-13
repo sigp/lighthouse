@@ -235,6 +235,7 @@ impl<E: EthSpec> StateCache<E> {
         let mut old_boundary_state_roots = vec![];
         let mut good_boundary_state_roots = vec![];
 
+        // We exempt `cull_exempt` amount of recently used states from the cache
         for (&state_root, state) in self.states.iter().skip(cull_exempt) {
             let is_advanced = state.slot() > state.latest_block_header().slot;
             let is_boundary = state.slot() % E::slots_per_epoch() == 0;
@@ -261,6 +262,7 @@ impl<E: EthSpec> StateCache<E> {
 
         // Stage 2: delete.
         // This could probably be more efficient in how it interacts with the block map.
+        // We prefer to cull older states as they are most likely less useful.
         for state_root in advanced_state_roots
             .iter()
             .chain(old_boundary_state_roots.iter())
