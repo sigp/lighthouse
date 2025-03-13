@@ -1,7 +1,7 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
 };
 use beacon_node::{
     beacon_chain::graffiti_calculator::GraffitiOrigin,
@@ -715,6 +715,40 @@ fn builder_user_agent() {
                     .as_ref()
                     .unwrap(),
                 "anon"
+            );
+        },
+    );
+}
+
+#[test]
+fn test_builder_disable_ssz_flag() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert!(
+                !config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .disable_builder_ssz_requests,
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-disable-ssz"),
+        None,
+        |config| {
+            assert!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .disable_builder_ssz_requests,
             );
         },
     );
@@ -2382,20 +2416,20 @@ fn monitoring_endpoint() {
 
 // Tests for Logger flags.
 #[test]
-fn default_log_color_flag() {
+fn default_logfile_color_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.logger_config.log_color);
+            assert!(!config.logger_config.logfile_color);
         });
 }
 #[test]
-fn enabled_log_color_flag() {
+fn enabled_logfile_color_flag() {
     CommandLineTest::new()
-        .flag("log-color", None)
+        .flag("logfile-color", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.logger_config.log_color);
+            assert!(config.logger_config.logfile_color);
         });
 }
 #[test]
@@ -2506,7 +2540,6 @@ fn light_client_server_default() {
         .with_config(|config| {
             assert!(config.network.enable_light_client_server);
             assert!(config.chain.enable_light_client_server);
-            assert!(config.http_api.enable_light_client_server);
         });
 }
 
@@ -2539,9 +2572,32 @@ fn light_client_http_server_disabled() {
         .flag("disable-light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.http_api.enable_light_client_server);
             assert!(!config.network.enable_light_client_server);
             assert!(!config.chain.enable_light_client_server);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("sync-tolerance-epochs", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.sync_tolerance_epochs, 0);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.sync_tolerance_epochs,
+                DEFAULT_SYNC_TOLERANCE_EPOCHS
+            );
         });
 }
 
@@ -2713,5 +2769,31 @@ fn beacon_node_backend_override() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.store.backend, BeaconNodeBackend::LevelDb);
+        });
+}
+
+#[test]
+fn block_publishing_delay_for_testing() {
+    CommandLineTest::new()
+        .flag("delay-block-publishing", Some("2.5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.block_publishing_delay,
+                Some(Duration::from_secs_f64(2.5f64))
+            );
+        });
+}
+
+#[test]
+fn data_column_publishing_delay_for_testing() {
+    CommandLineTest::new()
+        .flag("delay-data-column-publishing", Some("3.5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.data_column_publishing_delay,
+                Some(Duration::from_secs_f64(3.5f64))
+            );
         });
 }

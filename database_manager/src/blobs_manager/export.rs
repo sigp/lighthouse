@@ -4,11 +4,11 @@ use eth2::{
     BeaconNodeHttpClient, Timeouts,
 };
 use sensitive_url::SensitiveUrl;
-use slog::{info, warn, Logger};
 use ssz::Encode;
 use std::time::Duration;
+use tracing::{info, warn};
 
-pub async fn export_blobs<E: EthSpec>(config: &ExportBlobs, log: Logger) -> Result<(), String> {
+pub async fn export_blobs<E: EthSpec>(config: &ExportBlobs) -> Result<(), String> {
     let beacon_node = SensitiveUrl::parse(&config.beacon_node)
         .map_err(|e| format!("Unable to parse beacon node url: {e:?}"))?;
 
@@ -17,7 +17,7 @@ pub async fn export_blobs<E: EthSpec>(config: &ExportBlobs, log: Logger) -> Resu
     let (_, is_synced) = ensure_node_synced(&client).await?;
     if !is_synced {
         if config.allow_unsynced {
-            warn!(log, "Beacon node is not synced");
+            warn!("Beacon node is not synced");
         } else {
             return Err("Beacon node is not synced".to_string());
         }
@@ -38,7 +38,7 @@ pub async fn export_blobs<E: EthSpec>(config: &ExportBlobs, log: Logger) -> Resu
 
     let mut blobs_to_export: Vec<BlobSidecarList<E>> = vec![];
 
-    info!(log, "Beginning blob export"; "end_slot" => end_slot, "start_slot" => start_slot, "output_dir" => ?config.output_dir);
+    info!(end_slot, start_slot, output_dir = ?config.output_dir, "Beginning blob export");
 
     for slot in start_slot..=end_slot {
         if let Some(blobs) = client
@@ -62,9 +62,12 @@ pub async fn export_blobs<E: EthSpec>(config: &ExportBlobs, log: Logger) -> Resu
     if !blobs_to_export.is_empty() {
         std::fs::write(&filename, ssz_bytes)
             .map_err(|e| format!("Failed to write blob file: {}", e))?;
-        info!(log, "Completed blob export"; "blobs_exported" => blobs_to_export.len());
+        info!(
+            blobs_exported = blobs_to_export.len(),
+            "Completed blob export"
+        );
     } else {
-        warn!(log, "No blobs were found for this slot range");
+        warn!("No blobs were found for this slot range");
     }
 
     Ok(())

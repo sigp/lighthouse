@@ -10,7 +10,7 @@ pub enum Error {
         blob_commitment: KzgCommitment,
         block_commitment: KzgCommitment,
     },
-    Unexpected,
+    Unexpected(&'static str),
     SszTypes(ssz_types::Error),
     MissingBlobs,
     MissingCustodyColumns,
@@ -40,7 +40,7 @@ impl Error {
             | Error::MissingCustodyColumns
             | Error::StoreError(_)
             | Error::DecodeError(_)
-            | Error::Unexpected
+            | Error::Unexpected(_)
             | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)

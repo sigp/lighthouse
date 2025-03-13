@@ -4,13 +4,12 @@ use eth2::{
     types::{ChainSpec, EthSpec, Slot},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
-use slog::{info, warn, Logger};
 use std::time::Duration;
+use tracing::{info, warn};
 
 pub async fn verify_blobs<E: EthSpec>(
     config: &VerifyBlobs,
     spec: &ChainSpec,
-    log: Logger,
 ) -> Result<(), String> {
     let beacon_node = SensitiveUrl::parse(
         &config
@@ -24,7 +23,7 @@ pub async fn verify_blobs<E: EthSpec>(
     let (_head_slot, is_synced) = ensure_node_synced(&client).await?;
     if !is_synced {
         if config.allow_unsynced {
-            warn!(log, "Beacon node is not synced");
+            warn!("Beacon node is not synced");
         } else {
             return Err("Beacon node is not synced".to_string());
         }
@@ -49,7 +48,7 @@ pub async fn verify_blobs<E: EthSpec>(
         }
     }
 
-    info!(log, "Missing slots: {}", missing_slots.len());
+    info!(missing_slots = missing_slots.len(), "Slots missing");
 
     Ok(())
 }

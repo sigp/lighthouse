@@ -1,10 +1,10 @@
 use crate::blobs_manager::{cli::ImportBlobs, ensure_node_synced};
 use eth2::{types::EthSpec, BeaconNodeHttpClient, Timeouts};
 use sensitive_url::SensitiveUrl;
-use slog::{info, warn, Logger};
 use std::time::Duration;
+use tracing::{info, warn};
 
-pub async fn import_blobs<E: EthSpec>(config: &ImportBlobs, log: Logger) -> Result<(), String> {
+pub async fn import_blobs<E: EthSpec>(config: &ImportBlobs) -> Result<(), String> {
     let beacon_node = SensitiveUrl::parse(&config.beacon_node)
         .map_err(|e| format!("Unable to parse beacon node url: {e:?}"))?;
 
@@ -13,7 +13,7 @@ pub async fn import_blobs<E: EthSpec>(config: &ImportBlobs, log: Logger) -> Resu
     let (_, is_synced) = ensure_node_synced(&client).await?;
     if !is_synced {
         if config.allow_unsynced {
-            warn!(log, "Beacon node is not synced");
+            warn!("Beacon node is not synced");
         } else {
             return Err("Beacon node is not synced".to_string());
         }
@@ -25,10 +25,10 @@ pub async fn import_blobs<E: EthSpec>(config: &ImportBlobs, log: Logger) -> Resu
     // TODO(blob_manager): We could _technically_ parse the slot numbers from the SSZ file
     // generated during export.
 
-    info!(log, "Beginning blob import");
+    info!("Beginning blob import");
 
     if config.skip_verification {
-        warn!(log, "Skipping blob verification");
+        warn!("Skipping blob verification");
     }
 
     client
@@ -37,9 +37,9 @@ pub async fn import_blobs<E: EthSpec>(config: &ImportBlobs, log: Logger) -> Resu
         .map_err(|e| format!("Failed to import blobs: {e:?}"))?;
 
     if !config.skip_verification {
-        info!(log, "All blobs successfully verified");
+        info!("All blobs successfully verified");
     }
-    info!(log, "Completed blob import");
+    info!("Completed blob import");
 
     Ok(())
 }

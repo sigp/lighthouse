@@ -39,9 +39,9 @@ monitoring_api = { workspace = true }
 sensitive_url = { workspace = true }
 serde_json = { workspace = true }
 slasher = { workspace = true }
-slog = { workspace = true }
 store = { workspace = true }
 strum = { workspace = true }
 task_executor = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
 unused_port = { workspace = true }
