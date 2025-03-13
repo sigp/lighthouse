@@ -74,7 +74,6 @@ use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -94,6 +93,7 @@ use std::sync::Arc;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
+use tracing::{debug, error};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
@@ -924,12 +924,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             let (mut parent, block) = load_parent(block, chain)?;
 
             debug!(
-                chain.log,
-                "Proposer shuffling cache miss";
-                "parent_root" => ?parent.beacon_block_root,
-                "parent_slot" => parent.beacon_block.slot(),
-                "block_root" => ?block_root,
-                "block_slot" => block.slot(),
+                parent_root = ?parent.beacon_block_root,
+                parent_slot = %parent.beacon_block.slot(),
+                ?block_root,
+                block_slot = %block.slot(),
+                "Proposer shuffling cache miss"
             );
 
             // The state produced is only valid for determining proposer/attester shuffling indices.
@@ -1536,10 +1535,9 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // Expose Prometheus metrics.
                 if let Err(e) = summary.observe_metrics() {
                     error!(
-                        chain.log,
-                        "Failed to observe epoch summary metrics";
-                        "src" => "block_verification",
-                        "error" => ?e
+                        src = "block_verification",
+                        error = ?e,
+                        "Failed to observe epoch summary metrics"
                     );
                 }
                 summaries.push(summary);
@@ -1567,9 +1565,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                         validator_monitor.process_validator_statuses(epoch, summary, &chain.spec)
                     {
                         error!(
-                            chain.log,
-                            "Failed to process validator statuses";
-                            "error" => ?e
+                            error = ?e,
+                            "Failed to process validator statuses"
                         );
                     }
                 }
@@ -1609,12 +1606,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          * invalid.
          */
 
-        write_state(
-            &format!("state_pre_block_{}", block_root),
-            &state,
-            &chain.log,
-        );
-        write_block(block.as_block(), block_root, &chain.log);
+        write_state(&format!("state_pre_block_{}", block_root), &state);
+        write_block(block.as_block(), block_root);
 
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
@@ -1647,11 +1640,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         metrics::stop_timer(state_root_timer);
 
-        write_state(
-            &format!("state_post_block_{}", block_root),
-            &state,
-            &chain.log,
-        );
+        write_state(&format!("state_post_block_{}", block_root), &state);
 
         /*
          * Check to ensure the state root on the block matches the one we have calculated.
@@ -1942,19 +1931,17 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
 
         if !state.all_caches_built() {
             debug!(
-                chain.log,
-                "Parent state lacks built caches";
-                "block_slot" => block.slot(),
-                "state_slot" => state.slot(),
+                block_slot = %block.slot(),
+                state_slot = %state.slot(),
+                "Parent state lacks built caches"
             );
         }
 
         if block.slot() != state.slot() {
             debug!(
-                chain.log,
-                "Parent state is not advanced";
-                "block_slot" => block.slot(),
-                "state_slot" => state.slot(),
+                block_slot = %block.slot(),
+                state_slot = %state.slot(),
+                "Parent state is not advanced"
             );
         }
 
@@ -2160,14 +2147,11 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     }
 }
 
-fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
+fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>) {
     if WRITE_BLOCK_PROCESSING_SSZ {
         let mut state = state.clone();
         let Ok(root) = state.canonical_root() else {
-            error!(
-                log,
-                "Unable to hash state for writing";
-            );
+            error!("Unable to hash state for writing");
             return;
         };
         let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot(), root);
@@ -2180,16 +2164,15 @@ fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
                 let _ = file.write_all(&state.as_ssz_bytes());
             }
             Err(e) => error!(
-                log,
-                "Failed to log state";
-                "path" => format!("{:?}", path),
-                "error" => format!("{:?}", e)
+                ?path,
+                error = ?e,
+                "Failed to log state"
             ),
         }
     }
 }
 
-fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256, log: &Logger) {
+fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256) {
     if WRITE_BLOCK_PROCESSING_SSZ {
         let filename = format!("block_slot_{}_root{}.ssz", block.slot(), root);
         let mut path = std::env::temp_dir().join("lighthouse");
@@ -2201,10 +2184,9 @@ fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256, log: &Lo
                 let _ = file.write_all(&block.as_ssz_bytes());
             }
             Err(e) => error!(
-                log,
-                "Failed to log block";
-                "path" => format!("{:?}", path),
-                "error" => format!("{:?}", e)
+                ?path,
+                error = ?e,
+                "Failed to log block"
             ),
         }
     }

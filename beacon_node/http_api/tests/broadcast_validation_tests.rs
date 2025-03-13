@@ -331,7 +331,6 @@ pub async fn consensus_partial_pass_only_consensus() {
     let validator_count = 64;
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
-    let test_logger = tester.harness.logger().clone();
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -379,7 +378,6 @@ pub async fn consensus_partial_pass_only_consensus() {
         ProvenancedBlock::local(gossip_block_b.unwrap(), blobs_b),
         tester.harness.chain.clone(),
         &channel.0,
-        test_logger,
         validation_level,
         StatusCode::ACCEPTED,
         network_globals,
@@ -624,7 +622,6 @@ pub async fn equivocation_consensus_late_equivocation() {
     let validator_count = 64;
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
-    let test_logger = tester.harness.logger().clone();
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -671,7 +668,6 @@ pub async fn equivocation_consensus_late_equivocation() {
         ProvenancedBlock::local(gossip_block_b.unwrap(), blobs_b),
         tester.harness.chain,
         &channel.0,
-        test_logger,
         validation_level,
         StatusCode::ACCEPTED,
         network_globals,
@@ -1236,7 +1232,6 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     let validator_count = 64;
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
-    let test_logger = tester.harness.logger().clone();
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1276,7 +1271,6 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         tester.harness.chain.clone(),
         block_a.canonical_root(),
         Arc::new(block_a),
-        test_logger.clone(),
     )
     .await
     .unwrap();
@@ -1284,7 +1278,6 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         tester.harness.chain.clone(),
         block_b.canonical_root(),
         block_b.clone(),
-        test_logger.clone(),
     )
     .await
     .unwrap();
@@ -1310,7 +1303,6 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         block_b,
         tester.harness.chain,
         &channel.0,
-        test_logger,
         validation_level,
         StatusCode::ACCEPTED,
         network_globals,

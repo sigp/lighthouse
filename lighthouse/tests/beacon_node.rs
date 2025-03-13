@@ -2416,20 +2416,20 @@ fn monitoring_endpoint() {
 
 // Tests for Logger flags.
 #[test]
-fn default_log_color_flag() {
+fn default_logfile_color_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.logger_config.log_color);
+            assert!(!config.logger_config.logfile_color);
         });
 }
 #[test]
-fn enabled_log_color_flag() {
+fn enabled_logfile_color_flag() {
     CommandLineTest::new()
-        .flag("log-color", None)
+        .flag("logfile-color", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.logger_config.log_color);
+            assert!(config.logger_config.logfile_color);
         });
 }
 #[test]

@@ -2,10 +2,10 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
 use eth2::lighthouse::SyncCommitteeReward;
 use safe_arith::SafeArith;
-use slog::error;
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
 use std::collections::HashMap;
 use store::RelativeEpoch;
+use tracing::error;
 use types::{AbstractExecPayload, BeaconBlockRef, BeaconState};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -31,8 +31,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (participant_reward_value, proposer_reward_per_bit) =
             compute_sync_aggregate_rewards(state, spec).map_err(|e| {
                 error!(
-                    self.log, "Error calculating sync aggregate rewards";
-                    "error" => ?e
+                    error = ?e,
+                    "Error calculating sync aggregate rewards"
                 );
                 BeaconChainError::SyncCommitteeRewardsSyncError
             })?;

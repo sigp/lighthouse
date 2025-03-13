@@ -60,9 +60,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 slasher = { workspace = true }
-slog = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }
 unused_port = { workspace = true }
 validator_client = { workspace = true }

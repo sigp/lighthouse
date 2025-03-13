@@ -10,11 +10,11 @@ use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::RwLock;
-use slog::{debug, Logger};
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::oneshot;
+use tracing::debug;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
@@ -452,7 +452,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         kzg_verified_blobs: I,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_blobs = kzg_verified_blobs.into_iter().peekable();
 
@@ -486,10 +485,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
 
-        debug!(log, "Component added to data availability checker";
-            "component" => "blobs",
-            "block_root" => ?block_root,
-            "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
+        debug!(
+            component = "blobs",
+            ?block_root,
+            status = pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
+            "Component added to data availability checker"
         );
 
         if let Some(available_block) =
@@ -515,7 +515,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         kzg_verified_data_columns: I,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_data_columns = kzg_verified_data_columns.into_iter().peekable();
         let Some(epoch) = kzg_verified_data_columns
@@ -539,10 +538,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
 
-        debug!(log, "Component added to data availability checker";
-            "component" => "data_columns",
-            "block_root" => ?block_root,
-            "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
+        debug!(
+            component = "data_columns",
+            ?block_root,
+            status = pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
+            "Component added to data availability checker"
         );
 
         if let Some(available_block) =
@@ -569,7 +569,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         block_root: Hash256,
         block_epoch: Epoch,
         data_column_recv: oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
 
@@ -589,10 +588,12 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // TODO(das): Error or log if we overwrite a prior receiver https://github.com/sigp/lighthouse/issues/6764
         pending_components.data_column_recv = Some(data_column_recv);
 
-        debug!(log, "Component added to data availability checker";
-            "component" => "data_columns_recv",
-            "block_root" => ?block_root,
-            "status" => pending_components.status_str(block_epoch, self.sampling_column_count, &self.spec),
+        debug!(
+            component = "data_columns_recv",
+            ?block_root,
+            status =
+                pending_components.status_str(block_epoch, self.sampling_column_count, &self.spec),
+            "Component added to data availability checker"
         );
 
         if let Some(available_block) =
@@ -667,7 +668,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn put_pending_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
         let epoch = executed_block.as_block().epoch();
@@ -689,10 +689,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the block.
         pending_components.merge_block(diet_executed_block);
 
-        debug!(log, "Component added to data availability checker";
-            "component" => "block",
-            "block_root" => ?block_root,
-            "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
+        debug!(
+            component = "block",
+            ?block_root,
+            status = pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
+            "Component added to data availability checker"
         );
 
         // Check if we have all components and entire set is consistent.
@@ -769,13 +770,12 @@ mod test {
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
-
-    use logging::test_logger;
-    use slog::{info, Logger};
+    use logging::create_test_tracing_subscriber;
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
     use store::{database::interface::BeaconNodeBackend, HotColdDB, ItemStore, StoreConfig};
     use tempfile::{tempdir, TempDir};
+    use tracing::info;
     use types::non_zero_usize::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
 
@@ -785,7 +785,6 @@ mod test {
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
         spec: Arc<ChainSpec>,
-        log: Logger,
     ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
@@ -799,14 +798,12 @@ mod test {
             |_, _, _| Ok(()),
             config,
             spec,
-            log,
         )
         .expect("disk store should initialize")
     }
 
     // get a beacon chain harness advanced to just before deneb fork
     async fn get_deneb_chain<E: EthSpec>(
-        log: Logger,
         db_path: &TempDir,
     ) -> BeaconChainHarness<DiskHarnessType<E>> {
         let altair_fork_epoch = Epoch::new(1);
@@ -823,12 +820,11 @@ mod test {
         spec.deneb_fork_epoch = Some(deneb_fork_epoch);
         let spec = Arc::new(spec);
 
-        let chain_store = get_store_with_spec::<E>(db_path, spec.clone(), log.clone());
+        let chain_store = get_store_with_spec::<E>(db_path, spec.clone());
         let validators_keypairs =
             types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
-            .logger(log.clone())
             .keypairs(validators_keypairs)
             .fresh_disk_store(chain_store)
             .mock_execution_layer()
@@ -871,7 +867,6 @@ mod test {
         Cold: ItemStore<E>,
     {
         let chain = &harness.chain;
-        let log = chain.log.clone();
         let head = chain.head_snapshot();
         let parent_state = head.beacon_state.clone();
 
@@ -899,7 +894,7 @@ mod test {
         );
 
         // log kzg commitments
-        info!(log, "printing kzg commitments");
+        info!("printing kzg commitments");
         for comm in Vec::from(
             block
                 .message()
@@ -908,9 +903,9 @@ mod test {
                 .expect("should be deneb fork")
                 .clone(),
         ) {
-            info!(log, "kzg commitment"; "commitment" => ?comm);
+            info!(commitment = ?comm, "kzg commitment");
         }
-        info!(log, "done printing kzg commitments");
+        info!("done printing kzg commitments");
 
         let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
             let sidecars =
@@ -967,9 +962,9 @@ mod test {
             EthSpec = E,
         >,
     {
-        let log = test_logger();
+        create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
-        let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
+        let harness = get_deneb_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
@@ -1003,7 +998,7 @@ mod test {
         );
         assert!(cache.critical.read().is_empty(), "cache should be empty");
         let availability = cache
-            .put_pending_executed_block(pending_block, harness.logger())
+            .put_pending_executed_block(pending_block)
             .expect("should put block");
         if blobs_expected == 0 {
             assert!(
@@ -1042,7 +1037,7 @@ mod test {
         for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
             kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), harness.logger())
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             if blob_index == blobs_expected - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
@@ -1070,7 +1065,7 @@ mod test {
         for gossip_blob in blobs {
             kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), harness.logger())
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             assert!(
                 matches!(availability, Availability::MissingComponents(_)),
@@ -1079,7 +1074,7 @@ mod test {
             assert_eq!(cache.critical.read().len(), 1);
         }
         let availability = cache
-            .put_pending_executed_block(pending_block, harness.logger())
+            .put_pending_executed_block(pending_block)
             .expect("should put block");
         assert!(
             matches!(availability, Availability::Available(_)),
@@ -1147,7 +1142,7 @@ mod test {
 
             // put the block in the cache
             let availability = cache
-                .put_pending_executed_block(pending_block, harness.logger())
+                .put_pending_executed_block(pending_block)
                 .expect("should put block");
 
             // grab the diet block from the cache for later testing

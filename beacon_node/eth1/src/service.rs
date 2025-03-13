@@ -13,13 +13,13 @@ use futures::future::TryFutureExt;
 use parking_lot::{RwLock, RwLockReadGuard};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{debug, error, info, trace, warn, Logger};
 use std::fmt::Debug;
 use std::ops::{Range, RangeInclusive};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{interval_at, Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 use types::{ChainSpec, DepositTreeSnapshot, Eth1Data, EthSpec, Unsigned};
 
 /// Indicates the default eth1 chain id we use for the deposit contract.
@@ -58,22 +58,16 @@ type EndpointState = Result<(), EndpointError>;
 
 /// Returns `Ok` if the endpoint is usable, i.e. is reachable and has a correct network id and
 /// chain id. Otherwise it returns `Err`.
-async fn endpoint_state(
-    endpoint: &HttpJsonRpc,
-    config_chain_id: &Eth1Id,
-    log: &Logger,
-) -> EndpointState {
+async fn endpoint_state(endpoint: &HttpJsonRpc, config_chain_id: &Eth1Id) -> EndpointState {
     let error_connecting = |e: String| {
         debug!(
-            log,
-            "eth1 endpoint error";
-            "endpoint" => %endpoint,
-            "error" => &e,
+            %endpoint,
+            error = &e,
+            "eth1 endpoint error"
         );
         warn!(
-            log,
-            "Error connecting to eth1 node endpoint";
-            "endpoint" => %endpoint,
+            %endpoint,
+            "Error connecting to eth1 node endpoint"
         );
         EndpointError::RequestFailed(e)
     };
@@ -86,19 +80,17 @@ async fn endpoint_state(
     // Handle the special case
     if chain_id == Eth1Id::Custom(0) {
         warn!(
-            log,
-            "Remote execution node is not synced";
-            "endpoint" => %endpoint,
+            %endpoint,
+            "Remote execution node is not synced"
         );
         return Err(EndpointError::FarBehind);
     }
     if &chain_id != config_chain_id {
         warn!(
-            log,
-            "Invalid execution chain ID. Please switch to correct chain ID on endpoint";
-            "endpoint" => %endpoint,
-            "expected" => ?config_chain_id,
-            "received" => ?chain_id,
+            %endpoint,
+            expected = ?config_chain_id,
+            received = ?chain_id,
+            "Invalid execution chain ID. Please switch to correct chain ID on endpoint"
         );
         Err(EndpointError::WrongChainId)
     } else {
@@ -134,10 +126,9 @@ async fn get_remote_head_and_new_block_ranges(
         .unwrap_or(u64::MAX);
     if remote_head_block.timestamp + node_far_behind_seconds < now {
         warn!(
-            service.log,
-            "Execution endpoint is not synced";
-            "endpoint" => %endpoint,
-            "last_seen_block_unix_timestamp" => remote_head_block.timestamp,
+            %endpoint,
+            last_seen_block_unix_timestamp = remote_head_block.timestamp,
+            "Execution endpoint is not synced"
         );
         return Err(Error::EndpointError(EndpointError::FarBehind));
     }
@@ -145,9 +136,8 @@ async fn get_remote_head_and_new_block_ranges(
     let handle_remote_not_synced = |e| {
         if let Error::RemoteNotSynced { .. } = e {
             warn!(
-                service.log,
-                "Execution endpoint is not synced";
-                "endpoint" => %endpoint,
+                %endpoint,
+                "Execution endpoint is not synced"
             );
         }
         e
@@ -392,12 +382,11 @@ pub fn endpoint_from_config(config: &Config) -> Result<HttpJsonRpc, String> {
 #[derive(Clone)]
 pub struct Service {
     inner: Arc<Inner>,
-    pub log: Logger,
 }
 
 impl Service {
     /// Creates a new service. Does not attempt to connect to the eth1 node.
-    pub fn new(config: Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
+    pub fn new(config: Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
         Ok(Self {
             inner: Arc::new(Inner {
                 block_cache: <_>::default(),
@@ -410,7 +399,6 @@ impl Service {
                 config: RwLock::new(config),
                 spec,
             }),
-            log,
         })
     }
 
@@ -425,7 +413,6 @@ impl Service {
     /// Creates a new service, initializing the deposit tree from a snapshot.
     pub fn from_deposit_snapshot(
         config: Config,
-        log: Logger,
         spec: Arc<ChainSpec>,
         deposit_snapshot: &DepositTreeSnapshot,
     ) -> Result<Self, Error> {
@@ -444,7 +431,6 @@ impl Service {
                 config: RwLock::new(config),
                 spec,
             }),
-            log,
         })
     }
 
@@ -464,16 +450,10 @@ impl Service {
     }
 
     /// Recover the deposit and block caches from encoded bytes.
-    pub fn from_bytes(
-        bytes: &[u8],
-        config: Config,
-        log: Logger,
-        spec: Arc<ChainSpec>,
-    ) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8], config: Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
         let inner = Inner::from_bytes(bytes, config, spec)?;
         Ok(Self {
             inner: Arc::new(inner),
-            log,
         })
     }
 
@@ -621,11 +601,10 @@ impl Service {
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
         let client = self.client();
-        let log = self.log.clone();
         let chain_id = self.config().chain_id.clone();
         let node_far_behind_seconds = self.inner.config.read().node_far_behind_seconds;
 
-        match endpoint_state(client, &chain_id, &log).await {
+        match endpoint_state(client, &chain_id).await {
             Ok(()) => crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 1),
             Err(e) => {
                 crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 0);
@@ -655,10 +634,9 @@ impl Service {
             {
                 let mut deposit_cache = self.inner.deposit_cache.write();
                 debug!(
-                    self.log,
-                    "Resetting last processed block";
-                    "old_block_number" => deposit_cache.last_processed_block,
-                    "new_block_number" => deposit_cache.cache.latest_block_number(),
+                    old_block_number = deposit_cache.last_processed_block,
+                    new_block_number = deposit_cache.cache.latest_block_number(),
+                    "Resetting last processed block"
                 );
                 deposit_cache.last_processed_block =
                     Some(deposit_cache.cache.latest_block_number());
@@ -668,11 +646,11 @@ impl Service {
                 outcome_result.map_err(|e| format!("Failed to update deposit cache: {:?}", e))?;
 
             trace!(
-                self.log,
-                "Updated deposit cache";
-                "cached_deposits" => self.inner.deposit_cache.read().cache.len(),
-                "logs_imported" => outcome.logs_imported,
-                "last_processed_execution_block" => self.inner.deposit_cache.read().last_processed_block,
+                cached_deposits = self.inner.deposit_cache.read().cache.len(),
+                logs_imported = outcome.logs_imported,
+                last_processed_execution_block =
+                    self.inner.deposit_cache.read().last_processed_block,
+                "Updated deposit cache"
             );
             Ok::<_, String>(outcome)
         };
@@ -684,11 +662,10 @@ impl Service {
                 .map_err(|e| format!("Failed to update deposit contract block cache: {:?}", e))?;
 
             trace!(
-                self.log,
-                "Updated deposit contract block cache";
-                "cached_blocks" => self.inner.block_cache.read().len(),
-                "blocks_imported" => outcome.blocks_imported,
-                "head_block" => outcome.head_block_number,
+                cached_blocks = self.inner.block_cache.read().len(),
+                blocks_imported = outcome.blocks_imported,
+                head_block = outcome.head_block_number,
+                "Updated deposit contract block cache"
             );
             Ok::<_, String>(outcome)
         };
@@ -727,17 +704,15 @@ impl Service {
         let update_result = self.update().await;
         match update_result {
             Err(e) => error!(
-                self.log,
-                "Error updating deposit contract cache";
-                "retry_millis" => update_interval.as_millis(),
-                "error" => e,
+                retry_millis = update_interval.as_millis(),
+                error = e,
+                "Error updating deposit contract cache"
             ),
             Ok((deposit, block)) => debug!(
-                self.log,
-                "Updated deposit contract cache";
-                "retry_millis" => update_interval.as_millis(),
-                "blocks" => format!("{:?}", block),
-                "deposits" => format!("{:?}", deposit),
+                retry_millis = update_interval.as_millis(),
+                ?block,
+                ?deposit,
+                "Updated deposit contract cache"
             ),
         };
         let optional_eth1data = self.inner.to_finalize.write().take();
@@ -752,23 +727,20 @@ impl Service {
             if deposit_count_to_finalize > already_finalized {
                 match self.finalize_deposits(eth1data_to_finalize) {
                     Err(e) => warn!(
-                        self.log,
-                        "Failed to finalize deposit cache";
-                        "error" => ?e,
-                        "info" => "this should resolve on its own"
+                        error = ?e,
+                        info = "this should resolve on its own",
+                        "Failed to finalize deposit cache"
                     ),
                     Ok(()) => info!(
-                        self.log,
-                        "Successfully finalized deposit tree";
-                        "finalized deposit count" => deposit_count_to_finalize,
+                        finalized_deposit_count = deposit_count_to_finalize,
+                        "Successfully finalized deposit tree"
                     ),
                 }
             } else {
                 debug!(
-                    self.log,
-                    "Deposits tree already finalized";
-                    "already_finalized" => already_finalized,
-                    "deposit_count_to_finalize" => deposit_count_to_finalize,
+                    %already_finalized,
+                    %deposit_count_to_finalize,
+                    "Deposits tree already finalized"
                 );
             }
         }
@@ -889,10 +861,7 @@ impl Service {
         let deposit_contract_address_ref: &str = &deposit_contract_address;
         for block_range in block_number_chunks.into_iter() {
             if block_range.is_empty() {
-                debug!(
-                    self.log,
-                    "No new blocks to scan for logs";
-                );
+                debug!("No new blocks to scan for logs");
                 continue;
             }
 
@@ -946,11 +915,7 @@ impl Service {
                     Ok::<_, Error>(())
                 })?;
 
-            debug!(
-                self.log,
-                "Imported deposit logs chunk";
-                "logs" => logs.len(),
-            );
+            debug!(logs = logs.len(), "Imported deposit logs chunk");
 
             cache.last_processed_block = Some(block_range.end.saturating_sub(1));
 
@@ -963,18 +928,16 @@ impl Service {
 
         if logs_imported > 0 {
             info!(
-                self.log,
-                "Imported deposit log(s)";
-                "latest_block" => self.inner.deposit_cache.read().cache.latest_block_number(),
-                "total" => self.deposit_cache_len(),
-                "new" => logs_imported
+                latest_block = self.inner.deposit_cache.read().cache.latest_block_number(),
+                total = self.deposit_cache_len(),
+                new = logs_imported,
+                "Imported deposit log(s)"
             );
         } else {
             debug!(
-                self.log,
-                "No new deposits found";
-                "latest_block" => self.inner.deposit_cache.read().cache.latest_block_number(),
-                "total_deposits" => self.deposit_cache_len(),
+                latest_block = self.inner.deposit_cache.read().cache.latest_block_number(),
+                total_deposits = self.deposit_cache_len(),
+                "No new deposits found"
             );
         }
 
@@ -1058,10 +1021,9 @@ impl Service {
             .collect::<Vec<_>>();
 
         debug!(
-            self.log,
-            "Downloading execution blocks";
-            "first" => ?required_block_numbers.first(),
-            "last" => ?required_block_numbers.last(),
+            first = ?required_block_numbers.first(),
+            last = ?required_block_numbers.last(),
+            "Downloading execution blocks"
         );
 
         // Produce a stream from the list of required block numbers and return a future that
@@ -1116,19 +1078,17 @@ impl Service {
 
         if blocks_imported > 0 {
             debug!(
-                self.log,
-                "Imported execution block(s)";
-                "latest_block_age" => latest_block_mins,
-                "latest_block" => block_cache.highest_block_number(),
-                "total_cached_blocks" => block_cache.len(),
-                "new" => %blocks_imported
+                latest_block_age = latest_block_mins,
+                latest_block = block_cache.highest_block_number(),
+                total_cached_blocks = block_cache.len(),
+                new = %blocks_imported,
+                "Imported execution block(s)"
             );
         } else {
             debug!(
-                self.log,
-                "No new execution blocks imported";
-                "latest_block" => block_cache.highest_block_number(),
-                "cached_blocks" => block_cache.len(),
+                latest_block = block_cache.highest_block_number(),
+                cached_blocks = block_cache.len(),
+                "No new execution blocks imported"
             );
         }
 
