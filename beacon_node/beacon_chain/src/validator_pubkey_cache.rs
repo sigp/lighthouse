@@ -7,6 +7,7 @@ use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
+use tracing::debug;
 use types::{BeaconState, FixedBytesExtended, Hash256, PublicKey, PublicKeyBytes};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
@@ -64,6 +65,8 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             }
         }
 
+        debug!(indices = indices.len(), "Loaded pubkey cache from store");
+
         Ok(ValidatorPubkeyCache {
             pubkeys,
             indices,
@@ -104,6 +107,11 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         self.pubkey_bytes.reserve(validator_keys.len());
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
+
+        debug!(
+            count = validator_keys.len(),
+            "Importing new pubkeys to the pubkey cache"
+        );
 
         let mut store_ops = Vec::with_capacity(validator_keys.len());
         for pubkey_bytes in validator_keys {
