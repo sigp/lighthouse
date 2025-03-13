@@ -109,7 +109,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 // BlobsByRange request handler enforces that blobs are sorted by index
                 let blobs = RuntimeVariableList::new(blobs, max_blobs_per_block)
                     .map_err(|_| "Blobs returned exceeds max length".to_string())?;
-                RpcBlock::new(Some(block_root), block, Some(blobs)).map_err(|e| format!("{e:?}"))
+                Ok(RpcBlock::new(Some(block_root), block, Some(blobs)))
             })
             .collect::<Result<Vec<_>, _>>()
     }

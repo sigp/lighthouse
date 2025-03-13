@@ -343,6 +343,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs {
+                if block.num_expected_blobs() != blob_list.len() {
+                    return Err(AvailabilityCheckError::MissingBlobs);
+                }
+
                 verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
                     .map_err(AvailabilityCheckError::InvalidBlobs)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
@@ -439,6 +443,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
             let maybe_available_block = if self.blobs_required_for_block(&block) {
                 if let Some(blobs) = blobs {
+                    if block.num_expected_blobs() != blobs.len() {
+                        return Err(AvailabilityCheckError::MissingBlobs);
+                    }
+
                     MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,

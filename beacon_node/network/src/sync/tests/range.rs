@@ -445,9 +445,7 @@ fn build_rpc_block(
     spec: &ChainSpec,
 ) -> RpcBlock<E> {
     match data_sidecars {
-        Some(DataSidecars::Blobs(blobs)) => {
-            RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
-        }
+        Some(DataSidecars::Blobs(blobs)) => RpcBlock::new(None, block, Some(blobs.clone())),
         Some(DataSidecars::DataColumns(columns)) => {
             RpcBlock::new_with_custody_columns(None, block, columns.clone(), spec).unwrap()
         }

@@ -107,32 +107,24 @@ impl<E: EthSpec> RpcBlock<E> {
         }
     }
 
-    /// Constructs a new `BlockAndBlobs` variant after making consistency
-    /// checks between the provided blocks and blobs. This struct makes no
-    /// guarantees about whether blobs should be present, only that they are
-    /// consistent with the block. An empty list passed in for `blobs` is
-    /// viewed the same as `None` passed in.
+    /// Constructs a new `BlockAndBlobs` variant.
     pub fn new(
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
-    ) -> Result<Self, AvailabilityCheckError> {
+    ) -> Self {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
         // Treat empty blob lists as if they are missing.
         let blobs = blobs.filter(|b| !b.is_empty());
-
-        if block.num_expected_blobs() != blobs.as_ref().map(|blobs| blobs.len()).unwrap_or(0) {
-            return Err(AvailabilityCheckError::MissingBlobs);
-        }
 
         let inner = match blobs {
             Some(blobs) => RpcBlockInner::BlockAndBlobs(block, blobs),
             None => RpcBlockInner::Block(block),
         };
-        Ok(Self {
+        Self {
             block_root,
             block: inner,
-        })
+        }
     }
 
     pub fn new_with_custody_columns(

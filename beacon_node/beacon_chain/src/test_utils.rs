@@ -2379,7 +2379,7 @@ where
                 .unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
-            RpcBlock::new(Some(block_root), block, blobs).unwrap()
+            RpcBlock::new(Some(block_root), block, blobs)
         }
     }
 
@@ -2416,7 +2416,7 @@ where
                 })
                 .transpose()
                 .unwrap();
-            RpcBlock::new(Some(block_root), block, blobs)?
+            RpcBlock::new(Some(block_root), block, blobs)
         })
     }
 

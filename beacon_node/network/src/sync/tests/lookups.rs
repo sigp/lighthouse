@@ -2560,8 +2560,7 @@ mod deneb_only {
                 self.unknown_parent_blobs
                     .take()
                     .map(|vec| RuntimeVariableList::from_vec(vec, max_len)),
-            )
-            .unwrap();
+            );
             self.rig.parent_block_processed(
                 self.block_root,
                 BlockProcessingResult::Err(BlockError::ParentUnknown {
