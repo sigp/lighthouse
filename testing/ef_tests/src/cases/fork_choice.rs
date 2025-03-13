@@ -29,6 +29,9 @@ use types::{
     IndexedAttestation, KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
 #[serde(deny_unknown_fields)]
 pub struct PowBlock {
@@ -547,11 +550,14 @@ impl<E: EthSpec> Tester<E> {
             {
                 let parent_state_root = parent_block.state_root();
 
-                // Cache the state to make CI go brr.
                 let mut state = self
                     .harness
                     .chain
-                    .get_state(&parent_state_root, Some(parent_block.slot()), true)
+                    .get_state(
+                        &parent_state_root,
+                        Some(parent_block.slot()),
+                        CACHE_STATE_IN_TESTS,
+                    )
                     .unwrap()
                     .unwrap();
 

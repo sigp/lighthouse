@@ -25,6 +25,9 @@ pub type E = MainnetEthSpec;
 
 pub const VALIDATOR_COUNT: usize = 64;
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 /// Defines some delay between when an attestation is created and when it is mutated.
 pub enum MutationDelay {
     /// No delay between creation and mutation.
@@ -370,11 +373,10 @@ impl ForkChoiceTest {
             .unwrap()
             .message()
             .state_root();
-        // Cache the state to make CI go brr
         let state = harness
             .chain
             .store
-            .get_state(&state_root, None, true)
+            .get_state(&state_root, None, CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
         let balances = state

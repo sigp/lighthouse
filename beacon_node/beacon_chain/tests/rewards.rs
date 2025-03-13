@@ -20,6 +20,9 @@ use types::{ChainSpec, ForkName, Slot};
 
 pub const VALIDATOR_COUNT: usize = 64;
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 type E = MinimalEthSpec;
 
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
@@ -117,9 +120,12 @@ async fn test_sync_committee_rewards() {
         .unwrap()
         .unwrap();
 
-    // Cache the state to make CI go brr.
     let parent_state = chain
-        .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)
+        .get_state(
+            &parent_block.state_root(),
+            Some(parent_block.slot()),
+            CACHE_STATE_IN_TESTS,
+        )
         .unwrap()
         .unwrap();
 

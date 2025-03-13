@@ -22,6 +22,9 @@ pub const VALIDATOR_COUNT: usize = 64;
 pub const EPOCH_OFFSET: u64 = 4;
 pub const NUM_ATTESTATIONS: u64 = 1;
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| generate_deterministic_keypairs(MAX_VALIDATOR_COUNT));

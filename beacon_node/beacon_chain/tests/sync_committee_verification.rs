@@ -21,6 +21,9 @@ pub type E = MainnetEthSpec;
 
 pub const VALIDATOR_COUNT: usize = 256;
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
@@ -755,9 +758,8 @@ async fn unaggregated_gossip_verification() {
 
         // Load the block and state for the given root.
         let block = chain.get_block(&root).await.unwrap().unwrap();
-        // Cache the state to make CI go brr.
         let mut state = chain
-            .get_state(&block.state_root(), None, true)
+            .get_state(&block.state_root(), None, CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
 
