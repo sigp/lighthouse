@@ -77,15 +77,11 @@ Options:
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
-      --logfile <FILE>
-          File path where the log file will be stored. Once it grows to the
-          value specified in `--logfile-max-size` a new log file is generated
-          where future logs are stored. Once the number of log files exceeds the
-          value specified in `--logfile-max-number` the oldest log file will be
-          overwritten.
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
           debug] [possible values: info, debug, trace, warn, error, crit]
+      --logfile-dir <DIR>
+          Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
           [possible values: DEFAULT, JSON]
@@ -175,6 +171,10 @@ Flags:
           If this flag is set, Lighthouse will query the Beacon Node for only
           block headers during proposals and will sign over headers. Useful for
           outsourcing execution payload construction during proposals.
+      --disable-attesting
+          Disable the performance of attestation duties (and sync committee
+          duties). This flag should only be used in emergencies to prioritise
+          block proposal duties.
       --disable-auto-discover
           If present, do not attempt to discover new validators in the
           validators-dir. Validators will need to be manually added to the
@@ -236,8 +236,13 @@ Flags:
           database will have been initialized when you imported your validator
           keys. If you misplace your database and then run with this flag you
           risk being slashed.
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
+      --log-extra-info
+          If present, show module,file,line in logs
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.
@@ -247,6 +252,13 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
+      --long-timeouts-multiplier <LONG_TIMEOUTS_MULTIPLIER>
+          If present, the validator client will use a multiplier for the timeout
+          when making requests to the beacon node. This only takes effect when
+          the `--use-long-timeouts` flag is present. The timeouts will be the
+          slot duration multiplied by this value. This flag is generally not
+          recommended, longer timeouts can cause missed duties when fallbacks
+          are used. [default: 1]
       --metrics
           Enable the Prometheus metrics HTTP server. Disabled by default.
       --prefer-builder-proposals

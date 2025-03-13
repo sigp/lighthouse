@@ -27,6 +27,7 @@ http_api = { workspace = true }
 http_metrics = { path = "../http_metrics" }
 kzg = { workspace = true }
 lighthouse_network = { workspace = true }
+logging = { workspace = true }
 metrics = { workspace = true }
 monitoring_api = { workspace = true }
 network = { workspace = true }
@@ -35,11 +36,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 slasher = { workspace = true }
 slasher_service = { path = "../../slasher/service" }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
 time = "0.3.5"
 timer = { path = "../timer" }
 tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }

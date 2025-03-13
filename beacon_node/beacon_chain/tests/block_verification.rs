@@ -12,7 +12,7 @@ use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
     InvalidSignature, NotifyExecutionLayer,
 };
-use logging::test_logger;
+use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::{attesting_indices_base, attesting_indices_electra},
@@ -1295,15 +1295,11 @@ async fn verify_and_process_gossip_data_sidecars(
 
 #[tokio::test]
 async fn verify_block_for_gossip_slashing_detection() {
+    create_test_tracing_subscriber();
     let slasher_dir = tempdir().unwrap();
     let spec = Arc::new(test_spec::<E>());
     let slasher = Arc::new(
-        Slasher::open(
-            SlasherConfig::new(slasher_dir.path().into()),
-            spec.clone(),
-            test_logger(),
-        )
-        .unwrap(),
+        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), spec.clone()).unwrap(),
     );
 
     let inner_slasher = slasher.clone();

@@ -63,12 +63,13 @@ use lighthouse_network::service::api_types::{
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
+use logging::crit;
 use lru_cache::LRUTimeCache;
-use slog::{crit, debug, error, info, o, trace, warn, Logger};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
@@ -246,9 +247,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
     notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
 
     sampling: Sampling<T>,
-
-    /// The logger for the import manager.
-    log: Logger,
 }
 
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
@@ -261,7 +259,6 @@ pub fn spawn<T: BeaconChainTypes>(
     beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
     fork_context: Arc<ForkContext>,
-    log: slog::Logger,
 ) {
     assert!(
         beacon_chain.spec.max_request_blocks(fork_context.current_fork()) as u64 >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
@@ -276,12 +273,18 @@ pub fn spawn<T: BeaconChainTypes>(
         sync_recv,
         SamplingConfig::Default,
         fork_context,
-        log.clone(),
     );
 
     // spawn the sync manager thread
-    debug!(log, "Sync Manager started");
-    executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
+    debug!("Sync Manager started");
+    executor.spawn(
+        async move {
+            Box::pin(sync_manager.main())
+                .instrument(info_span!("", service = "sync"))
+                .await
+        },
+        "sync",
+    );
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {
@@ -292,7 +295,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
         sampling_config: SamplingConfig,
         fork_context: Arc<ForkContext>,
-        log: slog::Logger,
     ) -> Self {
         let network_globals = beacon_processor.network_globals.clone();
         Self {
@@ -303,23 +305,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 beacon_processor.clone(),
                 beacon_chain.clone(),
                 fork_context.clone(),
-                log.clone(),
             ),
-            range_sync: RangeSync::new(
-                beacon_chain.clone(),
-                log.new(o!("service" => "range_sync")),
-            ),
-            backfill_sync: BackFillSync::new(
-                beacon_chain.clone(),
-                network_globals,
-                log.new(o!("service" => "backfill_sync")),
-            ),
-            block_lookups: BlockLookups::new(log.new(o!("service"=> "lookup_sync"))),
+            range_sync: RangeSync::new(beacon_chain.clone()),
+            backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals),
+            block_lookups: BlockLookups::new(),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
-            sampling: Sampling::new(sampling_config, log.new(o!("service" => "sampling"))),
-            log: log.clone(),
+            sampling: Sampling::new(sampling_config),
         }
     }
 
@@ -461,10 +454,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         };
 
         let head_slot = head_slot.unwrap_or_else(|| {
-            debug!(self.log,
-                "On add peers force range sync assuming local head_slot";
-                "local_head_slot" => local.head_slot,
-                "head_root" => ?head_root
+            debug!(
+                local_head_slot = %local.head_slot,
+                ?head_root,
+                "On add peers force range sync assuming local head_slot"
             );
             local.head_slot
         });
@@ -485,7 +478,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     /// Handles RPC errors related to requests that were emitted from the sync manager.
     fn inject_error(&mut self, peer_id: PeerId, request_id: SyncRequestId, error: RPCError) {
-        trace!(self.log, "Sync manager received a failed RPC");
+        trace!("Sync manager received a failed RPC");
         match request_id {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
@@ -565,15 +558,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             let is_connected = self.network_globals().peers.read().is_connected(peer_id);
             if was_updated {
                 debug!(
-                    self.log,
-                    "Peer transitioned sync state";
-                    "peer_id" => %peer_id,
-                    "new_state" => rpr,
-                    "our_head_slot" => local_sync_info.head_slot,
-                    "our_finalized_epoch" => local_sync_info.finalized_epoch,
-                    "their_head_slot" => remote_sync_info.head_slot,
-                    "their_finalized_epoch" => remote_sync_info.finalized_epoch,
-                    "is_connected" => is_connected
+                    %peer_id,
+                    new_state = rpr,
+                    our_head_slot = %local_sync_info.head_slot,
+                    our_finalized_epoch = %local_sync_info.finalized_epoch,
+                    their_head_slot = %remote_sync_info.head_slot,
+                    their_finalized_epoch = %remote_sync_info.finalized_epoch,
+                    is_connected,
+                    "Peer transitioned sync state"
                 );
 
                 // A peer has transitioned its sync state. If the new state is "synced" we
@@ -584,7 +576,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             is_connected
         } else {
-            error!(self.log, "Status'd peer is unknown"; "peer_id" => %peer_id);
+            error!(%peer_id, "Status'd peer is unknown");
             false
         }
     }
@@ -603,7 +595,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
-                crit!(self.log, "Error getting range sync state"; "error" => %e);
+                crit!(error = %e, "Error getting range sync state");
                 return;
             }
             Ok(state) => match state {
@@ -652,7 +644,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }
                             Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if the backfill sync state didn't start.
                             Err(e) => {
-                                error!(self.log, "Backfill sync failed to start"; "error" => ?e);
+                                error!(error = ?e, "Backfill sync failed to start");
                             }
                         }
                     }
@@ -686,7 +678,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let old_state = self.network_globals().set_sync_state(new_state);
         let new_state = self.network_globals().sync_state.read().clone();
         if !new_state.eq(&old_state) {
-            info!(self.log, "Sync state updated"; "old_state" => %old_state, "new_state" => %new_state);
+            info!(%old_state, %new_state, "Sync state updated");
             // If we have become synced - Subscribe to all the core subnet topics
             // We don't need to subscribe if the old state is a state that would have already
             // invoked this call.
@@ -781,7 +773,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
-                debug!(self.log, "Received unknown parent block message"; "block_root" => %block_root, "parent_root" => %parent_root);
+                debug!(%block_root, %parent_root, "Received unknown parent block message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
@@ -799,7 +791,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 let blob_slot = blob.slot();
                 let block_root = blob.block_root();
                 let parent_root = blob.block_parent_root();
-                debug!(self.log, "Received unknown parent blob message"; "block_root" => %block_root, "parent_root" => %parent_root);
+                debug!(%block_root, %parent_root, "Received unknown parent blob message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
@@ -817,7 +809,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 let data_column_slot = data_column.slot();
                 let block_root = data_column.block_root();
                 let parent_root = data_column.block_parent_root();
-                debug!(self.log, "Received unknown parent data column message"; "block_root" => %block_root, "parent_root" => %parent_root);
+                debug!(%block_root, %parent_root, "Received unknown parent data column message");
                 self.handle_unknown_parent(
                     peer_id,
                     block_root,
@@ -834,12 +826,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
                     self.notified_unknown_roots.insert((peer_id, block_root));
-                    debug!(self.log, "Received unknown block hash message"; "block_root" => ?block_root, "peer" => ?peer_id);
+                    debug!(?block_root, ?peer_id, "Received unknown block hash message");
                     self.handle_unknown_block_root(peer_id, block_root);
                 }
             }
             SyncMessage::SampleBlock(block_root, block_slot) => {
-                debug!(self.log, "Received SampleBlock message"; "block_root" => %block_root, "slot" => block_slot);
+                debug!(%block_root, slot = %block_slot, "Received SampleBlock message");
                 if let Some((requester, result)) = self
                     .sampling
                     .on_new_sample_request(block_root, &mut self.network)
@@ -848,7 +840,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
-                debug!(self.log, "Received disconnected message"; "peer_id" => %peer_id);
+                debug!(%peer_id, "Received disconnected message");
                 self.peer_disconnect(&peer_id);
             }
             SyncMessage::RpcError {
@@ -889,7 +881,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         Ok(ProcessResult::Successful) => {}
                         Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Err(error) => {
-                            error!(self.log, "Backfill sync failed"; "error" => ?error);
+                            error!(error = ?error, "Backfill sync failed");
                             // Update the global status
                             self.update_sync_state();
                         }
@@ -925,7 +917,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             Err(reason) => {
-                debug!(self.log, "Ignoring unknown parent request"; "block_root" => %block_root, "parent_root" => %parent_root, "reason" => reason);
+                debug!(%block_root, %parent_root, reason, "Ignoring unknown parent request");
             }
         }
     }
@@ -937,7 +929,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .search_unknown_block(block_root, &[peer_id], &mut self.network);
             }
             Err(reason) => {
-                debug!(self.log, "Ignoring unknown block request"; "block_root" => %block_root, "reason" => reason);
+                debug!(%block_root, reason, "Ignoring unknown block request");
             }
         }
     }
@@ -1015,8 +1007,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                 // Some logs.
                 if dropped_single_blocks_requests > 0 {
-                    debug!(self.log, "Execution engine not online. Dropping active requests.";
-                        "dropped_single_blocks_requests" => dropped_single_blocks_requests,
+                    debug!(
+                        dropped_single_blocks_requests,
+                        "Execution engine not online. Dropping active requests."
                     );
                 }
             }
@@ -1042,7 +1035,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 RpcEvent::from_chunk(block, seen_timestamp),
             ),
             _ => {
-                crit!(self.log, "bad request id for block"; "peer_id" => %peer_id  );
+                crit!(%peer_id, "bad request id for block");
             }
         }
     }
@@ -1084,7 +1077,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 RpcEvent::from_chunk(blob, seen_timestamp),
             ),
             _ => {
-                crit!(self.log, "bad request id for blob"; "peer_id" => %peer_id);
+                crit!(%peer_id, "bad request id for blob");
             }
         }
     }
@@ -1110,7 +1103,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 RpcEvent::from_chunk(data_column, seen_timestamp),
             ),
             _ => {
-                crit!(self.log, "bad request id for data_column"; "peer_id" => %peer_id);
+                crit!(%peer_id, "bad request id for data_column");
             }
         }
     }
@@ -1228,7 +1221,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn on_sampling_result(&mut self, requester: SamplingRequester, result: SamplingResult) {
         match requester {
             SamplingRequester::ImportedBlock(block_root) => {
-                debug!(self.log, "Sampling result"; "block_root" => %block_root, "result" => ?result);
+                debug!(%block_root, ?result, "Sampling result");
 
                 match result {
                     Ok(_) => {
@@ -1239,11 +1232,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             .beacon_processor()
                             .send_sampling_completed(block_root)
                         {
-                            warn!(self.log, "Error sending sampling result"; "block_root" => ?block_root, "reason" => ?e);
+                            warn!(?block_root, reason = ?e, "Error sending sampling result");
                         }
                     }
                     Err(e) => {
-                        warn!(self.log, "Sampling failed"; "block_root" => %block_root, "reason" => ?e);
+                        warn!(?block_root, reason = ?e, "Sampling failed");
                     }
                 }
             }

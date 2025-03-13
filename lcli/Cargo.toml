@@ -34,10 +34,11 @@ rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
-sloggers = { workspace = true }
 snap = { workspace = true }
 state_processing = { workspace = true }
 store = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
 validator_dir = { workspace = true }

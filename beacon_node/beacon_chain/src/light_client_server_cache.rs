@@ -2,12 +2,12 @@ use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
-use slog::{debug, Logger};
 use ssz::Decode;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use store::DBColumn;
 use store::KeyValueStore;
+use tracing::debug;
 use tree_hash::TreeHash;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
@@ -82,7 +82,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         block_slot: Slot,
         block_parent_root: &Hash256,
         sync_aggregate: &SyncAggregate<T::EthSpec>,
-        log: &Logger,
         chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
         metrics::inc_counter(&metrics::LIGHT_CLIENT_SERVER_CACHE_PROCESSING_REQUESTS);
@@ -170,9 +169,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 )?);
             } else {
                 debug!(
-                    log,
-                    "Finalized block not available in store for light_client server";
-                    "finalized_block_root" => format!("{}", cached_parts.finalized_block_root),
+                    finalized_block_root = %cached_parts.finalized_block_root,
+                    "Finalized block not available in store for light_client server"
                 );
             }
         }
