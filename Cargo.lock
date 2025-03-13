@@ -9487,7 +9487,6 @@ name = "validator_test_rig"
 version = "0.1.0"
 dependencies = [
  "eth2",
- "logging",
  "mockito",
  "regex",
  "sensitive_url",
