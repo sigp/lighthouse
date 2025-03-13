@@ -127,5 +127,5 @@ suggest:
 - [Rust by example](https://doc.rust-lang.org/stable/rust-by-example/)
 - [Learning Rust With Entirely Too Many Linked Lists](http://cglab.ca/~abeinges/blah/too-many-lists/book/)
 - [Rustlings](https://github.com/rustlings/rustlings)
-- [Rust Exercism](https://exercism.io/tracks/rust)
+- [Rust Exercism](https://exercism.org/tracks/rust)
 - [Learn X in Y minutes - Rust](https://learnxinyminutes.com/docs/rust/)
