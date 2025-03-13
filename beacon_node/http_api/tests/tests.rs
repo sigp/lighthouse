@@ -26,7 +26,6 @@ use http_api::{
     BlockId, StateId,
 };
 use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
-use logging::test_logger;
 use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
@@ -135,7 +134,6 @@ impl ApiTester {
                 reconstruct_historic_states: config.retain_historic_states,
                 ..ChainConfig::default()
             })
-            .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -277,8 +275,6 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let log = test_logger();
-
         let ApiServer {
             ctx,
             server,
@@ -286,7 +282,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -375,7 +371,6 @@ impl ApiTester {
         let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
-        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -384,7 +379,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -2450,8 +2445,8 @@ impl ApiTester {
                 };
 
                 let state_match =
-                    states.map_or(true, |states| states.contains(&PeerState::Connected));
-                let dir_match = dirs.map_or(true, |dirs| dirs.contains(&PeerDirection::Inbound));
+                    states.is_none_or(|states| states.contains(&PeerState::Connected));
+                let dir_match = dirs.is_none_or(|dirs| dirs.contains(&PeerDirection::Inbound));
 
                 let mut expected_peers = Vec::new();
                 if state_match && dir_match {
@@ -3555,44 +3550,48 @@ impl ApiTester {
     }
 
     #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
-    pub async fn test_get_validator_aggregate_attestation(self) -> Self {
-        if self
+    pub async fn test_get_validator_aggregate_attestation_v1(self) -> Self {
+        let attestation = self
             .chain
-            .spec
-            .fork_name_at_slot::<E>(self.chain.slot().unwrap())
-            .electra_enabled()
-        {
-            for attestation in self.chain.naive_aggregation_pool.read().iter() {
-                let result = self
-                    .client
-                    .get_validator_aggregate_attestation_v2(
-                        attestation.data().slot,
-                        attestation.data().tree_hash_root(),
-                        attestation.committee_index().expect("committee index"),
-                    )
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .data;
-                let expected = attestation;
+            .head_beacon_block()
+            .message()
+            .body()
+            .attestations()
+            .next()
+            .unwrap()
+            .clone_as_attestation();
+        let result = self
+            .client
+            .get_validator_aggregate_attestation_v1(
+                attestation.data().slot,
+                attestation.data().tree_hash_root(),
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .data;
+        let expected = attestation;
 
-                assert_eq!(&result, expected);
-            }
-        } else {
-            let attestation = self
-                .chain
-                .head_beacon_block()
-                .message()
-                .body()
-                .attestations()
-                .next()
-                .unwrap()
-                .clone_as_attestation();
+        assert_eq!(result, expected);
+
+        self
+    }
+
+    pub async fn test_get_validator_aggregate_attestation_v2(self) -> Self {
+        let attestations = self
+            .chain
+            .naive_aggregation_pool
+            .read()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        for attestation in attestations {
             let result = self
                 .client
-                .get_validator_aggregate_attestation_v1(
+                .get_validator_aggregate_attestation_v2(
                     attestation.data().slot,
                     attestation.data().tree_hash_root(),
+                    attestation.committee_index().expect("committee index"),
                 )
                 .await
                 .unwrap()
@@ -3602,7 +3601,6 @@ impl ApiTester {
 
             assert_eq!(result, expected);
         }
-
         self
     }
 
@@ -6775,19 +6773,36 @@ async fn get_validator_attestation_data_with_skip_slots() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_validator_aggregate_attestation() {
+async fn get_validator_aggregate_attestation_v1() {
     ApiTester::new()
         .await
-        .test_get_validator_aggregate_attestation()
+        .test_get_validator_aggregate_attestation_v1()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_validator_aggregate_attestation_with_skip_slots() {
+async fn get_validator_aggregate_attestation_v2() {
+    ApiTester::new()
+        .await
+        .test_get_validator_aggregate_attestation_v2()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_aggregate_attestation_with_skip_slots_v1() {
     ApiTester::new()
         .await
         .skip_slots(E::slots_per_epoch() * 2)
-        .test_get_validator_aggregate_attestation()
+        .test_get_validator_aggregate_attestation_v1()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_aggregate_attestation_with_skip_slots_v2() {
+    ApiTester::new()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_get_validator_aggregate_attestation_v2()
         .await;
 }
 

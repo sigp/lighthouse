@@ -12,10 +12,10 @@ pub use config::{get_config, get_data_dir, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use slasher::{DatabaseBackendOverride, Slasher};
-use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use store::database::interface::BeaconNodeBackend;
+use tracing::{info, warn};
 use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
@@ -63,7 +63,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let spec = context.eth2_config().spec.clone();
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
-        let log = context.log().clone();
         let _datadir = client_config.create_data_dir()?;
         let db_path = client_config.create_db_path()?;
         let freezer_db_path = client_config.create_freezer_db_path()?;
@@ -72,20 +71,18 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         if let Some(legacy_dir) = client_config.get_existing_legacy_data_dir() {
             warn!(
-                log,
-                "Legacy datadir location";
-                "msg" => "this occurs when using relative paths for a datadir location",
-                "location" => ?legacy_dir,
+                msg = "this occurs when using relative paths for a datadir location",
+                location = ?legacy_dir,
+                "Legacy datadir location"
             )
         }
 
         if let Err(misaligned_forks) = validator_fork_epochs(&spec) {
             warn!(
-                log,
-                "Fork boundaries are not well aligned / multiples of 256";
-                "info" => "This may cause issues as fork boundaries do not align with the \
-                    start of sync committee period.",
-                "misaligned_forks" => ?misaligned_forks,
+                info = "This may cause issues as fork boundaries do not align with the \
+                start of sync committee period.",
+                ?misaligned_forks,
+                "Fork boundaries are not well aligned / multiples of 256"
             );
         }
 
@@ -94,42 +91,30 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .chain_spec(spec.clone())
             .beacon_processor(client_config.beacon_processor.clone())
             .http_api_config(client_config.http_api.clone())
-            .disk_store(
-                &db_path,
-                &freezer_db_path,
-                &blobs_db_path,
-                store_config,
-                log.clone(),
-            )?;
+            .disk_store(&db_path, &freezer_db_path, &blobs_db_path, store_config)?;
 
         let builder = if let Some(mut slasher_config) = client_config.slasher.clone() {
             match slasher_config.override_backend() {
                 DatabaseBackendOverride::Success(old_backend) => {
                     info!(
-                        log,
-                        "Slasher backend overridden";
-                        "reason" => "database exists",
-                        "configured_backend" => %old_backend,
-                        "override_backend" => %slasher_config.backend,
+                        reason = "database exists",
+                        configured_backend = %old_backend,
+                        override_backend = %slasher_config.backend,
+                        "Slasher backend overridden"
                     );
                 }
                 DatabaseBackendOverride::Failure(path) => {
                     warn!(
-                        log,
-                        "Slasher backend override failed";
-                        "advice" => "delete old MDBX database or enable MDBX backend",
-                        "path" => path.display()
+                        advice = "delete old MDBX database or enable MDBX backend",
+                        path = %path.display(),
+                        "Slasher backend override failed"
                     );
                 }
                 _ => {}
             }
             let slasher = Arc::new(
-                Slasher::open(
-                    slasher_config,
-                    spec,
-                    log.new(slog::o!("service" => "slasher")),
-                )
-                .map_err(|e| format!("Slasher open error: {:?}", e))?,
+                Slasher::open(slasher_config, spec)
+                    .map_err(|e| format!("Slasher open error: {:?}", e))?,
             );
             builder.slasher(slasher)
         } else {
@@ -149,19 +134,17 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .await?;
         let builder = if client_config.sync_eth1_chain {
             info!(
-                log,
-                "Block production enabled";
-                "endpoint" => format!("{:?}", &client_config.eth1.endpoint),
-                "method" => "json rpc via http"
+                endpoint = ?client_config.eth1.endpoint,
+                method = "json rpc via http",
+                "Block production enabled"
             );
             builder
                 .caching_eth1_backend(client_config.eth1.clone())
                 .await?
         } else {
             info!(
-                log,
-                "Block production disabled";
-                "reason" => "no eth1 backend configured"
+                reason = "no eth1 backend configured",
+                "Block production disabled"
             );
             builder.no_eth1_backend()?
         };

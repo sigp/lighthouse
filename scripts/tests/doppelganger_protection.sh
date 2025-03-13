@@ -78,7 +78,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
       --files /validator_keys:$vc_1_keys_artifact_id,/testnet:el_cl_genesis_data \
       $ENCLAVE_NAME $service_name $LH_IMAGE_NAME -- lighthouse \
       vc \
-      --debug-level debug \
+      --debug-level info \
       --testnet-dir=/testnet \
       --validators-dir=/validator_keys/keys \
       --secrets-dir=/validator_keys/secrets \

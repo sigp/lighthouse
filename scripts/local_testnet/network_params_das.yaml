@@ -4,11 +4,15 @@ participants:
     cl_extra_params:
       - --subscribe-all-data-column-subnets
       - --subscribe-all-subnets
+      # Note: useful for testing range sync (only produce block if node is in sync to prevent forking)
+      - --sync-tolerance-epochs=0
       - --target-peers=3
     count: 2
   - cl_type: lighthouse
     cl_image: lighthouse:local
     cl_extra_params:
+      # Note: useful for testing range sync (only produce block if node is in sync to prevent forking)
+      - --sync-tolerance-epochs=0
       - --target-peers=3
     count: 2
 network_params:

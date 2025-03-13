@@ -328,8 +328,7 @@ async fn test_rewards_base_multi_inclusion() {
         .extend_slots(E::slots_per_epoch() as usize * 2 - 4)
         .await;
 
-    // pin to reduce stack size for clippy
-    Box::pin(check_all_base_rewards(&harness, initial_balances)).await;
+    check_all_base_rewards(&harness, initial_balances).await;
 }
 
 #[tokio::test]
@@ -692,7 +691,8 @@ async fn check_all_base_rewards(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     balances: Vec<u64>,
 ) {
-    check_all_base_rewards_for_subset(harness, balances, vec![]).await;
+    // The box reduces the size on the stack for a clippy lint.
+    Box::pin(check_all_base_rewards_for_subset(harness, balances, vec![])).await;
 }
 
 async fn check_all_base_rewards_for_subset(

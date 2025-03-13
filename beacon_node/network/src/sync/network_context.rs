@@ -34,13 +34,13 @@ use requests::{
     ActiveRequests, BlobsByRangeRequestItems, BlobsByRootRequestItems, BlocksByRangeRequestItems,
     BlocksByRootRequestItems, DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
 };
-use slog::{debug, error, warn};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tracing::{debug, error, span, warn, Level};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
@@ -74,10 +74,10 @@ pub type CustodyByRootResult<T> =
 
 #[derive(Debug)]
 pub enum RpcResponseError {
-    RpcError(RPCError),
+    RpcError(#[allow(dead_code)] RPCError),
     VerifyError(LookupVerifyError),
-    CustodyRequestError(CustodyRequestError),
-    BlockComponentCouplingError(String),
+    CustodyRequestError(#[allow(dead_code)] CustodyRequestError),
+    BlockComponentCouplingError(#[allow(dead_code)] String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -87,6 +87,19 @@ pub enum RpcRequestSendError {
     NoCustodyPeers,
     CustodyRequestError(custody::Error),
     SlotClockError,
+}
+
+impl std::fmt::Display for RpcRequestSendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            RpcRequestSendError::NetworkSendError => write!(f, "Network send error"),
+            RpcRequestSendError::NoCustodyPeers => write!(f, "No custody peers"),
+            RpcRequestSendError::CustodyRequestError(e) => {
+                write!(f, "Custody request error: {:?}", e)
+            }
+            RpcRequestSendError::SlotClockError => write!(f, "Slot clock error"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -201,9 +214,6 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
 
     fork_context: Arc<ForkContext>,
-
-    /// Logger for the `SyncNetworkContext`.
-    pub log: slog::Logger,
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
@@ -219,8 +229,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         chain: Arc<BeaconChain<T>>,
         fork_context: Arc<ForkContext>,
-        log: slog::Logger,
     ) -> Self {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
         SyncNetworkContext {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
@@ -236,7 +251,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             network_beacon_processor,
             chain,
             fork_context,
-            log,
         }
     }
 
@@ -267,7 +281,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             network_beacon_processor: _,
             chain: _,
             fork_context: _,
-            log: _,
         } = self;
 
         let blocks_by_root_ids = blocks_by_root_requests
@@ -330,17 +343,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     pub fn status_peers<C: ToStatusMessage>(&self, chain: &C, peers: impl Iterator<Item = PeerId>) {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         let status_message = chain.status_message();
         for peer_id in peers {
             debug!(
-                self.log,
-                "Sending Status Request";
-                "peer" => %peer_id,
-                "fork_digest" => ?status_message.fork_digest,
-                "finalized_root" => ?status_message.finalized_root,
-                "finalized_epoch" => ?status_message.finalized_epoch,
-                "head_root" => %status_message.head_root,
-                "head_slot" => %status_message.head_slot,
+                peer = %peer_id,
+                fork_digest = ?status_message.fork_digest,
+                finalized_root = ?status_message.finalized_root,
+                finalized_epoch = ?status_message.finalized_epoch,
+                head_root = %status_message.head_root,
+                head_slot = %status_message.head_slot,
+                "Sending Status Request"
             );
 
             let request = RequestType::Status(status_message.clone());
@@ -385,7 +404,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let (expects_columns, data_column_requests) =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
                 let column_indexes = self.network_globals().sampling_columns.clone();
-
                 let data_column_requests = self
                     .make_columns_by_range_requests(request, &column_indexes)?
                     .into_iter()
@@ -518,6 +536,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::Pending("no peers"));
         };
 
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         match self.chain.get_block_process_status(&block_root) {
             // Unknown block, continue request to download
             BlockProcessStatus::Unknown => {}
@@ -560,12 +585,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         debug!(
-            self.log,
-            "Sync RPC request sent";
-            "method" => "BlocksByRoot",
-            "block_root" => ?block_root,
-            "peer" => %peer_id,
-            "id" => %id
+            method = "BlocksByRoot",
+            ?block_root,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
         );
 
         self.blocks_by_root_requests.insert(
@@ -608,6 +632,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::Pending("no peers"));
         };
 
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
@@ -643,13 +674,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         debug!(
-            self.log,
-            "Sync RPC request sent";
-            "method" => "BlobsByRoot",
-            "block_root" => ?block_root,
-            "blob_indices" => ?indices,
-            "peer" => %peer_id,
-            "id" => %id
+            method = "BlobsByRoot",
+            ?block_root,
+            blob_indices = ?indices,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
         );
 
         self.blobs_by_root_requests.insert(
@@ -673,6 +703,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request: DataColumnsByRootSingleBlockRequest,
         expect_max_responses: bool,
     ) -> Result<LookupRequestResult<DataColumnsByRootRequestId>, &'static str> {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         let id = DataColumnsByRootRequestId {
             id: self.next_id(),
             requester,
@@ -685,13 +722,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })?;
 
         debug!(
-            self.log,
-            "Sync RPC request sent";
-            "method" => "DataColumnsByRoot",
-            "block_root" => ?request.block_root,
-            "indices" => ?request.indices,
-            "peer" => %peer_id,
-            "id" => %id,
+            method = "DataColumnsByRoot",
+            block_root = ?request.block_root,
+            indices = ?request.indices,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
         );
 
         self.data_columns_by_root_requests.insert(
@@ -714,6 +750,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         let custody_indexes_imported = self
             .chain
             .data_availability_checker
@@ -740,11 +783,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         debug!(
-            self.log,
-            "Starting custody columns request";
-            "block_root" => ?block_root,
-            "indices" => ?custody_indexes_to_fetch,
-            "id" => %id
+            ?block_root,
+            indices = ?custody_indexes_to_fetch,
+            %id,
+            "Starting custody columns request"
         );
 
         let requester = CustodyRequester(id);
@@ -753,7 +795,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             CustodyId { requester },
             &custody_indexes_to_fetch,
             lookup_peers,
-            self.log.clone(),
         );
 
         // Note that you can only send, but not handle a response here
@@ -788,13 +829,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         debug!(
-            self.log,
-            "Sync RPC request sent";
-            "method" => "BlocksByRange",
-            "slots" => request.count(),
-            "epoch" => Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch()),
-            "peer" => %peer_id,
-            "id" => %id,
+            method = "BlocksByRange",
+            slots = request.count(),
+            epoch = %Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch()),
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
         );
 
         self.blocks_by_range_requests.insert(
@@ -830,13 +870,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         debug!(
-            self.log,
-            "Sync RPC request sent";
-            "method" => "BlobsByRange",
-            "slots" => request.count,
-            "epoch" => request_epoch,
-            "peer" => %peer_id,
-            "id" => %id,
+            method = "BlobsByRange",
+            slots = request.count,
+            epoch = %request_epoch,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
         );
 
         let max_blobs_per_block = self.chain.spec.max_blobs_per_block(request_epoch);
@@ -870,14 +909,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         debug!(
-            self.log,
-            "Sync RPC request sent";
-            "method" => "DataColumnsByRange",
-            "slots" => request.count,
-            "epoch" => Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
-            "columns" => ?request.columns,
-            "peer" => %peer_id,
-            "id" => %id,
+            method = "DataColumnsByRange",
+            slots = request.count,
+            epoch = %Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
+            columns = ?request.columns,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
         );
 
         self.data_columns_by_range_requests.insert(
@@ -896,13 +934,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     pub fn update_execution_engine_state(&mut self, engine_state: EngineState) {
-        debug!(self.log, "Sync's view on execution engine state updated";
-            "past_state" => ?self.execution_engine_state, "new_state" => ?engine_state);
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
+        debug!(past_state = ?self.execution_engine_state, new_state = ?engine_state, "Sync's view on execution engine state updated");
         self.execution_engine_state = engine_state;
     }
 
     /// Terminates the connection with the peer and bans them.
     pub fn goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         self.network_send
             .send(NetworkMessage::GoodbyePeer {
                 peer_id,
@@ -910,13 +961,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 source: ReportSource::SyncService,
             })
             .unwrap_or_else(|_| {
-                warn!(self.log, "Could not report peer: channel failed");
+                warn!("Could not report peer: channel failed");
             });
     }
 
     /// Reports to the scoring algorithm the behaviour of a peer.
     pub fn report_peer(&self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
-        debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action, "msg" => %msg);
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
+        debug!(%peer_id, %action, %msg, "Sync reporting peer");
         self.network_send
             .send(NetworkMessage::ReportPeer {
                 peer_id,
@@ -925,23 +983,37 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 msg,
             })
             .unwrap_or_else(|e| {
-                warn!(self.log, "Could not report peer: channel failed"; "error"=> %e);
+                warn!(error = %e, "Could not report peer: channel failed");
             });
     }
 
     /// Subscribes to core topics.
     pub fn subscribe_core_topics(&self) {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         self.network_send
             .send(NetworkMessage::SubscribeCoreTopics)
             .unwrap_or_else(|e| {
-                warn!(self.log, "Could not subscribe to core topics."; "error" => %e);
+                warn!(error = %e, "Could not subscribe to core topics.");
             });
     }
 
     /// Sends an arbitrary network message.
     fn send_network_msg(&self, msg: NetworkMessage<T::EthSpec>) -> Result<(), &'static str> {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         self.network_send.send(msg).map_err(|_| {
-            debug!(self.log, "Could not send message to the network service");
+            debug!("Could not send message to the network service");
             "Network channel send Failed"
         })
     }
@@ -1128,20 +1200,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             None => {}
             Some(Ok((v, _))) => {
                 debug!(
-                    self.log,
-                    "Sync RPC request completed";
-                    "id" => %id,
-                    "method" => method,
-                    "count" => get_count(v)
+                    %id,
+                    method,
+                    count = get_count(v),
+                    "Sync RPC request completed"
                 );
             }
             Some(Err(e)) => {
                 debug!(
-                    self.log,
-                    "Sync RPC request error";
-                    "id" => %id,
-                    "method" => method,
-                    "error" => ?e
+                    %id,
+                    method,
+                    error = ?e,
+                    "Sync RPC request error"
                 );
             }
         }
@@ -1166,11 +1236,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         resp: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
     ) -> Option<CustodyByRootResult<T::EthSpec>> {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         // Note: need to remove the request to borrow self again below. Otherwise we can't
         // do nested requests
         let Some(mut request) = self.custody_by_root_requests.remove(&id.requester) else {
             // TOOD(das): This log can happen if the request is error'ed early and dropped
-            debug!(self.log, "Custody column downloaded event for unknown request"; "id" => ?id);
+            debug!(?id, "Custody column downloaded event for unknown request");
             return None;
         };
 
@@ -1185,6 +1262,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request: ActiveCustodyRequest<T>,
         result: CustodyRequestResult<T::EthSpec>,
     ) -> Option<CustodyByRootResult<T::EthSpec>> {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         let result = result
             .map_err(RpcResponseError::CustodyRequestError)
             .transpose();
@@ -1193,10 +1277,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // an Option first to use in an `if let Some() { act on result }` block.
         match result.as_ref() {
             Some(Ok((columns, peer_group, _))) => {
-                debug!(self.log, "Custody request success, removing"; "id" => ?id, "count" => columns.len(), "peers" => ?peer_group)
+                debug!(?id, count = columns.len(), peers = ?peer_group, "Custody request success, removing")
             }
             Some(Err(e)) => {
-                debug!(self.log, "Custody request failure, removing"; "id" => ?id, "error" => ?e)
+                debug!(?id, error = ?e, "Custody request failure, removing" )
             }
             None => {
                 self.custody_by_root_requests.insert(id, request);
@@ -1212,11 +1296,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block: RpcBlock<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Result<(), SendErrorProcessor> {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         let beacon_processor = self
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        debug!(self.log, "Sending block for processing"; "block" => ?block_root, "id" => id);
+        debug!(block = ?block_root, id, "Sending block for processing");
         // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync
         // must receive a single `SyncMessage::BlockComponentProcessed` with this process type
         beacon_processor
@@ -1228,9 +1319,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             )
             .map_err(|e| {
                 error!(
-                    self.log,
-                    "Failed to send sync block to processor";
-                    "error" => ?e
+                    error = ?e,
+                    "Failed to send sync block to processor"
                 );
                 SendErrorProcessor::SendError
             })
@@ -1243,11 +1333,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         blobs: FixedBlobSidecarList<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Result<(), SendErrorProcessor> {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         let beacon_processor = self
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        debug!(self.log, "Sending blobs for processing"; "block" => ?block_root, "id" => id);
+        debug!(?block_root, ?id, "Sending blobs for processing");
         // Lookup sync event safety: If `beacon_processor.send_rpc_blobs` returns Ok() sync
         // must receive a single `SyncMessage::BlockComponentProcessed` event with this process type
         beacon_processor
@@ -1259,9 +1356,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             )
             .map_err(|e| {
                 error!(
-                    self.log,
-                    "Failed to send sync blobs to processor";
-                    "error" => ?e
+                    error = ?e,
+                    "Failed to send sync blobs to processor"
                 );
                 SendErrorProcessor::SendError
             })
@@ -1275,19 +1371,29 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), SendErrorProcessor> {
+        let span = span!(
+            Level::INFO,
+            "SyncNetworkContext",
+            service = "network_context"
+        );
+        let _enter = span.enter();
+
         let beacon_processor = self
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        debug!(self.log, "Sending custody columns for processing"; "block" => ?block_root, "process_type" => ?process_type);
+        debug!(
+            ?block_root,
+            ?process_type,
+            "Sending custody columns for processing"
+        );
 
         beacon_processor
             .send_rpc_custody_columns(block_root, custody_columns, seen_timestamp, process_type)
             .map_err(|e| {
                 error!(
-                    self.log,
-                    "Failed to send sync custody columns to processor";
-                    "error" => ?e
+                    error = ?e,
+                    "Failed to send sync custody columns to processor"
                 );
                 SendErrorProcessor::SendError
             })

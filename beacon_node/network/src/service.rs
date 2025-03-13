@@ -10,7 +10,6 @@ use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconPro
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
-use futures::StreamExt;
 use lighthouse_network::rpc::{RequestId, RequestType};
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
@@ -24,7 +23,7 @@ use lighthouse_network::{
     types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
-use slog::{crit, debug, error, info, o, trace, warn};
+use logging::crit;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -32,6 +31,7 @@ use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
+use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use types::{
     ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     Unsigned, ValidatorSubscription,
@@ -189,9 +189,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     metrics_update: tokio::time::Interval,
     /// gossipsub_parameter_update timer
     gossipsub_parameter_update: tokio::time::Interval,
-    /// The logger for the network service.
+    /// Provides fork specific info.
     fork_context: Arc<ForkContext>,
-    log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
@@ -210,30 +209,23 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         ),
         String,
     > {
-        let network_log = executor.log().clone();
         // build the channels for external comms
         let (network_senders, network_receivers) = NetworkSenders::new();
 
         #[cfg(feature = "disable-backfill")]
-        warn!(
-            network_log,
-            "Backfill is disabled. DO NOT RUN IN PRODUCTION"
-        );
+        warn!("Backfill is disabled. DO NOT RUN IN PRODUCTION");
 
         if let (true, false, Some(v4)) = (
             config.upnp_enabled,
             config.disable_discovery,
             config.listen_addrs().v4(),
         ) {
-            let nw = network_log.clone();
             let v4 = v4.clone();
             executor.spawn(
                 async move {
-                    info!(nw, "UPnP Attempting to initialise routes");
-                    if let Err(e) =
-                        nat::construct_upnp_mappings(v4.addr, v4.disc_port, nw.clone()).await
-                    {
-                        info!(nw, "Could not UPnP map Discovery port"; "error" => %e);
+                    info!("UPnP Attempting to initialise routes");
+                    if let Err(e) = nat::construct_upnp_mappings(v4.addr, v4.disc_port).await {
+                        info!(error = %e, "Could not UPnP map Discovery port");
                     }
                 },
                 "UPnP",
@@ -262,7 +254,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             &beacon_chain.spec,
         ));
 
-        debug!(network_log, "Current fork"; "fork_name" => ?fork_context.current_fork());
+        debug!(fork_name = ?fork_context.current_fork(), "Current fork");
 
         // construct the libp2p service context
         let service_context = Context {
@@ -274,15 +266,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         };
 
         // launch libp2p service
-        let (mut libp2p, network_globals) =
-            Network::new(executor.clone(), service_context, &network_log).await?;
+        let (mut libp2p, network_globals) = Network::new(executor.clone(), service_context).await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {
             let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
             debug!(
-                network_log,
-                "Loading peers into the routing table"; "peers" => enrs_to_load.len()
+                peers = enrs_to_load.len(),
+                "Loading peers into the routing table"
             );
             for enr in enrs_to_load {
                 libp2p.add_enr(enr.clone());
@@ -307,7 +298,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_processor_send,
             beacon_processor_reprocess_tx,
             fork_context.clone(),
-            network_log.clone(),
         )?;
 
         // attestation and sync committee subnet service
@@ -315,7 +305,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain.clone(),
             network_globals.local_enr().node_id(),
             &config,
-            &network_log,
         );
 
         // create a timer for updating network metrics
@@ -330,7 +319,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         } = network_receivers;
 
         // create the network service and spawn the task
-        let network_log = network_log.new(o!("service" => "network"));
         let network_service = NetworkService {
             beacon_chain,
             libp2p,
@@ -348,7 +336,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
-            log: network_log,
         };
 
         Ok((network_service, network_globals, network_senders))
@@ -417,7 +404,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn send_to_router(&mut self, msg: RouterMessage<T::EthSpec>) {
         if let Err(mpsc::error::SendError(msg)) = self.router_send.send(msg) {
-            debug!(self.log, "Failed to send msg to router"; "msg" => ?msg);
+            debug!(?msg, "Failed to send msg to router");
         }
     }
 
@@ -456,7 +443,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(_) = &mut self.next_unsubscribe => {
                         let new_enr_fork_id = self.beacon_chain.enr_fork_id();
                         self.libp2p.unsubscribe_from_fork_topics_except(new_enr_fork_id.fork_digest);
-                        info!(self.log, "Unsubscribed from old fork topics");
+                        info!("Unsubscribed from old fork topics");
                         self.next_unsubscribe = Box::pin(None.into());
                     }
 
@@ -464,17 +451,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         if let Some((fork_name, _)) = self.beacon_chain.duration_to_next_fork() {
                             let fork_version = self.beacon_chain.spec.fork_version_for_name(fork_name);
                             let fork_digest = ChainSpec::compute_fork_digest(fork_version, self.beacon_chain.genesis_validators_root);
-                            info!(self.log, "Subscribing to new fork topics");
+                            info!("Subscribing to new fork topics");
                             self.libp2p.subscribe_new_fork_topics(fork_name, fork_digest);
                             self.next_fork_subscriptions = Box::pin(None.into());
                         }
                         else {
-                            error!(self.log, "Fork subscription scheduled but no fork scheduled");
+                            error!( "Fork subscription scheduled but no fork scheduled");
                         }
                     }
                 }
             }
-        };
+        }.instrument(info_span!("", service = "network"));
         executor.spawn(service_fut, "network");
     }
 
@@ -588,9 +575,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     .await
                     .map_err(|e| {
                         warn!(
-                            self.log,
-                            "failed to send a shutdown signal";
-                            "error" => %e
+                            error = %e,
+                            "failed to send a shutdown signal"
                         )
                     });
             }
@@ -645,10 +631,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 message_id,
                 validation_result,
             } => {
-                trace!(self.log, "Propagating gossipsub message";
-                    "propagation_peer" => ?propagation_source,
-                    "message_id" => %message_id,
-                    "validation_result" => ?validation_result
+                trace!(                    propagation_peer = ?propagation_source,
+                    %message_id,
+                    ?validation_result, "Propagating gossipsub message"
                 );
                 self.libp2p.report_message_validation_result(
                     &propagation_source,
@@ -664,10 +649,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
                 debug!(
-                    self.log,
-                    "Sending pubsub messages";
-                    "count" => messages.len(),
-                    "topics" => ?topic_kinds
+                    count = messages.len(),
+                    topics = ?topic_kinds,
+                    "Sending pubsub messages"
                 );
                 self.libp2p.publish(messages);
             }
@@ -696,9 +680,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         .await
                     {
                         warn!(
-                            self.log,
-                            "failed to send a shutdown signal";
-                            "error" => %e
+                            error = %e,
+                            "failed to send a shutdown signal"
                         )
                     }
                     return;
@@ -719,7 +702,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         if self.libp2p.subscribe(topic.clone()) {
                             subscribed_topics.push(topic);
                         } else {
-                            warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                            warn!(%topic, "Could not subscribe to topic");
                         }
                     }
                 }
@@ -741,9 +724,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
                 if !subscribed_topics.is_empty() {
                     info!(
-                        self.log,
-                        "Subscribed to topics";
-                        "topics" => ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>()
+                        topics = ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>(),
+                        "Subscribed to topics"
                     );
                 }
             }
@@ -777,19 +759,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     .update_gossipsub_parameters(active_validators, slot)
                     .is_err()
                 {
-                    error!(
-                        self.log,
-                        "Failed to update gossipsub parameters";
-                        "active_validators" => active_validators
-                    );
+                    error!(active_validators, "Failed to update gossipsub parameters");
                 }
             } else {
                 // This scenario will only happen if the caches on the cached canonical head aren't
                 // built. That should never be the case.
                 error!(
-                    self.log,
-                    "Active validator count unavailable";
-                    "info" => "please report this bug"
+                    info = "please report this bug",
+                    "Active validator count unavailable"
                 );
             }
         }
@@ -831,10 +808,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let fork_context = &self.fork_context;
         if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
             info!(
-                self.log,
-                "Transitioned to new fork";
-                "old_fork" => ?fork_context.current_fork(),
-                "new_fork" => ?new_fork_name,
+                old_fork = ?fork_context.current_fork(),
+                new_fork = ?new_fork_name,
+                "Transitioned to new fork"
             );
             fork_context.update_current_fork(*new_fork_name);
 
@@ -851,13 +827,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             self.next_fork_subscriptions =
                 Box::pin(next_fork_subscriptions_delay(&self.beacon_chain).into());
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
-            info!(self.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
+            info!(
+                remaining_epochs = UNSUBSCRIBE_DELAY_EPOCHS,
+                "Network will unsubscribe from old fork gossip topics in a few epochs"
+            );
 
             // Remove topic weight from old fork topics to prevent peers that left on the mesh on
             // old topics from being penalized for not sending us messages.
             self.libp2p.remove_topic_weight_except(new_fork_digest);
         } else {
-            crit!(self.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
+            crit!(new_fork_id = ?new_enr_fork_id, "Unknown new enr fork id");
         }
     }
 
@@ -906,26 +885,18 @@ impl<T: BeaconChainTypes> Drop for NetworkService<T> {
     fn drop(&mut self) {
         // network thread is terminating
         let enrs = self.libp2p.enr_entries();
-        debug!(
-            self.log,
-            "Persisting DHT to store";
-            "Number of peers" => enrs.len(),
-        );
+        debug!(number_of_peers = enrs.len(), "Persisting DHT to store");
         if let Err(e) = clear_dht::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone()) {
-            error!(self.log, "Failed to clear old DHT entries"; "error" => ?e);
+            error!(error = ?e, "Failed to clear old DHT entries");
         }
         // Still try to update new entries
         match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone(), enrs) {
             Err(e) => error!(
-                self.log,
-                "Failed to persist DHT on drop";
-                "error" => ?e
+                error = ?e,
+                "Failed to persist DHT on drop"
             ),
-            Ok(_) => info!(
-                self.log,
-                "Saved DHT state";
-            ),
+            Ok(_) => info!("Saved DHT state"),
         }
-        info!(self.log, "Network service shutdown");
+        info!("Network service shutdown");
     }
 }

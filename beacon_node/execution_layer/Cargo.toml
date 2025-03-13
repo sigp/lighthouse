@@ -36,7 +36,6 @@ sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 ssz_types = { workspace = true }
 state_processing = { workspace = true }
@@ -46,6 +45,7 @@ task_executor = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
+tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 triehash = "0.8.4"

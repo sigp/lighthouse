@@ -18,8 +18,8 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 signing_method = { workspace = true }
-slog = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
 url = { workspace = true }
 validator_dir = { workspace = true }

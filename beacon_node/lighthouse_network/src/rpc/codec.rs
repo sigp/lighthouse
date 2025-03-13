@@ -765,8 +765,8 @@ fn handle_rpc_response<E: EthSpec>(
         SupportedProtocol::PingV1 => Ok(Some(RpcSuccessResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
-        SupportedProtocol::MetaDataV1 => Ok(Some(RpcSuccessResponse::MetaData(MetaData::V1(
-            MetaDataV1::from_ssz_bytes(decoded_buffer)?,
+        SupportedProtocol::MetaDataV1 => Ok(Some(RpcSuccessResponse::MetaData(Arc::new(
+            MetaData::V1(MetaDataV1::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::LightClientBootstrapV1 => match fork_name {
             Some(fork_name) => Ok(Some(RpcSuccessResponse::LightClientBootstrap(Arc::new(
@@ -826,11 +826,11 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         // MetaData V2/V3 responses have no context bytes, so behave similarly to V1 responses
-        SupportedProtocol::MetaDataV3 => Ok(Some(RpcSuccessResponse::MetaData(MetaData::V3(
-            MetaDataV3::from_ssz_bytes(decoded_buffer)?,
+        SupportedProtocol::MetaDataV3 => Ok(Some(RpcSuccessResponse::MetaData(Arc::new(
+            MetaData::V3(MetaDataV3::from_ssz_bytes(decoded_buffer)?),
         )))),
-        SupportedProtocol::MetaDataV2 => Ok(Some(RpcSuccessResponse::MetaData(MetaData::V2(
-            MetaDataV2::from_ssz_bytes(decoded_buffer)?,
+        SupportedProtocol::MetaDataV2 => Ok(Some(RpcSuccessResponse::MetaData(Arc::new(
+            MetaData::V2(MetaDataV2::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::BlocksByRangeV2 => match fork_name {
             Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
@@ -1008,6 +1008,7 @@ mod tests {
     ) -> SignedBeaconBlock<Spec> {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(&Spec::default_spec());
+
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat(tx).take(5000).collect::<Vec<_>>());
 
@@ -1027,6 +1028,7 @@ mod tests {
     ) -> SignedBeaconBlock<Spec> {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(&Spec::default_spec());
+
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
 
@@ -1105,28 +1107,31 @@ mod tests {
         Ping { data: 1 }
     }
 
-    fn metadata() -> MetaData<Spec> {
+    fn metadata() -> Arc<MetaData<Spec>> {
         MetaData::V1(MetaDataV1 {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
         })
+        .into()
     }
 
-    fn metadata_v2() -> MetaData<Spec> {
+    fn metadata_v2() -> Arc<MetaData<Spec>> {
         MetaData::V2(MetaDataV2 {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
             syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
         })
+        .into()
     }
 
-    fn metadata_v3() -> MetaData<Spec> {
+    fn metadata_v3() -> Arc<MetaData<Spec>> {
         MetaData::V3(MetaDataV3 {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
             syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
             custody_group_count: 1,
         })
+        .into()
     }
 
     /// Encodes the given protocol response as bytes.
