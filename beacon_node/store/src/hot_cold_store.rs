@@ -1021,6 +1021,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else {
             state_root
         };
+        // It's a bit redundant but we elect to cache the state here and down below.
         let mut opt_state = self
             .load_hot_state(&state_root, true)?
             .map(|(state, _block_root)| (state_root, state));
