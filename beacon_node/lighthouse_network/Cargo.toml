@@ -17,12 +17,13 @@ ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
-gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", tag = "sigp-gossipsub-0.1" }
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", branch = "sigp-gossipsub" }
 hex = { workspace = true }
 itertools = { workspace = true }
 libp2p-mplex = "0.43"
 lighthouse_version = { workspace = true }
 local-ip-address = "0.6"
+logging = { workspace = true }
 lru = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
@@ -32,7 +33,6 @@ rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
-slog = { workspace = true }
 smallvec = { workspace = true }
 snap = { workspace = true }
 ssz_types = { workspace = true }
@@ -43,6 +43,8 @@ tiny-keccak = "2"
 tokio = { workspace = true }
 tokio-io-timeout = "1"
 tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
 unused_port = { workspace = true }
@@ -57,8 +59,6 @@ async-channel = { workspace = true }
 logging = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
-slog-async = { workspace = true }
-slog-term = { workspace = true }
 tempfile = { workspace = true }
 
 [features]

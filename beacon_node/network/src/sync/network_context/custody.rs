@@ -9,10 +9,10 @@ use lighthouse_network::PeerId;
 use lru_cache::LRUTimeCache;
 use parking_lot::RwLock;
 use rand::Rng;
-use slog::{debug, warn};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+use tracing::{debug, warn};
 use types::EthSpec;
 use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
 
@@ -36,8 +36,7 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     failed_peers: LRUTimeCache<PeerId>,
     /// Set of peers that claim to have imported this block and their custody columns
     lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
-    /// Logger for the `SyncNetworkContext`.
-    pub log: slog::Logger,
+
     _phantom: PhantomData<T>,
 }
 
@@ -70,7 +69,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         custody_id: CustodyId,
         column_indices: &[ColumnIndex],
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
-        log: slog::Logger,
     ) -> Self {
         Self {
             block_root,
@@ -83,7 +81,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             active_batch_columns_requests: <_>::default(),
             failed_peers: LRUTimeCache::new(Duration::from_secs(FAILED_PEERS_CACHE_EXPIRY_SECONDS)),
             lookup_peers,
-            log,
             _phantom: PhantomData,
         }
     }
@@ -104,24 +101,24 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
-            warn!(self.log,
-                "Received custody column response for unrequested index";
-                "id" => ?self.custody_id,
-                "block_root" => ?self.block_root,
-                "req_id" => %req_id,
+            warn!(
+                id = ?self.custody_id,
+                block_root = ?self.block_root,
+                %req_id,
+                "Received custody column response for unrequested index"
             );
             return Ok(None);
         };
 
         match resp {
             Ok((data_columns, seen_timestamp)) => {
-                debug!(self.log,
-                    "Custody column download success";
-                    "id" => ?self.custody_id,
-                    "block_root" => ?self.block_root,
-                    "req_id" => %req_id,
-                    "peer" => %peer_id,
-                    "count" => data_columns.len()
+                debug!(
+                    id = ?self.custody_id,
+                    block_root = ?self.block_root,
+                    %req_id,
+                    %peer_id,
+                    count = data_columns.len(),
+                    "Custody column download success"
                 );
 
                 // Map columns by index as an optimization to not loop the returned list on each
@@ -163,27 +160,27 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
                 if !missing_column_indexes.is_empty() {
                     // Note: Batch logging that columns are missing to not spam logger
-                    debug!(self.log,
-                        "Custody column peer claims to not have some data";
-                        "id" => ?self.custody_id,
-                        "block_root" => ?self.block_root,
-                        "req_id" => %req_id,
-                        "peer" => %peer_id,
+                    debug!(
+                        id = ?self.custody_id,
+                        block_root = ?self.block_root,
+                        %req_id,
+                        %peer_id,
                         // TODO(das): this property can become very noisy, being the full range 0..128
-                        "missing_column_indexes" => ?missing_column_indexes
+                        ?missing_column_indexes,
+                        "Custody column peer claims to not have some data"
                     );
 
                     self.failed_peers.insert(peer_id);
                 }
             }
             Err(err) => {
-                debug!(self.log,
-                    "Custody column download error";
-                    "id" => ?self.custody_id,
-                    "block_root" => ?self.block_root,
-                    "req_id" => %req_id,
-                    "peer" => %peer_id,
-                    "error" => ?err
+                debug!(
+                    id = ?self.custody_id,
+                    block_root = ?self.block_root,
+                    %req_id,
+                   %peer_id,
+                   error = ?err,
+                    "Custody column download error"
                 );
 
                 // TODO(das): Should mark peer as failed and try from another peer

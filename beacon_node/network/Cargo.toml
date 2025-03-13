@@ -9,15 +9,12 @@ bls = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 genesis = { workspace = true }
-gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", tag = "sigp-gossipsub-0.1" }
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", branch = "sigp-gossipsub" }
 k256 = "0.13.4"
 kzg = { workspace = true }
 matches = "0.1.8"
 rand_chacha = "0.3.1"
 serde_json = { workspace = true }
-slog-async = { workspace = true }
-slog-term = { workspace = true }
-sloggers = { workspace = true }
 
 [dependencies]
 alloy-primitives = { workspace = true }
@@ -42,7 +39,6 @@ metrics = { workspace = true }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true }
@@ -51,6 +47,8 @@ strum = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }
 
 [features]

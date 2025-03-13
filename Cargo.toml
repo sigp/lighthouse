@@ -84,7 +84,6 @@ members = [
     "testing/node_test_rig",
     "testing/simulator",
     "testing/state_transition_vectors",
-    "testing/test-test_logger",
     "testing/validator_test_rig",
     "testing/web3signer_tests",
 
@@ -151,6 +150,7 @@ hyper = "1"
 itertools = "0.10"
 libsecp256k1 = "0.7"
 log = "0.4"
+logroller = "0.1.4"
 lru = "0.12"
 maplit = "1"
 milhouse = "0.5"
@@ -181,14 +181,6 @@ serde_json = "1"
 serde_repr = "0.1"
 serde_yaml = "0.9"
 sha2 = "0.9"
-slog = { version = "2", features = [
-    "max_level_debug",
-    "release_max_level_debug",
-    "nested-values",
-] }
-slog-async = "2"
-slog-term = "2"
-sloggers = { version = "2", features = ["json"] }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
 ssz_types = "0.10"
@@ -209,7 +201,7 @@ tracing = "0.1.40"
 tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tree_hash = "0.9"
 tree_hash_derive = "0.9"
 url = "2"

@@ -13,6 +13,12 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::sync::Arc;
 use std::time::Duration;
+
+use environment::tracing_common;
+use logging::MetricsLayer;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
@@ -82,23 +88,47 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let mut env = EnvironmentBuilder::minimal()
-        .initialize_logger(LoggerConfig {
+    let (
+        env_builder,
+        filter_layer,
+        _libp2p_discv5_layer,
+        file_logging_layer,
+        stdout_logging_layer,
+        _sse_logging_layer_opt,
+        logger_config,
+        _dependency_log_filter,
+    ) = tracing_common::construct_logger(
+        LoggerConfig {
             path: None,
-            debug_level: log_level.clone(),
-            logfile_debug_level: log_level.clone(),
+            debug_level: tracing_common::parse_level(&log_level.clone()),
+            logfile_debug_level: tracing_common::parse_level(&log_level.clone()),
             log_format: None,
             logfile_format: None,
-            log_color: false,
+            log_color: true,
+            logfile_color: true,
             disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
             is_restricted: true,
             sse_logging: false,
-        })?
-        .multi_threaded_tokio_runtime()?
-        .build()?;
+            extra_info: false,
+        },
+        matches,
+        EnvironmentBuilder::minimal(),
+    );
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
+        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
+        .with(MetricsLayer)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging: {e}");
+    }
+
+    let mut env = env_builder.multi_threaded_tokio_runtime()?.build()?;
 
     let mut spec = (*env.eth2_config.spec).clone();
 

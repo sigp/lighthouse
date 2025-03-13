@@ -7,9 +7,10 @@ use std::{
 
 use futures::FutureExt;
 use libp2p::{swarm::NotifyHandler, PeerId};
-use slog::{crit, debug, Logger};
+use logging::crit;
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
+use tracing::debug;
 use types::{EthSpec, ForkContext};
 
 use super::{
@@ -36,8 +37,6 @@ pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
     limiter: RateLimiter,
     /// Requests that are ready to be sent.
     ready_requests: SmallVec<[(PeerId, RPCSend<Id, E>); 3]>,
-    /// Slog logger.
-    log: Logger,
 }
 
 /// Error returned when the rate limiter does not accept a request.
@@ -54,9 +53,8 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     pub fn new(
         config: OutboundRateLimiterConfig,
         fork_context: Arc<ForkContext>,
-        log: Logger,
     ) -> Result<Self, &'static str> {
-        debug!(log, "Using self rate limiting params"; "config" => ?config);
+        debug!(?config, "Using self rate limiting params");
         let limiter = RateLimiter::new_with_config(config.0, fork_context)?;
 
         Ok(SelfRateLimiter {
@@ -64,7 +62,6 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
             next_peer_request: Default::default(),
             limiter,
             ready_requests: Default::default(),
-            log,
         })
     }
 
@@ -84,7 +81,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
 
             return Err(Error::PendingRequests);
         }
-        match Self::try_send_request(&mut self.limiter, peer_id, request_id, req, &self.log) {
+        match Self::try_send_request(&mut self.limiter, peer_id, request_id, req) {
             Err((rate_limited_req, wait_time)) => {
                 let key = (peer_id, protocol);
                 self.next_peer_request.insert(key, wait_time);
@@ -107,7 +104,6 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         peer_id: PeerId,
         request_id: Id,
         req: RequestType<E>,
-        log: &Logger,
     ) -> Result<RPCSend<Id, E>, (QueuedRequest<Id, E>, Duration)> {
         match limiter.allows(&peer_id, &req) {
             Ok(()) => Ok(RPCSend::Request(request_id, req)),
@@ -118,14 +114,13 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                         // this should never happen with default parameters. Let's just send the request.
                         // Log a crit since this is a config issue.
                         crit!(
-                           log,
-                            "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.";
-                            "protocol" => %req.versioned_protocol().protocol()
+                            protocol = %req.versioned_protocol().protocol(),
+                            "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters."
                         );
                         Ok(RPCSend::Request(request_id, req))
                     }
                     RateLimitedErr::TooSoon(wait_time) => {
-                        debug!(log, "Self rate limiting"; "protocol" => %protocol.protocol(), "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
+                        debug!(protocol = %protocol.protocol(), wait_time_ms = wait_time.as_millis(), %peer_id, "Self rate limiting");
                         Err((QueuedRequest { req, request_id }, wait_time))
                     }
                 }
@@ -139,8 +134,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         if let Entry::Occupied(mut entry) = self.delayed_requests.entry((peer_id, protocol)) {
             let queued_requests = entry.get_mut();
             while let Some(QueuedRequest { req, request_id }) = queued_requests.pop_front() {
-                match Self::try_send_request(&mut self.limiter, peer_id, request_id, req, &self.log)
-                {
+                match Self::try_send_request(&mut self.limiter, peer_id, request_id, req) {
                     Err((rate_limited_req, wait_time)) => {
                         let key = (peer_id, protocol);
                         self.next_peer_request.insert(key, wait_time);
@@ -215,13 +209,14 @@ mod tests {
     use crate::rpc::{Ping, Protocol, RequestType};
     use crate::service::api_types::{AppRequestId, RequestId, SingleLookupReqId, SyncRequestId};
     use libp2p::PeerId;
+    use logging::create_test_tracing_subscriber;
     use std::time::Duration;
     use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
 
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
     async fn test_next_peer_request_ready() {
-        let log = logging::test_logger();
+        create_test_tracing_subscriber();
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
             ping_quota: Quota::n_every(1, 2),
             ..Default::default()
@@ -232,7 +227,7 @@ mod tests {
             &MainnetEthSpec::default_spec(),
         ));
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(config, fork_context, log).unwrap();
+            SelfRateLimiter::new(config, fork_context).unwrap();
         let peer_id = PeerId::random();
         let lookup_id = 0;
 

@@ -11,31 +11,38 @@ use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
-
-use logging::{test_logger, SSELoggingComponents};
+use logging::tracing_logging_layer::LoggingLayer;
+use logging::SSELoggingComponents;
+use logroller::{Compression, LogRollerBuilder, Rotation, RotationSize};
 use serde::{Deserialize, Serialize};
-use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
-use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
-use std::fs::create_dir_all;
-use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
+use tracing::{error, info, warn};
+use tracing_subscriber::filter::LevelFilter;
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 #[cfg(target_family = "unix")]
 use {
     futures::Future,
-    std::{pin::Pin, task::Context, task::Poll},
+    std::{
+        fs::{read_dir, set_permissions, Permissions},
+        os::unix::fs::PermissionsExt,
+        path::Path,
+        pin::Pin,
+        task::Context,
+        task::Poll,
+    },
     tokio::signal::unix::{signal, Signal, SignalKind},
 };
 
 #[cfg(not(target_family = "unix"))]
 use {futures::channel::oneshot, std::cell::RefCell};
 
-const LOG_CHANNEL_SIZE: usize = 16384;
-const SSE_LOG_CHANNEL_SIZE: usize = 2048;
+pub mod tracing_common;
+
+pub const SSE_LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
 const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
 
@@ -47,37 +54,54 @@ const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggerConfig {
     pub path: Option<PathBuf>,
-    pub debug_level: String,
-    pub logfile_debug_level: String,
+    #[serde(skip_serializing, skip_deserializing, default = "default_debug_level")]
+    pub debug_level: LevelFilter,
+    #[serde(
+        skip_serializing,
+        skip_deserializing,
+        default = "default_logfile_debug_level"
+    )]
+    pub logfile_debug_level: LevelFilter,
     pub log_format: Option<String>,
     pub logfile_format: Option<String>,
     pub log_color: bool,
+    pub logfile_color: bool,
     pub disable_log_timestamp: bool,
     pub max_log_size: u64,
     pub max_log_number: usize,
     pub compression: bool,
     pub is_restricted: bool,
     pub sse_logging: bool,
+    pub extra_info: bool,
 }
 impl Default for LoggerConfig {
     fn default() -> Self {
         LoggerConfig {
             path: None,
-            debug_level: String::from("info"),
-            logfile_debug_level: String::from("debug"),
+            debug_level: LevelFilter::INFO,
+            logfile_debug_level: LevelFilter::DEBUG,
             log_format: None,
+            log_color: true,
             logfile_format: None,
-            log_color: false,
+            logfile_color: false,
             disable_log_timestamp: false,
             max_log_size: 200,
             max_log_number: 5,
             compression: false,
             is_restricted: true,
             sse_logging: false,
+            extra_info: false,
         }
     }
 }
 
+fn default_debug_level() -> LevelFilter {
+    LevelFilter::INFO
+}
+
+fn default_logfile_debug_level() -> LevelFilter {
+    LevelFilter::DEBUG
+}
 /// An execution context that can be used by a service.
 ///
 /// Distinct from an `Environment` because a `Context` is not able to give a mutable reference to a
@@ -109,17 +133,11 @@ impl<E: EthSpec> RuntimeContext<E> {
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
     }
-
-    /// Returns a reference to the logger for this service.
-    pub fn log(&self) -> &slog::Logger {
-        self.executor.log()
-    }
 }
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
     runtime: Option<Arc<Runtime>>,
-    log: Option<Logger>,
     sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
@@ -131,7 +149,6 @@ impl EnvironmentBuilder<MinimalEthSpec> {
     pub fn minimal() -> Self {
         Self {
             runtime: None,
-            log: None,
             sse_logging_components: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
@@ -145,7 +162,6 @@ impl EnvironmentBuilder<MainnetEthSpec> {
     pub fn mainnet() -> Self {
         Self {
             runtime: None,
-            log: None,
             sse_logging_components: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
@@ -159,7 +175,6 @@ impl EnvironmentBuilder<GnosisEthSpec> {
     pub fn gnosis() -> Self {
         Self {
             runtime: None,
-            log: None,
             sse_logging_components: None,
             eth_spec_instance: GnosisEthSpec,
             eth2_config: Eth2Config::gnosis(),
@@ -182,149 +197,123 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Sets a logger suitable for test usage.
-    pub fn test_logger(mut self) -> Result<Self, String> {
-        self.log = Some(test_logger());
-        Ok(self)
-    }
+    pub fn init_tracing(
+        mut self,
+        config: LoggerConfig,
+        logfile_prefix: &str,
+    ) -> (
+        Self,
+        LoggingLayer,
+        LoggingLayer,
+        Option<SSELoggingComponents>,
+    ) {
+        let filename_prefix = match logfile_prefix {
+            "beacon_node" => "beacon",
+            "validator_client" => "validator",
+            _ => logfile_prefix,
+        };
 
-    fn log_nothing(_: &mut dyn Write) -> IOResult<()> {
-        Ok(())
-    }
+        #[cfg(target_family = "unix")]
+        let file_mode = if config.is_restricted { 0o600 } else { 0o644 };
 
-    /// Initializes the logger using the specified configuration.
-    /// The logger is "async" because it has a dedicated thread that accepts logs and then
-    /// asynchronously flushes them to stdout/files/etc. This means the thread that raised the log
-    /// does not have to wait for the logs to be flushed.
-    /// The logger can be duplicated and more detailed logs can be output to `logfile`.
-    /// Note that background file logging will spawn a new thread.
-    pub fn initialize_logger(mut self, config: LoggerConfig) -> Result<Self, String> {
-        // Setting up the initial logger format and build it.
-        let stdout_drain = if let Some(ref format) = config.log_format {
-            match format.to_uppercase().as_str() {
-                "JSON" => {
-                    let stdout_drain = slog_json::Json::default(std::io::stdout()).fuse();
-                    slog_async::Async::new(stdout_drain)
-                        .chan_size(LOG_CHANNEL_SIZE)
-                        .build()
+        let file_logging_layer = {
+            if let Some(path) = config.path {
+                let mut appender = LogRollerBuilder::new(
+                    path.clone(),
+                    PathBuf::from(format!("{}.log", filename_prefix)),
+                )
+                .rotation(Rotation::SizeBased(RotationSize::MB(config.max_log_size)))
+                .max_keep_files(config.max_log_number.try_into().unwrap_or_else(|e| {
+                    eprintln!("Failed to convert max_log_number to u64: {}", e);
+                    10
+                }));
+
+                if config.compression {
+                    appender = appender.compression(Compression::Gzip);
                 }
-                _ => return Err("Logging format provided is not supported".to_string()),
-            }
-        } else {
-            let stdout_decorator_builder = slog_term::TermDecorator::new();
-            let stdout_decorator = if config.log_color {
-                stdout_decorator_builder.force_color()
-            } else {
-                stdout_decorator_builder
-            }
-            .build();
-            let stdout_decorator =
-                logging::AlignedTermDecorator::new(stdout_decorator, logging::MAX_MESSAGE_WIDTH);
-            let stdout_drain = slog_term::FullFormat::new(stdout_decorator);
-            let stdout_drain = if config.disable_log_timestamp {
-                stdout_drain.use_custom_timestamp(Self::log_nothing)
-            } else {
-                stdout_drain
-            }
-            .build()
-            .fuse();
-            slog_async::Async::new(stdout_drain)
-                .chan_size(LOG_CHANNEL_SIZE)
-                .build()
-        };
+                match appender.build() {
+                    Ok(file_appender) => {
+                        #[cfg(target_family = "unix")]
+                        set_logfile_permissions(&path, filename_prefix, file_mode);
 
-        let stdout_drain = match config.debug_level.as_str() {
-            "info" => stdout_drain.filter_level(Level::Info),
-            "debug" => stdout_drain.filter_level(Level::Debug),
-            "trace" => stdout_drain.filter_level(Level::Trace),
-            "warn" => stdout_drain.filter_level(Level::Warning),
-            "error" => stdout_drain.filter_level(Level::Error),
-            "crit" => stdout_drain.filter_level(Level::Critical),
-            unknown => return Err(format!("Unknown debug-level: {}", unknown)),
-        };
+                        let (file_non_blocking_writer, file_guard) =
+                            tracing_appender::non_blocking(file_appender);
 
-        let stdout_logger = Logger::root(stdout_drain.fuse(), o!());
-
-        // Disable file logging if values set to 0.
-        if config.max_log_size == 0 || config.max_log_number == 0 {
-            self.log = Some(stdout_logger);
-            return Ok(self);
-        }
-
-        // Disable file logging if no path is specified.
-        let Some(path) = config.path else {
-            self.log = Some(stdout_logger);
-            return Ok(self);
-        };
-
-        // Ensure directories are created becfore the logfile.
-        if !path.exists() {
-            let mut dir = path.clone();
-            dir.pop();
-
-            // Create the necessary directories for the correct service and network.
-            if !dir.exists() {
-                let res = create_dir_all(dir);
-
-                // If the directories cannot be created, warn and disable the logger.
-                match res {
-                    Ok(_) => (),
+                        LoggingLayer::new(
+                            file_non_blocking_writer,
+                            file_guard,
+                            config.disable_log_timestamp,
+                            false,
+                            config.logfile_color,
+                            config.log_format.clone(),
+                            config.logfile_format.clone(),
+                            config.extra_info,
+                            true,
+                        )
+                    }
                     Err(e) => {
-                        let log = stdout_logger;
-                        warn!(
-                            log,
-                            "Background file logging is disabled";
-                            "error" => e);
-                        self.log = Some(log);
-                        return Ok(self);
+                        eprintln!("Failed to initialize rolling file appender: {}", e);
+                        let (sink_writer, sink_guard) =
+                            tracing_appender::non_blocking(std::io::sink());
+                        LoggingLayer::new(
+                            sink_writer,
+                            sink_guard,
+                            config.disable_log_timestamp,
+                            false,
+                            config.logfile_color,
+                            config.log_format.clone(),
+                            config.logfile_format.clone(),
+                            config.extra_info,
+                            true,
+                        )
                     }
                 }
+            } else {
+                eprintln!("No path provided. File logging is disabled.");
+                let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
+                LoggingLayer::new(
+                    sink_writer,
+                    sink_guard,
+                    config.disable_log_timestamp,
+                    false,
+                    true,
+                    config.log_format.clone(),
+                    config.logfile_format.clone(),
+                    config.extra_info,
+                    true,
+                )
             }
-        }
-
-        let logfile_level = match config.logfile_debug_level.as_str() {
-            "info" => Severity::Info,
-            "debug" => Severity::Debug,
-            "trace" => Severity::Trace,
-            "warn" => Severity::Warning,
-            "error" => Severity::Error,
-            "crit" => Severity::Critical,
-            unknown => return Err(format!("Unknown loglevel-debug-level: {}", unknown)),
         };
 
-        let file_logger = FileLoggerBuilder::new(&path)
-            .level(logfile_level)
-            .channel_size(LOG_CHANNEL_SIZE)
-            .format(match config.logfile_format.as_deref() {
-                Some("JSON") => Format::Json,
-                _ => Format::default(),
-            })
-            .rotate_size(config.max_log_size)
-            .rotate_keep(config.max_log_number)
-            .rotate_compress(config.compression)
-            .restrict_permissions(config.is_restricted)
-            .build()
-            .map_err(|e| format!("Unable to build file logger: {}", e))?;
+        let (stdout_non_blocking_writer, stdout_guard) =
+            tracing_appender::non_blocking(std::io::stdout());
 
-        let mut log = Logger::root(Duplicate::new(stdout_logger, file_logger).fuse(), o!());
-
-        info!(
-            log,
-            "Logging to file";
-            "path" => format!("{:?}", path)
+        let stdout_logging_layer = LoggingLayer::new(
+            stdout_non_blocking_writer,
+            stdout_guard,
+            config.disable_log_timestamp,
+            config.log_color,
+            true,
+            config.log_format,
+            config.logfile_format,
+            config.extra_info,
+            false,
         );
 
-        // If the http API is enabled, we may need to send logs to be consumed by subscribers.
-        if config.sse_logging {
-            let sse_logger = SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE);
-            self.sse_logging_components = Some(sse_logger.clone());
+        let sse_logging_layer_opt = if config.sse_logging {
+            Some(SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE))
+        } else {
+            None
+        };
 
-            log = Logger::root(Duplicate::new(log, sse_logger).fuse(), o!());
-        }
+        self.sse_logging_components = sse_logging_layer_opt.clone();
 
-        self.log = Some(log);
-
-        Ok(self)
+        (
+            self,
+            file_logging_layer,
+            stdout_logging_layer,
+            sse_logging_layer_opt,
+        )
     }
 
     /// Adds a network configuration to the environment.
@@ -351,7 +340,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             signal_rx: Some(signal_rx),
             signal: Some(signal),
             exit,
-            log: self.log.ok_or("Cannot build environment without log")?,
             sse_logging_components: self.sse_logging_components,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
@@ -370,7 +358,6 @@ pub struct Environment<E: EthSpec> {
     signal_tx: Sender<ShutdownReason>,
     signal: Option<async_channel::Sender<()>>,
     exit: async_channel::Receiver<()>,
-    log: Logger,
     sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
@@ -386,14 +373,14 @@ impl<E: EthSpec> Environment<E> {
         &self.runtime
     }
 
-    /// Returns a `Context` where no "service" has been added to the logger output.
+    /// Returns a `Context` where a "core" service has been added to the logger output.
     pub fn core_context(&self) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
-                self.log.clone(),
                 self.signal_tx.clone(),
+                "core".to_string(),
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
@@ -408,8 +395,8 @@ impl<E: EthSpec> Environment<E> {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
-                self.log.new(o!("service" => service_name)),
                 self.signal_tx.clone(),
+                service_name,
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
@@ -441,7 +428,7 @@ impl<E: EthSpec> Environment<E> {
                     let terminate = SignalFuture::new(terminate_stream, "Received SIGTERM");
                     handles.push(terminate);
                 }
-                Err(e) => error!(self.log, "Could not register SIGTERM handler"; "error" => e),
+                Err(e) => error!(error = ?e, "Could not register SIGTERM handler"),
             };
 
             // setup for handling SIGINT
@@ -450,7 +437,7 @@ impl<E: EthSpec> Environment<E> {
                     let interrupt = SignalFuture::new(interrupt_stream, "Received SIGINT");
                     handles.push(interrupt);
                 }
-                Err(e) => error!(self.log, "Could not register SIGINT handler"; "error" => e),
+                Err(e) => error!(error = ?e, "Could not register SIGINT handler"),
             }
 
             // setup for handling a SIGHUP
@@ -459,7 +446,7 @@ impl<E: EthSpec> Environment<E> {
                     let hup = SignalFuture::new(hup_stream, "Received SIGHUP");
                     handles.push(hup);
                 }
-                Err(e) => error!(self.log, "Could not register SIGHUP handler"; "error" => e),
+                Err(e) => error!(error = ?e, "Could not register SIGHUP handler"),
             }
 
             future::select(inner_shutdown, future::select_all(handles.into_iter())).await
@@ -467,7 +454,7 @@ impl<E: EthSpec> Environment<E> {
 
         match self.runtime().block_on(register_handlers) {
             future::Either::Left((Ok(reason), _)) => {
-                info!(self.log, "Internal shutdown received"; "reason" => reason.message());
+                info!("Internal shutdown received");
                 Ok(reason)
             }
             future::Either::Left((Err(e), _)) => Err(e.into()),
@@ -494,14 +481,12 @@ impl<E: EthSpec> Environment<E> {
         // setup for handling a Ctrl-C
         let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
         let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
-        let log = self.log.clone();
         ctrlc::set_handler(move || {
             if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
                 if let Err(e) = ctrlc_send.send(()) {
                     error!(
-                        log,
-                        "Error sending ctrl-c message";
-                        "error" => e
+                        error = ?e,
+                        "Error sending ctrl-c message"
                     );
                 }
             }
@@ -514,7 +499,7 @@ impl<E: EthSpec> Environment<E> {
             .block_on(future::select(inner_shutdown, ctrlc_oneshot))
         {
             future::Either::Left((Ok(reason), _)) => {
-                info!(self.log, "Internal shutdown received"; "reason" => reason.message());
+                info!(reason = reason.message(), "Internal shutdown received");
                 Ok(reason)
             }
             future::Either::Left((Err(e), _)) => Err(e.into()),
@@ -531,9 +516,8 @@ impl<E: EthSpec> Environment<E> {
                 runtime.shutdown_timeout(std::time::Duration::from_secs(MAXIMUM_SHUTDOWN_TIME))
             }
             Err(e) => warn!(
-                self.log,
-                "Failed to obtain runtime access to shutdown gracefully";
-                "error" => ?e
+                error = ?e,
+                "Failed to obtain runtime access to shutdown gracefully"
             ),
         }
     }
@@ -576,6 +560,40 @@ impl Future for SignalFuture {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Some(_)) => Poll::Ready(Some(ShutdownReason::Success(self.message))),
             Poll::Ready(None) => Poll::Ready(None),
+        }
+    }
+}
+
+#[cfg(target_family = "unix")]
+fn set_logfile_permissions(log_dir: &Path, filename_prefix: &str, file_mode: u32) {
+    let newest = read_dir(log_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter_map(|entry| {
+            let path = entry.path();
+            let fname = path.file_name()?.to_string_lossy();
+            if path.is_file() && fname.starts_with(filename_prefix) && fname.ends_with(".log") {
+                let modified = entry.metadata().ok()?.modified().ok()?;
+                Some((path, modified))
+            } else {
+                None
+            }
+        })
+        .max_by_key(|(_path, mtime)| *mtime);
+
+    match newest {
+        Some((file, _mtime)) => {
+            if let Err(e) = set_permissions(&file, Permissions::from_mode(file_mode)) {
+                eprintln!("Failed to set permissions on {}: {}", file.display(), e);
+            }
+        }
+        None => {
+            eprintln!(
+                "Couldn't find a newly created logfile in {} matching prefix \"{}\".",
+                log_dir.display(),
+                filename_prefix
+            );
         }
     }
 }

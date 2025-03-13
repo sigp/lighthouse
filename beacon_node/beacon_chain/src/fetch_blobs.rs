@@ -14,11 +14,11 @@ use crate::{metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes
 use execution_layer::json_structures::BlobAndProofV1;
 use execution_layer::Error as ExecutionLayerError;
 use metrics::{inc_counter, inc_counter_by, TryExt};
-use slog::{debug, error, o, Logger};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tokio::sync::oneshot;
+use tracing::{debug, error};
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::{
     BeaconStateError, BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarList, EthSpec,
@@ -50,11 +50,6 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
-    let block_root_str = format!("{:?}", block_root);
-    let log = chain
-        .log
-        .new(o!("service" => "fetch_engine_blobs", "block_root" => block_root_str));
-
     let versioned_hashes = if let Some(kzg_commitments) = block
         .message()
         .body()
@@ -67,10 +62,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             .map(kzg_commitment_to_versioned_hash)
             .collect::<Vec<_>>()
     } else {
-        debug!(
-            log,
-            "Fetch blobs not triggered - none required";
-        );
+        debug!("Fetch blobs not triggered - none required");
         return Ok(None);
     };
 
@@ -81,22 +73,14 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
 
-    debug!(
-        log,
-        "Fetching blobs from the EL";
-        "num_expected_blobs" => num_expected_blobs,
-    );
+    debug!(num_expected_blobs, "Fetching blobs from the EL");
     let response = execution_layer
         .get_blobs(versioned_hashes)
         .await
         .map_err(FetchEngineBlobError::RequestFailed)?;
 
     if response.is_empty() || response.iter().all(|opt| opt.is_none()) {
-        debug!(
-           log,
-            "No blobs fetched from the EL";
-            "num_expected_blobs" => num_expected_blobs,
-        );
+        debug!(num_expected_blobs, "No blobs fetched from the EL");
         inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
         return Ok(None);
     } else {
@@ -154,11 +138,8 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
         if num_fetched_blobs != num_expected_blobs {
             debug!(
-                log,
-                "Not all blobs fetched from the EL";
-                "info" => "Unable to compute data columns",
-                "num_fetched_blobs" => num_fetched_blobs,
-                "num_expected_blobs" => num_expected_blobs,
+                info = "Unable to compute data columns",
+                num_fetched_blobs, num_expected_blobs, "Not all blobs fetched from the EL"
             );
             return Ok(None);
         }
@@ -170,9 +151,21 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         {
             // Avoid computing columns if block has already been imported.
             debug!(
-                log,
-                "Ignoring EL blobs response";
-                "info" => "block has already been imported",
+                info = "block has already been imported",
+                "Ignoring EL blobs response"
+            );
+            return Ok(None);
+        }
+
+        if chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            // Avoid computing columns if block has already been imported.
+            debug!(
+                info = "block has already been imported",
+                "Ignoring EL blobs response"
             );
             return Ok(None);
         }
@@ -182,7 +175,6 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             block.clone(),
             fixed_blob_sidecar_list.clone(),
             publish_fn,
-            log.clone(),
         );
 
         Some(data_columns_receiver)
@@ -194,11 +186,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         None
     };
 
-    debug!(
-        log,
-        "Processing engine blobs";
-        "num_fetched_blobs" => num_fetched_blobs,
-    );
+    debug!(num_fetched_blobs, "Processing engine blobs");
 
     let availability_processing_status = chain
         .process_engine_blobs(
@@ -226,7 +214,6 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: FixedBlobSidecarList<T::EthSpec>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
-    log: Logger,
 ) -> oneshot::Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
     let chain_cloned = chain.clone();
     let (data_columns_sender, data_columns_receiver) = oneshot::channel();
@@ -254,9 +241,8 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
                 Ok(d) => d,
                 Err(e) => {
                     error!(
-                        log,
-                        "Failed to build data column sidecars from blobs";
-                        "error" => ?e
+                        error = ?e,
+                        "Failed to build data column sidecars from blobs"
                     );
                     return;
                 }
@@ -266,10 +252,7 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
                 // Data column receiver have been dropped - block may have already been imported.
                 // This race condition exists because gossip columns may arrive and trigger block
                 // import during the computation. Here we just drop the computed columns.
-                debug!(
-                    log,
-                    "Failed to send computed data columns";
-                );
+                debug!("Failed to send computed data columns");
                 return;
             };
 
