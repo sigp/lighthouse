@@ -2,6 +2,7 @@
 
 mod attestation_performance;
 pub mod attestation_rewards;
+mod blobs_verification;
 mod block_packing_efficiency;
 mod block_rewards;
 mod standard_block_rewards;
@@ -24,6 +25,7 @@ pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
 };
 pub use attestation_rewards::StandardAttestationRewards;
+pub use blobs_verification::BlobsVerificationData;
 pub use block_packing_efficiency::{
     BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
 };
@@ -434,9 +436,9 @@ impl BeaconNodeHttpClient {
     /// `POST lighthouse/database/verify_blobs`
     pub async fn get_lighthouse_database_verify_blobs(
         &self,
-        start_slot: Slot,
-        end_slot: Slot,
-    ) -> Result<String, Error> {
+        start_slot: Option<Slot>,
+        end_slot: Option<Slot>,
+    ) -> Result<Vec<BlobsVerificationData>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -445,9 +447,15 @@ impl BeaconNodeHttpClient {
             .push("database")
             .push("verify_blobs");
 
-        path.query_pairs_mut()
-            .append_pair("start_slot", &start_slot.to_string())
-            .append_pair("end_slot", &end_slot.to_string());
+        if let Some(start_slot) = start_slot {
+            path.query_pairs_mut()
+                .append_pair("start_slot", &start_slot.to_string());
+        }
+
+        if let Some(end_slot) = end_slot {
+            path.query_pairs_mut()
+                .append_pair("end_slot", &end_slot.to_string());
+        }
 
         self.get(path).await
     }

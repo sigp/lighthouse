@@ -1,10 +1,10 @@
-use crate::blobs_manager::{cli::VerifyBlobs, DEFAULT_BEACON_NODE};
-use beacon_node::ClientConfig;
+use crate::blobs_manager::{cli::VerifyBlobs, ensure_node_synced, DEFAULT_BEACON_NODE};
 use eth2::{
+    lighthouse::BlobsVerificationData,
     types::{ChainSpec, EthSpec, Slot},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
-use slog::Logger;
+use slog::{info, warn, Logger};
 use std::time::Duration;
 
 pub async fn verify_blobs<E: EthSpec>(
@@ -21,31 +21,35 @@ pub async fn verify_blobs<E: EthSpec>(
     .map_err(|e| format!("Unable to parse beacon node url: {e:?}"))?;
     let client = BeaconNodeHttpClient::new(beacon_node, Timeouts::set_all(Duration::from_secs(12)));
 
-    let deneb_start_slot = spec
-        .deneb_fork_epoch
-        .unwrap() // todo
-        .start_slot(E::slots_per_epoch())
-        .as_u64();
-    let start_slot = config.start_slot.unwrap_or(deneb_start_slot);
-    let end_slot = config.end_slot.unwrap();
-
-    if start_slot < deneb_start_slot {
-        return Err("Start slot cannot be pre-Deneb".to_string());
-    }
-    if end_slot < start_slot {
-        return Err("End slot cannot be earlier than start slot".to_string());
+    let (_head_slot, is_synced) = ensure_node_synced(&client).await?;
+    if !is_synced {
+        if config.allow_unsynced {
+            warn!(log, "Beacon node is not synced");
+        } else {
+            return Err("Beacon node is not synced".to_string());
+        }
     }
 
-    let min_epochs_for_blob_sidecars_requests = spec.min_epochs_for_blob_sidecars_requests;
+    let _min_epochs_for_blob_sidecars_requests = spec.min_epochs_for_blob_sidecars_requests;
 
-    let slots_verified = 0;
+    let _slots_verified = 0;
 
-    let response = client
-        .get_lighthouse_database_verify_blobs(Slot::from(start_slot), Slot::from(end_slot))
+    let verification_data: Vec<BlobsVerificationData> = client
+        .get_lighthouse_database_verify_blobs(
+            config.start_slot.map(Slot::from),
+            config.end_slot.map(Slot::from),
+        )
         .await
         .map_err(|e| format!("Failed to verify blobs: {e:?}"))?;
 
-    eprintln!("Response: {:?}", response);
+    let mut missing_slots = vec![];
+    for data in verification_data {
+        if data.blobs_exist && !data.blobs_stored {
+            missing_slots.push(data.slot);
+        }
+    }
+
+    info!(log, "Missing slots: {}", missing_slots.len());
 
     Ok(())
 }

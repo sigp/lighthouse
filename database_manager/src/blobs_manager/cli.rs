@@ -34,6 +34,13 @@ pub struct VerifyBlobs {
         display_order = 0
     )]
     pub end_slot: Option<u64>,
+    #[clap(
+        long,
+        help = "Perform verification even if the beacon node is not synced",
+        display_order = 0,
+        default_value = "false"
+    )]
+    pub allow_unsynced: bool,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -61,6 +68,13 @@ pub struct ImportBlobs {
         default_value = "false"
     )]
     pub skip_verification: bool,
+    #[clap(
+        long,
+        help = "Attempt import even if the beacon node is not synced",
+        display_order = 0,
+        default_value = "false"
+    )]
+    pub allow_unsynced: bool,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -97,4 +111,11 @@ pub struct ExportBlobs {
         display_order = 0
     )]
     pub end_slot: u64,
+    #[clap(
+        long,
+        help = "Attempt export even if the beacon node is not synced",
+        display_order = 0,
+        default_value = "false"
+    )]
+    pub allow_unsynced: bool,
 }

@@ -1,12 +1,11 @@
-use crate::blobs_manager::cli::ExportBlobs;
+use crate::blobs_manager::{cli::ExportBlobs, ensure_node_synced};
 use eth2::{
-    types::{BlobSidecar, BlobSidecarList, BlockId, EthSpec, Slot},
+    types::{BlobSidecarList, BlockId, EthSpec, Slot},
     BeaconNodeHttpClient, Timeouts,
 };
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
-use ssz::{Decode, Encode};
-use std::sync::Arc;
+use ssz::Encode;
 use std::time::Duration;
 
 pub async fn export_blobs<E: EthSpec>(config: &ExportBlobs, log: Logger) -> Result<(), String> {
@@ -14,6 +13,15 @@ pub async fn export_blobs<E: EthSpec>(config: &ExportBlobs, log: Logger) -> Resu
         .map_err(|e| format!("Unable to parse beacon node url: {e:?}"))?;
 
     let client = BeaconNodeHttpClient::new(beacon_node, Timeouts::set_all(Duration::from_secs(12)));
+
+    let (_, is_synced) = ensure_node_synced(&client).await?;
+    if !is_synced {
+        if config.allow_unsynced {
+            warn!(log, "Beacon node is not synced");
+        } else {
+            return Err("Beacon node is not synced".to_string());
+        }
+    }
 
     let start_slot = config.start_slot;
     let end_slot = config.end_slot;

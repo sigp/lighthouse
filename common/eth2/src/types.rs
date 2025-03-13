@@ -818,8 +818,8 @@ pub struct ImportBlobsQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct VerifyBlobsQuery {
-    pub start_slot: Slot,
-    pub end_slot: Slot,
+    pub start_slot: Option<Slot>,
+    pub end_slot: Option<Slot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]

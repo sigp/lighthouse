@@ -51,7 +51,10 @@ use eth2::types::{
     LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
     ValidatorStatus, ValidatorsRequestBody,
 };
-use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
+use eth2::{
+    lighthouse::BlobsVerificationData, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
+    SSZ_CONTENT_TYPE_HEADER,
+};
 use health_metrics::observe::Observe;
 use lighthouse_network::rpc::methods::MetaData;
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
@@ -4424,8 +4427,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST lighthouse/database/verify_blobs
-
     // POST lighthouse/database/import_blobs
     let post_lighthouse_database_import_blobs = database_path
         .and(warp::path("import_blobs"))
@@ -4529,32 +4530,62 @@ pub fn serve<T: BeaconChainTypes>(
             |query: api_types::VerifyBlobsQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.spawn_async_with_rejection(Priority::P1, async move {
                     let mut results = Vec::new();
-                    for slot in query.start_slot.as_u64()..=query.end_slot.as_u64() {
+                    let deneb_start_slot =
+                        if let Some(deneb_fork_epoch) = chain.spec.deneb_fork_epoch {
+                            deneb_fork_epoch.start_slot(T::EthSpec::slots_per_epoch())
+                        } else {
+                            return Err(warp_utils::reject::custom_bad_request(
+                                "No Deneb fork scheduled".to_string(),
+                            ));
+                        };
+                    let start_slot = query.start_slot.unwrap_or(deneb_start_slot);
+                    if start_slot < deneb_start_slot {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "start_slot ({}) must be >= deneb fork slot ({})",
+                            start_slot, deneb_start_slot
+                        )));
+                    }
+                    // Maybe use chain.canonical_head.cached_head().head_slot()??
+                    let Ok(current_head_slot) = chain.slot() else {
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "Failed to get current head slot".to_string(),
+                        ));
+                    };
+
+                    let end_slot = query.end_slot.unwrap_or(current_head_slot);
+                    if end_slot < start_slot {
+                        return Err(warp_utils::reject::custom_bad_request(format!(
+                            "end_slot ({}) must be >= start_slot ({})",
+                            end_slot, start_slot
+                        )));
+                    }
+
+                    for slot in start_slot.as_u64()..=end_slot.as_u64() {
                         if let Ok((root, _, _)) = BlockId::from_slot(Slot::from(slot)).root(&chain)
                         {
                             if let Ok(blob_list_res) = chain.store.get_blobs(&root) {
                                 if let Some(blob_list) = blob_list_res.blobs() {
-                                    if let Err(e) =
+                                    if let Err(_e) =
                                         verify_kzg_for_blob_list(blob_list.iter(), &chain.kzg)
                                     {
-                                        results.push(format!(
-                                            "slot: {slot}, block_root: {root:?}, error: {e:?}"
-                                        ));
+                                        results.push(BlobsVerificationData {
+                                            block_root: root,
+                                            slot: slot.into(),
+                                            blobs_exist: true,
+                                            blobs_stored: false,
+                                            blobs_verified: true,
+                                        });
                                     }
                                 }
                             }
                         }
                     }
-
-                    if results.is_empty() {
-                        Ok(api_types::GenericResponse::from(
-                            "All blobs verified successfully".to_string(),
-                        ))
-                    } else {
-                        Ok(api_types::GenericResponse::from(results.join("\n")))
-                    }
+                    Ok::<_, warp::reject::Rejection>(
+                        warp::reply::json(&api_types::GenericResponse::from(results))
+                            .into_response(),
+                    )
                 })
             },
         );

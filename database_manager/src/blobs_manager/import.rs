@@ -1,4 +1,4 @@
-use crate::blobs_manager::cli::ImportBlobs;
+use crate::blobs_manager::{cli::ImportBlobs, ensure_node_synced};
 use eth2::{types::EthSpec, BeaconNodeHttpClient, Timeouts};
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
@@ -9,6 +9,15 @@ pub async fn import_blobs<E: EthSpec>(config: &ImportBlobs, log: Logger) -> Resu
         .map_err(|e| format!("Unable to parse beacon node url: {e:?}"))?;
 
     let client = BeaconNodeHttpClient::new(beacon_node, Timeouts::set_all(Duration::from_secs(12)));
+
+    let (_, is_synced) = ensure_node_synced(&client).await?;
+    if !is_synced {
+        if config.allow_unsynced {
+            warn!(log, "Beacon node is not synced");
+        } else {
+            return Err("Beacon node is not synced".to_string());
+        }
+    }
 
     let blobs_ssz = std::fs::read(&config.input_file)
         .map_err(|e| format!("Failed to read input file: {e:?}"))?;
