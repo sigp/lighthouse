@@ -43,7 +43,6 @@ use crate::{
 use bls::verify_signature_sets;
 use itertools::Itertools;
 use proto_array::Block as ProtoBlock;
-use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
     common::{
@@ -58,6 +57,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use strum::AsRefStr;
+use tracing::debug;
 use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationData, AttestationRef, BeaconCommittee,
@@ -430,10 +430,9 @@ fn process_slash_info<T: BeaconChainTypes>(
                     Ok((indexed, _)) => (indexed, true, err),
                     Err(e) => {
                         debug!(
-                            chain.log,
-                            "Unable to obtain indexed form of attestation for slasher";
-                            "attestation_root" => format!("{:?}", attestation.tree_hash_root()),
-                            "error" => format!("{:?}", e)
+                            attestation_root = ?attestation.tree_hash_root(),
+                            error =  ?e,
+                            "Unable to obtain indexed form of attestation for slasher"
                         );
                         return err;
                     }
@@ -447,9 +446,8 @@ fn process_slash_info<T: BeaconChainTypes>(
         if check_signature {
             if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
                 debug!(
-                    chain.log,
-                    "Signature verification for slasher failed";
-                    "error" => format!("{:?}", e),
+                    error = ?e,
+                    "Signature verification for slasher failed"
                 );
                 return err;
             }
@@ -1450,19 +1448,17 @@ where
         return Err(Error::UnknownTargetRoot(target.root));
     }
 
-    chain
-        .with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
-            let committees_per_slot = committee_cache.committees_per_slot();
+    chain.with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
+        let committees_per_slot = committee_cache.committees_per_slot();
 
-            Ok(committee_cache
-                .get_beacon_committees_at_slot(attestation.data().slot)
-                .map(|committees| map_fn((committees, committees_per_slot)))
-                .unwrap_or_else(|_| {
-                    Err(Error::NoCommitteeForSlotAndIndex {
-                        slot: attestation.data().slot,
-                        index: attestation.committee_index().unwrap_or(0),
-                    })
-                }))
-        })
-        .map_err(BeaconChainError::from)?
+        Ok(committee_cache
+            .get_beacon_committees_at_slot(attestation.data().slot)
+            .map(|committees| map_fn((committees, committees_per_slot)))
+            .unwrap_or_else(|_| {
+                Err(Error::NoCommitteeForSlotAndIndex {
+                    slot: attestation.data().slot,
+                    index: attestation.committee_index().unwrap_or(0),
+                })
+            }))
+    })?
 }

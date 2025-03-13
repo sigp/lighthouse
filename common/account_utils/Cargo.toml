@@ -14,7 +14,7 @@ regex = { workspace = true }
 rpassword = "5.0.0"
 serde = { workspace = true }
 serde_yaml = { workspace = true }
-slog = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
 validator_dir = { workspace = true }
 zeroize = { workspace = true }
