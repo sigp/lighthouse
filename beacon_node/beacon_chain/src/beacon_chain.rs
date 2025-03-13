@@ -815,6 +815,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block = self
             .get_blinded_block(&block_root)?
             .ok_or(Error::MissingBeaconBlock(block_root))?;
+        // This method is only used in tests, so we may as well cache states to make CI go brr.
         let state = self
             .get_state(&block.state_root(), Some(block.slot()), true)?
             .ok_or_else(|| Error::MissingBeaconState(block.state_root()))?;
@@ -1520,9 +1521,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })?
                     .ok_or(Error::NoStateForSlot(slot))?;
 
-                // Since this slot is less than the current head, don't cache the state
+                // This branch is mostly reached from the HTTP API when doing analyis, or in niche
+                // situations when producing a block. In the HTTP API case we assume the user wants
+                // to cache states so that future calls are faster, and that if the cache is
+                // struggling due to non-finality that they will dial down inessential calls. In the
+                // block proposal case we want to cache the state so that we can process the block
+                // quickly after it has been signed.
                 Ok(self
-                    .get_state(&state_root, Some(slot), false)?
+                    .get_state(&state_root, Some(slot), true)?
                     .ok_or(Error::NoStateForSlot(slot))?)
             }
         }
