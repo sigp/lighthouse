@@ -755,6 +755,7 @@ async fn unaggregated_gossip_verification() {
 
         // Load the block and state for the given root.
         let block = chain.get_block(&root).await.unwrap().unwrap();
+        // Cache the state to make CI go brr.
         let mut state = chain
             .get_state(&block.state_root(), None, true)
             .unwrap()

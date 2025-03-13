@@ -1114,6 +1114,7 @@ async fn block_replayer_peeking_state_roots() {
         .get_blinded_block(&parent_block_root)
         .unwrap()
         .unwrap();
+    // Cache the state to make CI go brr.
     let parent_state = harness
         .chain
         .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)

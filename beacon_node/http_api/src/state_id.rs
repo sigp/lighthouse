@@ -189,6 +189,8 @@ impl StateId {
             _ => (self.root(chain)?, None),
         };
 
+        // This branch is reached from the HTTP API. We assume the user wants
+        // to cache states so that future calls are faster.
         let state = chain
             .get_state(&state_root, slot_opt, true)
             .map_err(warp_utils::reject::unhandled_error)

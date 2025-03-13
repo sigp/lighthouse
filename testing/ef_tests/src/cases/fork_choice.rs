@@ -546,6 +546,8 @@ impl<E: EthSpec> Tester<E> {
                 .unwrap()
             {
                 let parent_state_root = parent_block.state_root();
+
+                // Cache the state to make CI go brr.
                 let mut state = self
                     .harness
                     .chain

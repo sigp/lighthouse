@@ -1223,6 +1223,7 @@ async fn attestation_that_skips_epochs() {
         .expect("should not error getting block at slot")
         .expect("should find block at slot");
 
+    // Cache the state to make CI go brr.
     let mut state = harness
         .chain
         .get_state(&earlier_block.state_root(), Some(earlier_slot), true)
@@ -1329,6 +1330,8 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .await;
 
     let current_slot = harness.get_current_slot();
+
+    // Cache the state to make CI go brr.
     let mut state = harness
         .chain
         .get_state(&earlier_block.state_root(), Some(earlier_slot), true)
@@ -1397,6 +1400,7 @@ async fn attestation_to_finalized_block() {
     let earlier_block_root = earlier_block.canonical_root();
     assert_ne!(earlier_block_root, finalized_checkpoint.root);
 
+    // Cache the state to make CI go brr.
     let mut state = harness
         .chain
         .get_state(&earlier_block.state_root(), Some(earlier_slot), true)

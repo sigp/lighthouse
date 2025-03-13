@@ -754,6 +754,7 @@ async fn delete_blocks_and_states() {
         .expect("no errors")
         .expect("faulty head block exists");
 
+    // Cache the state to make CI go brr.
     let faulty_head_state = store
         .get_state(
             &faulty_head_block.state_root(),
@@ -772,6 +773,7 @@ async fn delete_blocks_and_states() {
             break;
         }
         store.delete_state(&state_root, slot).unwrap();
+        // Cache the state to make CI go brr
         assert_eq!(
             store.get_state(&state_root, Some(slot), true).unwrap(),
             None
@@ -1057,6 +1059,7 @@ fn get_state_for_block(harness: &TestHarness, block_root: Hash256) -> BeaconStat
         .get_blinded_block(&block_root)
         .unwrap()
         .unwrap();
+    // Cache the state to make CI go brr.
     harness
         .chain
         .get_state(&head_block.state_root(), Some(head_block.slot()), true)
@@ -1896,6 +1899,7 @@ fn check_all_states_exist<'a>(
     states: impl Iterator<Item = &'a BeaconStateHash>,
 ) {
     for &state_hash in states {
+        // Cache the state to make CI go brr.
         let state = harness
             .chain
             .get_state(&state_hash.into(), None, true)
@@ -1914,6 +1918,7 @@ fn check_no_states_exist<'a>(
     states: impl Iterator<Item = &'a BeaconStateHash>,
 ) {
     for &state_root in states {
+        // Cache the state to make CI go brr
         assert!(
             harness
                 .chain
@@ -2350,6 +2355,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .chain
         .get_or_reconstruct_blobs(&wss_block_root)
         .unwrap();
+    // Cache the state to make CI go brr.
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot), true)
         .unwrap()
@@ -2465,6 +2471,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         beacon_chain.recompute_head_at_current_slot().await;
 
         // Check that the new block's state can be loaded correctly.
+        // Cache the state to make CI go brr
         let mut state = beacon_chain
             .store
             .get_state(&state_root, Some(slot), true)
@@ -2601,6 +2608,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .unwrap()
         .map(Result::unwrap)
     {
+        // Cache the state to make CI go brr
         let mut state = store
             .get_state(&state_root, Some(slot), true)
             .unwrap()
@@ -3434,6 +3442,8 @@ async fn prune_historic_states() {
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let genesis_state_root = harness.chain.genesis_state_root;
+
+    // Cache the state to make CI go brr.
     let genesis_state = harness
         .chain
         .get_state(&genesis_state_root, None, true)
@@ -3457,6 +3467,7 @@ async fn prune_historic_states() {
         .map(Result::unwrap)
         .collect::<Vec<_>>();
     for &(state_root, slot) in &first_epoch_state_roots {
+        // Cache the state to make CI go brr
         assert!(store
             .get_state(&state_root, Some(slot), true)
             .unwrap()
@@ -3474,6 +3485,7 @@ async fn prune_historic_states() {
 
     // Ensure all epoch 0 states other than the genesis have been pruned.
     for &(state_root, slot) in &first_epoch_state_roots {
+        // Cache the state to make CI go brr
         assert_eq!(
             store
                 .get_state(&state_root, Some(slot), true)
@@ -3600,6 +3612,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
 
         // Check that looking up the state root with no slot hint succeeds.
         // This tests the state root -> slot mapping.
+        // Cache the state to make CI go brr.
         assert_eq!(
             harness
                 .chain
@@ -3662,6 +3675,7 @@ fn check_iterators(harness: &TestHarness) {
         .expect("should get iter")
         .map(Result::unwrap)
     {
+        // Cache the state to make CI go brr.
         assert!(
             harness
                 .chain

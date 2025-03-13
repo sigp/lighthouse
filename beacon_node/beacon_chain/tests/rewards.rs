@@ -116,6 +116,8 @@ async fn test_sync_committee_rewards() {
         .get_blinded_block(&block.parent_root())
         .unwrap()
         .unwrap();
+
+    // Cache the state to make CI go brr.
     let parent_state = chain
         .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)
         .unwrap()

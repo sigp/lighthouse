@@ -325,6 +325,7 @@ impl AttesterCache {
             return Ok(value);
         }
 
+        // As the function name suggests, this code path is meant to load AND cache the state.
         let mut state: BeaconState<T::EthSpec> = chain
             .get_state(&state_root, None, true)?
             .ok_or(Error::MissingBeaconState(state_root))?;

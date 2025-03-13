@@ -370,6 +370,7 @@ impl ForkChoiceTest {
             .unwrap()
             .message()
             .state_root();
+        // Cache the state to make CI go brr
         let state = harness
             .chain
             .store
