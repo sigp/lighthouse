@@ -1480,9 +1480,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        // Put the state in the cache.
-        let block_root = state.get_latest_block_root(*state_root);
-
         // Avoid storing states in the database if they already exist in the state cache.
         // The exception to this is the finalized state, which must exist in the cache before it
         // is stored on disk.
@@ -1654,7 +1651,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     state.build_all_caches(&self.spec)?;
 
                     let latest_block_root = state.get_latest_block_root(state_root);
-                    if let PutStateOutcome::New =
+                    if let PutStateOutcome::New(_) =
                         self.state_cache
                             .lock()
                             .put_state(state_root, latest_block_root, state)?
