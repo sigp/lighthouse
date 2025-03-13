@@ -251,6 +251,7 @@ impl<E: EthSpec> StateCache<E> {
             } else if is_advanced {
                 advanced_state_roots.push(state_root);
             } else if state.get_latest_block_root(state_root) != self.head_block_root {
+                // Never prune the head state
                 mid_epoch_state_roots.push(state_root);
             }
 
