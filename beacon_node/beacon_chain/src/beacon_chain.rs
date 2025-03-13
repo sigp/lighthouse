@@ -1584,7 +1584,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<PublicKey>, Error> {
         let pubkey_cache = self.validator_pubkey_cache.read();
 
-        Ok(pubkey_cache.get(validator_index).cloned())
+        Ok(pubkey_cache.get(validator_index).ok().cloned())
     }
 
     /// As per `Self::validator_pubkey`, but returns `PublicKeyBytes`.

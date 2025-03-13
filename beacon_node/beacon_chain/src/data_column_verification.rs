@@ -44,7 +44,7 @@ pub enum GossipDataColumnError {
     /// ## Peer scoring
     ///
     /// The data column is invalid and the peer is faulty.
-    UnknownValidator(u64),
+    UnknownValidator(u64, /* reason */ String),
     /// The provided data column is not from a later slot than its parent.
     ///
     /// ## Peer scoring
@@ -623,7 +623,7 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
 
         let pubkey = pubkey_cache
             .get(proposer_index)
-            .ok_or_else(|| GossipDataColumnError::UnknownValidator(proposer_index as u64))?;
+            .map_err(|e| GossipDataColumnError::UnknownValidator(proposer_index as u64, e))?;
         let signed_block_header = &data_column.signed_block_header;
         signed_block_header.verify_signature::<T::EthSpec>(
             pubkey,

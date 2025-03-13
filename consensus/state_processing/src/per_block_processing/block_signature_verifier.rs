@@ -66,6 +66,8 @@ impl From<BlockOperationError<AttestationInvalid>> for Error {
     }
 }
 
+pub type GetPubkeyFnReturn<'a> = std::result::Result<Cow<'a, PublicKey>, String>;
+
 /// Reads the BLS signatures and keys from a `SignedBeaconBlock`, storing them as a `Vec<SignatureSet>`.
 ///
 /// This allows for optimizations related to batch BLS operations (see the
@@ -73,7 +75,7 @@ impl From<BlockOperationError<AttestationInvalid>> for Error {
 pub struct BlockSignatureVerifier<'a, E, F, D>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a> + Clone,
     D: Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 {
     get_pubkey: F,
@@ -97,7 +99,7 @@ impl<'a> From<Vec<SignatureSet<'a>>> for ParallelSignatureSets<'a> {
 impl<'a, E, F, D> BlockSignatureVerifier<'a, E, F, D>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a> + Clone,
     D: Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 {
     /// Create a new verifier without any included signatures. See the `include...` functions to

@@ -371,7 +371,7 @@ fn do_transition<E: EthSpec>(
             // Map compressed pubkey to validator index.
             let validator_index = validator_pubkey_cache.get_index(pk_bytes)?;
             // Map validator index to pubkey (respecting guard on unknown validators).
-            get_pubkey(validator_index)
+            get_pubkey(validator_index).ok()
         };
 
         let t = Instant::now();

@@ -82,7 +82,7 @@ pub enum GossipBlobError {
     /// ## Peer scoring
     ///
     /// The blob is invalid and the peer is faulty.
-    UnknownValidator(u64),
+    UnknownValidator(u64, /* reason */ String),
 
     /// The provided blob is not from a later slot than its parent.
     ///
@@ -547,7 +547,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
 
         let pubkey = pubkey_cache
             .get(proposer_index)
-            .ok_or_else(|| GossipBlobError::UnknownValidator(proposer_index as u64))?;
+            .map_err(|e| GossipBlobError::UnknownValidator(proposer_index as u64, e))?;
         signed_block_header.verify_signature::<T::EthSpec>(
             pubkey,
             &fork,

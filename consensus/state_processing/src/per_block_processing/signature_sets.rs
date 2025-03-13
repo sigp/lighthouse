@@ -2,6 +2,7 @@
 //! validated individually, or alongside in others in a potentially cheaper bulk operation.
 //!
 //! This module exposes one function to extract each type of `SignatureSet` from a `BeaconBlock`.
+use crate::block_signature_verifier::GetPubkeyFnReturn;
 use bls::SignatureSet;
 use ssz::DecodeError;
 use std::borrow::Cow;
@@ -26,7 +27,7 @@ pub enum Error {
     BeaconStateError(BeaconStateError),
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
-    ValidatorUnknown(u64),
+    ValidatorUnknown(u64, /* reason */ String),
     /// Attempted to find the public key of a validator that does not exist. You cannot distinguish
     /// between an error and an invalid block in this case.
     ValidatorPubkeyUnknown(PublicKeyBytes),
@@ -53,10 +54,7 @@ impl From<BeaconStateError> for Error {
 }
 
 /// Helper function to get a public key from a `state`.
-pub fn get_pubkey_from_state<E>(
-    state: &BeaconState<E>,
-    validator_index: usize,
-) -> Option<Cow<PublicKey>>
+pub fn get_pubkey_from_state<E>(state: &BeaconState<E>, validator_index: usize) -> GetPubkeyFnReturn
 where
     E: EthSpec,
 {
@@ -68,6 +66,10 @@ where
             pk
         })
         .map(Cow::Owned)
+        .ok_or(format!(
+            "Index above registry len {}",
+            state.validators().len()
+        ))
 }
 
 /// A signature set that is valid if a block was signed by the expected block producer.
@@ -81,7 +83,7 @@ pub fn block_proposal_signature_set<'a, E, F, Payload: AbstractExecPayload<E>>(
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let block = signed_block.message();
 
@@ -124,7 +126,7 @@ pub fn block_proposal_signature_set_from_parts<'a, E, F, Payload: AbstractExecPa
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
     signed_block
@@ -151,7 +153,8 @@ where
 
     Ok(SignatureSet::single_pubkey(
         signed_block.signature(),
-        get_pubkey(proposer_index as usize).ok_or(Error::ValidatorUnknown(proposer_index))?,
+        get_pubkey(proposer_index as usize)
+            .map_err(|e| Error::ValidatorUnknown(proposer_index, e))?,
         message,
     ))
 }
@@ -192,7 +195,7 @@ pub fn randao_signature_set<'a, E, F, Payload: AbstractExecPayload<E>>(
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let proposer_index = if let Some(proposer_index) = verified_proposer_index {
         proposer_index
@@ -214,7 +217,8 @@ where
 
     Ok(SignatureSet::single_pubkey(
         block.body().randao_reveal(),
-        get_pubkey(proposer_index as usize).ok_or(Error::ValidatorUnknown(proposer_index))?,
+        get_pubkey(proposer_index as usize)
+            .map_err(|e| Error::ValidatorUnknown(proposer_index, e))?,
         message,
     ))
 }
@@ -228,7 +232,7 @@ pub fn proposer_slashing_signature_set<'a, E, F>(
 ) -> Result<(SignatureSet<'a>, SignatureSet<'a>)>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let proposer_index = proposer_slashing.signed_header_1.message.proposer_index as usize;
 
@@ -236,13 +240,15 @@ where
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_1,
-            get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
+            get_pubkey(proposer_index)
+                .map_err(|e| Error::ValidatorUnknown(proposer_index as u64, e))?,
             spec,
         ),
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_2,
-            get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
+            get_pubkey(proposer_index)
+                .map_err(|e| Error::ValidatorUnknown(proposer_index as u64, e))?,
             spec,
         ),
     ))
@@ -277,12 +283,13 @@ pub fn indexed_attestation_signature_set<'a, 'b, E, F>(
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices_len());
     for &validator_idx in indexed_attestation.attesting_indices_iter() {
         pubkeys.push(
-            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+            get_pubkey(validator_idx as usize)
+                .map_err(|e| Error::ValidatorUnknown(validator_idx, e))?,
         );
     }
 
@@ -310,12 +317,13 @@ pub fn indexed_attestation_signature_set_from_pubkeys<'a, 'b, E, F>(
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices_len());
     for &validator_idx in indexed_attestation.attesting_indices_iter() {
         pubkeys.push(
-            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+            get_pubkey(validator_idx as usize)
+                .map_err(|e| Error::ValidatorUnknown(validator_idx, e))?,
         );
     }
 
@@ -340,7 +348,7 @@ pub fn attester_slashing_signature_sets<'a, E, F>(
 ) -> Result<(SignatureSet<'a>, SignatureSet<'a>)>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a> + Clone,
 {
     Ok((
         indexed_attestation_signature_set(
@@ -382,7 +390,7 @@ pub fn exit_signature_set<'a, E, F>(
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let exit = &signed_exit.message;
     let proposer_index = exit.validator_index as usize;
@@ -407,7 +415,8 @@ where
 
     Ok(SignatureSet::single_pubkey(
         &signed_exit.signature,
-        get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
+        get_pubkey(proposer_index)
+            .map_err(|e| Error::ValidatorUnknown(proposer_index as u64, e))?,
         message,
     ))
 }
@@ -421,7 +430,7 @@ pub fn signed_aggregate_selection_proof_signature_set<'a, E, F>(
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let slot = signed_aggregate_and_proof.message().aggregate().data().slot;
 
@@ -436,7 +445,8 @@ where
     let validator_index = signed_aggregate_and_proof.message().aggregator_index();
     Ok(SignatureSet::single_pubkey(
         signature,
-        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?,
+        get_pubkey(validator_index as usize)
+            .map_err(|e| Error::ValidatorUnknown(validator_index, e))?,
         message,
     ))
 }
@@ -450,7 +460,7 @@ pub fn signed_aggregate_signature_set<'a, E, F>(
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let target_epoch = signed_aggregate_and_proof
         .message()
@@ -471,7 +481,8 @@ where
 
     Ok(SignatureSet::single_pubkey(
         signature,
-        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?,
+        get_pubkey(validator_index as usize)
+            .map_err(|e| Error::ValidatorUnknown(validator_index, e))?,
         message,
     ))
 }
@@ -485,7 +496,7 @@ pub fn signed_sync_aggregate_selection_proof_signature_set<'a, E, F>(
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let slot = signed_contribution_and_proof.message.contribution.slot;
 
@@ -508,7 +519,8 @@ where
 
     Ok(SignatureSet::single_pubkey(
         signature,
-        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?,
+        get_pubkey(validator_index as usize)
+            .map_err(|e| Error::ValidatorUnknown(validator_index, e))?,
         message,
     ))
 }
@@ -522,7 +534,7 @@ pub fn signed_sync_aggregate_signature_set<'a, E, F>(
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+    F: Fn(usize) -> GetPubkeyFnReturn<'a>,
 {
     let epoch = signed_contribution_and_proof
         .message
@@ -542,7 +554,8 @@ where
 
     Ok(SignatureSet::single_pubkey(
         signature,
-        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?,
+        get_pubkey(validator_index as usize)
+            .map_err(|e| Error::ValidatorUnknown(validator_index, e))?,
         message,
     ))
 }

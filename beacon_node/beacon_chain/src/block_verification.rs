@@ -77,6 +77,7 @@ use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use state_processing::block_signature_verifier::GetPubkeyFnReturn;
 use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
@@ -213,7 +214,7 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    UnknownValidator(u64),
+    UnknownValidator(u64, /* reason */ String),
     /// A signature in the block is invalid
     ///
     /// ## Peer scoring
@@ -959,7 +960,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
-                .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
+                .map_err(|e| BlockError::UnknownValidator(block.message().proposer_index(), e))?;
             block.verify_signature(
                 Some(block_root),
                 pubkey,
@@ -1109,7 +1110,10 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             // Re-verify the proposer signature in isolation to attribute fault
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
-                .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
+                .map_err(|e| {
+                    // TODO: bound by state
+                    BlockError::UnknownValidator(block.message().proposer_index(), e)
+                })?;
             if block.as_block().verify_signature(
                 Some(block_root),
                 pubkey,
@@ -1980,7 +1984,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
 /// This trait is used to unify `BlockError` and `GossipBlobError`.
 pub trait BlockBlobError: From<BeaconStateError> + From<BeaconChainError> + Debug {
     fn not_later_than_parent_error(block_slot: Slot, state_slot: Slot) -> Self;
-    fn unknown_validator_error(validator_index: u64) -> Self;
+    fn unknown_validator_error(validator_index: u64, e: String) -> Self;
     fn proposer_signature_invalid() -> Self;
 }
 
@@ -1992,8 +1996,8 @@ impl BlockBlobError for BlockError {
         }
     }
 
-    fn unknown_validator_error(validator_index: u64) -> Self {
-        BlockError::UnknownValidator(validator_index)
+    fn unknown_validator_error(validator_index: u64, e: String) -> Self {
+        BlockError::UnknownValidator(validator_index, e)
     }
 
     fn proposer_signature_invalid() -> Self {
@@ -2009,8 +2013,8 @@ impl BlockBlobError for GossipBlobError {
         }
     }
 
-    fn unknown_validator_error(validator_index: u64) -> Self {
-        GossipBlobError::UnknownValidator(validator_index)
+    fn unknown_validator_error(validator_index: u64, e: String) -> Self {
+        GossipBlobError::UnknownValidator(validator_index, e)
     }
 
     fn proposer_signature_invalid() -> Self {
@@ -2026,8 +2030,8 @@ impl BlockBlobError for GossipDataColumnError {
         }
     }
 
-    fn unknown_validator_error(validator_index: u64) -> Self {
-        GossipDataColumnError::UnknownValidator(validator_index)
+    fn unknown_validator_error(validator_index: u64, e: String) -> Self {
+        GossipDataColumnError::UnknownValidator(validator_index, e)
     }
 
     fn proposer_signature_invalid() -> Self {
@@ -2098,7 +2102,7 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
 ) -> BlockSignatureVerifier<
     'a,
     T::EthSpec,
-    impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
+    impl Fn(usize) -> GetPubkeyFnReturn<'a> + Clone,
     impl Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 > {
     let get_pubkey = move |validator_index| {
@@ -2108,7 +2112,10 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
                 .get(validator_index)
                 .map(Cow::Borrowed)
         } else {
-            None
+            Err(format!(
+                "AboveStateRegistryLimit({})",
+                state.validators().len()
+            ))
         }
     };
 
@@ -2116,7 +2123,7 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
         // Map compressed pubkey to validator index.
         let validator_index = validator_pubkey_cache.get_index(pk_bytes)?;
         // Map validator index to pubkey (respecting guard on unknown validators).
-        get_pubkey(validator_index)
+        get_pubkey(validator_index).ok()
     };
 
     BlockSignatureVerifier::new(state, get_pubkey, decompressor, spec)
@@ -2132,7 +2139,7 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     let proposer_pubkey = get_validator_pubkey_cache(chain)?
         .get(header.message.proposer_index as usize)
         .cloned()
-        .ok_or(Err::unknown_validator_error(header.message.proposer_index))?;
+        .map_err(|e| Err::unknown_validator_error(header.message.proposer_index, e))?;
     let head_fork = chain.canonical_head.cached_head().head_fork();
 
     if header.verify_signature::<T::EthSpec>(

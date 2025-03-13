@@ -135,13 +135,17 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     }
 
     /// Get the public key for a validator with index `i`.
-    pub fn get(&self, i: usize) -> Option<&PublicKey> {
-        self.pubkeys.get(i)
+    /// Returns an Err with the length of the cache at query time.
+    pub fn get(&self, i: usize) -> Result<&PublicKey, String> {
+        self.pubkeys
+            .get(i)
+            .ok_or(format!("UnknownIndexInCache({})", self.pubkeys.len()))
     }
 
     /// Get the `PublicKey` for a validator with `PublicKeyBytes`.
     pub fn get_pubkey_from_pubkey_bytes(&self, pubkey: &PublicKeyBytes) -> Option<&PublicKey> {
-        self.get_index(pubkey).and_then(|index| self.get(index))
+        self.get_index(pubkey)
+            .and_then(|index| self.get(index).ok())
     }
 
     /// Get the public key (in bytes form) for a validator with index `i`.
@@ -255,7 +259,7 @@ mod test {
                 );
             } else {
                 assert_eq!(
-                    cache.get(i),
+                    cache.get(i).ok(),
                     None,
                     "should not get pubkey for out of bounds index",
                 );

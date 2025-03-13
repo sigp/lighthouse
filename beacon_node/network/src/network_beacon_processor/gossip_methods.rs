@@ -817,7 +817,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         )
                     }
                     GossipDataColumnError::ProposalSignatureInvalid
-                    | GossipDataColumnError::UnknownValidator(_)
+                    | GossipDataColumnError::UnknownValidator { .. }
                     | GossipDataColumnError::ProposerIndexMismatch { .. }
                     | GossipDataColumnError::IsNotLaterThanParent { .. }
                     | GossipDataColumnError::InvalidSubnetId { .. }
@@ -965,7 +965,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         )
                     }
                     GossipBlobError::ProposalSignatureInvalid
-                    | GossipBlobError::UnknownValidator(_)
+                    | GossipBlobError::UnknownValidator { .. }
                     | GossipBlobError::ProposerIndexMismatch { .. }
                     | GossipBlobError::BlobIsNotLaterThanParent { .. }
                     | GossipBlobError::InvalidSubnet { .. }
@@ -1394,7 +1394,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
             | Err(e @ BlockError::BlockSlotLimitReached)
             | Err(e @ BlockError::NonLinearSlots)
-            | Err(e @ BlockError::UnknownValidator(_))
+            | Err(e @ BlockError::UnknownValidator { .. })
             | Err(e @ BlockError::PerBlockProcessingError(_))
             | Err(e @ BlockError::NonLinearParentRoots)
             | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
