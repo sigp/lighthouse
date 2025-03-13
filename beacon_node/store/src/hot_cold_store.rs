@@ -3204,7 +3204,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
             // Store slot -> state_root and state_root -> slot mappings.
             store.store_cold_state_summary(&state_root, slot, &mut cold_db_ops)?;
         } else {
-            // We purposely do not update the state cache to store this state
+            // This is some state that we want to migrate to the freezer db. 
+            // There is no reason to cache this state.
             let state: BeaconState<E> = store
                 .get_hot_state(&state_root, false)?
                 .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
