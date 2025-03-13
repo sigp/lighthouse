@@ -4,10 +4,6 @@ use super::{
     BehaviourAction, Protocol, RPCSend, ReqId, RequestType, MAX_CONCURRENT_REQUESTS,
 };
 use crate::rpc::rate_limiter::RateLimiterItem;
-use futures::FutureExt;
-use libp2p::{swarm::NotifyHandler, PeerId};
-use slog::{crit, debug, Logger};
-use smallvec::SmallVec;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
@@ -15,7 +11,13 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
+
+use futures::FutureExt;
+use libp2p::{swarm::NotifyHandler, PeerId};
+use logging::crit;
+use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
+use tracing::debug;
 use types::{EthSpec, ForkContext};
 
 /// A request that was rate limited or waiting on rate limited requests for the same peer and
@@ -43,8 +45,6 @@ pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
     rate_limiter: Option<RateLimiter>,
     /// Requests that are ready to be sent.
     ready_requests: SmallVec<[(PeerId, RPCSend<Id, E>, Duration); 3]>,
-    /// Slog logger.
-    log: Logger,
 }
 
 /// Error returned when the rate limiter does not accept a request.
@@ -61,9 +61,8 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     pub fn new(
         config: Option<OutboundRateLimiterConfig>,
         fork_context: Arc<ForkContext>,
-        log: Logger,
     ) -> Result<Self, &'static str> {
-        debug!(log, "Using self rate limiting params"; "config" => ?config);
+        debug!(?config, "Using self rate limiting params");
         let rate_limiter = if let Some(c) = config {
             Some(RateLimiter::new_with_config(c.0, fork_context)?)
         } else {
@@ -76,7 +75,6 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
             next_peer_request: Default::default(),
             rate_limiter,
             ready_requests: Default::default(),
-            log,
         })
     }
 
@@ -92,7 +90,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         let protocol = req.versioned_protocol().protocol();
         // First check that there are not already other requests waiting to be sent.
         if let Some(queued_requests) = self.delayed_requests.get_mut(&(peer_id, protocol)) {
-            debug!(self.log, "Self rate limiting since there are already other requests waiting to be sent"; "protocol" => %req.protocol(), "peer_id" => %peer_id);
+            debug!(%peer_id, protocol = %req.protocol(), "Self rate limiting since there are already other requests waiting to be sent");
             queued_requests.push_back(QueuedRequest {
                 req,
                 request_id,
@@ -106,7 +104,6 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
             peer_id,
             request_id,
             req,
-            &self.log,
         ) {
             Err((rate_limited_req, wait_time)) => {
                 let key = (peer_id, protocol);
@@ -132,12 +129,15 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         peer_id: PeerId,
         request_id: Id,
         req: RequestType<E>,
-        log: &Logger,
     ) -> Result<RPCSend<Id, E>, (QueuedRequest<Id, E>, Duration)> {
         if let Some(active_request) = active_requests.get(&peer_id) {
             if let Some(count) = active_request.get(&req.protocol()) {
                 if *count >= MAX_CONCURRENT_REQUESTS {
-                    debug!(log, "Self rate limiting due to the number of concurrent requests"; "protocol" => %req.protocol(), "peer_id" => %peer_id);
+                    debug!(
+                        %peer_id,
+                        protocol = %req.protocol(),
+                        "Self rate limiting due to the number of concurrent requests"
+                    );
                     return Err((
                         QueuedRequest {
                             req,
@@ -160,13 +160,12 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                             // this should never happen with default parameters. Let's just send the request.
                             // Log a crit since this is a config issue.
                             crit!(
-                               log,
-                                "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.";
-                                "protocol" => %req.versioned_protocol().protocol()
+                                protocol = %req.versioned_protocol().protocol(),
+                                "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.",
                             );
                         }
                         RateLimitedErr::TooSoon(wait_time) => {
-                            debug!(log, "Self rate limiting"; "protocol" => %protocol.protocol(), "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
+                            debug!(protocol = %protocol.protocol(), wait_time_ms = wait_time.as_millis(), %peer_id, "Self rate limiting");
                             return Err((
                                 QueuedRequest {
                                     req,
@@ -207,7 +206,6 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                     peer_id,
                     request_id,
                     req.clone(),
-                    &self.log,
                 ) {
                     Err((_rate_limited_req, wait_time)) => {
                         let key = (peer_id, protocol);
@@ -317,13 +315,14 @@ mod tests {
     use crate::rpc::{Ping, Protocol, RPCSend, RequestType};
     use crate::service::api_types::{AppRequestId, RequestId, SingleLookupReqId, SyncRequestId};
     use libp2p::PeerId;
+    use logging::create_test_tracing_subscriber;
     use std::time::Duration;
     use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
 
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
     async fn test_next_peer_request_ready() {
-        let log = logging::test_logger();
+        create_test_tracing_subscriber();
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
             ping_quota: Quota::n_every(1, 2),
             ..Default::default()
@@ -334,7 +333,7 @@ mod tests {
             &MainnetEthSpec::default_spec(),
         ));
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(Some(config), fork_context, log).unwrap();
+            SelfRateLimiter::new(Some(config), fork_context).unwrap();
         let peer_id = PeerId::random();
         let lookup_id = 0;
 
@@ -401,14 +400,13 @@ mod tests {
     /// Test that `next_peer_request_ready` correctly maintains the queue when using the self-limiter without rate limiting.
     #[tokio::test]
     async fn test_next_peer_request_ready_concurrent_requests() {
-        let log = logging::test_logger();
         let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
             Slot::new(0),
             Hash256::ZERO,
             &MainnetEthSpec::default_spec(),
         ));
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(None, fork_context, log).unwrap();
+            SelfRateLimiter::new(None, fork_context).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {
@@ -479,14 +477,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_disconnected() {
-        let log = logging::test_logger();
         let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
             Slot::new(0),
             Hash256::ZERO,
             &MainnetEthSpec::default_spec(),
         ));
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(None, fork_context, log).unwrap();
+            SelfRateLimiter::new(None, fork_context).unwrap();
         let peer1 = PeerId::random();
         let peer2 = PeerId::random();
 

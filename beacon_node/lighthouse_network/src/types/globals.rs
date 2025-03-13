@@ -5,9 +5,9 @@ use crate::rpc::{MetaData, MetaDataV3};
 use crate::types::{BackFillState, SyncState};
 use crate::{Client, Enr, EnrExt, GossipTopic, Multiaddr, NetworkConfig, PeerId};
 use parking_lot::RwLock;
-use slog::error;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tracing::error;
 use types::data_column_custody_group::{
     compute_columns_for_custody_group, compute_subnets_from_custody_group, get_custody_groups,
 };
@@ -45,7 +45,6 @@ impl<E: EthSpec> NetworkGlobals<E> {
         local_metadata: MetaData<E>,
         trusted_peers: Vec<PeerId>,
         disable_peer_scoring: bool,
-        log: &slog::Logger,
         config: Arc<NetworkConfig>,
         spec: Arc<ChainSpec>,
     ) -> Self {
@@ -56,9 +55,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
                 Ok(&cgc) if cgc <= spec.number_of_custody_groups => cgc,
                 _ => {
                     error!(
-                        log,
-                        "custody_group_count from metadata is either invalid or not set. This is a bug!";
-                        "info" => "falling back to default custody requirement"
+                        info = "falling back to default custody requirement",
+                        "custody_group_count from metadata is either invalid or not set. This is a bug!"
                     );
                     spec.custody_requirement
                 }
@@ -96,7 +94,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
             local_metadata: RwLock::new(local_metadata),
-            peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring, log)),
+            peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::Paused),
@@ -197,7 +195,6 @@ impl<E: EthSpec> NetworkGlobals<E> {
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
     pub fn new_test_globals(
         trusted_peers: Vec<PeerId>,
-        log: &slog::Logger,
         config: Arc<NetworkConfig>,
         spec: Arc<ChainSpec>,
     ) -> NetworkGlobals<E> {
@@ -207,13 +204,12 @@ impl<E: EthSpec> NetworkGlobals<E> {
             syncnets: Default::default(),
             custody_group_count: spec.custody_requirement,
         });
-        Self::new_test_globals_with_metadata(trusted_peers, metadata, log, config, spec)
+        Self::new_test_globals_with_metadata(trusted_peers, metadata, config, spec)
     }
 
     pub(crate) fn new_test_globals_with_metadata(
         trusted_peers: Vec<PeerId>,
         metadata: MetaData<E>,
-        log: &slog::Logger,
         config: Arc<NetworkConfig>,
         spec: Arc<ChainSpec>,
     ) -> NetworkGlobals<E> {
@@ -221,18 +217,19 @@ impl<E: EthSpec> NetworkGlobals<E> {
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
         let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
-        NetworkGlobals::new(enr, metadata, trusted_peers, false, log, config, spec)
+        NetworkGlobals::new(enr, metadata, trusted_peers, false, config, spec)
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use logging::create_test_tracing_subscriber;
     use types::{Epoch, EthSpec, MainnetEthSpec as E};
 
     #[test]
     fn test_sampling_subnets() {
-        let log = logging::test_logger();
+        create_test_tracing_subscriber();
         let mut spec = E::default_spec();
         spec.fulu_fork_epoch = Some(Epoch::new(0));
 
@@ -244,7 +241,6 @@ mod test {
         let globals = NetworkGlobals::<E>::new_test_globals_with_metadata(
             vec![],
             metadata,
-            &log,
             config,
             Arc::new(spec),
         );
@@ -256,7 +252,7 @@ mod test {
 
     #[test]
     fn test_sampling_columns() {
-        let log = logging::test_logger();
+        create_test_tracing_subscriber();
         let mut spec = E::default_spec();
         spec.fulu_fork_epoch = Some(Epoch::new(0));
 
@@ -268,7 +264,6 @@ mod test {
         let globals = NetworkGlobals::<E>::new_test_globals_with_metadata(
             vec![],
             metadata,
-            &log,
             config,
             Arc::new(spec),
         );

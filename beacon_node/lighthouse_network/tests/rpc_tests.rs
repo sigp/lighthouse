@@ -2,17 +2,17 @@
 
 mod common;
 
-use common::Protocol;
+use common::{build_tracing_subscriber, Protocol};
 use lighthouse_network::rpc::{methods::*, RequestType};
 use lighthouse_network::service::api_types::AppRequestId;
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Response};
-use slog::{debug, error, warn, Level};
 use ssz::Encode;
 use ssz_types::VariableList;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
+use tracing::{debug, error, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
     EmptyBlock, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256, MinimalEthSpec,
@@ -53,13 +53,12 @@ fn bellatrix_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> Beacon
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_status_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
+    // Set up the logging.
+    let log_level = "debug";
     let enable_logging = false;
+    build_tracing_subscriber(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
-
-    let log = common::build_log(log_level, enable_logging);
 
     let spec = Arc::new(E::default_spec());
 
@@ -67,7 +66,6 @@ fn test_tcp_status_rpc() {
         // get sender/receiver
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Base,
             spec,
             Protocol::Tcp,
@@ -100,7 +98,7 @@ fn test_tcp_status_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -111,9 +109,9 @@ fn test_tcp_status_rpc() {
                         response,
                     } => {
                         // Should receive the RPC response
-                        debug!(log, "Sender Received");
+                        debug!("Sender Received");
                         assert_eq!(response, rpc_response.clone());
-                        debug!(log, "Sender Completed");
+                        debug!("Sender Completed");
                         return;
                     }
                     _ => {}
@@ -132,7 +130,7 @@ fn test_tcp_status_rpc() {
                     } => {
                         if request.r#type == rpc_request {
                             // send the response
-                            debug!(log, "Receiver Received");
+                            debug!("Receiver Received");
                             receiver.send_response(peer_id, id, request.id, rpc_response.clone());
                         }
                     }
@@ -155,13 +153,12 @@ fn test_tcp_status_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_range_chunked_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
+    // Set up the logging.
+    let log_level = "debug";
     let enable_logging = false;
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 6;
-
-    let log = common::build_log(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
 
@@ -171,7 +168,6 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
         // get sender/receiver
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Bellatrix,
             spec.clone(),
             Protocol::Tcp,
@@ -210,7 +206,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -220,7 +216,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                         id: _,
                         response,
                     } => {
-                        warn!(log, "Sender received a response");
+                        warn!("Sender received a response");
                         match response {
                             Response::BlocksByRange(Some(_)) => {
                                 if messages_received < 2 {
@@ -231,7 +227,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                                     assert_eq!(response, rpc_response_bellatrix_small.clone());
                                 }
                                 messages_received += 1;
-                                warn!(log, "Chunk received");
+                                warn!("Chunk received");
                             }
                             Response::BlocksByRange(None) => {
                                 // should be exactly `messages_to_send` messages before terminating
@@ -258,7 +254,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                     } => {
                         if request.r#type == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             for i in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
                                 // second as altair and third as bellatrix.
@@ -304,14 +300,13 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_blobs_by_range_chunked_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
+    // Set up the logging.
+    let log_level = "debug";
     let enable_logging = false;
+    build_tracing_subscriber(log_level, enable_logging);
 
     let slot_count = 32;
     let messages_to_send = 34;
-
-    let log = common::build_log(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
 
@@ -320,7 +315,6 @@ fn test_blobs_by_range_chunked_rpc() {
         let spec = Arc::new(E::default_spec());
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Deneb,
             spec.clone(),
             Protocol::Tcp,
@@ -348,7 +342,7 @@ fn test_blobs_by_range_chunked_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -358,12 +352,12 @@ fn test_blobs_by_range_chunked_rpc() {
                         id: _,
                         response,
                     } => {
-                        warn!(log, "Sender received a response");
+                        warn!("Sender received a response");
                         match response {
                             Response::BlobsByRange(Some(_)) => {
                                 assert_eq!(response, rpc_response.clone());
                                 messages_received += 1;
-                                warn!(log, "Chunk received");
+                                warn!("Chunk received");
                             }
                             Response::BlobsByRange(None) => {
                                 // should be exactly `messages_to_send` messages before terminating
@@ -390,7 +384,7 @@ fn test_blobs_by_range_chunked_rpc() {
                     } => {
                         if request.r#type == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             for _ in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
                                 // second as altair and third as bellatrix.
@@ -429,13 +423,12 @@ fn test_blobs_by_range_chunked_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_range_over_limit() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
+    // Set up the logging.
+    let log_level = "debug";
     let enable_logging = false;
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 5;
-
-    let log = common::build_log(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
 
@@ -445,7 +438,6 @@ fn test_tcp_blocks_by_range_over_limit() {
         // get sender/receiver
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Bellatrix,
             spec.clone(),
             Protocol::Tcp,
@@ -474,7 +466,7 @@ fn test_tcp_blocks_by_range_over_limit() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -500,7 +492,7 @@ fn test_tcp_blocks_by_range_over_limit() {
                     } => {
                         if request.r#type == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             for _ in 0..messages_to_send {
                                 let rpc_response = rpc_response_bellatrix_large.clone();
                                 receiver.send_response(
@@ -537,14 +529,13 @@ fn test_tcp_blocks_by_range_over_limit() {
 // Tests that a streamed BlocksByRange RPC Message terminates when all expected chunks were received
 #[test]
 fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
+    // Set up the logging.
+    let log_level = "debug";
     let enable_logging = false;
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 10;
     let extra_messages_to_send = 10;
-
-    let log = common::build_log(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
 
@@ -554,7 +545,6 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
         // get sender/receiver
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Base,
             spec.clone(),
             Protocol::Tcp,
@@ -584,7 +574,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -596,7 +586,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     } =>
                     // Should receive the RPC response
                     {
-                        debug!(log, "Sender received a response");
+                        debug!("Sender received a response");
                         match response {
                             Response::BlocksByRange(Some(_)) => {
                                 assert_eq!(response, rpc_response.clone());
@@ -640,7 +630,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     )) => {
                         if request.r#type == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             message_info = Some((peer_id, id, request.id));
                         }
                     }
@@ -653,7 +643,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     messages_sent += 1;
                     let (peer_id, stream_id, request_id) = message_info.as_ref().unwrap();
                     receiver.send_response(*peer_id, *stream_id, *request_id, rpc_response.clone());
-                    debug!(log, "Sending message {}", messages_sent);
+                    debug!("Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
                         return;
@@ -676,11 +666,11 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_range_single_empty_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Trace;
+    // Set up the logging.
+    let log_level = "trace";
     let enable_logging = false;
+    build_tracing_subscriber(log_level, enable_logging);
 
-    let log = common::build_log(log_level, enable_logging);
     let rt = Arc::new(Runtime::new().unwrap());
 
     let spec = Arc::new(E::default_spec());
@@ -689,7 +679,6 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
         // get sender/receiver
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Base,
             spec.clone(),
             Protocol::Tcp,
@@ -721,7 +710,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -734,7 +723,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                         Response::BlocksByRange(Some(_)) => {
                             assert_eq!(response, rpc_response.clone());
                             messages_received += 1;
-                            warn!(log, "Chunk received");
+                            warn!("Chunk received");
                         }
                         Response::BlocksByRange(None) => {
                             // should be exactly 10 messages before terminating
@@ -760,7 +749,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                     } => {
                         if request.r#type == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
 
                             for _ in 1..=messages_to_send {
                                 receiver.send_response(
@@ -800,13 +789,13 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_root_chunked_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
+    // Set up the logging.
+    let log_level = "debug";
     let enable_logging = false;
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 6;
 
-    let log = common::build_log(log_level, enable_logging);
     let spec = Arc::new(E::default_spec());
 
     let rt = Arc::new(Runtime::new().unwrap());
@@ -814,7 +803,6 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Bellatrix,
             spec.clone(),
             Protocol::Tcp,
@@ -861,7 +849,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -880,7 +868,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                                 assert_eq!(response, rpc_response_bellatrix_small.clone());
                             }
                             messages_received += 1;
-                            debug!(log, "Chunk received");
+                            debug!("Chunk received");
                         }
                         Response::BlocksByRoot(None) => {
                             // should be exactly messages_to_send
@@ -906,7 +894,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                     } => {
                         if request.r#type == rpc_request {
                             // send the response
-                            debug!(log, "Receiver got request");
+                            debug!("Receiver got request");
 
                             for i in 0..messages_to_send {
                                 // Send equal base, altair and bellatrix blocks
@@ -918,7 +906,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                                     rpc_response_bellatrix_small.clone()
                                 };
                                 receiver.send_response(peer_id, id, request.id, rpc_response);
-                                debug!(log, "Sending message");
+                                debug!("Sending message");
                             }
                             // send the stream termination
                             receiver.send_response(
@@ -927,7 +915,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                                 request.id,
                                 Response::BlocksByRange(None),
                             );
-                            debug!(log, "Send stream term");
+                            debug!("Send stream term");
                         }
                     }
                     _ => {} // Ignore other events
@@ -947,14 +935,14 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
 // Tests a streamed, chunked BlocksByRoot RPC Message terminates when all expected reponses have been received
 #[test]
 fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
+    // Set up the logging.
+    let log_level = "debug";
     let enable_logging = false;
+    build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send: u64 = 10;
     let extra_messages_to_send: u64 = 10;
 
-    let log = common::build_log(log_level, enable_logging);
     let spec = Arc::new(E::default_spec());
 
     let rt = Arc::new(Runtime::new().unwrap());
@@ -962,7 +950,6 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Base,
             spec.clone(),
             Protocol::Tcp,
@@ -1004,7 +991,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -1014,12 +1001,12 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                         id: AppRequestId::Router,
                         response,
                     } => {
-                        debug!(log, "Sender received a response");
+                        debug!("Sender received a response");
                         match response {
                             Response::BlocksByRoot(Some(_)) => {
                                 assert_eq!(response, rpc_response.clone());
                                 messages_received += 1;
-                                debug!(log, "Chunk received");
+                                debug!("Chunk received");
                             }
                             Response::BlocksByRoot(None) => {
                                 // should be exactly messages_to_send
@@ -1060,7 +1047,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     )) => {
                         if request.r#type == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             message_info = Some((peer_id, id, request.id));
                         }
                     }
@@ -1073,7 +1060,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     messages_sent += 1;
                     let (peer_id, stream_id, request_id) = message_info.as_ref().unwrap();
                     receiver.send_response(*peer_id, *stream_id, *request_id, rpc_response.clone());
-                    debug!(log, "Sending message {}", messages_sent);
+                    debug!("Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
                         return;
@@ -1094,8 +1081,9 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
 
 /// Establishes a pair of nodes and disconnects the pair based on the selected protocol via an RPC
 /// Goodbye message.
-fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
-    let log = common::build_log(log_level, enable_logging);
+fn goodbye_test(log_level: &str, enable_logging: bool, protocol: Protocol) {
+    // Set up the logging.
+    build_tracing_subscriber(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
 
@@ -1105,7 +1093,6 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Base,
             spec,
             protocol,
@@ -1120,7 +1107,7 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a goodbye and disconnect
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender.goodbye_peer(
                             &peer_id,
                             GoodbyeReason::IrrelevantNetwork,
@@ -1160,27 +1147,24 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
 #[test]
 #[allow(clippy::single_match)]
 fn tcp_test_goodbye_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
-    let enable_logging = false;
-    goodbye_test(log_level, enable_logging, Protocol::Tcp);
+    let log_level = "debug";
+    let enabled_logging = false;
+    goodbye_test(log_level, enabled_logging, Protocol::Tcp);
 }
 
 // Tests a Goodbye RPC message
 #[test]
 #[allow(clippy::single_match)]
 fn quic_test_goodbye_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
-    let enable_logging = false;
-    goodbye_test(log_level, enable_logging, Protocol::Quic);
+    let log_level = "debug";
+    let enabled_logging = false;
+    goodbye_test(log_level, enabled_logging, Protocol::Quic);
 }
 
 // Test that the receiver delays the responses during response rate-limiting.
 #[test]
 fn test_delayed_rpc_response() {
     let rt = Arc::new(Runtime::new().unwrap());
-    let log = logging::test_logger();
     let spec = Arc::new(E::default_spec());
 
     // Allow 1 token to be use used every 3 seconds.
@@ -1190,7 +1174,6 @@ fn test_delayed_rpc_response() {
         // get sender/receiver
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Base,
             spec,
             Protocol::Tcp,
@@ -1225,7 +1208,7 @@ fn test_delayed_rpc_response() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        debug!(log, "Sending RPC request"; "request_id" => request_id);
+                        debug!(%request_id, "Sending RPC request");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -1236,7 +1219,7 @@ fn test_delayed_rpc_response() {
                         id: _,
                         response,
                     } => {
-                        debug!(log, "Sender received"; "request_id" => request_id);
+                        debug!(%request_id, "Sender received");
                         assert_eq!(response, rpc_response);
 
                         match request_id {
@@ -1262,7 +1245,7 @@ fn test_delayed_rpc_response() {
                         }
 
                         request_id += 1;
-                        debug!(log, "Sending RPC request"; "request_id" => request_id);
+                        debug!(%request_id, "Sending RPC request");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -1273,7 +1256,7 @@ fn test_delayed_rpc_response() {
                         peer_id: _,
                         error,
                     } => {
-                        error!(log, "RPC Failed"; "error" => ?error);
+                        error!(?error, "RPC Failed");
                         panic!("Rpc failed.");
                     }
                     _ => {}
@@ -1291,7 +1274,7 @@ fn test_delayed_rpc_response() {
                 } = receiver.next_event().await
                 {
                     assert_eq!(request.r#type, rpc_request);
-                    debug!(log, "Receiver received request");
+                    debug!("Receiver received request");
                     receiver.send_response(peer_id, id, request.id, rpc_response.clone());
                 }
             }
@@ -1312,14 +1295,12 @@ fn test_delayed_rpc_response() {
 #[test]
 fn test_active_requests() {
     let rt = Arc::new(Runtime::new().unwrap());
-    let log = logging::test_logger();
     let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // Get sender/receiver.
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            &log,
             ForkName::Base,
             spec,
             Protocol::Tcp,
@@ -1355,7 +1336,7 @@ fn test_active_requests() {
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        debug!(log, "Sending RPC request");
+                        debug!("Sending RPC request");
                         // Send requests in quick succession to intentionally trigger request queueing in the self-limiter.
                         for _ in 0..REQUESTS {
                             sender
@@ -1364,7 +1345,7 @@ fn test_active_requests() {
                         }
                     }
                     NetworkEvent::ResponseReceived { response, .. } => {
-                        debug!(log, "Sender received response"; "response" => ?response);
+                        debug!(?response, "Sender received response");
                         if matches!(response, Response::Status(_)) {
                             response_received += 1;
                         }
@@ -1390,7 +1371,7 @@ fn test_active_requests() {
                 tokio::select! {
                     event = receiver.next_event() => {
                        if let NetworkEvent::RequestReceived { peer_id, id, request } = event {
-                            debug!(log, "Receiver received request"; "request" => ?request);
+                            debug!(?request, "Receiver received request");
                             if matches!(request.r#type, RequestType::Status(_)) {
                                 received_requests.push((peer_id, id, request.id));
                             }

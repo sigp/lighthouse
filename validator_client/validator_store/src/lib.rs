@@ -1,18 +1,19 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use doppelganger_service::{DoppelgangerService, DoppelgangerStatus, DoppelgangerValidatorStore};
 use initialized_validators::InitializedValidators;
+use logging::crit;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
 };
-use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use tracing::{error, info, warn};
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
@@ -82,7 +83,6 @@ pub struct ValidatorStore<T, E: EthSpec> {
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
-    log: Logger,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     slot_clock: T,
     fee_recipient_process: Option<Address>,
@@ -114,7 +114,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slot_clock: T,
         config: &Config,
         task_executor: TaskExecutor,
-        log: Logger,
     ) -> Self {
         Self {
             validators: Arc::new(RwLock::new(validators)),
@@ -122,7 +121,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             slashing_protection_last_prune: Arc::new(Mutex::new(Epoch::new(0))),
             genesis_validators_root,
             spec,
-            log,
             doppelganger_service,
             slot_clock,
             fee_recipient_process: config.fee_recipient,
@@ -581,10 +579,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // Make sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot() > current_slot {
             warn!(
-                self.log,
-                "Not signing block with slot greater than current slot";
-                "block_slot" => block.slot().as_u64(),
-                "current_slot" => current_slot.as_u64()
+                block_slot = block.slot().as_u64(),
+                current_slot = current_slot.as_u64(),
+                "Not signing block with slot greater than current slot"
             );
             return Err(Error::GreaterThanCurrentSlot {
                 slot: block.slot(),
@@ -630,10 +627,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Ok(SignedBeaconBlock::from_block(block, signature))
             }
             Ok(Safe::SameData) => {
-                warn!(
-                    self.log,
-                    "Skipping signing of previously signed block";
-                );
+                warn!("Skipping signing of previously signed block");
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_BLOCKS_TOTAL,
                     &[validator_metrics::SAME_DATA],
@@ -642,10 +636,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             }
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
-                    self.log,
-                    "Not signing block for unregistered validator";
-                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
-                    "public_key" => format!("{:?}", pk)
+                    msg = "Carefully consider running with --init-slashing-protection (see --help)",
+                    public_key = format!("{:?}", pk),
+                    "Not signing block for unregistered validator"
                 );
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_BLOCKS_TOTAL,
@@ -654,11 +647,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
             }
             Err(e) => {
-                crit!(
-                    self.log,
-                    "Not signing slashable block";
-                    "error" => format!("{:?}", e)
-                );
+                crit!(error = format!("{:?}", e), "Not signing slashable block");
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_BLOCKS_TOTAL,
                     &[validator_metrics::SLASHABLE],
@@ -725,10 +714,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Ok(())
             }
             Ok(Safe::SameData) => {
-                warn!(
-                    self.log,
-                    "Skipping signing of previously signed attestation"
-                );
+                warn!("Skipping signing of previously signed attestation");
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
                     &[validator_metrics::SAME_DATA],
@@ -737,10 +723,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             }
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
-                    self.log,
-                    "Not signing attestation for unregistered validator";
-                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
-                    "public_key" => format!("{:?}", pk)
+                    msg = "Carefully consider running with --init-slashing-protection (see --help)",
+                    public_key = format!("{:?}", pk),
+                    "Not signing attestation for unregistered validator"
                 );
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
@@ -750,10 +735,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             }
             Err(e) => {
                 crit!(
-                    self.log,
-                    "Not signing slashable attestation";
-                    "attestation" => format!("{:?}", attestation.data()),
-                    "error" => format!("{:?}", e)
+                    attestation = format!("{:?}", attestation.data()),
+                    error = format!("{:?}", e),
+                    "Not signing slashable attestation"
                 );
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
@@ -1068,13 +1052,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         if first_run {
             info!(
-                self.log,
-                "Pruning slashing protection DB";
-                "epoch" => current_epoch,
-                "msg" => "pruning may take several minutes the first time it runs"
+                epoch = %current_epoch,
+                msg = "pruning may take several minutes the first time it runs",
+                "Pruning slashing protection DB"
             );
         } else {
-            info!(self.log, "Pruning slashing protection DB"; "epoch" => current_epoch);
+            info!(epoch = %current_epoch, "Pruning slashing protection DB");
         }
 
         let _timer =
@@ -1090,9 +1073,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .prune_all_signed_attestations(all_pubkeys.iter(), new_min_target_epoch)
         {
             error!(
-                self.log,
-                "Error during pruning of signed attestations";
-                "error" => ?e,
+                error = ?e,
+                "Error during pruning of signed attestations"
             );
             return;
         }
@@ -1102,15 +1084,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .prune_all_signed_blocks(all_pubkeys.iter(), new_min_slot)
         {
             error!(
-                self.log,
-                "Error during pruning of signed blocks";
-                "error" => ?e,
+                error = ?e,
+                "Error during pruning of signed blocks"
             );
             return;
         }
 
         *last_prune = current_epoch;
 
-        info!(self.log, "Completed pruning of slashing protection DB");
+        info!("Completed pruning of slashing protection DB");
     }
 }

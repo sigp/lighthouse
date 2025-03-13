@@ -182,8 +182,6 @@ impl TestRig {
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
 
-        let log = harness.logger().clone();
-
         let beacon_processor_config = BeaconProcessorConfig {
             enable_backfill_rate_limiting,
             ..Default::default()
@@ -221,7 +219,6 @@ impl TestRig {
             meta_data,
             vec![],
             false,
-            &log,
             network_config,
             spec,
         ));
@@ -241,7 +238,6 @@ impl TestRig {
             network_globals: network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor: executor.clone(),
-            log: log.clone(),
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
@@ -250,7 +246,6 @@ impl TestRig {
             executor,
             current_workers: 0,
             config: beacon_processor_config,
-            log: log.clone(),
         }
         .spawn_manager(
             beacon_processor_rx,

@@ -12,9 +12,9 @@ use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::observed_data_sidecars::{DoNotObserve, ObservationStrategy, Observe};
 use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
-use slog::debug;
 use ssz_derive::{Decode, Encode};
 use std::time::Duration;
+use tracing::debug;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
@@ -504,10 +504,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
         (proposer.index, proposer.fork)
     } else {
         debug!(
-            chain.log,
-            "Proposer shuffling cache miss for blob verification";
-            "block_root" => %block_root,
-            "index" => %blob_index,
+            %block_root,
+            %blob_index,
+            "Proposer shuffling cache miss for blob verification"
         );
         let (parent_state_root, mut parent_state) = chain
             .store

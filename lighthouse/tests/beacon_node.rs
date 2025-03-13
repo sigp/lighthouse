@@ -1,7 +1,7 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
 };
 use beacon_node::{
     beacon_chain::graffiti_calculator::GraffitiOrigin,
@@ -2416,20 +2416,20 @@ fn monitoring_endpoint() {
 
 // Tests for Logger flags.
 #[test]
-fn default_log_color_flag() {
+fn default_logfile_color_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.logger_config.log_color);
+            assert!(!config.logger_config.logfile_color);
         });
 }
 #[test]
-fn enabled_log_color_flag() {
+fn enabled_logfile_color_flag() {
     CommandLineTest::new()
-        .flag("log-color", None)
+        .flag("logfile-color", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.logger_config.log_color);
+            assert!(config.logger_config.logfile_color);
         });
 }
 #[test]
@@ -2584,7 +2584,20 @@ fn sync_tolerance_epochs() {
         .flag("sync-tolerance-epochs", Some("0"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.http_api.sync_tolerance_epochs, Some(0));
+            assert_eq!(config.chain.sync_tolerance_epochs, 0);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.sync_tolerance_epochs,
+                DEFAULT_SYNC_TOLERANCE_EPOCHS
+            );
         });
 }
 

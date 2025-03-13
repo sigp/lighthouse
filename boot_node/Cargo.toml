@@ -16,9 +16,7 @@ lighthouse_network = { workspace = true }
 log = { workspace = true }
 logging = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
-slog-async = { workspace = true }
-slog-scope = "4.3.0"
-slog-term = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }

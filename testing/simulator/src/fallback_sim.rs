@@ -3,7 +3,9 @@ use crate::{checks, LocalNetwork};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
+use environment::tracing_common;
 use futures::prelude::*;
+use logging::MetricsLayer;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
     testing_validator_config, ValidatorFiles,
@@ -13,8 +15,9 @@ use std::cmp::max;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{Epoch, EthSpec, MinimalEthSpec};
-
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 32;
 const ALTAIR_FORK_EPOCH: u64 = 0;
@@ -89,23 +92,49 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let mut env = EnvironmentBuilder::minimal()
-        .initialize_logger(LoggerConfig {
+    let (
+        env_builder,
+        filter_layer,
+        libp2p_discv5_layer,
+        file_logging_layer,
+        stdout_logging_layer,
+        _sse_logging_layer_opt,
+        logger_config,
+        dependency_log_filter,
+    ) = tracing_common::construct_logger(
+        LoggerConfig {
             path: None,
-            debug_level: log_level.clone(),
-            logfile_debug_level: log_level.clone(),
+            debug_level: tracing_common::parse_level(&log_level.clone()),
+            logfile_debug_level: tracing_common::parse_level(&log_level.clone()),
             log_format: None,
             logfile_format: None,
-            log_color: false,
+            log_color: true,
+            logfile_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
             is_restricted: true,
             sse_logging: false,
-        })?
-        .multi_threaded_tokio_runtime()?
-        .build()?;
+            extra_info: false,
+        },
+        matches,
+        EnvironmentBuilder::minimal(),
+    );
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(dependency_log_filter)
+        .with(filter_layer)
+        .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
+        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
+        .with(libp2p_discv5_layer)
+        .with(MetricsLayer)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging: {e}");
+    }
+
+    let mut env = env_builder.multi_threaded_tokio_runtime()?.build()?;
 
     let mut spec = (*env.eth2_config.spec).clone();
 

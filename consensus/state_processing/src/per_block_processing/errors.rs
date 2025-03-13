@@ -60,6 +60,7 @@ pub enum BlockProcessingError {
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
     SszDecodeError(DecodeError),
+    BitfieldError(ssz::BitfieldError),
     MerkleTreeError(MerkleTreeError),
     ArithError(ArithError),
     InconsistentBlockFork(InconsistentFork),
@@ -153,6 +154,7 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+            BlockOperationError::BitfieldError(e) => BlockProcessingError::BitfieldError(e),
             BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
@@ -181,6 +183,7 @@ macro_rules! impl_into_block_processing_error_with_index {
                         BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
                         BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
                         BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+                        BlockOperationError::BitfieldError(e) => BlockProcessingError::BitfieldError(e),
                         BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
                         BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
                     }
@@ -215,6 +218,7 @@ pub enum BlockOperationError<T> {
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     ConsensusContext(ContextError),
     ArithError(ArithError),
 }
@@ -239,6 +243,12 @@ impl<T> From<SignatureSetError> for BlockOperationError<T> {
 impl<T> From<ssz_types::Error> for BlockOperationError<T> {
     fn from(error: ssz_types::Error) -> Self {
         BlockOperationError::SszTypesError(error)
+    }
+}
+
+impl<T> From<ssz::BitfieldError> for BlockOperationError<T> {
+    fn from(error: ssz::BitfieldError) -> Self {
+        BlockOperationError::BitfieldError(error)
     }
 }
 
@@ -367,6 +377,7 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
             BlockOperationError::BeaconStateError(e) => BlockOperationError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockOperationError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockOperationError::SszTypesError(e),
+            BlockOperationError::BitfieldError(e) => BlockOperationError::BitfieldError(e),
             BlockOperationError::ConsensusContext(e) => BlockOperationError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockOperationError::ArithError(e),
         }
