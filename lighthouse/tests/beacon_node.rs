@@ -2033,6 +2033,20 @@ fn malicious_withhold_count_flag() {
         .with_config(|config| assert_eq!(config.chain.malicious_withhold_count, 128));
 }
 
+#[test]
+fn advertise_false_custody_group_count_flag() {
+    CommandLineTest::new()
+        .flag("advertise-false-custody-group-count", Some("128"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let network_config = &config.network;
+            assert_eq!(
+                network_config.advertise_false_custody_group_count,
+                Some(128)
+            );
+        });
+}
+
 // Tests for Slasher flags.
 // Using `--slasher-max-db-size` to work around https://github.com/sigp/lighthouse/issues/2342
 #[test]

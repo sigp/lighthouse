@@ -1170,6 +1170,12 @@ pub fn set_network_config(
 
     config.set_listening_addr(parse_listening_addresses(cli_args)?);
 
+    if let Some(false_custody_group_count) =
+        clap_utils::parse_optional(cli_args, "advertise-false-custody-group-count")?
+    {
+        config.advertise_false_custody_group_count = Some(false_custody_group_count);
+    }
+
     // A custom target-peers command will overwrite the --proposer-only default.
     if let Some(target_peers_str) = cli_args.get_one::<String>("target-peers") {
         config.target_peers = target_peers_str

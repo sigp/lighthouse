@@ -69,6 +69,20 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            // TODO(das): remove this before PeerDAS release
+            Arg::new("advertise-false-custody-group-count")
+                .long("advertise-false-custody-group-count")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY: Advertise a false custody group count in metadata. Makes \
+                        peers think this node custodies more columns than it actually does. \
+                        It's used to override the actual custody group count when building node metadata, \
+                        but only when PeerDAS is scheduled and the value is within valid range.
+                        DO NOT USE IN PRODUCTION.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("enable-sampling")
                 .long("enable-sampling")
                 .action(ArgAction::SetTrue)
