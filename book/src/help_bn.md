@@ -118,7 +118,7 @@ Options:
       --epochs-per-blob-prune <EPOCHS>
           The epoch interval with which to prune blobs from Lighthouse's
           database when they are older than the data availability boundary
-          relative to the current epoch. [default: 1]
+          relative to the current epoch. [default: 256]
       --epochs-per-migration <N>
           The number of epochs to wait between running the migration of data
           from the hot DB to the cold DB. Less frequent runs can be useful for

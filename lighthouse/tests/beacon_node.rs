@@ -1972,7 +1972,7 @@ fn prune_blobs_on_startup_false() {
 fn epochs_per_blob_prune_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(config.store.epochs_per_blob_prune == 1));
+        .with_config(|config| assert_eq!(config.store.epochs_per_blob_prune, 256));
 }
 #[test]
 fn epochs_per_blob_prune_on_startup_five() {
