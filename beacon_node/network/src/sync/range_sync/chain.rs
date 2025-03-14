@@ -2,7 +2,7 @@ use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
-use crate::sync::network_context::RangeRequestId;
+use crate::sync::network_context::{RangeRequestId, RpcResponseError};
 use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
@@ -879,6 +879,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
+        err: RpcResponseError,
     ) -> ProcessingResult {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
@@ -901,9 +902,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             debug!(
                 batch_epoch = %batch_id,
                 batch_state = ?batch.state(),
+                error = ?err,
                 %peer_id,
                 %request_id,
-                "Batch failed. RPC Error"
+                "Batch download error"
             );
             if let Some(active_requests) = self.peers.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
