@@ -115,22 +115,21 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: None,
             },
-            BuilderBid::Electra(builder_bid) => BlockProposalContents::PayloadAndBlobs {
-                payload: ExecutionPayloadHeader::Electra(builder_bid.header).into(),
-                block_value: builder_bid.value,
-                kzg_commitments: builder_bid.blob_kzg_commitments,
-                blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests),
-            },
+            BuilderBid::Electra(builder_bid) => {
+                BlockProposalContents::PayloadAndBlobsWithRequests {
+                    payload: ExecutionPayloadHeader::Electra(builder_bid.header).into(),
+                    block_value: builder_bid.value,
+                    kzg_commitments: builder_bid.blob_kzg_commitments,
+                    blobs_and_proofs: None,
+                    requests: builder_bid.execution_requests,
+                }
+            }
             BuilderBid::Fulu(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                // TODO(fulu): update this with builder api returning the requests
-                requests: None,
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -209,8 +208,14 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         kzg_commitments: KzgCommitments<E>,
         /// `None` for blinded `PayloadAndBlobs`.
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
-        // TODO(electra): this should probably be a separate variant/superstruct
-        requests: Option<ExecutionRequests<E>>,
+    },
+    PayloadAndBlobsWithRequests {
+        payload: Payload,
+        block_value: Uint256,
+        kzg_commitments: KzgCommitments<E>,
+        /// `None` for blinded `PayloadAndBlobs`.
+        blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
+        requests: ExecutionRequests<E>,
     },
 }
 
@@ -231,8 +236,19 @@ impl<E: EthSpec> From<BlockProposalContents<E, FullPayload<E>>>
                 block_value,
                 kzg_commitments,
                 blobs_and_proofs: _,
-                requests,
             } => BlockProposalContents::PayloadAndBlobs {
+                payload: payload.execution_payload().into(),
+                block_value,
+                kzg_commitments,
+                blobs_and_proofs: None,
+            },
+            BlockProposalContents::PayloadAndBlobsWithRequests {
+                payload,
+                block_value,
+                kzg_commitments,
+                blobs_and_proofs: _,
+                requests,
+            } => BlockProposalContents::PayloadAndBlobsWithRequests {
                 payload: payload.execution_payload().into(),
                 block_value,
                 kzg_commitments,
@@ -251,13 +267,21 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
     fn try_from(response: GetPayloadResponse<E>) -> Result<Self, Error> {
         let (execution_payload, block_value, maybe_bundle, maybe_requests) = response.into();
         match maybe_bundle {
-            Some(bundle) => Ok(Self::PayloadAndBlobs {
-                payload: execution_payload.into(),
-                block_value,
-                kzg_commitments: bundle.commitments,
-                blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
-                requests: maybe_requests,
-            }),
+            Some(bundle) => match maybe_requests {
+                Some(requests) => Ok(Self::PayloadAndBlobsWithRequests {
+                    payload: execution_payload.into(),
+                    block_value,
+                    kzg_commitments: bundle.commitments,
+                    blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
+                    requests: requests,
+                }),
+                None => Ok(Self::PayloadAndBlobs {
+                    payload: execution_payload.into(),
+                    block_value,
+                    kzg_commitments: bundle.commitments,
+                    blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
+                }),
+            },
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
                 block_value,
@@ -298,12 +322,24 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
                 block_value,
                 kzg_commitments,
                 blobs_and_proofs,
-                requests,
             } => (
                 payload,
                 Some(kzg_commitments),
                 blobs_and_proofs,
+                None,
+                block_value,
+            ),
+            Self::PayloadAndBlobsWithRequests {
+                payload,
+                block_value,
+                kzg_commitments,
                 requests,
+                blobs_and_proofs,
+            } => (
+                payload,
+                Some(kzg_commitments),
+                blobs_and_proofs,
+                Some(requests),
                 block_value,
             ),
         }
@@ -313,18 +349,21 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
         match self {
             Self::Payload { payload, .. } => payload,
             Self::PayloadAndBlobs { payload, .. } => payload,
+            Self::PayloadAndBlobsWithRequests { payload, .. } => payload,
         }
     }
     pub fn to_payload(self) -> Payload {
         match self {
             Self::Payload { payload, .. } => payload,
             Self::PayloadAndBlobs { payload, .. } => payload,
+            Self::PayloadAndBlobsWithRequests { payload, .. } => payload,
         }
     }
     pub fn block_value(&self) -> &Uint256 {
         match self {
             Self::Payload { block_value, .. } => block_value,
             Self::PayloadAndBlobs { block_value, .. } => block_value,
+            Self::PayloadAndBlobsWithRequests { block_value, .. } => block_value,
         }
     }
 }
