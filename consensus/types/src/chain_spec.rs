@@ -231,6 +231,7 @@ pub struct ChainSpec {
     max_request_blob_sidecars: u64,
     pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
+    pub min_epochs_for_data_column_sidecars_requests: u64,
     blob_sidecar_subnet_count: u64,
     max_blobs_per_block: u64,
 
@@ -947,6 +948,8 @@ impl ChainSpec {
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            min_epochs_for_data_column_sidecars_requests:
+                default_min_epochs_for_data_column_sidecars_requests(),
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
             max_blobs_per_block: default_max_blobs_per_block(),
 
@@ -1276,7 +1279,9 @@ impl ChainSpec {
             max_request_blocks_deneb: default_max_request_blocks_deneb(),
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
-            min_epochs_for_blob_sidecars_requests: 16384,
+            min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
+            min_epochs_for_data_column_sidecars_requests:
+                default_min_epochs_for_data_column_sidecars_requests(),
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
             max_blobs_per_block: default_max_blobs_per_block(),
 
@@ -1479,6 +1484,9 @@ pub struct Config {
     #[serde(default = "default_min_epochs_for_blob_sidecars_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_blob_sidecars_requests: u64,
+    #[serde(default = "default_min_epochs_for_data_column_sidecars_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_epochs_for_data_column_sidecars_requests: u64,
     #[serde(default = "default_blob_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     blob_sidecar_subnet_count: u64,
@@ -1625,6 +1633,10 @@ const fn default_max_request_data_column_sidecars() -> u64 {
 }
 
 const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
+    4096
+}
+
+const fn default_min_epochs_for_data_column_sidecars_requests() -> u64 {
     4096
 }
 
@@ -1871,6 +1883,8 @@ impl Config {
             max_request_blob_sidecars: spec.max_request_blob_sidecars,
             max_request_data_column_sidecars: spec.max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
+            min_epochs_for_data_column_sidecars_requests: spec
+                .min_epochs_for_data_column_sidecars_requests,
             blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
             max_blobs_per_block: spec.max_blobs_per_block,
 
@@ -1952,6 +1966,7 @@ impl Config {
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
+            min_epochs_for_data_column_sidecars_requests,
             blob_sidecar_subnet_count,
             max_blobs_per_block,
 
@@ -2024,6 +2039,7 @@ impl Config {
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
+            min_epochs_for_data_column_sidecars_requests,
             blob_sidecar_subnet_count,
             max_blobs_per_block,
 

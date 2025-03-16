@@ -2706,7 +2706,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
         let min_data_availability_boundary = std::cmp::max(
             deneb_fork_epoch,
-            min_current_epoch.saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
+            min_current_epoch
+                .saturating_sub(self.spec.min_epochs_for_data_column_sidecars_requests),
         );
 
         self.try_prune_blobs(force, min_data_availability_boundary)

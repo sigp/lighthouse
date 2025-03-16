@@ -312,7 +312,7 @@ where
                         // a sync right before blobs start to disappear from the P2P
                         // network.
                         let reduced_p2p_availability_epochs = spec
-                            .min_epochs_for_blob_sidecars_requests
+                            .min_epochs_for_data_column_sidecars_requests
                             .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
                         let blob_availability_window = reduced_p2p_availability_epochs
                             * E::slots_per_epoch()

@@ -497,7 +497,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             fork_epoch,
             current_slot
                 .epoch(T::EthSpec::slots_per_epoch())
-                .saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
+                .saturating_sub(self.spec.min_epochs_for_data_column_sidecars_requests),
         ))
     }
 
@@ -679,8 +679,9 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 let cutoff_epoch = std::cmp::max(
                     finalized_epoch + 1,
                     std::cmp::max(
-                        current_epoch
-                            .saturating_sub(chain.spec.min_epochs_for_blob_sidecars_requests),
+                        current_epoch.saturating_sub(
+                            chain.spec.min_epochs_for_data_column_sidecars_requests,
+                        ),
                         deneb_fork_epoch,
                     ),
                 );
