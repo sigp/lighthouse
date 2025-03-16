@@ -568,8 +568,8 @@ fn run<E: EthSpec>(
                     .join("logs"),
             ),
             Some(("validator_client", vc_matches)) => {
-                let base_path = if vc_matches.contains_id("validators-dir") {
-                    parse_path_or_default(vc_matches, "validators-dir")?
+                let base_path = if vc_matches.contains_id("validators_dir") {
+                    parse_path_or_default(vc_matches, "validators_dir")?
                 } else {
                     parse_path_or_default(matches, "datadir")?.join(DEFAULT_VALIDATOR_DIR)
                 };

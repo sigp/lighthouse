@@ -65,10 +65,9 @@ pub fn parse_path_with_default_in_home_dir(
     default: PathBuf,
 ) -> Result<PathBuf, String> {
     matches
-        .get_one::<String>(name)
+        .get_one::<PathBuf>(name)
         .map(|dir| {
-            dir.parse::<PathBuf>()
-                .map_err(|e| format!("Unable to parse {}: {}", name, e))
+            Ok(dir.clone())
         })
         .unwrap_or_else(|| {
             dirs::home_dir()
