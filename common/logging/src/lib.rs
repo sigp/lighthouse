@@ -140,14 +140,20 @@ pub fn create_libp2p_discv5_tracing_layer(
             discv5_writer = discv5_writer.compression(Compression::Gzip);
         }
 
-        let Ok(libp2p_writer) = libp2p_writer.build() else {
-            eprintln!("Failed to initialize libp2p rolling file appender");
-            std::process::exit(1);
+        let libp2p_writer = match libp2p_writer.build() {
+            Ok(writer) => writer,
+            Err(e) => {
+                eprintln!("Failed to initialize libp2p rolling file appender: {e}");
+                std::process::exit(1);
+            }
         };
 
-        let Ok(discv5_writer) = discv5_writer.build() else {
-            eprintln!("Failed to initialize discv5 rolling file appender");
-            std::process::exit(1);
+        let discv5_writer = match discv5_writer.build() {
+            Ok(writer) => writer,
+            Err(e) => {
+                eprintln!("Failed to initialize discv5 rolling file appender: {e}");
+                std::process::exit(1);
+            }
         };
 
         let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(libp2p_writer);
