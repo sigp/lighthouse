@@ -66,9 +66,7 @@ pub fn parse_path_with_default_in_home_dir(
 ) -> Result<PathBuf, String> {
     matches
         .get_one::<PathBuf>(name)
-        .map(|dir| {
-            Ok(dir.clone())
-        })
+        .map(|dir| Ok(dir.clone()))
         .unwrap_or_else(|| {
             dirs::home_dir()
                 .map(|home| home.join(default))
