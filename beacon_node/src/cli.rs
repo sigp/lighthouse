@@ -812,7 +812,7 @@ pub fn cli_app() -> Command {
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the state cache")
-                .default_value("128")
+                .default_value("32")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1009,7 +1009,7 @@ pub fn cli_app() -> Command {
                        database when they are older than the data availability boundary \
                        relative to the current epoch.")
                 .action(ArgAction::Set)
-                .default_value("1")
+                .default_value("256")
                 .display_order(0)
         )
         .arg(
