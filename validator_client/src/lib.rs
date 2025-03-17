@@ -325,7 +325,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                     get_validator_block: slot_duration / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
                 }
             } else {
-                Timeouts::set_all(slot_duration)
+                Timeouts::set_all(slot_duration.saturating_mul(config.long_timeouts_multiplier))
             };
 
             Ok(BeaconNodeHttpClient::from_components(
@@ -478,6 +478,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context: duties_context,
             enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,
             distributed: config.distributed,
+            disable_attesting: config.disable_attesting,
         });
 
         // Update the metrics server.
@@ -507,6 +508,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("attestation".into()))
+            .disable(config.disable_attesting)
             .build()?;
 
         let preparation_service = PreparationServiceBuilder::new()

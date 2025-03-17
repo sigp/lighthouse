@@ -118,7 +118,7 @@ Options:
       --epochs-per-blob-prune <EPOCHS>
           The epoch interval with which to prune blobs from Lighthouse's
           database when they are older than the data availability boundary
-          relative to the current epoch. [default: 1]
+          relative to the current epoch. [default: 256]
       --epochs-per-migration <N>
           The number of epochs to wait between running the migration of data
           from the hot DB to the cold DB. Less frequent runs can be useful for
@@ -386,7 +386,7 @@ Options:
       --slots-per-restore-point <SLOT_COUNT>
           DEPRECATED. This flag has no effect.
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 128]
+          Specifies the size of the state cache [default: 32]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the

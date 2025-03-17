@@ -144,11 +144,6 @@ pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::ZERO;
 /// Defines how old a block can be before it's no longer a candidate for the early attester cache.
 const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 
-/// Defines a distance between the head block slot and the current slot.
-///
-/// If the head block is older than this value, don't bother preparing beacon proposers.
-const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
-
 /// If the head is more than `MAX_PER_SLOT_FORK_CHOICE_DISTANCE` slots behind the wall-clock slot, DO NOT
 /// run the per-slot tasks (primarily fork choice).
 ///
@@ -2862,6 +2857,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         chain_segment: Vec<RpcBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult {
+        for block in chain_segment.iter() {
+            if let Err(error) = self.check_invalid_block_roots(block.block_root()) {
+                return ChainSegmentResult::Failed {
+                    imported_blocks: vec![],
+                    error,
+                };
+            }
+        }
+
         let mut imported_blocks = vec![];
 
         // Filter uninteresting blocks from the chain segment in a blocking task.
@@ -3343,6 +3347,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await;
         self.remove_notified(&block_root, r)
+    }
+
+    /// Check for known and configured invalid block roots before processing.
+    pub fn check_invalid_block_roots(&self, block_root: Hash256) -> Result<(), BlockError> {
+        if self.config.invalid_block_roots.contains(&block_root) {
+            Err(BlockError::KnownInvalidExecutionPayload(block_root))
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
@@ -4848,7 +4861,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proposer_index = if let Some(proposer) = cached_proposer {
             proposer.index as u64
         } else {
-            if head_epoch + 2 < proposal_epoch {
+            if head_epoch + self.config.sync_tolerance_epochs < proposal_epoch {
                 warn!(
                     self.log,
                     "Skipping proposer preparation";
@@ -6079,19 +6092,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Use a blocking task since blocking the core executor on the canonical head read lock can
         // block the core tokio executor.
         let chain = self.clone();
+        let tolerance_slots = self.config.sync_tolerance_epochs * T::EthSpec::slots_per_epoch();
         let maybe_prep_data = self
             .spawn_blocking_handle(
                 move || {
                     let cached_head = chain.canonical_head.cached_head();
 
                     // Don't bother with proposer prep if the head is more than
-                    // `PREPARE_PROPOSER_HISTORIC_EPOCHS` prior to the current slot.
+                    // `sync_tolerance_epochs` prior to the current slot.
                     //
                     // This prevents the routine from running during sync.
                     let head_slot = cached_head.head_slot();
-                    if head_slot + T::EthSpec::slots_per_epoch() * PREPARE_PROPOSER_HISTORIC_EPOCHS
-                        < current_slot
-                    {
+                    if head_slot + tolerance_slots < current_slot {
                         debug!(
                             chain.log,
                             "Head too old for proposer prep";

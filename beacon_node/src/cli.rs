@@ -812,7 +812,7 @@ pub fn cli_app() -> Command {
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the state cache")
-                .default_value("128")
+                .default_value("32")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1009,7 +1009,7 @@ pub fn cli_app() -> Command {
                        database when they are older than the data availability boundary \
                        relative to the current epoch.")
                 .action(ArgAction::Set)
-                .default_value("1")
+                .default_value("256")
                 .display_order(0)
         )
         .arg(
@@ -1519,6 +1519,19 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("sync-tolerance-epochs")
+                .long("sync-tolerance-epochs")
+                .help("Overrides the default SYNC_TOLERANCE_EPOCHS. This flag is not intended \
+                    for production and MUST only be used in TESTING only. This is primarily used \
+                    for testing range sync, to prevent the node from producing a block before the \
+                    node is synced with the network which may result in the node getting \
+                    disconnected from peers immediately.")
+                .hide(true)
+                .requires("enable_http")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("gui")
                 .long("gui")
                 .help("Enable the graphical user interface and all its requirements. \
@@ -1607,6 +1620,14 @@ pub fn cli_app() -> Command {
                 .help("Set the database backend to be used by the beacon node.")
                 .action(ArgAction::Set)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("invalid-block-roots")
+                .long("invalid-block-roots")
+                .value_name("FILE")
+                .help("Path to a comma separated file containing block roots that should be treated as invalid during block verification.")
+                .action(ArgAction::Set)
+                .hide(true)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))
 }

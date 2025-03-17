@@ -107,13 +107,6 @@ use warp_utils::{query::multi_key_query, reject::convert_rejection, uor::Unifyin
 
 const API_PREFIX: &str = "eth";
 
-/// If the node is within this many epochs from the head, we declare it to be synced regardless of
-/// the network sync state.
-///
-/// This helps prevent attacks where nodes can convince us that we're syncing some non-existent
-/// finalized head.
-const SYNC_TOLERANCE_EPOCHS: u64 = 8;
-
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
 type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 
@@ -473,7 +466,8 @@ pub fn serve<T: BeaconChainTypes>(
                                     )
                                 })?;
 
-                            let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
+                            let tolerance =
+                                chain.config.sync_tolerance_epochs * T::EthSpec::slots_per_epoch();
 
                             if head_slot + tolerance >= current_slot {
                                 Ok(())
@@ -1121,6 +1115,72 @@ pub fn serve<T: BeaconChainTypes>(
                         api_types::GenericResponse::from(api_types::RandaoMix { randao })
                             .add_execution_optimistic_finalized(execution_optimistic, finalized),
                     )
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/pending_deposits
+    let get_beacon_state_pending_deposits = beacon_states_path
+        .clone()
+        .and(warp::path("pending_deposits"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(deposits) = state.pending_deposits() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending deposits not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((deposits.clone(), execution_optimistic, finalized))
+                            },
+                        )?;
+
+                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                        data,
+                        execution_optimistic: Some(execution_optimistic),
+                        finalized: Some(finalized),
+                    })
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/pending_partial_withdrawals
+    let get_beacon_state_pending_partial_withdrawals = beacon_states_path
+        .clone()
+        .and(warp::path("pending_partial_withdrawals"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(withdrawals) = state.pending_partial_withdrawals() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending withdrawals not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((withdrawals.clone(), execution_optimistic, finalized))
+                            },
+                        )?;
+
+                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                        data,
+                        execution_optimistic: Some(execution_optimistic),
+                        finalized: Some(finalized),
+                    })
                 })
             },
         );
@@ -4673,6 +4733,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_committees)
                 .uor(get_beacon_state_sync_committees)
                 .uor(get_beacon_state_randao)
+                .uor(get_beacon_state_pending_deposits)
+                .uor(get_beacon_state_pending_partial_withdrawals)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)
