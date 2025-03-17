@@ -1030,15 +1030,13 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         }
 
         // find the next pending batch and request it from the peer
-        loop {
-            if let Some(batch_id) = self.include_next_batch(network) {
-                // send the batch
-                self.send_batch(network, batch_id)?;
-            } else {
-                // No more batches, simply stop
-                return Ok(());
-            }
+        while let Some(batch_id) = self.include_next_batch(network) {
+            // send the batch
+            self.send_batch(network, batch_id)?;
         }
+
+        // No more batches, simply stop
+        Ok(())
     }
 
     /// Creates the next required batch from the chain. If there are no more batches required,
