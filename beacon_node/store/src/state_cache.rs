@@ -46,7 +46,7 @@ pub struct StateCache<E: EthSpec> {
 pub enum PutStateOutcome {
     Finalized,
     Duplicate,
-    // Includes deleted states as a result of this insertion
+    /// Includes deleted states as a result of this insertion
     New(Vec<Hash256>),
 }
 
