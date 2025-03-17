@@ -61,7 +61,7 @@ fn datadir_flag() {
 fn validators_and_secrets_dir_flags() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
-        .flag("validators-dir", dir.path().join("validators").to_str())
+        .flag("validators_dir", dir.path().join("validators").to_str())
         .flag("secrets-dir", dir.path().join("secrets").to_str())
         .run_with_no_datadir()
         .with_config(|config| {
@@ -74,7 +74,7 @@ fn validators_and_secrets_dir_flags() {
 fn validators_dir_alias_flags() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
-        .flag("validator-dir", dir.path().join("validators").to_str())
+        .flag("validator_dir", dir.path().join("validators").to_str())
         .flag("secrets-dir", dir.path().join("secrets").to_str())
         .run_with_no_datadir()
         .with_config(|config| {
