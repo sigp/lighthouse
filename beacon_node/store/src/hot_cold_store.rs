@@ -1505,22 +1505,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     "slot" => state.slot(),
                     "state_root" => ?state_root
                 );
-                // Write the state anyway. Testing of this branch shows that states may exist in the
-                // cache but not be yet ever stored in the DB
+                return Ok(());
             }
-            PutStateOutcome::Finalized => {} // ignore
-        }
-
-        // TODO(hdiff): is this optimization necessary? Computing diffs is expensive so we may want
-        // to avoid it.
-        if self.load_hot_state_summary(state_root)?.is_some() {
-            debug!(
-                self.log,
-                "Skipping storage of state already in the db";
-                "slot" => state.slot(),
-                "state_root" => ?state_root
-            );
-            return Ok(());
+            PutStateOutcome::Finalized => {} // Continue to store.
         }
 
         // On the epoch boundary, store the full state.
