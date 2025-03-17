@@ -1,7 +1,6 @@
 use crate::{BlockId, ExecutionOptimistic};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2::lighthouse::SyncCommitteeReward;
-use eth2::types::ValidatorId;
+use eth2::types::{SyncCommitteeReward, ValidatorId};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
 use tracing::debug;

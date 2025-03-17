@@ -1915,7 +1915,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18e4fdb82bd54a12e42fb58a800dcae6b9e13982238ce2296dc3570b92148e1f"
 dependencies = [
  "data-encoding",
- "syn 2.0.100",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -2518,14 +2518,16 @@ version = "0.1.0"
 dependencies = [
  "derivative",
  "either",
+ "enr",
  "eth2_keystore",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "futures",
  "futures-util",
- "lighthouse_network",
+ "libp2p-identity",
  "mediatype",
+ "multiaddr",
  "pretty_reqwest_error",
  "proto_array",
  "reqwest",
@@ -2535,7 +2537,6 @@ dependencies = [
  "serde_json",
  "slashing_protection",
  "ssz_types",
- "store",
  "tokio",
  "types",
  "zeroize",
@@ -2980,7 +2981,6 @@ dependencies = [
  "builder_client",
  "bytes",
  "eth2",
- "eth2_network_config",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethers-core",
@@ -4761,7 +4761,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -4883,8 +4883,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-gossipsub"
-version = "0.48.1"
-source = "git+https://github.com/sigp/rust-libp2p.git?branch=sigp-gossipsub#3e24b1bbec5fae182595aee0958f823be87afaad"
+version = "0.49.0"
+source = "git+https://github.com/sigp/rust-libp2p.git?rev=7a36e4c#7a36e4cde83041f1bd5f2078c4d3934ccb16777e"
 dependencies = [
  "async-channel 2.3.1",
  "asynchronous-codec",
@@ -5309,6 +5309,7 @@ dependencies = [
  "dirs",
  "discv5",
  "either",
+ "eth2",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "fnv",
@@ -9486,7 +9487,6 @@ name = "validator_test_rig"
 version = "0.1.0"
 dependencies = [
  "eth2",
- "logging",
  "mockito",
  "regex",
  "sensitive_url",
@@ -9583,7 +9583,6 @@ dependencies = [
  "bytes",
  "eth2",
  "headers",
- "metrics",
  "safe_arith",
  "serde",
  "serde_array_query",

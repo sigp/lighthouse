@@ -1,7 +1,7 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
-use eth2::lighthouse::StandardAttestationRewards;
-use eth2::types::ValidatorId;
+use eth2::types::{
+    IdealAttestationRewards, StandardAttestationRewards, TotalAttestationRewards, ValidatorId,
+};
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use state_processing::common::base::{self, SqrtTotalActiveBalance};

@@ -9,9 +9,7 @@ use beacon_chain::{
     types::{Epoch, EthSpec, Keypair, MinimalEthSpec},
     BlockError, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
-use eth2::lighthouse::attestation_rewards::TotalAttestationRewards;
-use eth2::lighthouse::StandardAttestationRewards;
-use eth2::types::ValidatorId;
+use eth2::types::{StandardAttestationRewards, TotalAttestationRewards, ValidatorId};
 use state_processing::{BlockReplayError, BlockReplayer};
 use std::array::IntoIter;
 use std::collections::HashMap;
