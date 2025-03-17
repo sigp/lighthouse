@@ -239,13 +239,30 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
                 .insert(request_id, request.clone());
         }
 
+        self.send_response_inner(
+            peer_id,
+            request.r#type.protocol(),
+            request.connection_id,
+            request.substream_id,
+            event,
+        );
+    }
+
+    fn send_response_inner(
+        &mut self,
+        peer_id: PeerId,
+        protocol: Protocol,
+        connection_id: ConnectionId,
+        substream_id: SubstreamId,
+        response: RpcResponse<E>,
+    ) {
         if let Some(response_limiter) = self.response_limiter.as_mut() {
             if !response_limiter.allows(
                 peer_id,
-                request.r#type.protocol(),
-                request.connection_id,
-                request.substream_id,
-                event.clone(),
+                protocol,
+                connection_id,
+                substream_id,
+                response.clone(),
             ) {
                 // Response is logged and queued internally in the response limiter.
                 return;
@@ -254,8 +271,8 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
-            handler: NotifyHandler::One(request.connection_id),
-            event: RPCSend::Response(request.substream_id, event),
+            handler: NotifyHandler::One(connection_id),
+            event: RPCSend::Response(substream_id, response),
         });
     }
 
@@ -488,18 +505,15 @@ where
                     .count()
                     >= MAX_CONCURRENT_REQUESTS;
 
-                // We need to insert the request regardless of whether it is allowed by the limiter,
-                // since we send an error response (RateLimited) if it is not allowed.
-                self.active_inbound_requests.insert(id, request.clone());
-
                 // Restricts more than MAX_CONCURRENT_REQUESTS inbound requests from running simultaneously on the same protocol per peer.
                 if is_concurrent_request_limit_exceeded {
                     // There is already an active request with the same protocol. Send an error code to the peer.
-                    debug!(request = %request.r#type, protocol = %request.r#type.versioned_protocol().protocol(), %peer_id, "There is an active request with the same protocol");
-                    self.send_response(
+                    debug!(request = %request.r#type, protocol = %request.r#type.protocol(), %peer_id, "There is an active request with the same protocol");
+                    self.send_response_inner(
                         peer_id,
-                        (conn_id, substream_id),
-                        id,
+                        request.r#type.protocol(),
+                        connection_id,
+                        substream_id,
                         RpcResponse::Error(
                             RpcErrorResponse::RateLimited,
                             format!("Rate limited. There are already {MAX_CONCURRENT_REQUESTS} active requests with the same protocol")
@@ -508,6 +522,9 @@ where
                     );
                     return;
                 }
+
+                // Requests that are below the limit on the number of simultaneous requests are added to the active inbound requests.
+                self.active_inbound_requests.insert(id, request.clone());
 
                 // If we received a Ping, we queue a Pong response.
                 if let RequestType::Ping(_) = request.r#type {
