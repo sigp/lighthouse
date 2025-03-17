@@ -800,6 +800,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: Some(PeerAction::LowToleranceError),
                 })
             }
+            // Penalise peers for sending us banned blocks.
+            BlockError::KnownInvalidExecutionPayload(block_root) => {
+                warn!(
+                    self.log,
+                    "Received block known to be invalid";
+                    "block_root" => ?block_root,
+                );
+                Err(ChainSegmentFailed {
+                    message: format!("Banned block: {block_root:?}"),
+                    peer_action: Some(PeerAction::Fatal),
+                })
+            }
             other => {
                 debug!(
                     self.log, "Invalid block received";

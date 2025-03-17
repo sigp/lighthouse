@@ -1621,5 +1621,13 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .display_order(0)
         )
+        .arg(
+            Arg::new("invalid-block-roots")
+                .long("invalid-block-roots")
+                .value_name("FILE")
+                .help("Path to a comma separated file containing block roots that should be treated as invalid during block verification.")
+                .action(ArgAction::Set)
+                .hide(true)
+        )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))
 }
