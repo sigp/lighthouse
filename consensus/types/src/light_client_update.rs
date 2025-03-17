@@ -213,12 +213,16 @@ impl<E: EthSpec> LightClientUpdate<E> {
             .map_err(|_| Error::InconsistentFork)?
         {
             ForkName::Base => return Err(Error::AltairForkNotActive),
-            ForkName::Altair | ForkName::Bellatrix => {
+            fork_name @ ForkName::Altair | fork_name @ ForkName::Bellatrix => {
                 let attested_header =
                     LightClientHeaderAltair::block_to_light_client_header(attested_block)?;
 
                 let finalized_header = if let Some(finalized_block) = finalized_block {
-                    LightClientHeaderAltair::block_to_light_client_header(finalized_block)?
+                    if finalized_block.fork_name_unchecked() == fork_name {
+                        LightClientHeaderAltair::block_to_light_client_header(finalized_block)?
+                    } else {
+                        LightClientHeaderAltair::default()
+                    }
                 } else {
                     LightClientHeaderAltair::default()
                 };
@@ -233,12 +237,16 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block_slot,
                 })
             }
-            ForkName::Capella => {
+            fork_name @ ForkName::Capella => {
                 let attested_header =
                     LightClientHeaderCapella::block_to_light_client_header(attested_block)?;
 
                 let finalized_header = if let Some(finalized_block) = finalized_block {
-                    LightClientHeaderCapella::block_to_light_client_header(finalized_block)?
+                    if finalized_block.fork_name_unchecked() == fork_name {
+                        LightClientHeaderCapella::block_to_light_client_header(finalized_block)?
+                    } else {
+                        LightClientHeaderCapella::default()
+                    }
                 } else {
                     LightClientHeaderCapella::default()
                 };
@@ -253,12 +261,16 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block_slot,
                 })
             }
-            ForkName::Deneb => {
+            fork_name @ ForkName::Deneb => {
                 let attested_header =
                     LightClientHeaderDeneb::block_to_light_client_header(attested_block)?;
 
                 let finalized_header = if let Some(finalized_block) = finalized_block {
-                    LightClientHeaderDeneb::block_to_light_client_header(finalized_block)?
+                    if finalized_block.fork_name_unchecked() == fork_name {
+                        LightClientHeaderDeneb::block_to_light_client_header(finalized_block)?
+                    } else {
+                        LightClientHeaderDeneb::default()
+                    }
                 } else {
                     LightClientHeaderDeneb::default()
                 };
@@ -273,12 +285,16 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block_slot,
                 })
             }
-            ForkName::Electra => {
+            fork_name @ ForkName::Electra => {
                 let attested_header =
                     LightClientHeaderElectra::block_to_light_client_header(attested_block)?;
 
                 let finalized_header = if let Some(finalized_block) = finalized_block {
-                    LightClientHeaderElectra::block_to_light_client_header(finalized_block)?
+                    if finalized_block.fork_name_unchecked() == fork_name {
+                        LightClientHeaderElectra::block_to_light_client_header(finalized_block)?
+                    } else {
+                        LightClientHeaderElectra::default()
+                    }
                 } else {
                     LightClientHeaderElectra::default()
                 };
@@ -293,12 +309,16 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block_slot,
                 })
             }
-            ForkName::Fulu => {
+            fork_name @ ForkName::Fulu => {
                 let attested_header =
                     LightClientHeaderFulu::block_to_light_client_header(attested_block)?;
 
                 let finalized_header = if let Some(finalized_block) = finalized_block {
-                    LightClientHeaderFulu::block_to_light_client_header(finalized_block)?
+                    if finalized_block.fork_name_unchecked() == fork_name {
+                        LightClientHeaderFulu::block_to_light_client_header(finalized_block)?
+                    } else {
+                        LightClientHeaderFulu::default()
+                    }
                 } else {
                     LightClientHeaderFulu::default()
                 };
