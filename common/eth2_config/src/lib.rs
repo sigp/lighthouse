@@ -37,8 +37,9 @@ const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url
 
 const HOODI_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
     urls: &[
-        // FIXME(hoodi): Replace by a better URL.
-        "https://sproul.xyz/eth2/hoodi/",
+        // This is an AWS S3 bucket hosted by Sigma Prime. See Paul Hauner for
+        // more details.
+        "https://sigp-public-genesis-states.s3.ap-southeast-2.amazonaws.com/hoodi/",
     ],
     checksum: "0x7f42257ef69e055496c964a753bb07e54001ccd57ab467ef72d67af086bcfce7",
     genesis_validators_root: "0x212f13fc4df078b6cb7db228f1c8307566dcecf900867401a92023d7ba99cb5f",
