@@ -578,7 +578,7 @@ pub enum RpcSuccessResponse<E: EthSpec> {
     Pong(Ping),
 
     /// A response to a META_DATA request.
-    MetaData(MetaData<E>),
+    MetaData(Arc<MetaData<E>>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -862,21 +862,5 @@ impl std::fmt::Display for DataColumnsByRootRequest {
             "Request: DataColumnsByRoot: Number of Requested Data Column Ids: {}",
             self.data_column_ids.len()
         )
-    }
-}
-
-impl slog::KV for StatusMessage {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        use slog::Value;
-        serializer.emit_arguments("fork_digest", &format_args!("{:?}", self.fork_digest))?;
-        Value::serialize(&self.finalized_epoch, record, "finalized_epoch", serializer)?;
-        serializer.emit_arguments("finalized_root", &format_args!("{}", self.finalized_root))?;
-        Value::serialize(&self.head_slot, record, "head_slot", serializer)?;
-        serializer.emit_arguments("head_root", &format_args!("{}", self.head_root))?;
-        slog::Result::Ok(())
     }
 }

@@ -767,7 +767,7 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
             && head_state
                 .validators()
                 .get(validator_index as usize)
-                .map_or(true, |validator| !prune_if(validator_index, validator))
+                .is_none_or(|validator| !prune_if(validator_index, validator))
     });
 }
 

@@ -58,10 +58,6 @@ sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 slasher = { workspace = true }
-slog = { workspace = true }
-slog-async = { workspace = true }
-slog-term = { workspace = true }
-sloggers = { workspace = true }
 slot_clock = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true }
@@ -73,6 +69,7 @@ task_executor = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
+tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 types = { workspace = true }

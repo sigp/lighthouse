@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 bls = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]

@@ -11,6 +11,7 @@ use tree_hash_derive::TreeHash;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     ArithError(ArithError),
 }
 
@@ -68,7 +69,7 @@ impl<E: EthSpec> SyncAggregate<E> {
                     sync_aggregate
                         .sync_committee_bits
                         .set(participant_index, true)
-                        .map_err(Error::SszTypesError)?;
+                        .map_err(Error::BitfieldError)?;
                 }
             }
             sync_aggregate
