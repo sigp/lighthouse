@@ -462,27 +462,24 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             None
         };
 
-        let data_column_requests =
-            if let Some(columns_by_range_peers_to_request) = columns_by_range_peers_to_request {
-                Some(
-                    columns_by_range_peers_to_request
-                        .into_iter()
-                        .map(|(peer_id, columns)| {
-                            self.send_data_columns_by_range_request(
-                                peer_id,
-                                DataColumnsByRangeRequest {
-                                    start_slot: *request.start_slot(),
-                                    count: *request.count(),
-                                    columns,
-                                },
-                                id,
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                )
-            } else {
-                None
-            };
+        let data_column_requests = columns_by_range_peers_to_request
+            .map(|columns_by_range_peers_to_request| {
+                columns_by_range_peers_to_request
+                    .into_iter()
+                    .map(|(peer_id, columns)| {
+                        self.send_data_columns_by_range_request(
+                            peer_id,
+                            DataColumnsByRangeRequest {
+                                start_slot: *request.start_slot(),
+                                count: *request.count(),
+                                columns,
+                            },
+                            id,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
 
         let expected_blobs = blobs_req_id.is_some();
         let info = RangeBlockComponentsRequest::new(
