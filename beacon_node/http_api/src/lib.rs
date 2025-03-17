@@ -1139,11 +1139,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     ));
                                 };
 
-                                Ok((
-                                    deposits.iter().cloned().collect::<Vec<_>>(),
-                                    execution_optimistic,
-                                    finalized,
-                                ))
+                                Ok((deposits.clone(), execution_optimistic, finalized))
                             },
                         )?;
 
@@ -1176,11 +1172,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     ));
                                 };
 
-                                Ok((
-                                    withdrawals.iter().cloned().collect::<Vec<_>>(),
-                                    execution_optimistic,
-                                    finalized,
-                                ))
+                                Ok((withdrawals.clone(), execution_optimistic, finalized))
                             },
                         )?;
 
