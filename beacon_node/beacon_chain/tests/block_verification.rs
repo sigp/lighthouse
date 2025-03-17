@@ -1004,17 +1004,9 @@ async fn block_gossip_verification() {
         .iter()
         .zip(chain_segment_blobs.into_iter())
     {
-        let cgc_blobs_opt = if let Some(data_sidecars) = blobs_opt.as_ref() {
-            match data_sidecars {
-                DataSidecars::Blobs(b) => b.len(),
-                DataSidecars::DataColumns(d) => d.len(),
-            }
-        } else {
-            0
-        };
         let gossip_verified = harness
             .chain
-            .verify_block_for_gossip(snapshot.beacon_block.clone(), cgc_blobs_opt)
+            .verify_block_for_gossip(snapshot.beacon_block.clone(), get_cgc(&blobs_opt))
             .await
             .expect("should obtain gossip verified block");
 
@@ -1329,10 +1321,15 @@ async fn verify_block_for_gossip_slashing_detection() {
     let state = harness.get_current_state();
     let ((block1, blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
     let ((block2, _blobs2), _) = harness.make_block(state, Slot::new(1)).await;
+    let cgc = if block1.fork_name_unchecked().fulu_enabled() {
+        harness.get_sampling_column_count()
+    } else {
+        0
+    };
 
     let verified_block = harness
         .chain
-        .verify_block_for_gossip(block1, 0)
+        .verify_block_for_gossip(block1, cgc)
         .await
         .unwrap();
 
@@ -1830,5 +1827,16 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
         ExecutedBlock::AvailabilityPending(_) => {
             Err("AvailabilityPending not expected in this test. Block not imported.".to_string())
         }
+    }
+}
+
+fn get_cgc<E: EthSpec>(blobs_opt: &Option<DataSidecars<E>>) -> usize {
+    if let Some(data_sidecars) = blobs_opt.as_ref() {
+        match data_sidecars {
+            DataSidecars::Blobs(b) => b.len(),
+            DataSidecars::DataColumns(d) => d.len(),
+        }
+    } else {
+        0
     }
 }
