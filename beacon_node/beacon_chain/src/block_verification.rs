@@ -1087,6 +1087,9 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             .fork_name(&chain.spec)
             .map_err(BlockError::InconsistentFork)?;
 
+        // Check whether the block is a banned block prior to loading the parent.
+        chain.check_invalid_block_roots(block_root)?;
+
         let (mut parent, block) = load_parent(block, chain)?;
 
         let state = cheap_state_advance_to_obtain_committees::<_, BlockError>(

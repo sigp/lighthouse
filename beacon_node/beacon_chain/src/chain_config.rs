@@ -109,8 +109,8 @@ pub struct ChainConfig {
     pub sync_tolerance_epochs: u64,
     /// Block roots of "banned" blocks which Lighthouse will refuse to import.
     ///
-    /// On Holesky there is also another banned block which is hardcoded and cannot be unbanned
-    /// without editing the source.
+    /// On Holesky there is a block which is added to this set by default but which can be removed
+    /// by using `--invalid-block-roots ""`.
     pub invalid_block_roots: HashSet<Hash256>,
 }
 
