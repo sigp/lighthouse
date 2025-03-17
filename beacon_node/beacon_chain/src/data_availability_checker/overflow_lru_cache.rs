@@ -183,14 +183,14 @@ impl<E: EthSpec> PendingComponents<E> {
         let blob_data = if num_expected_blobs == 0 {
             Some(AvailableBlockData::NoData)
         } else if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            match self
-                .verified_data_columns
-                .len()
-                .cmp(&block.custody_columns_count())
-            {
+            let num_received_columns = self.verified_data_columns.len();
+            let num_expected_columns = block.custody_columns_count();
+            match num_received_columns.cmp(&num_expected_columns) {
                 Ordering::Greater => {
                     // Should never happen
-                    return Err(AvailabilityCheckError::Unexpected("too many columns"));
+                    return Err(AvailabilityCheckError::Unexpected(format!(
+                        "too many columns got {num_received_columns} expected {num_expected_columns}"
+                    )));
                 }
                 Ordering::Equal => {
                     // Block is post-peerdas, and we got enough columns
@@ -217,7 +217,9 @@ impl<E: EthSpec> PendingComponents<E> {
             match num_received_blobs.cmp(&num_expected_blobs) {
                 Ordering::Greater => {
                     // Should never happen
-                    return Err(AvailabilityCheckError::Unexpected("too many blobs"));
+                    return Err(AvailabilityCheckError::Unexpected(format!(
+                        "too many blobs got {num_received_blobs} expected {num_expected_blobs}"
+                    )));
                 }
                 Ordering::Equal => {
                     let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
@@ -227,8 +229,12 @@ impl<E: EthSpec> PendingComponents<E> {
                         .flatten()
                         .map(|blob| blob.clone().to_blob())
                         .collect::<Vec<_>>();
-                    let blobs = RuntimeVariableList::new(blobs_vec, max_blobs)
-                        .map_err(|_| AvailabilityCheckError::Unexpected("over max_blobs"))?;
+                    let blobs_len = blobs_vec.len();
+                    let blobs = RuntimeVariableList::new(blobs_vec, max_blobs).map_err(|_| {
+                        AvailabilityCheckError::Unexpected(format!(
+                            "over max_blobs len {blobs_len} max {max_blobs}"
+                        ))
+                    })?;
                     Some(AvailableBlockData::Blobs(blobs))
                 }
                 Ordering::Less => {
@@ -456,7 +462,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .map(|verified_blob| verified_blob.as_blob().epoch())
         else {
             // Verified blobs list should be non-empty.
-            return Err(AvailabilityCheckError::Unexpected("empty blobs"));
+            return Err(AvailabilityCheckError::Unexpected("empty blobs".to_owned()));
         };
 
         let mut fixed_blobs =
@@ -516,7 +522,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .map(|verified_blob| verified_blob.as_data_column().epoch())
         else {
             // Verified data_columns list should be non-empty.
-            return Err(AvailabilityCheckError::Unexpected("empty columns"));
+            return Err(AvailabilityCheckError::Unexpected(
+                "empty columns".to_owned(),
+            ));
         };
 
         let mut write_lock = self.critical.write();
