@@ -17,8 +17,8 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v6.0.1-",
-    fallback = "Lighthouse/v6.0.1"
+    prefix = "Lighthouse/v7.0.0-beta.0-",
+    fallback = "Lighthouse/v7.0.0-beta.0"
 );
 
 /// Returns the first eight characters of the latest commit hash for this build.
@@ -54,7 +54,7 @@ pub fn version_with_platform() -> String {
 ///
 /// `1.5.1`
 pub fn version() -> &'static str {
-    "6.0.1"
+    "7.0.0-beta.0"
 }
 
 /// Returns the name of the current client running.
@@ -71,9 +71,10 @@ mod test {
 
     #[test]
     fn version_formatting() {
-        let re =
-            Regex::new(r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-rc.[0-9])?(-[[:xdigit:]]{7})?\+?$")
-                .unwrap();
+        let re = Regex::new(
+            r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta).[0-9])?(-[[:xdigit:]]{7})?\+?$",
+        )
+        .unwrap();
         assert!(
             re.is_match(VERSION),
             "version doesn't match regex: {}",

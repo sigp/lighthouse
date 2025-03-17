@@ -43,7 +43,6 @@ use crate::{
 use bls::verify_signature_sets;
 use itertools::Itertools;
 use proto_array::Block as ProtoBlock;
-use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
     common::{
@@ -58,11 +57,12 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use strum::AsRefStr;
+use tracing::debug;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationRef, BeaconCommittee, BeaconStateError::NoCommitteeFound, ChainSpec,
-    CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, SelectionProof,
-    SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
+    Attestation, AttestationData, AttestationRef, BeaconCommittee,
+    BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
+    IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -115,6 +115,17 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     AggregatorNotInCommittee { aggregator_index: u64 },
+    /// The `attester_index` for a `SingleAttestation` is not a member of the committee defined
+    /// by its `beacon_block_root`, `committee_index` and `slot`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has sent an invalid message.
+    AttesterNotInCommittee {
+        attester_index: u64,
+        committee_index: u64,
+        slot: Slot,
+    },
     /// The aggregator index refers to a validator index that we have not seen.
     ///
     /// ## Peer scoring
@@ -419,10 +430,9 @@ fn process_slash_info<T: BeaconChainTypes>(
                     Ok((indexed, _)) => (indexed, true, err),
                     Err(e) => {
                         debug!(
-                            chain.log,
-                            "Unable to obtain indexed form of attestation for slasher";
-                            "attestation_root" => format!("{:?}", attestation.tree_hash_root()),
-                            "error" => format!("{:?}", e)
+                            attestation_root = ?attestation.tree_hash_root(),
+                            error =  ?e,
+                            "Unable to obtain indexed form of attestation for slasher"
                         );
                         return err;
                     }
@@ -436,9 +446,8 @@ fn process_slash_info<T: BeaconChainTypes>(
         if check_signature {
             if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
                 debug!(
-                    chain.log,
-                    "Signature verification for slasher failed";
-                    "error" => format!("{:?}", e),
+                    error = ?e,
+                    "Signature verification for slasher failed"
                 );
                 return err;
             }
@@ -485,7 +494,11 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
+        verify_propagation_slot_range::<_, T::EthSpec>(
+            &chain.slot_clock,
+            attestation.data(),
+            &chain.spec,
+        )?;
 
         // Check the attestation's epoch matches its target.
         if attestation.data().slot.epoch(T::EthSpec::slots_per_epoch())
@@ -817,7 +830,11 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
+        verify_propagation_slot_range::<_, T::EthSpec>(
+            &chain.slot_clock,
+            attestation.data(),
+            &chain.spec,
+        )?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
@@ -1133,10 +1150,10 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
 pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     slot_clock: &S,
-    attestation: AttestationRef<E>,
+    attestation: &AttestationData,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let attestation_slot = attestation.data().slot;
+    let attestation_slot = attestation.slot;
     let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;
@@ -1431,19 +1448,17 @@ where
         return Err(Error::UnknownTargetRoot(target.root));
     }
 
-    chain
-        .with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
-            let committees_per_slot = committee_cache.committees_per_slot();
+    chain.with_committee_cache(target.root, attestation_epoch, |committee_cache, _| {
+        let committees_per_slot = committee_cache.committees_per_slot();
 
-            Ok(committee_cache
-                .get_beacon_committees_at_slot(attestation.data().slot)
-                .map(|committees| map_fn((committees, committees_per_slot)))
-                .unwrap_or_else(|_| {
-                    Err(Error::NoCommitteeForSlotAndIndex {
-                        slot: attestation.data().slot,
-                        index: attestation.committee_index().unwrap_or(0),
-                    })
-                }))
-        })
-        .map_err(BeaconChainError::from)?
+        Ok(committee_cache
+            .get_beacon_committees_at_slot(attestation.data().slot)
+            .map(|committees| map_fn((committees, committees_per_slot)))
+            .unwrap_or_else(|_| {
+                Err(Error::NoCommitteeForSlotAndIndex {
+                    slot: attestation.data().slot,
+                    index: attestation.committee_index().unwrap_or(0),
+                })
+            }))
+    })?
 }

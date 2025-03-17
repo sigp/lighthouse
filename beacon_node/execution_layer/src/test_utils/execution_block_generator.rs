@@ -84,14 +84,14 @@ impl<E: EthSpec> Block<E> {
                 block_hash: block.block_hash,
                 block_number: block.block_number,
                 parent_hash: block.parent_hash,
-                total_difficulty: block.total_difficulty,
+                total_difficulty: Some(block.total_difficulty),
                 timestamp: block.timestamp,
             },
             Block::PoS(payload) => ExecutionBlock {
                 block_hash: payload.block_hash(),
                 block_number: payload.block_number(),
                 parent_hash: payload.parent_hash(),
-                total_difficulty,
+                total_difficulty: Some(total_difficulty),
                 timestamp: payload.timestamp(),
             },
         }
@@ -448,7 +448,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             if self
                 .head_block
                 .as_ref()
-                .map_or(true, |head| head.block_hash() == last_block_hash)
+                .is_none_or(|head| head.block_hash() == last_block_hash)
             {
                 self.head_block = Some(block.clone());
             }

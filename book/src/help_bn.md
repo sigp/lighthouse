@@ -28,6 +28,8 @@ Options:
           network. Multiaddr is also supported.
       --builder <builder>
           The URL of a service compatible with the MEV-boost API.
+      --builder-disable-ssz
+          Disables sending requests using SSZ over the builder API.
       --builder-fallback-epochs-since-finalization <builder-fallback-epochs-since-finalization>
           If this node is proposing a block and the chain has not finalized
           within this number of epochs, it will NOT query any connected
@@ -230,7 +232,7 @@ Options:
           peer without an ENR.
       --listen-address [<ADDRESS>...]
           The address lighthouse will listen for UDP and TCP connections. To
-          listen over IpV4 and IpV6 set this flag twice with the different
+          listen over IPv4 and IPv6 set this flag twice with the different
           values.
           Examples:
           - --listen-address '0.0.0.0' will listen over IPv4.
@@ -238,19 +240,16 @@ Options:
           - --listen-address '0.0.0.0' --listen-address '::' will listen over
           both IPv4 and IPv6. The order of the given addresses is not relevant.
           However, multiple IPv4, or multiple IPv6 addresses will not be
-          accepted. [default: 0.0.0.0]
+          accepted. If omitted, Lighthouse will listen on all interfaces, for
+          both IPv4 and IPv6.
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
-      --logfile <FILE>
-          File path where the log file will be stored. Once it grows to the
-          value specified in `--logfile-max-size` a new log file is generated
-          where future logs are stored. Once the number of log files exceeds the
-          value specified in `--logfile-max-number` the oldest log file will be
-          overwritten.
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
           debug] [possible values: info, debug, trace, warn, error, crit]
+      --logfile-dir <DIR>
+          Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
           [possible values: DEFAULT, JSON]
@@ -458,6 +457,8 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
+      --disable-light-client-server
+          Disables light client support on the p2p network
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
@@ -511,10 +512,14 @@ Flags:
           already-subscribed subnets, use with --subscribe-all-subnets to ensure
           all attestations are received for import.
       --light-client-server
-          Act as a full node supporting light clients on the p2p network
-          [experimental]
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+          DEPRECATED
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
+      --log-extra-info
+          If present, show module,file,line in logs
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.

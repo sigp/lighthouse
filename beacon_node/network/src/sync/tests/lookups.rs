@@ -19,14 +19,15 @@ use beacon_chain::{
     block_verification_types::{AsBlock, BlockImportData},
     data_availability_checker::Availability,
     test_utils::{
-        build_log, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
-        BeaconChainHarness, EphemeralHarnessType, LoggerType, NumBlobs,
+        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
+        BeaconChainHarness, EphemeralHarnessType, NumBlobs,
     },
     validator_monitor::timestamp_now,
     AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
     PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
+use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
     rpc::{RPCError, RequestType, RpcErrorResponse},
     service::api_types::{
@@ -36,42 +37,30 @@ use lighthouse_network::{
     types::SyncState,
     NetworkConfig, NetworkGlobals, PeerId,
 };
-use slog::info;
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
-use types::ForkContext;
+use tracing::info;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkName, Hash256,
-    MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, ForkName,
+    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
 const PARENT_FAIL_TOLERANCE: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
 const SAMPLING_REQUIRED_SUCCESSES: usize = 2;
-
 type DCByRootIds = Vec<DCByRootId>;
 type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
 impl TestRig {
     pub fn test_setup() -> Self {
-        let logger_type = if cfg!(feature = "test_logger") {
-            LoggerType::Test
-        } else if cfg!(feature = "ci_logger") {
-            LoggerType::CI
-        } else {
-            LoggerType::Null
-        };
-        let log = build_log(slog::Level::Trace, logger_type);
-
         // Use `fork_from_env` logic to set correct fork epochs
         let spec = test_spec::<E>();
 
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(Arc::new(spec))
-            .logger(log.clone())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .mock_execution_layer()
@@ -96,7 +85,6 @@ impl TestRig {
         let network_config = Arc::new(NetworkConfig::default());
         let globals = Arc::new(NetworkGlobals::new_test_globals(
             Vec::new(),
-            &log,
             network_config,
             chain.spec.clone(),
         ));
@@ -105,7 +93,6 @@ impl TestRig {
             sync_tx,
             chain.clone(),
             harness.runtime.task_executor.clone(),
-            log.clone(),
         );
 
         let fork_name = chain.spec.fork_name_at_slot::<E>(chain.slot().unwrap());
@@ -117,7 +104,9 @@ impl TestRig {
 
         let spec = chain.spec.clone();
 
-        let rng = XorShiftRng::from_seed([42; 16]);
+        // deterministic seed
+        let rng = ChaCha20Rng::from_seed([0u8; 32]);
+
         TestRig {
             beacon_processor_rx,
             beacon_processor_rx_queue: vec![],
@@ -136,11 +125,9 @@ impl TestRig {
                     required_successes: vec![SAMPLING_REQUIRED_SUCCESSES],
                 },
                 fork_context,
-                log.clone(),
             ),
             harness,
             fork_name,
-            log,
             spec,
         }
     }
@@ -154,7 +141,7 @@ impl TestRig {
         }
     }
 
-    fn test_setup_after_fulu() -> Option<Self> {
+    pub fn test_setup_after_fulu() -> Option<Self> {
         let r = Self::test_setup();
         if r.fork_name.fulu_enabled() {
             Some(r)
@@ -164,7 +151,7 @@ impl TestRig {
     }
 
     pub fn log(&self, msg: &str) {
-        info!(self.log, "TEST_RIG"; "msg" => msg);
+        info!(msg, "TEST_RIG");
     }
 
     pub fn after_deneb(&self) -> bool {
@@ -369,20 +356,26 @@ impl TestRig {
     }
 
     pub fn new_connected_peer(&mut self) -> PeerId {
+        let key = self.determinstic_key();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec)
+            .__add_connected_peer_testing_only(false, &self.harness.spec, key)
     }
 
     pub fn new_connected_supernode_peer(&mut self) -> PeerId {
+        let key = self.determinstic_key();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(true, &self.harness.spec)
+            .__add_connected_peer_testing_only(true, &self.harness.spec, key)
     }
 
-    fn new_connected_peers_for_peerdas(&mut self) {
+    fn determinstic_key(&mut self) -> CombinedKey {
+        k256::ecdsa::SigningKey::random(&mut self.rng).into()
+    }
+
+    pub fn new_connected_peers_for_peerdas(&mut self) {
         // Enough sampling peers with few columns
         for _ in 0..100 {
             self.new_connected_peer();
@@ -706,7 +699,6 @@ impl TestRig {
         self.complete_data_columns_by_root_request(id, data_columns);
 
         // Expect work event
-        // TODO(das): worth it to append sender id to the work event for stricter assertion?
         self.expect_rpc_sample_verify_work_event();
 
         // Respond with valid result
@@ -748,7 +740,6 @@ impl TestRig {
         }
 
         // Expect work event
-        // TODO(das): worth it to append sender id to the work event for stricter assertion?
         self.expect_rpc_custody_column_work_event();
 
         // Respond with valid result
@@ -1113,7 +1104,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_empty_network(&mut self) {
+    pub fn expect_empty_network(&mut self) {
         self.drain_network_rx();
         if !self.network_rx_queue.is_empty() {
             let n = self.network_rx_queue.len();
@@ -2313,11 +2304,6 @@ mod deneb_only {
             })
         }
 
-        fn log(self, msg: &str) -> Self {
-            self.rig.log(msg);
-            self
-        }
-
         fn trigger_unknown_block_from_attestation(mut self) -> Self {
             let block_root = self.block.canonical_root();
             self.rig
@@ -2619,6 +2605,11 @@ mod deneb_only {
                 // TODO: Should send blobs for processing
                 .expect_block_process()
                 .block_imported()
+        }
+
+        fn log(self, msg: &str) -> Self {
+            self.rig.log(msg);
+            self
         }
 
         fn parent_block_then_empty_parent_blobs(self) -> Self {

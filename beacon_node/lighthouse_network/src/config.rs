@@ -6,6 +6,7 @@ use directory::{
     DEFAULT_BEACON_NODE_DIR, DEFAULT_HARDCODED_NETWORK, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR,
 };
 use libp2p::Multiaddr;
+use local_ip_address::local_ipv6;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -266,6 +267,18 @@ impl Config {
         }
     }
 
+    /// A helper function to check if the local host has a globally routeable IPv6 address. If so,
+    /// returns true.
+    pub fn is_ipv6_supported() -> bool {
+        // If IPv6 is supported
+        let Ok(std::net::IpAddr::V6(local_ip)) = local_ipv6() else {
+            return false;
+        };
+
+        // If its globally routable, return true
+        is_global_ipv6(&local_ip)
+    }
+
     pub fn listen_addrs(&self) -> &ListenAddress {
         &self.listen_addresses
     }
@@ -354,7 +367,7 @@ impl Default for Config {
             topics: Vec::new(),
             proposer_only: false,
             metrics_enabled: false,
-            enable_light_client_server: false,
+            enable_light_client_server: true,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,

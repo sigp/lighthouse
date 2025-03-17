@@ -3,6 +3,7 @@ use environment::{Environment, EnvironmentBuilder};
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{AnvilEth1Instance, DelayThenDeposit, Middleware};
 use genesis::{Eth1Config, Eth1GenesisService};
+use logging::create_test_tracing_subscriber;
 use sensitive_url::SensitiveUrl;
 use state_processing::is_valid_genesis_state;
 use std::sync::Arc;
@@ -12,11 +13,10 @@ use types::{
 };
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
+    create_test_tracing_subscriber();
     EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .test_logger()
-        .expect("should start null logger")
         .build()
         .expect("should build env")
 }
@@ -24,7 +24,6 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
 #[test]
 fn basic() {
     let env = new_env();
-    let log = env.core_context().log().clone();
     let mut spec = (*env.eth2_config().spec).clone();
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = 8;
@@ -55,7 +54,6 @@ fn basic() {
                 block_cache_truncation: None,
                 ..Eth1Config::default()
             },
-            log,
             spec.clone(),
         )
         .unwrap();
