@@ -1,6 +1,7 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, time::Duration};
+use std::str::FromStr;
+use std::{collections::HashSet, sync::LazyLock, time::Duration};
 use types::{Checkpoint, Epoch, Hash256};
 
 pub const DEFAULT_RE_ORG_HEAD_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
@@ -18,6 +19,12 @@ pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
 /// Default sync tolerance epochs.
 pub const DEFAULT_SYNC_TOLERANCE_EPOCHS: u64 = 2;
+
+/// Invalid block root to be banned from processing and importing on Holesky network by default.
+pub static INVALID_HOLESKY_BLOCK_ROOT: LazyLock<Hash256> = LazyLock::new(|| {
+    Hash256::from_str("2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359")
+        .expect("valid block root")
+});
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {

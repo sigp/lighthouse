@@ -114,8 +114,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
 use std::marker::PhantomData;
-use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
@@ -154,12 +153,6 @@ const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 /// 20 slots/second. Having a single fork-choice run interrupt syncing would have very little
 /// impact whilst having 8 epochs without a block is a comfortable grace period.
 const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 256;
-
-/// Invalid block root to be banned from processing and importing on Holesky network.
-static INVALID_HOLESKY_BLOCK_ROOT: LazyLock<Hash256> = LazyLock::new(|| {
-    Hash256::from_str("2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359")
-        .expect("valid block root")
-});
 
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
@@ -3358,9 +3351,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Check for known and configured invalid block roots before processing.
     pub fn check_invalid_block_roots(&self, block_root: Hash256) -> Result<(), BlockError> {
-        let is_invalid_holesky_block =
-            block_root == *INVALID_HOLESKY_BLOCK_ROOT && self.spec.deposit_chain_id == 17000;
-        if self.config.invalid_block_roots.contains(&block_root) || is_invalid_holesky_block {
+        if self.config.invalid_block_roots.contains(&block_root) {
             Err(BlockError::KnownInvalidExecutionPayload(block_root))
         } else {
             Ok(())

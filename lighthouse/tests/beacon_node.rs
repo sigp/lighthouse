@@ -2775,7 +2775,7 @@ fn beacon_node_backend_override() {
 }
 
 #[test]
-fn invalid_block_root_flag() {
+fn invalid_block_roots_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file =
         File::create(dir.path().join("invalid-block-roots")).expect("Unable to create file");
@@ -2788,4 +2788,28 @@ fn invalid_block_root_flag() {
         )
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.invalid_block_roots.len(), 3))
+}
+
+#[test]
+fn invalid_block_roots_default_holesky() {
+    use beacon_node::beacon_chain::chain_config::INVALID_HOLESKY_BLOCK_ROOT;
+    CommandLineTest::new()
+        .flag("network", Some("holesky"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.invalid_block_roots.len(), 1);
+            assert!(config
+                .chain
+                .invalid_block_roots
+                .contains(&*INVALID_HOLESKY_BLOCK_ROOT));
+        })
+}
+
+#[test]
+fn invalid_block_roots_default_mainnet() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.invalid_block_roots.is_empty());
+        })
 }
