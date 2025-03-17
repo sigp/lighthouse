@@ -404,6 +404,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
         let active_request_count_by_peer = self.active_request_count_by_peer();
+
         let Some(block_peer) = peers
             .iter()
             .map(|peer| {
@@ -430,7 +431,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let columns_by_range_peers_to_request =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
                 let column_indexes = self.network_globals().sampling_columns.clone();
-                Some(self.select_columns_by_range_peers_to_request(&column_indexes, peers)?)
+                Some(self.select_columns_by_range_peers_to_request(
+                    &column_indexes,
+                    peers,
+                    active_request_count_by_peer,
+                    peers_to_deprioritize,
+                )?)
             } else {
                 None
             };
@@ -499,11 +505,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         custody_indexes: &HashSet<ColumnIndex>,
         peers: &HashSet<PeerId>,
+        active_request_count_by_peer: HashMap<PeerId, usize>,
+        peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<HashMap<PeerId, Vec<ColumnIndex>>, RpcRequestSendError> {
         let mut peer_id_to_request_map = HashMap::<PeerId, Vec<ColumnIndex>>::new();
-
-        // Re-compute here to account for the block peer
-        let active_request_count_by_peer = self.active_request_count_by_peer();
 
         for column_index in custody_indexes {
             // Strictly consider peers that are custodials of this column AND are part of this
@@ -517,6 +522,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 })
                 .map(|peer| {
                     (
+                        // If contains -> 1 (order after), not contains -> 0 (order first)
+                        peers_to_deprioritize.contains(peer),
                         // Prefer peers with less overall requests
                         // Also account for requests that are not yet issued tracked in peer_id_to_request_map
                         active_request_count_by_peer.get(peer).copied().unwrap_or(0)
@@ -530,7 +537,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     )
                 })
                 .min()
-                .map(|(_, _, peer)| *peer)
+                .map(|(_, _, _, peer)| *peer)
             else {
                 // TODO(das): this will be pretty bad UX. To improve we should:
                 // - Handle the no peers case gracefully, maybe add some timeout and give a few
