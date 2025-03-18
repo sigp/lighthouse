@@ -320,7 +320,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let finalized_state_root = notif.finalized_state_root;
         let finalized_block_root = notif.finalized_checkpoint.root;
 
-        let finalized_state = match db.get_state(&finalized_state_root.into(), None) {
+        // The enshrined finalized state should be in the state cache.
+        let finalized_state = match db.get_state(&finalized_state_root.into(), None, true) {
             Ok(Some(state)) => state,
             other => {
                 error!(

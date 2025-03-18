@@ -385,6 +385,9 @@ Options:
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
           DEPRECATED. This flag has no effect.
+      --state-cache-headroom <N>
+          Minimum number of states to cull from the state cache when it gets
+          full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
           Specifies the size of the state cache [default: 32]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>

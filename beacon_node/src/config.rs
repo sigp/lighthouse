@@ -463,6 +463,12 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.epochs_per_migration = epochs_per_migration;
     }
 
+    if let Some(state_cache_headroom) =
+        clap_utils::parse_optional(cli_args, "state-cache-headroom")?
+    {
+        client_config.store.state_cache_headroom = state_cache_headroom;
+    }
+
     if let Some(prune_blobs) = clap_utils::parse_optional(cli_args, "prune-blobs")? {
         client_config.store.prune_blobs = prune_blobs;
     }

@@ -1883,6 +1883,21 @@ fn state_cache_size_flag() {
         .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(64)));
 }
 #[test]
+fn state_cache_headroom_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_headroom, new_non_zero_usize(1)));
+}
+#[test]
+fn state_cache_headroom_flag() {
+    CommandLineTest::new()
+        .flag("state-cache-headroom", Some("16"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.state_cache_headroom, new_non_zero_usize(16))
+        });
+}
+#[test]
 fn historic_state_cache_size_flag() {
     CommandLineTest::new()
         .flag("historic-state-cache-size", Some("4"))
