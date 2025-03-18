@@ -1,9 +1,12 @@
 use crate::{EnvironmentBuilder, LoggerConfig};
 use clap::ArgMatches;
 use logging::Libp2pDiscv5TracingLayer;
-use logging::{tracing_logging_layer::LoggingLayer, SSELoggingComponents};
+use logging::{
+    create_libp2p_discv5_tracing_layer, tracing_logging_layer::LoggingLayer, SSELoggingComponents,
+};
 use std::process;
-use tracing_subscriber::filter::{FilterFn, LevelFilter};
+
+use tracing_subscriber::filter::LevelFilter;
 use types::EthSpec;
 
 pub fn construct_logger<E: EthSpec>(
@@ -12,36 +15,44 @@ pub fn construct_logger<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
 ) -> (
     EnvironmentBuilder<E>,
-    Libp2pDiscv5TracingLayer,
-    LoggingLayer,
-    LoggingLayer,
-    Option<SSELoggingComponents>,
     LoggerConfig,
-    FilterFn,
+    LoggingLayer,
+    Option<LoggingLayer>,
+    Option<SSELoggingComponents>,
+    Option<Libp2pDiscv5TracingLayer>,
 ) {
-    let libp2p_discv5_layer = logging::create_libp2p_discv5_tracing_layer(
-        logger_config.path.clone(),
-        logger_config.max_log_size,
-        logger_config.compression,
-        logger_config.max_log_number,
-    );
+    let subcommand_name = matches.subcommand_name();
+    let logfile_prefix = subcommand_name.unwrap_or("lighthouse");
 
-    let logfile_prefix = matches.subcommand_name().unwrap_or("lighthouse");
-
-    let (builder, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt) =
+    let (builder, stdout_logging_layer, file_logging_layer, sse_logging_layer_opt) =
         environment_builder.init_tracing(logger_config.clone(), logfile_prefix);
 
-    let dependency_log_filter =
-        FilterFn::new(filter_dependency_log as fn(&tracing::Metadata<'_>) -> bool);
+    let libp2p_discv5_layer = if let Some(subcommand_name) = subcommand_name {
+        if subcommand_name == "beacon_node" || subcommand_name == "boot_node" {
+            if logger_config.max_log_size == 0 || logger_config.max_log_number == 0 {
+                // User has explictly disabled logging to file.
+                None
+            } else {
+                create_libp2p_discv5_tracing_layer(
+                    logger_config.path.clone(),
+                    logger_config.max_log_size,
+                )
+            }
+        } else {
+            // Disable libp2p and discv5 logs when running other subcommands.
+            None
+        }
+    } else {
+        None
+    };
 
     (
         builder,
-        libp2p_discv5_layer,
-        file_logging_layer,
-        stdout_logging_layer,
-        sse_logging_layer_opt,
         logger_config,
-        dependency_log_filter,
+        stdout_logging_layer,
+        file_logging_layer,
+        sse_logging_layer_opt,
+        libp2p_discv5_layer,
     )
 }
 
@@ -57,16 +68,4 @@ pub fn parse_level(level: &str) -> LevelFilter {
             process::exit(1)
         }
     }
-}
-
-fn filter_dependency_log(meta: &tracing::Metadata<'_>) -> bool {
-    if let Some(file) = meta.file() {
-        let target = meta.target();
-        if file.contains("/.cargo/") {
-            return target.contains("discv5") || target.contains("libp2p");
-        } else {
-            return !file.contains("gossipsub") && !target.contains("hyper");
-        }
-    }
-    true
 }
