@@ -106,8 +106,11 @@ pub fn create_libp2p_discv5_tracing_layer(
     max_log_size: u64,
     compression: bool,
     max_log_number: usize,
+    is_validator_client: bool,
 ) -> Libp2pDiscv5TracingLayer {
-    if let Some(mut tracing_log_path) = base_tracing_log_path {
+    if is_validator_client {
+        disable_discv5_libp2p_file_logging()
+    } else if let Some(mut tracing_log_path) = base_tracing_log_path {
         // Ensure that `tracing_log_path` only contains directories.
         for p in tracing_log_path.clone().iter() {
             tracing_log_path = tracing_log_path.join(p);
@@ -166,14 +169,7 @@ pub fn create_libp2p_discv5_tracing_layer(
             _discv5_guard,
         }
     } else {
-        let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(std::io::sink());
-        let (discv5_non_blocking_writer, _discv5_guard) = NonBlocking::new(std::io::sink());
-        Libp2pDiscv5TracingLayer {
-            libp2p_non_blocking_writer,
-            _libp2p_guard,
-            discv5_non_blocking_writer,
-            _discv5_guard,
-        }
+        disable_discv5_libp2p_file_logging()
     }
 }
 
@@ -190,5 +186,15 @@ pub fn create_test_tracing_subscriber() {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::try_new("debug").unwrap())
             .try_init();
+    }
+}
+fn disable_discv5_libp2p_file_logging() -> Libp2pDiscv5TracingLayer {
+    let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(std::io::sink());
+    let (discv5_non_blocking_writer, _discv5_guard) = NonBlocking::new(std::io::sink());
+    Libp2pDiscv5TracingLayer {
+        libp2p_non_blocking_writer,
+        _libp2p_guard,
+        discv5_non_blocking_writer,
+        _discv5_guard,
     }
 }
