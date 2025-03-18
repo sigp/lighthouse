@@ -815,8 +815,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block = self
             .get_blinded_block(&block_root)?
             .ok_or(Error::MissingBeaconBlock(block_root))?;
+        // This method is only used in tests, so we may as well cache states to make CI go brr.
+        // TODO(release-v7) move this method out of beacon chain and into `store_tests`` or something equivalent.
         let state = self
-            .get_state(&block.state_root(), Some(block.slot()))?
+            .get_state(&block.state_root(), Some(block.slot()), true)?
             .ok_or_else(|| Error::MissingBeaconState(block.state_root()))?;
         let iter = BlockRootsIterator::owned(&self.store, state);
         Ok(std::iter::once(Ok((block_root, block.slot())))
@@ -1343,8 +1345,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         state_root: &Hash256,
         slot: Option<Slot>,
+        update_cache: bool,
     ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
-        Ok(self.store.get_state(state_root, slot)?)
+        Ok(self.store.get_state(state_root, slot, update_cache)?)
     }
 
     /// Return the sync committee at `slot + 1` from the canonical chain.
@@ -1519,8 +1522,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })?
                     .ok_or(Error::NoStateForSlot(slot))?;
 
+                // This branch is mostly reached from the HTTP API when doing analysis, or in niche
+                // situations when producing a block. In the HTTP API case we assume the user wants
+                // to cache states so that future calls are faster, and that if the cache is
+                // struggling due to non-finality that they will dial down inessential calls. In the
+                // block proposal case we want to cache the state so that we can process the block
+                // quickly after it has been signed.
                 Ok(self
-                    .get_state(&state_root, Some(slot))?
+                    .get_state(&state_root, Some(slot), true)?
                     .ok_or(Error::NoStateForSlot(slot))?)
             }
         }
@@ -2896,6 +2905,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         chain_segment: Vec<RpcBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult {
+        for block in chain_segment.iter() {
+            if let Err(error) = self.check_invalid_block_roots(block.block_root()) {
+                return ChainSegmentResult::Failed {
+                    imported_blocks: vec![],
+                    error,
+                };
+            }
+        }
+
         let mut imported_blocks = vec![];
 
         // Filter uninteresting blocks from the chain segment in a blocking task.
@@ -3377,6 +3395,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await;
         self.remove_notified(&block_root, r)
+    }
+
+    /// Check for known and configured invalid block roots before processing.
+    pub fn check_invalid_block_roots(&self, block_root: Hash256) -> Result<(), BlockError> {
+        if self.config.invalid_block_roots.contains(&block_root) {
+            Err(BlockError::KnownInvalidExecutionPayload(block_root))
+        } else {
+            Ok(())
+        }
     }
 
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
@@ -6937,9 +6964,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })?;
             let beacon_state_root = beacon_block.state_root();
 
+            // This branch is reached from the HTTP API. We assume the user wants
+            // to cache states so that future calls are faster.
             let mut beacon_state = self
                 .store
-                .get_state(&beacon_state_root, Some(beacon_block.slot()))?
+                .get_state(&beacon_state_root, Some(beacon_block.slot()), true)?
                 .ok_or_else(|| {
                     Error::DBInconsistent(format!("Missing state {:?}", beacon_state_root))
                 })?;
@@ -7091,8 +7120,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 if signed_beacon_block.slot() % T::EthSpec::slots_per_epoch() == 0 {
                     let block = self.get_blinded_block(&block_hash).unwrap().unwrap();
+                    // This branch is reached from the HTTP API. We assume the user wants
+                    // to cache states so that future calls are faster.
                     let state = self
-                        .get_state(&block.state_root(), Some(block.slot()))
+                        .get_state(&block.state_root(), Some(block.slot()), true)
                         .unwrap()
                         .unwrap();
                     finalized_blocks.insert(state.finalized_checkpoint().root);
