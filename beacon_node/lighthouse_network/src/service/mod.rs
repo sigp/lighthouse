@@ -201,18 +201,7 @@ impl<E: EthSpec> Network<E> {
         let custody_group_count = ctx.chain_spec.is_peer_das_scheduled().then(|| {
             // Use the false custody group count if specified, otherwise use the normal one
             if let Some(false_count) = config.advertise_false_custody_group_count {
-                // Ensure the false count is within valid range
-                if (ctx.chain_spec.custody_requirement..=ctx.chain_spec.number_of_custody_groups).contains(&false_count) {
-                    warn!(log, "Using false custody group count for testing"; "count" => false_count);
-                    false_count
-                } else {
-                    warn!(log, "Specified false custody group count is out of valid range, using normal count"; 
-                        "false_count" => false_count,
-                        "min" => ctx.chain_spec.custody_requirement,
-                        "max" => ctx.chain_spec.number_of_custody_groups
-                    );
-                    ctx.chain_spec.custody_group_count(config.subscribe_all_data_column_subnets)
-                }
+                false_count
             } else {
                 ctx.chain_spec.custody_group_count(config.subscribe_all_data_column_subnets)
             }

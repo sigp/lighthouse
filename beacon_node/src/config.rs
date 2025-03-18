@@ -49,6 +49,17 @@ pub fn get_config<E: EthSpec>(
 
     let mut client_config = ClientConfig::default();
 
+    if let Some(false_custody_group_count) =
+        clap_utils::parse_optional::<u64>(cli_args, "advertise-false-custody-group-count")?
+    {
+        if false_custody_group_count > spec.number_of_custody_groups {
+            return Err(format!(
+                "advertise-false-custody-group-count ({}) exceeds number_of_custody_groups ({})",
+                false_custody_group_count, spec.number_of_custody_groups
+            ));
+        }
+    }
+
     // Update the client's data directory
     client_config.set_data_dir(get_data_dir(cli_args));
 
