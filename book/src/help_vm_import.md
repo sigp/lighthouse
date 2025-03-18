@@ -65,7 +65,7 @@ Options:
           set to 0, background file logging is disabled. [default: 200]
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky, hoodi]
       --password <STRING>
           Password of the keystore file.
       --prefer-builder-proposals <prefer-builder-proposals>

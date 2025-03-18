@@ -282,6 +282,9 @@ pub enum BlockError {
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
     ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    /// This is a known invalid block that was listed in Lighthouses configuration.
+    /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
+    KnownInvalidExecutionPayload(Hash256),
     /// The block is a slashable equivocation from the proposer.
     ///
     /// ## Peer scoring
@@ -862,6 +865,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
+        // Do not process a block that is known to be invalid.
+        chain.check_invalid_block_roots(block_root)?;
+
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
@@ -1080,6 +1086,9 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             .as_block()
             .fork_name(&chain.spec)
             .map_err(BlockError::InconsistentFork)?;
+
+        // Check whether the block is a banned block prior to loading the parent.
+        chain.check_invalid_block_roots(block_root)?;
 
         let (mut parent, block) = load_parent(block, chain)?;
 
