@@ -2,8 +2,10 @@
 
 An open-source Ethereum consensus client, written in Rust and maintained by Sigma Prime.
 
-[![Book Status]][Book Link] [![Chat Badge]][Chat Link]
+[![Build Status]][Build Link] [![Book Status]][Book Link] [![Chat Badge]][Chat Link]
 
+[Build Status]: https://github.com/sigp/lighthouse/actions/workflows/local-testnet.yml/badge.svg
+[Build Link]: https://github.com/sigp/lighthouse/actions
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
 [Book Status]:https://img.shields.io/badge/user--docs-unstable-informational
