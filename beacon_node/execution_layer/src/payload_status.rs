@@ -1,6 +1,6 @@
 use crate::engine_api::{Error as ApiError, PayloadStatusV1, PayloadStatusV1Status};
 use crate::engines::EngineError;
-use slog::{warn, Logger};
+use tracing::warn;
 use types::ExecutionBlockHash;
 
 /// Provides a simpler, easier to parse version of `PayloadStatusV1` for upstream users.
@@ -26,15 +26,10 @@ pub enum PayloadStatus {
 pub fn process_payload_status(
     head_block_hash: ExecutionBlockHash,
     status: Result<PayloadStatusV1, EngineError>,
-    log: &Logger,
 ) -> Result<PayloadStatus, EngineError> {
     match status {
         Err(error) => {
-            warn!(
-            log,
-            "Error whilst processing payload status";
-            "error" => ?error,
-            );
+            warn!(?error, "Error whilst processing payload status");
             Err(error)
         }
         Ok(response) => match &response.status {
@@ -66,10 +61,9 @@ pub fn process_payload_status(
                 // warning here.
                 if response.latest_valid_hash.is_some() {
                     warn!(
-                    log,
-                    "Malformed response from execution engine";
-                    "msg" => "expected a null latest_valid_hash",
-                    "status" => ?response.status
+                        msg = "expected a null latest_valid_hash",
+                        status = ?response.status,
+                    "Malformed response from execution engine"
                     )
                 }
 
@@ -82,10 +76,9 @@ pub fn process_payload_status(
                 // warning here.
                 if response.latest_valid_hash.is_some() {
                     warn!(
-                    log,
-                    "Malformed response from execution engine";
-                    "msg" => "expected a null latest_valid_hash",
-                    "status" => ?response.status
+                        msg = "expected a null latest_valid_hash",
+                        status = ?response.status,
+                    "Malformed response from execution engine"
                     )
                 }
 
@@ -96,10 +89,9 @@ pub fn process_payload_status(
                 // warning here.
                 if response.latest_valid_hash.is_some() {
                     warn!(
-                    log,
-                    "Malformed response from execution engine";
-                    "msg" => "expected a null latest_valid_hash",
-                    "status" => ?response.status
+                        msg = "expected a null latest_valid_hash",
+                        status = ?response.status,
+                    "Malformed response from execution engine"
                     )
                 }
 

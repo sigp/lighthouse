@@ -20,12 +20,11 @@ bytes = { workspace = true }
 discv5 = { workspace = true }
 eth2_config = { workspace = true }
 kzg = { workspace = true }
-logging = { workspace = true }
 pretty_reqwest_error = { workspace = true }
 reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
-slog = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
 url = { workspace = true }
