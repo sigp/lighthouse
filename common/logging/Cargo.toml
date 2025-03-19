@@ -8,7 +8,6 @@ edition = { workspace = true }
 test_logger = [] # Print log output to stderr when running tests instead of dropping it
 
 [dependencies]
-cargo_metadata = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 lighthouse_macros = { workspace = true }
 logroller = { workspace = true }
