@@ -711,6 +711,33 @@ impl ChainSpec {
         }
     }
 
+    /// Worst-case compressed length for a given payload of size n when using snappy.
+    ///
+    /// https://github.com/google/snappy/blob/32ded457c0b1fe78ceb8397632c416568d6714a0/snappy.cc#L218C1-L218C47
+    /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/p2p-interface.md#max_compressed_len
+    #[allow(clippy::arithmetic_side_effects)]
+    fn max_compressed_len_snappy(n: usize) -> usize {
+        32 + n + (n / 6)
+    }
+
+    /// Max compressed length of a message that we receive over gossip.
+    pub fn max_compressed_len(&self) -> usize {
+        Self::max_compressed_len_snappy(self.max_payload_size as usize)
+    }
+
+    /// Max allowed size of a raw, compressed message received over the network.
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/p2p-interface.md#max_compressed_len
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn max_message_size(&self) -> usize {
+        std::cmp::max(
+            // 1024 to account for framing + encoding overhead
+            Self::max_compressed_len_snappy(self.max_payload_size as usize) + 1024,
+            //1MB
+            1024 * 1024,
+        )
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {

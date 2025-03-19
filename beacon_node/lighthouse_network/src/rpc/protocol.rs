@@ -122,15 +122,6 @@ const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
 
-/// Returns the maximum bytes that can be sent across the RPC.
-pub fn max_rpc_size(fork_context: &ForkContext, max_payload_size: usize) -> usize {
-    if fork_context.current_fork().bellatrix_enabled() {
-        max_payload_size
-    } else {
-        max_payload_size / 10
-    }
-}
-
 /// Returns the rpc limits for beacon_block_by_range and beacon_block_by_root responses.
 ///
 /// Note: This function should take care to return the min/max limits accounting for all
