@@ -23,8 +23,7 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --gas-limit <UINT64>
           When provided, the imported validator will use this gas limit. It is
           recommended to leave this as the default value by not specifying this
@@ -47,7 +46,7 @@ Options:
           [possible values: JSON]
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
       --logfile-dir <DIR>
           Directory path where the log file will be stored
       --logfile-format <FORMAT>
