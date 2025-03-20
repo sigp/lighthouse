@@ -1540,13 +1540,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 self.store_hot_state_as_snapshot(state_root, state, ops)?;
             }
             StorageStrategy::DiffFrom(from_slot) => {
-                let from_root = get_ancestor_state_root(self, state, *state_root, from_slot)
-                    .map_err(|e| Error::StateSummaryIteratorError {
+                let from_root = get_ancestor_state_root(self, state, from_slot).map_err(|e| {
+                    Error::StateSummaryIteratorError {
                         error: e,
                         from_state_root: *state_root,
                         from_state_slot: state.slot(),
                         target_slot: slot,
-                    })?;
+                    }
+                })?;
                 self.store_hot_state_as_diff(state_root, state, from_root, ops)?;
             }
         }
@@ -3384,6 +3385,7 @@ pub enum StateSummaryIteratorError {
     },
     BelowTarget(Slot),
     LoadSummaryError(Box<Error>),
+    OutOfBoundsInitialSlot,
 }
 
 /// Return the ancestor state root of a state beyond SlotsPerHistoricalRoot using the roots iterator
@@ -3391,7 +3393,6 @@ pub enum StateSummaryIteratorError {
 fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store: &'a HotColdDB<E, Hot, Cold>,
     from_state: &'a BeaconState<E>,
-    from_state_root: Hash256,
     target_slot: Slot,
 ) -> Result<Hash256, StateSummaryIteratorError> {
     // Use the state itself for recent roots
@@ -3400,7 +3401,17 @@ fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
     }
 
     let mut previous_slot = None;
-    let mut state_root = from_state_root;
+    // We can not start loading summaries from `state_root` since its summary has not yet been
+    // imported.
+    //
+    // This code path is called during block import. It assumes that the initial state of
+    // `state_root` is available. In other words, the state ancestor of `from_state` 1 slot ago
+    // is persisted in the DB.
+    //
+    // TODO(hdiff): we could start loading from `state.slot() - SlotsPerHistoricalRoot`
+    let mut state_root = *from_state
+        .get_state_root(from_state.slot().saturating_sub(Slot::new(1)))
+        .map_err(|_| StateSummaryIteratorError::OutOfBoundsInitialSlot)?;
 
     loop {
         let state_summary = store
@@ -3514,16 +3525,14 @@ impl HotStateSummary {
             if slot == state.slot() {
                 Ok::<_, Error>(state_root)
             } else {
-                Ok(
-                    get_ancestor_state_root(store, state, state_root, slot).map_err(|e| {
-                        Error::StateSummaryIteratorError {
-                            error: e,
-                            from_state_root: state_root,
-                            from_state_slot: state.slot(),
-                            target_slot: slot,
-                        }
-                    })?,
-                )
+                Ok(get_ancestor_state_root(store, state, slot).map_err(|e| {
+                    Error::StateSummaryIteratorError {
+                        error: e,
+                        from_state_root: state_root,
+                        from_state_slot: state.slot(),
+                        target_slot: slot,
+                    }
+                })?)
             }
         };
         let diff_base_slot = storage_strategy.diff_base_slot();
