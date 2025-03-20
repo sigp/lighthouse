@@ -182,6 +182,8 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
     let anchor_info = db.get_anchor_info();
     let state_upper_limit = anchor_info.state_upper_limit;
     let effective_start_slot = max(sync_committee_start_slot, state_upper_limit);
+    let remote_nodes = network.remote_nodes()?;
+    let remote_node = remote_nodes.first().unwrap();
 
     for slot in effective_start_slot.as_u64()..=upto_slot.as_u64() {
         let sync_aggregate_count = remote_node
