@@ -1485,14 +1485,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(());
         }
 
-        self.store_hot_state_summary(state_root, state, ops)?;
-        let diff_base_root = self.store_hot_state_diffs(state_root, state, ops)?;
+        let summary = self.store_hot_state_summary(state_root, state, ops)?;
+        self.store_hot_state_diffs(state_root, state, ops)?;
 
         debug!(
             ?state_root,
             slot = %state.slot(),
             storage_strategy = ?self.hot_storage_strategy(state.slot())?,
-            ?diff_base_root,
+            diff_base_state_root = %summary.diff_base_state_root,
+            previous_state_root = ?summary.previous_state_root,
             "Storing hot state summary and diffs"
         );
 
@@ -1505,7 +1506,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: &Hash256,
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
-    ) -> Result<(), Error> {
+    ) -> Result<HotStateSummary, Error> {
         // Store a summary of the state.
         // We store one even for the epoch boundary states, as we may need their slots
         // when doing a look up by state root.
@@ -1516,7 +1517,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self.hot_storage_strategy(state.slot())?,
         )?;
         ops.push(hot_state_summary.as_kv_store_op(*state_root));
-        Ok(())
+        Ok(hot_state_summary)
     }
 
     pub fn store_hot_state_diffs(
@@ -1524,17 +1525,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: &Hash256,
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
-    ) -> Result<Option<Hash256>, Error> {
+    ) -> Result<(), Error> {
         let slot = state.slot();
         let storage_strategy = self.hot_storage_strategy(slot)?;
-        Ok(match storage_strategy {
+        match storage_strategy {
             StorageStrategy::ReplayFrom(_) => {
                 // Already have persisted the state summary, don't persist anything else
-                None
             }
             StorageStrategy::Snapshot => {
                 self.store_hot_state_as_snapshot(state_root, state, ops)?;
-                None
             }
             StorageStrategy::DiffFrom(from_slot) => {
                 let from_root = get_ancestor_state_root(self, state, from_slot).map_err(|e| {
@@ -1546,9 +1545,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     }
                 })?;
                 self.store_hot_state_as_diff(state_root, state, from_root, ops)?;
-                Some(from_root)
             }
-        })
+        }
+        Ok(())
     }
 
     fn store_hot_state_as_diff(
@@ -3514,6 +3513,13 @@ impl DiffBaseStateRoot {
                 stored_slot: self.slot,
             })
         }
+    }
+}
+
+// Succint rendering of (slot, state_root) pair for "Storing hot state summary and diffs" log
+impl std::fmt::Display for DiffBaseStateRoot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{:?}", self.slot, self.state_root)
     }
 }
 
