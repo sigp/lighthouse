@@ -202,6 +202,12 @@ pub static BEACON_HDIFF_BUFFER_CLONE_TIMES: LazyLock<Result<Histogram>> = LazyLo
         "Time required to clone hierarchical diff buffer bytes",
     )
 });
+pub static BEACON_HDIFF_BUFFER_APPLY_RESIZES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_hdiff_buffer_apply_resizes",
+        "Number of times during diff application that the output buffer had to be resized before decoding succeeded",
+    )
+});
 /*
  * Beacon Block
  */
