@@ -3396,22 +3396,44 @@ fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
         return Ok(*target_state_root);
     }
 
+    let mut state_root = {
+        // We can not start loading summaries from `state_root` since its summary has not yet been
+        // imported. This code path is called during block import.
+        //
+        // We need to choose a state_root to start that is
+        // - An ancestor of `from_state`, AND
+        // - Its state summary is already written (and not pruned) in the DB
+        // - Its slot is >= target_slot
+        //
+        // If we get to this codepath, (target_slot not in state's state_roots) it means that
+        // `state.slot()` is greater than `SlotsPerHistoricalRoot`, and `target_slot < state.slot()
+        // - SlotsPerHistoricalRoot`.
+        //
+        // Values we could start from:
+        // - `state.slot() - 1`: TODO if we don't immediately commit all each state to the DB
+        //   individually, we may be attempting to read a state summary that is stored in a DB ops
+        //   vector but not yet written to the DB. Also starting from this slot is wasteful as we
+        //   know that the target slot is `< state.slot() - SlotsPerHistoricalRoot`.
+        // - `state.slot() - SlotsPerHistoricalRoot`: The most efficient slot to start. But we risk
+        //   jumping to a state summary that has already been pruned. See the `max(.., split_slot)`
+        //   below
+        let oldest_slot_in_state_roots = from_state
+            .slot()
+            .saturating_sub(Slot::new(E::SlotsPerHistoricalRoot::to_u64()));
+
+        // Don't start with a slot that prior to the finalized state slot. We may be attempting to read
+        // a hot state summary that has already been pruned as part of the migration and error. HDiffs
+        // can reference diffs with a slot prior to the finalized checkpoint. But those are sparse so
+        // the probabiliy of hitting `MissingSummary` error is high. Instead, the summary for the
+        // finalized state is always available.
+        let start_slot = std::cmp::max(oldest_slot_in_state_roots, store.get_split_slot());
+
+        *from_state
+            .get_state_root(start_slot)
+            .map_err(|_| StateSummaryIteratorError::OutOfBoundsInitialSlot)?
+    };
+
     let mut previous_slot = None;
-    // We can not start loading summaries from `state_root` since its summary has not yet been
-    // imported.
-    //
-    // This code path is called during block import. It assumes that the initial state of
-    // `state_root` is available. In other words, the state ancestor of `from_state` 1 slot ago
-    // is persisted in the DB.
-    //
-    // TODO(hdiff): we could start loading from `state.slot() - SlotsPerHistoricalRoot`
-    let mut state_root = *from_state
-        .get_state_root(
-            from_state
-                .slot()
-                .saturating_sub(Slot::new(E::SlotsPerHistoricalRoot::to_u64())),
-        )
-        .map_err(|_| StateSummaryIteratorError::OutOfBoundsInitialSlot)?;
 
     loop {
         let state_summary = store
