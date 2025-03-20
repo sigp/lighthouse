@@ -3406,7 +3406,11 @@ fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
     //
     // TODO(hdiff): we could start loading from `state.slot() - SlotsPerHistoricalRoot`
     let mut state_root = *from_state
-        .get_state_root(from_state.slot().saturating_sub(Slot::new(1)))
+        .get_state_root(
+            from_state
+                .slot()
+                .saturating_sub(Slot::new(E::SlotsPerHistoricalRoot::to_u64())),
+        )
         .map_err(|_| StateSummaryIteratorError::OutOfBoundsInitialSlot)?;
 
     loop {
