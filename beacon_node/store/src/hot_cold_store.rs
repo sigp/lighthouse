@@ -1717,7 +1717,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                             e.into(),
                         )
                     })?;
-                    buffer.as_state(&self.spec)?
+                    let mut state = buffer.as_state(&self.spec)?;
+
+                    // Immediately rebase the state from diffs on the finalized state so that we
+                    // can utilise structural sharing and don't consume excess memory.
+                    self.state_cache
+                        .lock()
+                        .rebase_on_finalized(&mut state, &self.spec)?;
+
+                    state
                 }
                 StorageStrategy::ReplayFrom(from_slot) => {
                     let from_state_root = diff_base_state_root.get_root(from_slot)?;
