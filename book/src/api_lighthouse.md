@@ -775,6 +775,28 @@ Caveats:
   This is because the state *prior* to the `start_epoch` needs to be loaded from the database, and
   loading a state on a boundary is most efficient.
 
+## `/lighthouse/supply/{state_root}`
+
+Returns the sum of all validator balances for a given state root.
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/supply/0x7e76880eb67bbdc86250aa578958e9d0675e64e714337855204fb5abaaf82c2b" -H "accept: application/json" | jq
+```
+
+```json
+{
+  "data": [
+    674144000000000,
+    false,
+    true
+  ]
+}
+```
+
+The two boolean flags in the response are respectively:
+* `execution_optimism`: whether the response was computed using optimistically synced data
+* `finalized`: whether the response was computed over finalized dasta
+
 ## `/lighthouse/logs`
 
 This is a Server Side Event subscription endpoint. This allows a user to read
