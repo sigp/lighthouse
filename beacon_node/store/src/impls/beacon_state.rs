@@ -1,9 +1,29 @@
 use crate::*;
-use ssz::DecodeError;
+use ssz::{DecodeError, Encode};
 use ssz_derive::Encode;
 
 // FIXME(tree-states): delete/move to migration
-pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(
+pub fn store_full_state_v22<E: EthSpec>(
+    state_root: &Hash256,
+    state: &BeaconState<E>,
+    ops: &mut Vec<KeyValueStoreOp>,
+) -> Result<(), Error> {
+    let bytes = {
+        let _overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_WRITE_OVERHEAD_TIMES);
+        StorageContainer::new(state).as_ssz_bytes()
+    };
+    metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as u64);
+    metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
+    ops.push(KeyValueStoreOp::PutKeyValue(
+        DBColumn::BeaconState,
+        state_root.as_slice().to_vec(),
+        bytes,
+    ));
+    Ok(())
+}
+
+// FIXME(tree-states): delete/move to migration
+pub fn get_full_state_v22<KV: KeyValueStore<E>, E: EthSpec>(
     db: &KV,
     state_root: &Hash256,
     spec: &ChainSpec,

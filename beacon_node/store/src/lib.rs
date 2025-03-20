@@ -36,7 +36,7 @@ pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;
 pub use errors::Error;
 pub use impls::{
-    beacon_state::get_full_state as get_full_state_v22,
+    beacon_state::get_full_state_v22, beacon_state::store_full_state_v22,
     beacon_state::StorageContainer as BeaconStateStorageContainer,
 };
 pub use metadata::AnchorInfo;

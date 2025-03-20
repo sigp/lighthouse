@@ -1,16 +1,17 @@
 use crate::{
     beacon_chain::BeaconChainTypes,
-    summaries_dag::{DAGStateSummaryV22, StateSummariesDAG},
+    summaries_dag::{DAGStateSummary, DAGStateSummaryV22, StateSummariesDAG},
 };
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
 use store::{
-    get_full_state_v22, hdiff::StorageStrategy, hot_cold_store::DiffBaseStateRoot, DBColumn, Error,
-    HotColdDB, HotStateSummary, KeyValueStore, KeyValueStoreOp, StoreItem,
+    get_full_state_v22, hdiff::StorageStrategy, hot_cold_store::DiffBaseStateRoot,
+    store_full_state_v22, DBColumn, Error, HotColdDB, HotStateSummary, KeyValueStore,
+    KeyValueStoreOp, StoreItem,
 };
 use tracing::{debug, info, warn};
 use types::{EthSpec, Hash256, Slot};
@@ -94,8 +95,8 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
         slots_count = summaries_by_slot.len(),
         min_slot = ?summaries_by_slot.first_key_value().map(|(slot, _)| slot),
         max_slot = ?summaries_by_slot.last_key_value().map(|(slot, _)| slot),
-        state_summaries_dag_roots = ?state_summaries_dag_roots,
-        hot_hdiff_start_slot = %hot_hdiff_start_slot,
+        ?state_summaries_dag_roots,
+        %hot_hdiff_start_slot,
         split_state_root = ?split.state_root,
         "Starting hot states migration"
     );
@@ -178,21 +179,22 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
                                 })?
                         };
 
-                        let diff_base_state_root =
-                            if let Some(diff_base_slot) = storage_strategy.diff_base_slot() {
-                                DiffBaseStateRoot::new(
+                        let diff_base_state_root = if let Some(diff_base_slot) =
+                            storage_strategy.diff_base_slot()
+                        {
+                            DiffBaseStateRoot::new(
                                     diff_base_slot,
                                     state_summaries_dag
                                         .ancestor_state_root_at_slot(state_root, diff_base_slot)
                                         .map_err(|e| {
                                             Error::MigrationError(format!(
-                                                "error computing ancestor_state_root_at_slot {e:?}"
+                                                "error computing ancestor_state_root_at_slot({state_root:?}, {diff_base_slot}) {e:?}"
                                             ))
                                         })?,
                                 )
-                            } else {
-                                DiffBaseStateRoot::zero()
-                            };
+                        } else {
+                            DiffBaseStateRoot::zero()
+                        };
 
                         let new_summary = HotStateSummary {
                             slot,
@@ -227,8 +229,8 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
             if last_log_time.elapsed() > Duration::from_secs(5) {
                 last_log_time = Instant::now();
                 info!(
-                    diffs_written = diffs_written,
-                    summaries_written = summaries_written,
+                    diffs_written,
+                    summaries_written,
                     summaries_count = state_summaries_dag.summaries_count(),
                     "Hot states migration in progress"
                 );
@@ -239,8 +241,8 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
     // TODO(hdiff): Should run hot DB compaction after deleting potentially a lot of states. Or should wait
     // for the next finality event?
     info!(
-        diffs_written = diffs_written,
-        summaries_written = summaries_written,
+        diffs_written,
+        summaries_written,
         summaries_count = state_summaries_dag.summaries_count(),
         "Hot states migration complete"
     );
@@ -249,10 +251,100 @@ pub fn upgrade_to_v24<T: BeaconChainTypes>(
 }
 
 pub fn downgrade_from_v24<T: BeaconChainTypes>(
-    _db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    // TODO(hdiff): proper error
-    panic!("downgrade not supported");
+    let state_summaries = db
+        .load_hot_state_summaries()?
+        .into_iter()
+        .map(|(state_root, summary)| (state_root, summary.into()))
+        .collect::<Vec<(Hash256, DAGStateSummary)>>();
+
+    info!(
+        summaries_count = state_summaries.len(),
+        "DB downgrade of v24 state summaries started"
+    );
+
+    let state_summaries_dag = StateSummariesDAG::new(state_summaries)
+        .map_err(|e| Error::MigrationError(format!("Error on new StateSumariesDAG {e:?}")))?;
+
+    let mut migrate_ops = vec![];
+    let mut states_written = 0;
+    let mut summaries_written = 0;
+    let mut last_log_time = Instant::now();
+
+    // TODO(tree-states): What about the anchor_slot? Is it safe to run the prior version of
+    // Lighthouse with an a higher anchor_slot than expected?
+
+    for (state_root, summary) in state_summaries_dag
+        .summaries_by_slot_ascending()
+        .into_iter()
+        .flat_map(|(_, summaries)| summaries)
+    {
+        // If boundary state persist
+        if summary.slot % T::EthSpec::slots_per_epoch() == 0 {
+            let (state, _) = db
+                .load_hot_state(&state_root)?
+                .ok_or(Error::MissingState(state_root))?;
+
+            // Immediatelly commit the state. Otherwise we will OOM and it's stored in a different
+            // column. So if the migration crashes we just get extra harmless junk in the DB.
+            let mut state_write_ops = vec![];
+            store_full_state_v22(&state_root, &state, &mut state_write_ops)?;
+            db.hot_db.do_atomically(state_write_ops)?;
+            states_written += 1;
+        }
+
+        // Persist old summary
+        let epoch_boundary_state_slot = summary.slot - summary.slot % T::EthSpec::slots_per_epoch();
+        let old_summary = HotStateSummaryV22 {
+            slot: summary.slot,
+            latest_block_root: summary.latest_block_root,
+            epoch_boundary_state_root: state_summaries_dag
+                .ancestor_state_root_at_slot(state_root, epoch_boundary_state_slot)
+                .map_err(|e| {
+                    Error::MigrationError(format!(
+                        "error computing ancestor_state_root_at_slot({state_root:?}, {epoch_boundary_state_slot}) {e:?}"
+                    ))
+                })?,
+        };
+        migrate_ops.push(KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconStateSummary,
+            state_root.as_slice().to_vec(),
+            old_summary.as_ssz_bytes(),
+        ));
+        summaries_written += 1;
+
+        // Delete existing data
+        for db_column in [
+            DBColumn::BeaconStateHotSummary,
+            DBColumn::BeaconStateHotDiff,
+            DBColumn::BeaconStateHotSnapshot,
+        ] {
+            migrate_ops.push(KeyValueStoreOp::DeleteKey(
+                db_column,
+                state_root.as_slice().to_vec(),
+            ));
+        }
+
+        if last_log_time.elapsed() > Duration::from_secs(5) {
+            last_log_time = Instant::now();
+            info!(
+                states_written,
+                summaries_written,
+                summaries_count = state_summaries_dag.summaries_count(),
+                "DB downgrade of v24 state summaries in progress"
+            );
+        }
+    }
+
+    info!(
+        states_written,
+        summaries_written,
+        summaries_count = state_summaries_dag.summaries_count(),
+        "DB downgrade of v24 state summaries completed"
+    );
+
+    Ok(migrate_ops)
 }
 
 fn new_dag<T: BeaconChainTypes>(

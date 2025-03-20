@@ -3,6 +3,7 @@ use std::{
     cmp::Ordering,
     collections::{btree_map::Entry, BTreeMap, HashMap},
 };
+use store::HotStateSummary;
 use types::{Hash256, Slot};
 
 #[derive(Debug, Clone, Copy)]
@@ -377,6 +378,17 @@ impl StateSummariesDAG {
             descendants.extend(self.descendants_of(child_root)?);
         }
         Ok(descendants)
+    }
+}
+
+impl From<HotStateSummary> for DAGStateSummary {
+    fn from(value: HotStateSummary) -> Self {
+        Self {
+            slot: value.slot,
+            latest_block_root: value.latest_block_root,
+            latest_block_slot: value.latest_block_slot,
+            previous_state_root: value.previous_state_root,
+        }
     }
 }
 

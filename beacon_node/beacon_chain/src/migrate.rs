@@ -471,17 +471,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             let state_summaries = store
                 .load_hot_state_summaries()?
                 .into_iter()
-                .map(|(state_root, summary)| {
-                    (
-                        state_root,
-                        DAGStateSummary {
-                            slot: summary.slot,
-                            latest_block_root: summary.latest_block_root,
-                            latest_block_slot: summary.latest_block_slot,
-                            previous_state_root: summary.previous_state_root,
-                        },
-                    )
-                })
+                .map(|(state_root, summary)| (state_root, summary.into()))
                 .collect::<Vec<(Hash256, DAGStateSummary)>>();
 
             // Sanity check, there is at least one summary with the new finalized block root
