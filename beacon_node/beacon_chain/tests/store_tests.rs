@@ -116,15 +116,16 @@ fn get_harness_generic(
     harness
 }
 
-fn count_states_descendant_of_block(
+fn get_states_descendant_of_block(
     store: &HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>,
     block_root: Hash256,
-) -> usize {
+) -> Vec<(Hash256, Slot)> {
     let summaries = store.load_hot_state_summaries().unwrap();
     summaries
         .iter()
         .filter(|(_, s)| s.latest_block_root == block_root)
-        .count()
+        .map(|(state_root, summary)| (*state_root, summary.slot))
+        .collect()
 }
 
 #[tokio::test]
@@ -2155,7 +2156,8 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
 
     let slots_per_epoch = E::slots_per_epoch();
 
-    let genesis_state = harness.get_current_state();
+    let mut genesis_state = harness.get_current_state();
+    let genesis_state_root = genesis_state.update_tree_hash_cache().unwrap();
     let block_slot = Slot::new(2 * slots_per_epoch);
     let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
 
@@ -2182,7 +2184,7 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
     // The bad block parent root is the genesis block root. There's `block_slot - 1` temporary
     // states to remove + the genesis state = block_slot.
     assert_eq!(
-        count_states_descendant_of_block(&store, bad_block_parent_root),
+        get_states_descendant_of_block(&store, bad_block_parent_root).len(),
         block_slot.as_usize(),
     );
 
@@ -2203,8 +2205,10 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
     // Check that temporary states have been pruned. The genesis block is not a descendant of the
     // latest finalized checkpoint, so all its states have been pruned from the hot DB, = 0.
     assert_eq!(
-        count_states_descendant_of_block(&store, bad_block_parent_root),
-        0
+        get_states_descendant_of_block(&store, bad_block_parent_root),
+        // The genesis state is kept to support the HDiff grid
+        vec![(genesis_state_root, Slot::new(0))],
+        "get_states_descendant_of_block({bad_block_parent_root:?})"
     );
 }
 
