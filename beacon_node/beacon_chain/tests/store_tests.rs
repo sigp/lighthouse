@@ -31,6 +31,7 @@ use store::{
     BlobInfo, DBColumn, HotColdDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
+use tracing::info;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
 
@@ -2402,12 +2403,14 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .unwrap();
 
         let slot = full_block.slot();
+        let full_block_root = full_block.canonical_root();
         let state_root = full_block.state_root();
 
+        info!(block_root = ?full_block_root, ?state_root, %slot, "Importing block from chain dump");
         beacon_chain.slot_clock.set_slot(slot.as_u64());
         beacon_chain
             .process_block(
-                full_block.canonical_root(),
+                full_block_root,
                 harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
