@@ -64,6 +64,12 @@ pub enum Error {
         root_state_root: Hash256,
         root_state_slot: Slot,
     },
+    CircularAncestorChain {
+        state_root: Hash256,
+        previous_state_root: Hash256,
+        slot: Slot,
+        last_slot: Slot,
+    },
 }
 
 impl StateSummariesDAG {
@@ -335,10 +341,24 @@ impl StateSummariesDAG {
         }
 
         let mut ancestors = vec![];
+        let mut last_slot = None;
         loop {
             if let Some(summary) = self.state_summaries_by_state_root.get(&state_root) {
+                // Detect cycles, including the case where `previous_state_root == state_root`.
+                if let Some(last_slot) = last_slot {
+                    if summary.slot >= last_slot {
+                        return Err(Error::CircularAncestorChain {
+                            state_root,
+                            previous_state_root: summary.previous_state_root,
+                            slot: summary.slot,
+                            last_slot,
+                        });
+                    }
+                }
+
                 ancestors.push((state_root, summary.slot));
-                state_root = summary.previous_state_root
+                last_slot = Some(summary.slot);
+                state_root = summary.previous_state_root;
             } else {
                 return Ok(ancestors);
             }

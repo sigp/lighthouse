@@ -1540,7 +1540,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 self.store_hot_state_as_snapshot(state_root, state, ops)?;
             }
             StorageStrategy::DiffFrom(from_slot) => {
-                let from_root = get_ancenstor_state_root(self, state, from_slot)?.ok_or(
+                let from_root = get_ancestor_state_root(self, state, from_slot)?.ok_or(
                     HotColdDBError::HdiffGetPriorStateRootError(state.slot(), from_slot),
                 )?;
                 self.store_hot_state_as_diff(state_root, state, from_root, ops)?;
@@ -3371,11 +3371,12 @@ fn no_state_root_iter() -> Option<std::iter::Empty<Result<(Hash256, Slot), Error
 
 /// Return the ancestor state root of a state beyond SlotsPerHistoricalRoot using the roots iterator
 /// and the store
-fn get_ancenstor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
+fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store: &'a HotColdDB<E, Hot, Cold>,
     state: &'a BeaconState<E>,
     target_slot: Slot,
 ) -> Result<Option<Hash256>, Error> {
+    // TODO: we should avoid using inefficient StateRootsIterator here!
     StateRootsIterator::new(store, state)
         .find(|result| match result {
             Ok((_, result_slot)) => *result_slot == target_slot,
@@ -3460,7 +3461,7 @@ impl HotStateSummary {
             if slot == state.slot() {
                 Ok::<_, Error>(*state_root)
             } else {
-                Ok(get_ancenstor_state_root(store, state, slot)?.ok_or(
+                Ok(get_ancestor_state_root(store, state, slot)?.ok_or(
                     HotColdDBError::HdiffGetPriorStateRootError(state.slot(), slot),
                 )?)
             }
@@ -3472,13 +3473,19 @@ impl HotStateSummary {
             DiffBaseStateRoot::zero()
         };
 
+        let previous_state_root = if state.slot() == 0 {
+            // Set to 0x0 for genesis state to prevent any sort of circular reference.
+            Hash256::zero()
+        } else {
+            get_state_root(state.slot().safe_sub(1_u64)?)?
+        };
+
         Ok(HotStateSummary {
             slot: state.slot(),
             latest_block_root,
             latest_block_slot: state.latest_block_header().slot,
             diff_base_state_root,
-            // Note: if genesis state, it will point to its own state root
-            previous_state_root: get_state_root(state.slot().saturating_sub(1_u64))?,
+            previous_state_root,
         })
     }
 }
