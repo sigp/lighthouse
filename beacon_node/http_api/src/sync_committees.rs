@@ -108,11 +108,13 @@ fn duties_from_state_load<T: BeaconChainTypes>(
         // have to transition the head to start of the current period).
         //
         // We also need to ensure that the load slot is after the Altair fork.
+        let anchor_info = chain.store.get_anchor_info();
+        let state_upper_limit = anchor_info.state_upper_limit;
         let load_slot = max(
-            chain.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1),
-            altair_fork_epoch,
-        )
-        .start_slot(T::EthSpec::slots_per_epoch());
+            max(chain.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1), 
+                altair_fork_epoch),
+            state_upper_limit
+        ).start_slot(T::EthSpec::slots_per_epoch());
 
         let state = chain.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)?;
 
