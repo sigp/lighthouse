@@ -1486,13 +1486,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         self.store_hot_state_summary(state_root, state, ops)?;
-        self.store_hot_state_diffs(state_root, state, ops)?;
+        let diff_base_root = self.store_hot_state_diffs(state_root, state, ops)?;
 
         debug!(
             ?state_root,
             slot = %state.slot(),
             storage_strategy = ?self.hot_storage_strategy(state.slot())?,
-            "Stored hot state summary and diffs"
+            ?diff_base_root,
+            "Storing hot state summary and diffs"
         );
 
         Ok(())
@@ -1523,21 +1524,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: &Hash256,
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Hash256>, Error> {
         let slot = state.slot();
         let storage_strategy = self.hot_storage_strategy(slot)?;
-        debug!(
-            state_root = ?state_root,
-            state_slot = %slot,
-            strategy = ?storage_strategy,
-            "Storing hot state"
-        );
-        match storage_strategy {
+        Ok(match storage_strategy {
             StorageStrategy::ReplayFrom(_) => {
                 // Already have persisted the state summary, don't persist anything else
+                None
             }
             StorageStrategy::Snapshot => {
                 self.store_hot_state_as_snapshot(state_root, state, ops)?;
+                None
             }
             StorageStrategy::DiffFrom(from_slot) => {
                 let from_root = get_ancestor_state_root(self, state, from_slot).map_err(|e| {
@@ -1549,10 +1546,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     }
                 })?;
                 self.store_hot_state_as_diff(state_root, state, from_root, ops)?;
+                Some(from_root)
             }
-        }
-
-        Ok(())
+        })
     }
 
     fn store_hot_state_as_diff(
