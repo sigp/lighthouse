@@ -1,6 +1,6 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
-use crate::hot_cold_store::HotColdDBError;
+use crate::hot_cold_store::{HotColdDBError, StateSummaryIteratorError};
 use crate::{hdiff, DBColumn};
 #[cfg(feature = "leveldb")]
 use leveldb::error::Error as LevelDBError;
@@ -94,6 +94,12 @@ pub enum Error {
     LoadConfig(Box<Error>),
     LoadHotStateSummary(Hash256, Box<Error>),
     LoadHotStateSummaryForSplit(Box<Error>),
+    StateSummaryIteratorError {
+        error: StateSummaryIteratorError,
+        from_state_root: Hash256,
+        from_state_slot: Slot,
+        target_slot: Slot,
+    },
 }
 
 pub trait HandleUnavailable<T> {
