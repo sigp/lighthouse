@@ -512,17 +512,19 @@ async fn epoch_boundary_state_attestation_processing() {
             .get_blinded_block(&block_root)
             .unwrap()
             .expect("block exists");
+        // Use get_state as the state may be finalized by this point
         let mut epoch_boundary_state = store
-            .load_hot_state(&block.state_root())
+            .get_state(&block.state_root(), None)
             .expect("no error")
-            .expect("epoch boundary state exists")
-            .0;
+            .expect(&format!(
+                "epoch boundary state should exist {:?}",
+                block.state_root()
+            ));
         let ebs_state_root = epoch_boundary_state.update_tree_hash_cache().unwrap();
         let mut ebs_of_ebs = store
-            .load_hot_state(&ebs_state_root)
+            .get_state(&ebs_state_root, None)
             .expect("no error")
-            .expect("ebs of ebs exists")
-            .0;
+            .expect(&format!("ebs of ebs should exist {ebs_state_root:?}"));
         ebs_of_ebs.apply_pending_mutations().unwrap();
         assert_eq!(epoch_boundary_state, ebs_of_ebs);
 
