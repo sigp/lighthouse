@@ -218,9 +218,18 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
 /// Small enumeration to make dealing with block and blob requests easier.
 pub enum RangeBlockComponent<E: EthSpec> {
-    Block(RpcResponseResult<Vec<Arc<SignedBeaconBlock<E>>>>),
-    Blob(RpcResponseResult<Vec<Arc<BlobSidecar<E>>>>),
-    CustodyColumns(RpcResponseResult<Vec<Arc<DataColumnSidecar<E>>>>),
+    Block(
+        BlocksByRangeRequestId,
+        RpcResponseResult<Vec<Arc<SignedBeaconBlock<E>>>>,
+    ),
+    Blob(
+        BlobsByRangeRequestId,
+        RpcResponseResult<Vec<Arc<BlobSidecar<E>>>>,
+    ),
+    CustodyColumns(
+        DataColumnsByRangeRequestId,
+        RpcResponseResult<Vec<Arc<DataColumnSidecar<E>>>>,
+    ),
 }
 
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
@@ -386,7 +395,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             requester,
         };
 
-        let _blocks_req_id = self.send_blocks_by_range_request(peer_id, request.clone(), id)?;
+        // Compute custody column peers before sending the blocks_by_range request. If we don't have
+        // enough peers, error here.
+        let data_column_requests = if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
+            let column_indexes = self.network_globals().sampling_columns.clone();
+            Some(self.make_columns_by_range_requests(request.clone(), &column_indexes)?)
+        } else {
+            None
+        };
+
+        let blocks_req_id = self.send_blocks_by_range_request(peer_id, request.clone(), id)?;
 
         let blobs_req_id = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
             Some(self.send_blobs_by_range_request(
@@ -401,35 +419,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             None
         };
 
-        let (expects_columns, data_column_requests) =
-            if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let column_indexes = self.network_globals().sampling_columns.clone();
-                let data_column_requests = self
-                    .make_columns_by_range_requests(request, &column_indexes)?
-                    .into_iter()
-                    .map(|(peer_id, columns_by_range_request)| {
-                        self.send_data_columns_by_range_request(
-                            peer_id,
-                            columns_by_range_request,
-                            id,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+        let data_columns = if let Some(data_column_requests) = data_column_requests {
+            let data_column_requests = data_column_requests
+                .into_iter()
+                .map(|(peer_id, columns_by_range_request)| {
+                    self.send_data_columns_by_range_request(peer_id, columns_by_range_request, id)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
-                (
-                    Some(column_indexes.into_iter().collect::<Vec<_>>()),
-                    Some(data_column_requests),
-                )
-            } else {
-                (None, None)
-            };
+            Some((
+                data_column_requests,
+                self.network_globals()
+                    .sampling_columns
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            ))
+        } else {
+            None
+        };
 
-        let expected_blobs = blobs_req_id.is_some();
-        let info = RangeBlockComponentsRequest::new(
-            expected_blobs,
-            expects_columns,
-            data_column_requests.map(|items| items.len()),
-        );
+        let info = RangeBlockComponentsRequest::new(blocks_req_id, blobs_req_id, data_columns);
         self.components_by_range_requests.insert(id, info);
 
         Ok(id.id)
@@ -484,28 +494,33 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         if let Err(e) = {
             let request = entry.get_mut();
             match range_block_component {
-                RangeBlockComponent::Block(resp) => resp.map(|(blocks, _)| {
-                    request.add_blocks(blocks);
+                RangeBlockComponent::Block(req_id, resp) => resp.and_then(|(blocks, _)| {
+                    request
+                        .add_blocks(req_id, blocks)
+                        .map_err(RpcResponseError::BlockComponentCouplingError)
                 }),
-                RangeBlockComponent::Blob(resp) => resp.map(|(blobs, _)| {
-                    request.add_blobs(blobs);
+                RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|(blobs, _)| {
+                    request
+                        .add_blobs(req_id, blobs)
+                        .map_err(RpcResponseError::BlockComponentCouplingError)
                 }),
-                RangeBlockComponent::CustodyColumns(resp) => resp.map(|(custody_columns, _)| {
-                    request.add_custody_columns(custody_columns);
-                }),
+                RangeBlockComponent::CustodyColumns(req_id, resp) => {
+                    resp.and_then(|(custody_columns, _)| {
+                        request
+                            .add_custody_columns(req_id, custody_columns)
+                            .map_err(RpcResponseError::BlockComponentCouplingError)
+                    })
+                }
             }
         } {
             entry.remove();
             return Some(Err(e));
         }
 
-        if entry.get_mut().is_finished() {
+        if let Some(blocks_result) = entry.get().responses(&self.chain.spec) {
+            entry.remove();
             // If the request is finished, dequeue everything
-            let request = entry.remove();
-            let blocks = request
-                .into_responses(&self.chain.spec)
-                .map_err(RpcResponseError::BlockComponentCouplingError);
-            Some(blocks)
+            Some(blocks_result.map_err(RpcResponseError::BlockComponentCouplingError))
         } else {
             None
         }
