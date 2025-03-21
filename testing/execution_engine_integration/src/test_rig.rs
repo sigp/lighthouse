@@ -236,7 +236,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         // Submit transactions before getting payload
         let txs = transactions::<MainnetEthSpec>(account1, account2);
         let mut pending_txs = Vec::new();
-        for tx in txs.clone().into_iter() {
+        for tx in txs.clone() {
             let pending_tx = self
                 .ee_a
                 .execution_engine

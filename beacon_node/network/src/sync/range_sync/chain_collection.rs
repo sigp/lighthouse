@@ -135,7 +135,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         }
 
         let mut results = Vec::with_capacity(to_remove.len());
-        for (id, sync_type, reason) in to_remove.into_iter() {
+        for (id, sync_type, reason) in to_remove {
             let chain = match sync_type {
                 RangeSyncType::Finalized => self.finalized_chains.remove(&id),
                 RangeSyncType::Head => self.head_chains.remove(&id),

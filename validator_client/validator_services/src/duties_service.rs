@@ -1422,7 +1422,7 @@ mod test {
         let current_slot = Slot::new(100);
         let duty_slot = current_slot + ATTESTATION_SUBSCRIPTION_OFFSETS[0];
         let subscription_slots = SubscriptionSlots::new(duty_slot, current_slot);
-        for offset in ATTESTATION_SUBSCRIPTION_OFFSETS.into_iter() {
+        for offset in ATTESTATION_SUBSCRIPTION_OFFSETS {
             let slot = duty_slot - offset;
             assert!(!subscription_slots.should_send_subscription_at(slot));
         }

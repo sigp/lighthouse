@@ -859,7 +859,7 @@ impl Service {
 
         let mut logs_imported: usize = 0;
         let deposit_contract_address_ref: &str = &deposit_contract_address;
-        for block_range in block_number_chunks.into_iter() {
+        for block_range in block_number_chunks {
             if block_range.is_empty() {
                 debug!("No new blocks to scan for logs");
                 continue;

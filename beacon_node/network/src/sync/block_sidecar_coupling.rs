@@ -155,7 +155,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // included) for a skipped slot is not permitted.
         let mut responses = Vec::with_capacity(blocks.len());
         let mut blob_iter = blobs.into_iter().peekable();
-        for block in blocks.into_iter() {
+        for block in blocks {
             let max_blobs_per_block = spec.max_blobs_per_block(block.epoch()) as usize;
             let mut blob_list = Vec::with_capacity(max_blobs_per_block);
             while {

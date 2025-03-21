@@ -218,7 +218,7 @@ impl DepositContract {
 
     /// Peforms many deposits, each preceded by a delay.
     pub async fn deposit_multiple(&self, deposits: Vec<DelayThenDeposit>) -> Result<(), String> {
-        for deposit in deposits.into_iter() {
+        for deposit in deposits {
             sleep(deposit.delay).await;
             self.deposit_async(deposit.deposit).await?;
         }

@@ -287,7 +287,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             }
         }
 
-        for (peer_id, indices) in columns_to_request_by_peer.into_iter() {
+        for (peer_id, indices) in columns_to_request_by_peer {
             let request_result = cx
                 .data_column_lookup_request(
                     DataColumnsByRootRequester::Custody(self.custody_id),

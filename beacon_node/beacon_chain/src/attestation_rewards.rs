@@ -104,7 +104,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut total_rewards = vec![];
 
-        for (index, delta) in indices_to_attestation_delta.into_iter() {
+        for (index, delta) in indices_to_attestation_delta {
             let head_delta = delta.head_delta;
             let head = (head_delta.rewards as i64).safe_sub(head_delta.penalties as i64)?;
 

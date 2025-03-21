@@ -329,7 +329,7 @@ fn build_json_log_stdout(
     );
     log_map.insert("ts".to_string(), Value::String(timestamp.to_string()));
 
-    for (key, val) in visitor.fields.clone().into_iter() {
+    for (key, val) in visitor.fields.clone() {
         let parsed_val = parse_field(&val);
         log_map.insert(key, parsed_val);
     }
@@ -370,7 +370,7 @@ fn build_json_log_file<'a, S>(
     let module_field = format!("{}:{}", module_path, line_number);
     log_map.insert("module".to_string(), Value::String(module_field));
 
-    for (key, val) in visitor.fields.clone().into_iter() {
+    for (key, val) in visitor.fields.clone() {
         let cleaned_value = if val.starts_with('\"') && val.ends_with('\"') && val.len() >= 2 {
             &val[1..val.len() - 1]
         } else {

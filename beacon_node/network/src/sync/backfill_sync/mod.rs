@@ -818,7 +818,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             .batches
             .split_off(&(validating_epoch + BACKFILL_EPOCHS_PER_BATCH));
 
-        for (id, batch) in removed_batches.into_iter() {
+        for (id, batch) in removed_batches {
             self.validated_batches = self.validated_batches.saturating_add(1);
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong

@@ -1415,7 +1415,7 @@ mod test_compute_deltas {
             "deltas should have expected length"
         );
 
-        for delta in deltas.into_iter() {
+        for delta in deltas {
             assert_eq!(
                 delta, BALANCE as i64,
                 "each root should have the same delta"

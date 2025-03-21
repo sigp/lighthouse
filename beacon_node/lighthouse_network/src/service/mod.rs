@@ -812,7 +812,7 @@ impl<E: EthSpec> Network<E> {
     pub fn subscribe_new_fork_topics(&mut self, new_fork: ForkName, new_fork_digest: [u8; 4]) {
         // Re-subscribe to non-core topics with the new fork digest
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
-        for mut topic in subscriptions.into_iter() {
+        for mut topic in subscriptions {
             if is_fork_non_core_topic(&topic, new_fork) {
                 topic.fork_digest = new_fork_digest;
                 self.subscribe(topic);

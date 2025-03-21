@@ -33,7 +33,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
     let mut deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
 
-    for deposit in deposits.into_iter() {
+    for deposit in deposits {
         deposit_tree
             .push_leaf(deposit.data.tree_hash_root())
             .map_err(BlockProcessingError::MerkleTreeError)?;

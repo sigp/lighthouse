@@ -664,7 +664,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // batches less than `validating_epoch`
         let removed_batches = std::mem::replace(&mut self.batches, remaining_batches);
 
-        for (id, batch) in removed_batches.into_iter() {
+        for (id, batch) in removed_batches {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {

@@ -1721,7 +1721,7 @@ fn test_parent_lookup_too_deep_grow_tip() {
     let peer_id = rig.new_connected_peer();
     let tip = blocks.last().unwrap().clone();
 
-    for block in blocks.into_iter() {
+    for block in blocks {
         let block_root = block.canonical_root();
         rig.trigger_unknown_block_from_attestation(block_root, peer_id);
         let id = rig.expect_block_parent_request(block_root);

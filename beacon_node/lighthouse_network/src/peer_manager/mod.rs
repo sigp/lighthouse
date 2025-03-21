@@ -1415,7 +1415,7 @@ impl<E: EthSpec> PeerManager<E> {
         metrics::set_gauge(&metrics::PEERS_CONNECTED, peers_connected);
 
         // CUSTODY_GROUP_COUNT
-        for (custody_group_count, peer_count) in peers_per_custody_group_count.into_iter() {
+        for (custody_group_count, peer_count) in peers_per_custody_group_count {
             metrics::set_gauge_vec(
                 &metrics::PEERS_PER_CUSTODY_GROUP_COUNT,
                 &[&custody_group_count.to_string()],

@@ -1444,7 +1444,7 @@ fn to_fixed_blob_sidecar_list<E: EthSpec>(
     max_len: usize,
 ) -> Result<FixedBlobSidecarList<E>, LookupVerifyError> {
     let mut fixed_list = FixedBlobSidecarList::new(vec![None; max_len]);
-    for blob in blobs.into_iter() {
+    for blob in blobs {
         let index = blob.index as usize;
         *fixed_list
             .get_mut(index)
