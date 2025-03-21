@@ -110,13 +110,22 @@ fn duties_from_state_load<T: BeaconChainTypes>(
         // We also need to ensure that the load slot is after the Altair fork.
         let anchor_info = chain.store.get_anchor_info();
         let state_upper_limit = anchor_info.state_upper_limit;
-        let load_slot = max(
-            max(chain.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1), 
-                altair_fork_epoch),
+        // Compute the lower bound in epoch units.
+        let computed_epoch = std::cmp::max(
+            chain.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1),
+            altair_fork_epoch,
+        );
+        let computed_slot = computed_epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let effective_state_upper_limit = if state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN {
+            computed_slot
+        } else {
             state_upper_limit
-        ).start_slot(T::EthSpec::slots_per_epoch());
+        };
+
+        let load_slot = std::cmp::max(computed_slot, effective_state_upper_limit);
 
         let state = chain.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)?;
+
 
         state
             .get_sync_committee_duties(request_epoch, request_indices, &chain.spec)
