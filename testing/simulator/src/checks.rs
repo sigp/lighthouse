@@ -2,7 +2,6 @@ use crate::local_network::LocalNetwork;
 use node_test_rig::eth2::types::{BlockId, FinalityCheckpointsData, StateId};
 use std::time::Duration;
 use types::{Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Slot, Unsigned};
-use crate::hot_cold_db::HotColdDB;
 
 /// Checks that all of the validators have on-boarded by the start of the second eth1 voting
 /// period.
@@ -173,20 +172,15 @@ pub async fn verify_fork_version<E: EthSpec>(
 /// have full aggregates.
 pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
     network: LocalNetwork<E>,
-    db: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
     sync_committee_start_slot: Slot,
     upto_slot: Slot,
     slot_duration: Duration,
 ) -> Result<(), String> {
     slot_delay(upto_slot, slot_duration).await;
-    let anchor_info = db.get_anchor_info();
-    let state_upper_limit = anchor_info.state_upper_limit;
-    let effective_start_slot = std::cmp::max(sync_committee_start_slot, state_upper_limit);
-
     let remote_nodes = network.remote_nodes()?;
     let remote_node = remote_nodes.first().unwrap();
 
-    for slot in effective_start_slot.as_u64()..=upto_slot.as_u64() {
+    for slot in sync_committee_start_slot.as_u64()..=upto_slot.as_u64() {
         let sync_aggregate_count = remote_node
             .get_beacon_blocks::<E>(BlockId::Slot(Slot::new(slot)))
             .await
