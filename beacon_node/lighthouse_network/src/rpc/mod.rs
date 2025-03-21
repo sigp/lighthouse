@@ -231,9 +231,10 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             return;
         };
 
-        // Add the request back to active requests if the response is not a stream termination.
+        // Add the request back to active requests if the response is `Success` and requires stream
+        // termination.
         if request.r#type.protocol().terminator().is_some()
-            && !matches!(event, RpcResponse::StreamTermination(_))
+            && matches!(event, RpcResponse::Success(_))
         {
             self.active_inbound_requests
                 .insert(request_id, request.clone());
