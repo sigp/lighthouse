@@ -107,7 +107,27 @@ fn keypair_from_bytes(mut bytes: Vec<u8>) -> Result<Keypair, String> {
 /// generated and is then saved to disk.
 ///
 /// Currently only secp256k1 keys are allowed, as these are the only keys supported by discv5.
-pub fn load_private_key(config: &NetworkConfig) -> Keypair {
+pub fn load_private_key(config: &NetworkConfig, cli_args: &ArgsMatches) -> Keypair {
+
+    if let Some(custom_key_path) = cli_args.get_one::<String>("p2p-priv-key") {
+        let path = PathBuf::from(custom_key_path);
+        match fs::read_to_string(&path) {
+            Ok(key_hex) => {
+                match keypair_from_hex(key_hex.trim()) {
+                    Ok(keypair) => {
+                        debug!("Loaded custom p2p key from file: {:?}", path);
+                        return keypair;
+                    }
+                    Err(e) => {
+                        error!("Failed to decode custom p2p key from hex: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to read custom p2p key file {:?}: {}", path, e);
+            }
+        }
+    }
     // check for key from disk
     let network_key_f = config.network_dir.join(NETWORK_KEY_FILENAME);
     if let Ok(mut network_key_file) = File::open(network_key_f.clone()) {
