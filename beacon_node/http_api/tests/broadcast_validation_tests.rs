@@ -381,6 +381,7 @@ pub async fn consensus_partial_pass_only_consensus() {
         validation_level,
         StatusCode::ACCEPTED,
         network_globals,
+        true,
     )
     .await;
 
@@ -671,6 +672,7 @@ pub async fn equivocation_consensus_late_equivocation() {
         validation_level,
         StatusCode::ACCEPTED,
         network_globals,
+        true,
     )
     .await;
 
@@ -1306,6 +1308,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         validation_level,
         StatusCode::ACCEPTED,
         network_globals,
+        true,
     )
     .await;
 
