@@ -178,7 +178,7 @@ impl<E: EthSpec> Network<E> {
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");
         // initialise the node's ID
-        let local_keypair = utils::load_private_key(&config);
+        let local_keypair = utils::load_private_key(&config, &cli_args);
 
         // Trusted peers will also be marked as explicit in GossipSub.
         // Cfr. https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md#explicit-peering-agreements
