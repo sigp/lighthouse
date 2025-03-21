@@ -83,7 +83,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
             network_config.discv5_config.enr_update = false;
         }
 
-        let private_key = load_private_key(&network_config);
+        let private_key = load_private_key(&network_config, &cli_args);
         let local_key = CombinedKey::from_libp2p(private_key)?;
 
         let local_enr = if let Some(dir) = matches.get_one::<String>("network-dir") {
