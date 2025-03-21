@@ -28,7 +28,7 @@ where
         };
 
         let mut writer = match target {
-            "gossipsub" => self.libp2p_non_blocking_writer.clone(),
+            "libp2p_gossipsub" => self.libp2p_non_blocking_writer.clone(),
             "discv5" => self.discv5_non_blocking_writer.clone(),
             _ => return,
         };
