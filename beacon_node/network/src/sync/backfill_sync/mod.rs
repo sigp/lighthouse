@@ -30,6 +30,8 @@ use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 use types::{Epoch, EthSpec};
 
+use super::range_sync::BatchPeerGroup;
+
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
 /// already requested slots. There is a timeout for each batch request. If this value is too high,
@@ -378,7 +380,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
-        peer_id: &PeerId,
+        peer: BatchPeerGroup,
         request_id: Id,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<ProcessResult, BackFillError> {
@@ -399,7 +401,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             return Ok(ProcessResult::Successful);
         }
 
-        match batch.download_completed(blocks, *peer_id) {
+        match batch.download_completed(blocks, peer) {
             Ok(received) => {
                 let awaiting_batches =
                     self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
@@ -573,7 +575,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         };
 
-        let Some(peer) = batch.processing_peer() else {
+        let Some(batch_peers) = batch.processing_peer() else {
             self.fail_sync(BackFillError::BatchInvalidState(
                 batch_id,
                 String::from("Peer does not exist"),
@@ -585,8 +587,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             ?result,
             %batch,
             batch_epoch = %batch_id,
-            %peer,
-            client = %network.client_type(peer),
             "Backfill batch processed"
         );
 
@@ -628,8 +628,24 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
             BatchProcessResult::FaultyFailure {
                 imported_blocks,
-                penalty,
+                peer_action,
+                error,
             } => {
+                // TODO: De-dup between back and forwards sync
+                if let Some(penalty) = peer_action.block_peer {
+                    // Penalize the peer appropiately.
+                    network.report_peer(batch_peers.block(), penalty, "faulty_batch");
+                    // TODO(das): downscore the right peer and display the client_type
+                    //             client = %network.client_type(peer),
+                }
+                for (column_index, penalty) in &peer_action.column_peer {
+                    if let Some(peer) = batch_peers.column(*column_index) {
+                        network.report_peer(peer, *penalty, "faulty_batch");
+                    } else {
+                        warn!(%batch_id, column_index, "Missing peer in PeerGroup");
+                    }
+                }
+
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure) {
                     Err(e) => {
                         // Batch was in the wrong state
@@ -637,6 +653,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                             .map(|_| ProcessResult::Successful)
                     }
                     Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
+                        // TODO(das): what peer action should we apply to the rest of
+                        // peers? Say a batch repeatedly fails because a custody peer is not
+                        // sending us its custody columns
+                        let penalty = PeerAction::LowToleranceError;
+
                         // check that we have not exceeded the re-process retry counter
                         // If a batch has exceeded the invalid batch lookup attempts limit, it means
                         // that it is likely all peers are sending invalid batches
@@ -645,13 +666,14 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         warn!(
                             score_adjustment = %penalty,
                             batch_epoch = %batch_id,
+                            error,
                             "Backfill batch failed to download. Penalizing peers"
                         );
 
                         for peer in self.participating_peers.drain() {
                             // TODO(das): `participating_peers` only includes block peers. Should we
                             // penalize the custody column peers too?
-                            network.report_peer(peer, *penalty, "backfill_batch_failed");
+                            network.report_peer(peer, penalty, "backfill_batch_failed");
                         }
                         self.fail_sync(BackFillError::BatchProcessingFailed(batch_id))
                             .map(|_| ProcessResult::Successful)
@@ -781,37 +803,38 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
                             // The re-downloaded version was different.
-                            if processed_attempt.peer_id != attempt.peer_id {
+                            // TODO(das): should penalize other peers?
+                            let valid_attempt_peer = processed_attempt.peer_id.block();
+                            let bad_attempt_peer = attempt.peer_id.block();
+                            if valid_attempt_peer != bad_attempt_peer {
                                 // A different peer sent the correct batch, the previous peer did not
                                 // We negatively score the original peer.
                                 let action = PeerAction::LowToleranceError;
                                 debug!(
-                                    batch_epoch = ?id,
-                                    score_adjustment = %action,
-                                    original_peer = %attempt.peer_id,
-                                    new_peer = %processed_attempt.peer_id,
+                                    batch_epoch = %id, score_adjustment = %action,
+                                    original_peer = %bad_attempt_peer, new_peer = %valid_attempt_peer,
                                     "Re-processed batch validated. Scoring original peer"
                                 );
                                 network.report_peer(
-                                    attempt.peer_id,
+                                    bad_attempt_peer,
                                     action,
-                                    "backfill_reprocessed_original_peer",
+                                    "batch_reprocessed_original_peer",
                                 );
                             } else {
                                 // The same peer corrected it's previous mistake. There was an error, so we
                                 // negative score the original peer.
                                 let action = PeerAction::MidToleranceError;
                                 debug!(
-                                    batch_epoch = ?id,
+                                    batch_epoch = %id,
                                     score_adjustment = %action,
-                                    original_peer = %attempt.peer_id,
-                                    new_peer = %processed_attempt.peer_id,
+                                    original_peer = %bad_attempt_peer,
+                                    new_peer = %valid_attempt_peer,
                                     "Re-processed batch validated by the same peer"
                                 );
                                 network.report_peer(
-                                    attempt.peer_id,
+                                    bad_attempt_peer,
                                     action,
-                                    "backfill_reprocessed_same_peer",
+                                    "batch_reprocessed_same_peer",
                                 );
                             }
                         }

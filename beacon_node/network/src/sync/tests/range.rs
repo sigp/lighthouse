@@ -449,12 +449,13 @@ fn build_rpc_block(
             RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
+            // TODO(das): Assumes CGC = max value. Change if we want to do more complex tests
+            let expected_custody_indices = columns.iter().map(|d| d.index()).collect::<Vec<_>>();
             RpcBlock::new_with_custody_columns(
                 None,
                 block,
                 columns.clone(),
-                // TODO(das): Assumes CGC = max value. Change if we want to do more complex tests
-                columns.len(),
+                expected_custody_indices,
                 spec,
             )
             .unwrap()

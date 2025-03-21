@@ -1,4 +1,5 @@
-use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
+use crate::block_verification_types::{MaybeAvailableBlock, RpcBlock};
+use crate::data_availability_checker::{AvailabilityCheckError, AvailableBlockData};
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
 use state_processing::{
@@ -27,15 +28,17 @@ pub enum HistoricalBlockError {
         expected_block_root: Hash256,
     },
     /// Bad signature, caller should retry with different blocks.
-    SignatureSet(SignatureSetError),
-    /// Bad signature, caller should retry with different blocks.
-    InvalidSignature,
+    InvalidSignature(String),
+    /// Unexpected error
+    Unexpected(String),
     /// Transitory error, caller should retry with the same blocks.
     ValidatorPubkeyCacheTimeout,
     /// Logic error: should never occur.
     IndexOutOfBounds,
     /// Internal store error
     StoreError(StoreError),
+    /// Faulty and internal AvailabilityCheckError
+    AvailabilityCheckError(AvailabilityCheckError),
 }
 
 impl From<StoreError> for HistoricalBlockError {
@@ -44,7 +47,54 @@ impl From<StoreError> for HistoricalBlockError {
     }
 }
 
+impl From<SignatureSetError> for HistoricalBlockError {
+    fn from(err: SignatureSetError) -> Self {
+        match err {
+            // The encoding of the signature is invalid, peer fault
+            e @ SignatureSetError::SignatureInvalid(_) => Self::InvalidSignature(format!("{e:?}")),
+            // All these variants are internal errors or unreachable for historical block paths,
+            // which only check the proposer signature.
+            // BadBlsBytes = Unreachable
+            e @ (SignatureSetError::BeaconStateError(_)
+            | SignatureSetError::ValidatorUnknown(_)
+            | SignatureSetError::ValidatorPubkeyUnknown(_)
+            | SignatureSetError::IncorrectBlockProposer { .. }
+            | SignatureSetError::MismatchedPublicKeyLen { .. }
+            | SignatureSetError::PublicKeyDecompressionFailed
+            | SignatureSetError::BadBlsBytes { .. }
+            | SignatureSetError::InconsistentBlockFork(_)) => Self::Unexpected(format!("{e:?}")),
+        }
+    }
+}
+
+impl From<AvailabilityCheckError> for HistoricalBlockError {
+    fn from(e: AvailabilityCheckError) -> Self {
+        Self::AvailabilityCheckError(e)
+    }
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    pub fn assert_correct_historical_block_chain(
+        &self,
+        blocks: &[RpcBlock<T::EthSpec>],
+    ) -> Result<(), HistoricalBlockError> {
+        let anchor_info = self.store.get_anchor_info();
+        let mut expected_block_root = anchor_info.oldest_block_parent;
+
+        for block in blocks.iter().rev() {
+            if block.block_root() != expected_block_root {
+                return Err(HistoricalBlockError::MismatchedBlockRoot {
+                    block_root: block.block_root(),
+                    expected_block_root,
+                });
+            }
+
+            expected_block_root = block.as_block().message().parent_root();
+        }
+
+        Ok(())
+    }
+
     /// Store a batch of historical blocks in the database.
     ///
     /// The `blocks` should be given in slot-ascending order. One of the blocks should have a block
@@ -65,8 +115,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return the number of blocks successfully imported.
     pub fn import_historical_block_batch(
         &self,
-        mut blocks: Vec<AvailableBlock<T::EthSpec>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
+        // First check that chain of blocks is correct
+        self.assert_correct_historical_block_chain(&blocks)?;
+
+        // Check that all data columns are present <- faulty failure if missing because we have
+        // checked the block root is correct first.
+        let mut blocks = self
+            .data_availability_checker
+            .verify_kzg_for_rpc_blocks(blocks)
+            .and_then(|blocks| {
+                blocks
+                    .into_iter()
+                    // RpcBlocks must always be Available, otherwise a data peer is faulty of
+                    // malicious. `verify_kzg_for_rpc_blocks` returns errors for those cases, but we
+                    // haven't updated its function signature. This code block can be deleted later
+                    // bigger refactor.
+                    .map(|maybe_available| match maybe_available {
+                        MaybeAvailableBlock::Available(block) => Ok(block),
+                        MaybeAvailableBlock::AvailabilityPending { .. } => Err(
+                            AvailabilityCheckError::Unexpected("block not available".to_string()),
+                        ),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })?;
+
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
@@ -105,13 +179,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         for available_block in blocks_to_import.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
-
-            if block_root != expected_block_root {
-                return Err(HistoricalBlockError::MismatchedBlockRoot {
-                    block_root,
-                    expected_block_root,
-                });
-            }
 
             if !self.store.get_config().prune_payloads {
                 // If prune-payloads is set to false, store the block which includes the execution payload
@@ -213,14 +280,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             })
             .collect::<Result<Vec<_>, _>>()
-            .map_err(HistoricalBlockError::SignatureSet)
             .map(ParallelSignatureSets::from)?;
         drop(pubkey_cache);
         drop(setup_timer);
 
+        // TODO: Check that the proposer signature in the blobs and data columns is the same as the
+        // correct signature in the block.
+
         let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
         if !signature_set.verify() {
-            return Err(HistoricalBlockError::InvalidSignature);
+            return Err(HistoricalBlockError::InvalidSignature("invalid".to_owned()));
         }
         drop(verify_timer);
         drop(sig_timer);

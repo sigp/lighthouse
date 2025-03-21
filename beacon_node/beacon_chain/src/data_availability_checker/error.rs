@@ -13,7 +13,8 @@ pub enum Error {
     Unexpected(String),
     SszTypes(ssz_types::Error),
     MissingBlobs,
-    MissingCustodyColumns,
+    MissingCustodyColumns(Vec<ColumnIndex>),
+    MissingAllCustodyColumns,
     BlobIndexInvalid(u64),
     DataColumnIndexInvalid(u64),
     StoreError(store::Error),
@@ -37,7 +38,8 @@ impl Error {
         match self {
             Error::SszTypes(_)
             | Error::MissingBlobs
-            | Error::MissingCustodyColumns
+            | Error::MissingCustodyColumns(_)
+            | Error::MissingAllCustodyColumns
             | Error::StoreError(_)
             | Error::DecodeError(_)
             | Error::Unexpected(_)

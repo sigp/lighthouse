@@ -1,4 +1,4 @@
-use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
+use super::batch::{BatchInfo, BatchPeerGroup, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
@@ -227,7 +227,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
-        peer_id: &PeerId,
+        peer: BatchPeerGroup,
         request_id: Id,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> ProcessingResult {
@@ -256,7 +256,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // Remove the request from the peer's active batches
 
         // TODO(das): should use peer group here https://github.com/sigp/lighthouse/issues/6258
-        let received = batch.download_completed(blocks, *peer_id)?;
+        let received = batch.download_completed(blocks, peer)?;
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
             / EPOCHS_PER_BATCH;
@@ -458,7 +458,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        let peer = batch.processing_peer().cloned().ok_or_else(|| {
+        let batch_peers = batch.processing_peer().cloned().ok_or_else(|| {
             RemoveChain::WrongBatchState(format!(
                 "Processing target is in wrong state: {:?}",
                 batch.state(),
@@ -469,7 +469,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         debug!(
             result = ?result,
             batch_epoch = %batch_id,
-            client = %network.client_type(&peer),
             batch_state = ?batch_state,
             ?batch,
             "Batch processing result"
@@ -532,10 +531,22 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             BatchProcessResult::FaultyFailure {
                 imported_blocks,
-                penalty,
+                peer_action,
+                // TODO: propagate error in logs
+                error: _,
             } => {
-                // Penalize the peer appropiately.
-                network.report_peer(peer, *penalty, "faulty_batch");
+                // TODO: De-dup between back and forwards sync
+                if let Some(penalty) = peer_action.block_peer {
+                    // Penalize the peer appropiately.
+                    network.report_peer(batch_peers.block(), penalty, "faulty_batch");
+                }
+                for (column_index, penalty) in &peer_action.column_peer {
+                    if let Some(peer) = batch_peers.column(*column_index) {
+                        network.report_peer(peer, *penalty, "faulty_batch");
+                    } else {
+                        warn!(%batch_id, column_index, "Missing peer in PeerGroup");
+                    }
+                }
 
                 // Check if this batch is allowed to continue
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure)? {
@@ -551,6 +562,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         self.handle_invalid_batch(network, batch_id)
                     }
                     BatchOperationOutcome::Failed { blacklist } => {
+                        // TODO(das): what peer action should we apply to the rest of
+                        // peers? Say a batch repeatedly fails because a custody peer is not
+                        // sending us its custody columns
+                        let penalty = PeerAction::LowToleranceError;
+
                         // Check that we have not exceeded the re-process retry counter,
                         // If a batch has exceeded the invalid batch lookup attempts limit, it means
                         // that it is likely all peers in this chain are are sending invalid batches
@@ -565,7 +581,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         );
 
                         for peer in self.peers.drain() {
-                            network.report_peer(peer, *penalty, "faulty_chain");
+                            network.report_peer(peer, penalty, "faulty_chain");
                         }
                         Err(RemoveChain::ChainFailed {
                             blacklist,
@@ -644,17 +660,20 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
                             // The re-downloaded version was different
-                            if processed_attempt.peer_id != attempt.peer_id {
+                            // TODO(das): should penalize other peers?
+                            let valid_attempt_peer = processed_attempt.peer_id.block();
+                            let bad_attempt_peer = attempt.peer_id.block();
+                            if valid_attempt_peer != bad_attempt_peer {
                                 // A different peer sent the correct batch, the previous peer did not
                                 // We negatively score the original peer.
                                 let action = PeerAction::LowToleranceError;
                                 debug!(
                                     batch_epoch = %id, score_adjustment = %action,
-                                    original_peer = %attempt.peer_id, new_peer = %processed_attempt.peer_id,
+                                    original_peer = %bad_attempt_peer, new_peer = %valid_attempt_peer,
                                     "Re-processed batch validated. Scoring original peer"
                                 );
                                 network.report_peer(
-                                    attempt.peer_id,
+                                    bad_attempt_peer,
                                     action,
                                     "batch_reprocessed_original_peer",
                                 );
@@ -665,12 +684,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                 debug!(
                                     batch_epoch = %id,
                                     score_adjustment = %action,
-                                    original_peer = %attempt.peer_id,
-                                    new_peer = %processed_attempt.peer_id,
+                                    original_peer = %bad_attempt_peer,
+                                    new_peer = %valid_attempt_peer,
                                     "Re-processed batch validated by the same peer"
                                 );
                                 network.report_peer(
-                                    attempt.peer_id,
+                                    bad_attempt_peer,
                                     action,
                                     "batch_reprocessed_same_peer",
                                 );

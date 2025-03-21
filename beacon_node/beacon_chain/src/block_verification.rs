@@ -632,6 +632,22 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &chain.spec,
     )?;
 
+    // verify signatures before matching blocks and data
+    {
+        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+        for (block_root, block) in &chain_segment {
+            let mut consensus_context =
+                ConsensusContext::new(block.slot()).set_current_block_root(*block_root);
+            signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
+        }
+        if signature_verifier.verify().is_err() {
+            return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
+        }
+    }
+
+    // Should check correct proposer cheap for added protection if blocks and columns don't match
+
     // unzip chain segment and verify kzg in bulk
     let (roots, blocks): (Vec<_>, Vec<_>) = chain_segment.into_iter().unzip();
     let maybe_available_blocks = chain
@@ -652,20 +668,6 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             }
         })
         .collect::<Vec<_>>();
-
-    // verify signatures
-    let pubkey_cache = get_validator_pubkey_cache(chain)?;
-    let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
-    for svb in &mut signature_verified_blocks {
-        signature_verifier
-            .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
-    }
-
-    if signature_verifier.verify().is_err() {
-        return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
-    }
-
-    drop(pubkey_cache);
 
     if let Some(signature_verified_block) = signature_verified_blocks.first_mut() {
         signature_verified_block.parent = Some(parent);

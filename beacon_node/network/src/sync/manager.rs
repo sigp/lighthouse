@@ -41,7 +41,9 @@ use super::network_context::{
 use super::peer_sampling::{Sampling, SamplingConfig, SamplingResult};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
+use crate::network_beacon_processor::{
+    ChainSegmentProcessId, NetworkBeaconProcessor, PeerGroupAction,
+};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
@@ -61,8 +63,8 @@ use lighthouse_network::service::api_types::{
     SamplingId, SamplingRequester, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
+use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
-use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
 use std::ops::Sub;
@@ -215,7 +217,8 @@ pub enum BatchProcessResult {
     /// The batch processing failed. It carries whether the processing imported any block.
     FaultyFailure {
         imported_blocks: usize,
-        penalty: PeerAction,
+        peer_action: PeerGroupAction,
+        error: String,
     },
     NonFaultyFailure,
 }
@@ -1251,17 +1254,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) {
-        if let Some(resp) = self
-            .network
-            .range_block_component_response(range_request_id, range_block_component)
-        {
+        if let Some(resp) = self.network.range_block_component_response(
+            range_request_id,
+            peer_id,
+            range_block_component,
+        ) {
             match resp {
-                Ok(blocks) => {
+                Ok((blocks, batch_peers)) => {
                     match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(
                                 &mut self.network,
-                                peer_id,
+                                batch_peers,
                                 chain_id,
                                 batch_id,
                                 range_request_id.id,
@@ -1273,7 +1277,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             match self.backfill_sync.on_block_response(
                                 &mut self.network,
                                 batch_id,
-                                &peer_id,
+                                batch_peers,
                                 range_request_id.id,
                                 blocks,
                             ) {

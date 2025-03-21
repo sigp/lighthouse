@@ -2371,11 +2371,8 @@ where
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let columns = self
-                .chain
-                .get_data_columns(&block_root)
-                .unwrap()
-                .or_default();
+            let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
+            let expected_custody_indices = columns.iter().map(|d| d.index).collect::<Vec<_>>();
             let custody_columns = columns
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
@@ -2384,7 +2381,7 @@ where
                 Some(block_root),
                 block,
                 custody_columns,
-                self.get_sampling_column_count(),
+                expected_custody_indices,
                 &self.spec,
             )
             .unwrap()
@@ -2413,11 +2410,13 @@ where
                     .take(sampling_column_count)
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
+                let expected_custody_indices =
+                    columns.iter().map(|d| d.index()).collect::<Vec<_>>();
                 RpcBlock::new_with_custody_columns(
                     Some(block_root),
                     block,
                     columns,
-                    sampling_column_count,
+                    expected_custody_indices,
                     &self.spec,
                 )?
             } else {
