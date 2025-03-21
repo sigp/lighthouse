@@ -17,7 +17,7 @@ use execution_layer::ProvenancedPayload;
 use futures::TryFutureExt;
 use lighthouse_network::{NetworkGlobals, PubsubMessage};
 use network::NetworkMessage;
-use rand::{RngCore, SeedableRng, prelude::SliceRandom, thread_rng, rngs::StdRng};
+use rand::{prelude::SliceRandom, rngs::StdRng, thread_rng, RngCore, SeedableRng};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -220,7 +220,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 tokio::time::sleep(delay).await;
             }
         }
-        publish_column_sidecars(network_tx, &gossip_verified_columns, &chain, deterministic_col_ordering).map_err(|_| {
+        publish_column_sidecars(
+            network_tx,
+            &gossip_verified_columns,
+            &chain,
+            deterministic_col_ordering,
+        )
+        .map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
         let sampling_columns_indices = &network_globals.sampling_columns;
