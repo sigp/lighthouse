@@ -715,24 +715,26 @@ impl ChainSpec {
     ///
     /// https://github.com/google/snappy/blob/32ded457c0b1fe78ceb8397632c416568d6714a0/snappy.cc#L218C1-L218C47
     /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/p2p-interface.md#max_compressed_len
-    #[allow(clippy::arithmetic_side_effects)]
-    fn max_compressed_len_snappy(n: usize) -> usize {
-        32 + n + (n / 6)
+    fn max_compressed_len_snappy(n: usize) -> Option<usize> {
+        32_usize.checked_add(n)?.checked_add(n / 6)
     }
 
     /// Max compressed length of a message that we receive over gossip.
     pub fn max_compressed_len(&self) -> usize {
         Self::max_compressed_len_snappy(self.max_payload_size as usize)
+            .expect("should not overflow")
     }
 
     /// Max allowed size of a raw, compressed message received over the network.
     ///
     /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/p2p-interface.md#max_compressed_len
-    #[allow(clippy::arithmetic_side_effects)]
     pub fn max_message_size(&self) -> usize {
         std::cmp::max(
             // 1024 to account for framing + encoding overhead
-            Self::max_compressed_len_snappy(self.max_payload_size as usize) + 1024,
+            Self::max_compressed_len_snappy(self.max_payload_size as usize)
+                .expect("should not overflow")
+                .safe_add(1024)
+                .expect("should not overflow"),
             //1MB
             1024 * 1024,
         )
@@ -2347,5 +2349,18 @@ mod yaml_tests {
             int_to_bytes4(ApplicationDomain::Builder.get_domain_constant()),
             [0, 0, 0, 1]
         );
+    }
+
+    #[test]
+    fn test_max_network_limits_overflow() {
+        let mut spec = MainnetEthSpec::default_spec();
+        // Should not overflow
+        let _ = spec.max_message_size();
+        let _ = spec.max_compressed_len();
+
+        spec.max_payload_size *= 10;
+        // Should not overflow even with a 10x increase in max
+        let _ = spec.max_message_size();
+        let _ = spec.max_compressed_len();
     }
 }
