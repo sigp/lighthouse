@@ -30,7 +30,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::{error, info, warn};
 use types::graffiti::GraffitiString;
-use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
+use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
 
 const PURGE_DB_CONFIRMATION: &str = "confirm";
 
@@ -48,17 +48,6 @@ pub fn get_config<E: EthSpec>(
     let spec = &context.eth2_config.spec;
 
     let mut client_config = ClientConfig::default();
-
-    if let Some(false_custody_group_count) =
-        clap_utils::parse_optional::<u64>(cli_args, "advertise-false-custody-group-count")?
-    {
-        if false_custody_group_count > spec.number_of_custody_groups {
-            return Err(format!(
-                "advertise-false-custody-group-count ({}) exceeds number_of_custody_groups ({})",
-                false_custody_group_count, spec.number_of_custody_groups
-            ));
-        }
-    }
 
     // Update the client's data directory
     client_config.set_data_dir(get_data_dir(cli_args));
@@ -119,7 +108,12 @@ pub fn get_config<E: EthSpec>(
 
     let data_dir_ref = client_config.data_dir().clone();
 
-    set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
+    set_network_config(
+        &mut client_config.network,
+        cli_args,
+        &data_dir_ref,
+        Some(spec),
+    )?;
 
     /*
      * Staking flag
@@ -1155,6 +1149,7 @@ pub fn set_network_config(
     config: &mut NetworkConfig,
     cli_args: &ArgMatches,
     data_dir: &Path,
+    spec: Option<&ChainSpec>,
 ) -> Result<(), String> {
     // If a network dir has been specified, override the `datadir` definition.
     if let Some(dir) = cli_args.get_one::<String>("network-dir") {
@@ -1184,6 +1179,14 @@ pub fn set_network_config(
     if let Some(false_custody_group_count) =
         clap_utils::parse_optional(cli_args, "advertise-false-custody-group-count")?
     {
+        if let Some(spec) = spec {
+            if false_custody_group_count > spec.number_of_custody_groups {
+                return Err(format!(
+                    "advertise-false-custody-group-count ({}) exceeds number_of_custody_groups ({})",
+                    false_custody_group_count, spec.number_of_custody_groups
+                ));
+            }
+        }
         config.advertise_false_custody_group_count = Some(false_custody_group_count);
     }
 

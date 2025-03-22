@@ -203,7 +203,8 @@ impl<E: EthSpec> Network<E> {
             if let Some(false_count) = config.advertise_false_custody_group_count {
                 false_count
             } else {
-                ctx.chain_spec.custody_group_count(config.subscribe_all_data_column_subnets)
+                ctx.chain_spec
+                    .custody_group_count(config.subscribe_all_data_column_subnets)
             }
         });
         let meta_data = utils::load_or_build_metadata(&config.network_dir, custody_group_count);

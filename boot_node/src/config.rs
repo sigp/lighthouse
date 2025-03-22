@@ -53,7 +53,9 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
         let mut network_config = NetworkConfig::default();
 
-        set_network_config(&mut network_config, matches, &data_dir)?;
+        let spec = eth2_network_config.chain_spec::<E>()?;
+
+        set_network_config(&mut network_config, matches, &data_dir, Some(&spec))?;
 
         // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
