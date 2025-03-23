@@ -2704,10 +2704,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // configured to delay updating the split or finalization has ceased. In this instance we
         // choose to also delay the pruning of blobs (we never prune without finalization anyway).
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
+
+        // Choose the appropriate window size based on whether peer DAS is enabled.
+        let min_epochs = if self.spec.is_peer_das_enabled_for_epoch(min_current_epoch) {
+            self.spec.min_epochs_for_data_column_sidecars_requests
+        } else {
+            self.spec.min_epochs_for_blob_sidecars_requests
+        };
+
         let min_data_availability_boundary = std::cmp::max(
             deneb_fork_epoch,
-            min_current_epoch
-                .saturating_sub(self.spec.min_epochs_for_data_column_sidecars_requests),
+            min_current_epoch.saturating_sub(min_epochs),
         );
 
         self.try_prune_blobs(force, min_data_availability_boundary)

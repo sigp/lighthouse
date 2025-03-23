@@ -493,11 +493,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
         let fork_epoch = self.spec.deneb_fork_epoch?;
         let current_slot = self.slot_clock.now()?;
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        // pre-fulu: use blob sidecar window, post-fulu: use data column window
+        let min_epochs = if self.spec.is_peer_das_enabled_for_epoch(current_epoch) {
+            self.spec.min_epochs_for_data_column_sidecars_requests
+        } else {
+            self.spec.min_epochs_for_blob_sidecars_requests
+        };
+
         Some(std::cmp::max(
             fork_epoch,
-            current_slot
-                .epoch(T::EthSpec::slots_per_epoch())
-                .saturating_sub(self.spec.min_epochs_for_data_column_sidecars_requests),
+            current_epoch.saturating_sub(min_epochs),
         ))
     }
 
@@ -675,15 +682,18 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                     .fork_choice_read_lock()
                     .finalized_checkpoint()
                     .epoch;
+
+                // pre-fulu: use blob sidecar window, post-fulu: use data column window
+                let min_epochs = if chain.spec.is_peer_das_enabled_for_epoch(current_epoch) {
+                    chain.spec.min_epochs_for_data_column_sidecars_requests
+                } else {
+                    chain.spec.min_epochs_for_blob_sidecars_requests
+                };
+
                 // any data belonging to an epoch before this should be pruned
                 let cutoff_epoch = std::cmp::max(
                     finalized_epoch + 1,
-                    std::cmp::max(
-                        current_epoch.saturating_sub(
-                            chain.spec.min_epochs_for_data_column_sidecars_requests,
-                        ),
-                        deneb_fork_epoch,
-                    ),
+                    std::cmp::max(current_epoch.saturating_sub(min_epochs), deneb_fork_epoch),
                 );
 
                 if let Err(e) = overflow_cache.do_maintenance(cutoff_epoch) {

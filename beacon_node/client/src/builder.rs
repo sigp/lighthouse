@@ -308,12 +308,27 @@ where
                         let deneb_time =
                             genesis_time + (deneb_fork_epoch.as_u64() * spec.seconds_per_slot);
 
+                        let slot_clock = SystemTimeSlotClock::new(
+                            spec.genesis_slot,
+                            Duration::from_secs(genesis_time),
+                            Duration::from_secs(spec.seconds_per_slot),
+                        );
+                        let current_epoch = slot_clock
+                            .now()
+                            .map(|s| s.epoch(E::slots_per_epoch()))
+                            .ok_or("Unable to read system time")?;
+
+                        let min_epochs = if spec.is_peer_das_enabled_for_epoch(current_epoch) {
+                            spec.min_epochs_for_data_column_sidecars_requests
+                        } else {
+                            spec.min_epochs_for_blob_sidecars_requests
+                        };
+
                         // Shrink the blob availability window so users don't start
                         // a sync right before blobs start to disappear from the P2P
                         // network.
-                        let reduced_p2p_availability_epochs = spec
-                            .min_epochs_for_data_column_sidecars_requests
-                            .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
+                        let reduced_p2p_availability_epochs =
+                            min_epochs.saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
                         let blob_availability_window = reduced_p2p_availability_epochs
                             * E::slots_per_epoch()
                             * spec.seconds_per_slot;
