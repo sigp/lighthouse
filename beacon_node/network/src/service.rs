@@ -79,9 +79,7 @@ pub enum NetworkMessage<E: EthSpec> {
         id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
-    Publish {
-        messages: Vec<PubsubMessage<E>>,
-    },
+    Publish { messages: Vec<PubsubMessage<E>> },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
