@@ -4133,7 +4133,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |request_data: api_types::AddPeer,
+            |request_data: api_types::AdminPeer,
              task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -4150,7 +4150,44 @@ pub fn serve<T: BeaconChainTypes>(
                     );
                     network_globals.add_trusted_peer(enr.clone());
 
-                    publish_network_message(&network_tx, NetworkMessage::ConnectToPeer(enr))?;
+                    publish_network_message(&network_tx, NetworkMessage::ConnectTrustedPeer(enr))?;
+
+                    Ok(api_types::GenericResponse::from(()))
+                })
+            },
+        );
+
+    // POST lighthouse/remove_peer
+    let post_lighthouse_remove_peer = warp::path("lighthouse")
+        .and(warp::path("remove_peer"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(network_globals.clone())
+        .and(network_tx_filter.clone())
+        .and(log_filter.clone())
+        .then(
+            |request_data: api_types::AdminPeer,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let enr = Enr::from_str(&request_data.enr).map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid enr error {}", e))
+                    })?;
+                    info!(
+                        log,
+                        "Removing trusted peer";
+                        "peer_id" => %enr.peer_id(),
+                        "multiaddr" => ?enr.multiaddr()
+                    );
+                    network_globals.add_trusted_peer(enr.clone());
+
+                    publish_network_message(
+                        &network_tx,
+                        NetworkMessage::DisconnectTrustedPeer(enr),
+                    )?;
 
                     Ok(api_types::GenericResponse::from(()))
                 })
@@ -4932,6 +4969,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_finalize)
                     .uor(post_lighthouse_compaction)
                     .uor(post_lighthouse_add_peer)
+                    .uor(post_lighthouse_remove_peer)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )

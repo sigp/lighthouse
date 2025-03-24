@@ -166,6 +166,10 @@ impl<E: EthSpec> NetworkGlobals<E> {
         self.peers.write().set_trusted_peer(enr);
     }
 
+    pub fn remove_trusted_peer(&self, enr: Enr) {
+        self.peers.write().unset_trusted_peer(enr);
+    }
+
     /// Updates the syncing state of the node.
     ///
     /// The old state is returned

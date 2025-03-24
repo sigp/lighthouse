@@ -896,7 +896,7 @@ impl<E: EthSpec> PeerManager<E> {
     }
 
     // Gracefully disconnects a peer without banning them.
-    fn disconnect_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+    pub fn disconnect_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
         self.events
             .push(PeerManagerEvent::DisconnectPeer(peer_id, reason));
         self.network_globals
@@ -1483,6 +1483,10 @@ impl<E: EthSpec> PeerManager<E> {
 
     pub fn add_trusted_peer(&mut self, enr: Enr) {
         self.trusted_peers.insert(enr);
+    }
+
+    pub fn remove_trusted_peer(&mut self, enr: Enr) {
+        self.trusted_peers.remove(&enr);
     }
 }
 

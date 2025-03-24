@@ -1432,7 +1432,7 @@ pub struct ManualFinalizationRequestData {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AddPeer {
+pub struct AdminPeer {
     pub enr: String,
 }
 

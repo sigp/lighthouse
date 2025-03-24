@@ -92,6 +92,13 @@ impl<E: EthSpec> PeerDB<E> {
         }
     }
 
+    pub fn unset_trusted_peer(&mut self, enr: Enr) {
+        if let Some(info) = self.peers.get_mut(&enr.peer_id()) {
+            info.is_trusted = false;
+            info.score = Score::default();
+        }
+    }
+
     /// Gives the ids of all known peers.
     pub fn peer_ids(&self) -> impl Iterator<Item = &PeerId> {
         self.peers.keys()

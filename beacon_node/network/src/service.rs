@@ -104,7 +104,10 @@ pub enum NetworkMessage<E: EthSpec> {
         reason: GoodbyeReason,
         source: ReportSource,
     },
-    ConnectToPeer(Enr),
+    /// Connect to a trusted peer and try to maintain the connection.
+    ConnectTrustedPeer(Enr),
+    /// Disconnect from a trusted peer and remove it from the `trusted_peers` mapping.
+    DisconnectTrustedPeer(Enr),
 }
 
 /// Messages triggered by validators that may trigger a subscription to a subnet.
@@ -692,8 +695,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 reason,
                 source,
             } => self.libp2p.goodbye_peer(&peer_id, reason, source),
-            NetworkMessage::ConnectToPeer(enr) => {
+            NetworkMessage::ConnectTrustedPeer(enr) => {
                 self.libp2p.dial_trusted_peer(enr);
+            }
+            NetworkMessage::DisconnectTrustedPeer(enr) => {
+                self.libp2p.remove_trusted_peer(enr);
             }
             NetworkMessage::SubscribeCoreTopics => {
                 if self.subscribed_core_topics() {
