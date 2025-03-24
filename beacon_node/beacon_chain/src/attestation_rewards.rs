@@ -1,7 +1,7 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
-use eth2::lighthouse::StandardAttestationRewards;
-use eth2::types::ValidatorId;
+use eth2::types::{
+    IdealAttestationRewards, StandardAttestationRewards, TotalAttestationRewards, ValidatorId,
+};
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use state_processing::common::base::{self, SqrtTotalActiveBalance};
@@ -51,8 +51,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .state_root_at_slot(state_slot)?
             .ok_or(BeaconChainError::NoStateForSlot(state_slot))?;
 
+        // This branch is reached from the HTTP API. We assume the user wants
+        // to cache states so that future calls are faster.
         let state = self
-            .get_state(&state_root, Some(state_slot))?
+            .get_state(&state_root, Some(state_slot), true)?
             .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
 
         if state.fork_name_unchecked().altair_enabled() {

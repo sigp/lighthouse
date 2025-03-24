@@ -996,7 +996,7 @@ impl<E: EthSpec> Network<E> {
                         }
                     }
 
-                    if let PublishError::InsufficientPeers = e {
+                    if let PublishError::NoPeersSubscribedToTopic = e {
                         self.gossip_cache.insert(topic, message_data);
                     }
                 }

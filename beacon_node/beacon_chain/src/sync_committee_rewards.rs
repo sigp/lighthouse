@@ -1,6 +1,6 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
-use eth2::lighthouse::SyncCommitteeReward;
+use eth2::types::SyncCommitteeReward;
 use safe_arith::SafeArith;
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
 use std::collections::HashMap;

@@ -1167,7 +1167,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.parent_request_id,
                 peer_id,
-                RangeBlockComponent::Block(resp),
+                RangeBlockComponent::Block(id, resp),
             );
         }
     }
@@ -1182,7 +1182,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.parent_request_id,
                 peer_id,
-                RangeBlockComponent::Blob(resp),
+                RangeBlockComponent::Blob(id, resp),
             );
         }
     }
@@ -1200,7 +1200,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.parent_request_id,
                 peer_id,
-                RangeBlockComponent::CustodyColumns(resp),
+                RangeBlockComponent::CustodyColumns(id, resp),
             );
         }
     }
@@ -1288,7 +1288,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     }
                 }
-                Err(_) => match range_request_id.requester {
+                Err(e) => match range_request_id.requester {
                     RangeRequestId::RangeSync { chain_id, batch_id } => {
                         self.range_sync.inject_error(
                             &mut self.network,
@@ -1296,16 +1296,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             batch_id,
                             chain_id,
                             range_request_id.id,
+                            e,
                         );
                         self.update_sync_state();
                     }
-                    RangeRequestId::BackfillSync { batch_id } => match self
-                        .backfill_sync
-                        .inject_error(&mut self.network, batch_id, &peer_id, range_request_id.id)
-                    {
-                        Ok(_) => {}
-                        Err(_) => self.update_sync_state(),
-                    },
+                    RangeRequestId::BackfillSync { batch_id } => {
+                        match self.backfill_sync.inject_error(
+                            &mut self.network,
+                            batch_id,
+                            &peer_id,
+                            range_request_id.id,
+                            e,
+                        ) {
+                            Ok(_) => {}
+                            Err(_) => self.update_sync_state(),
+                        }
+                    }
                 },
             }
         }

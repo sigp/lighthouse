@@ -44,7 +44,7 @@ use super::chain_collection::{ChainCollection, SyncChainStatus};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
 use crate::status::ToStatusMessage;
-use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::network_context::{RpcResponseError, SyncNetworkContext};
 use crate::sync::BatchProcessResult;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -348,10 +348,11 @@ where
         batch_id: BatchId,
         chain_id: ChainId,
         request_id: Id,
+        err: RpcResponseError,
     ) {
         // check that this request is pending
         match self.chains.call_by_id(chain_id, |chain| {
-            chain.inject_error(network, batch_id, &peer_id, request_id)
+            chain.inject_error(network, batch_id, &peer_id, request_id, err)
         }) {
             Ok((removed_chain, sync_type)) => {
                 if let Some((removed_chain, remove_reason)) = removed_chain {

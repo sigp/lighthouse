@@ -10,8 +10,7 @@
 
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::manager::BatchProcessResult;
-use crate::sync::network_context::RangeRequestId;
-use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::network_context::{RangeRequestId, RpcResponseError, SyncNetworkContext};
 use crate::sync::range_sync::{
     BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
 };
@@ -375,6 +374,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
+        err: RpcResponseError,
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             // A batch could be retried without the peer failing the request (disconnecting/
@@ -385,7 +385,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             if !batch.is_expecting_block(&request_id) {
                 return Ok(());
             }
-            debug!(batch_epoch = %batch_id, error = "rpc_error", "Batch failed");
+            debug!(batch_epoch = %batch_id, error = ?err, "Batch download failed");
             if let Some(active_requests) = self.active_requests.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }

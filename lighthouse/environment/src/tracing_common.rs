@@ -3,7 +3,7 @@ use clap::ArgMatches;
 use logging::Libp2pDiscv5TracingLayer;
 use logging::{tracing_logging_layer::LoggingLayer, SSELoggingComponents};
 use std::process;
-use tracing_subscriber::filter::{EnvFilter, FilterFn, LevelFilter};
+use tracing_subscriber::filter::{FilterFn, LevelFilter};
 use types::EthSpec;
 
 pub fn construct_logger<E: EthSpec>(
@@ -12,7 +12,6 @@ pub fn construct_logger<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
 ) -> (
     EnvironmentBuilder<E>,
-    EnvFilter,
     Libp2pDiscv5TracingLayer,
     LoggingLayer,
     LoggingLayer,
@@ -32,16 +31,11 @@ pub fn construct_logger<E: EthSpec>(
     let (builder, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt) =
         environment_builder.init_tracing(logger_config.clone(), logfile_prefix);
 
-    let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_string().to_lowercase()))
-        .unwrap();
-
     let dependency_log_filter =
         FilterFn::new(filter_dependency_log as fn(&tracing::Metadata<'_>) -> bool);
 
     (
         builder,
-        filter_layer,
         libp2p_discv5_layer,
         file_logging_layer,
         stdout_logging_layer,

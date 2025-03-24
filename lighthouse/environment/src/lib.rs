@@ -248,7 +248,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                             config.log_format.clone(),
                             config.logfile_format.clone(),
                             config.extra_info,
-                            true,
+                            false,
                         )
                     }
                     Err(e) => {
@@ -264,7 +264,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                             config.log_format.clone(),
                             config.logfile_format.clone(),
                             config.extra_info,
-                            true,
+                            false,
                         )
                     }
                 }
@@ -280,7 +280,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                     config.log_format.clone(),
                     config.logfile_format.clone(),
                     config.extra_info,
-                    true,
+                    false,
                 )
             }
         };

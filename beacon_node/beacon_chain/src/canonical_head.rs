@@ -773,6 +773,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_status
             .is_optimistic_or_invalid();
 
+        // Update the state cache so it doesn't mistakenly prune the new head.
+        self.store
+            .state_cache
+            .lock()
+            .update_head_block_root(new_cached_head.head_block_root());
+
         // Detect and potentially report any re-orgs.
         let reorg_distance = detect_reorg(
             &old_snapshot.beacon_state,
