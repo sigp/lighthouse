@@ -638,7 +638,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if received_column_count >= total_column_count {
             return ReconstructColumnsDecision::No("all columns received");
         }
-        // Only supernodes receive >= 50% of columns
         if received_column_count < total_column_count / 2 {
             return ReconstructColumnsDecision::No("not enough columns");
         }

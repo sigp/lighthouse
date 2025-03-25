@@ -1009,6 +1009,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
     ) -> Option<AvailabilityProcessingStatus> {
+        // Only supernodes attempt reconstruction
+        if !self.network_globals.is_supernode() {
+            return None;
+        }
+
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
