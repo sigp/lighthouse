@@ -2387,6 +2387,13 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
     }
 
+    let new_node_block_root_at_wss_block = beacon_chain
+        .store
+        .get_cold_block_root(wss_block.slot())
+        .unwrap()
+        .unwrap();
+    assert_eq!(new_node_block_root_at_wss_block, wss_block.canonical_root());
+
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
     let new_blocks = chain_dump
@@ -2428,6 +2435,13 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .unwrap();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
+
+    let new_node_block_root_at_wss_block = beacon_chain
+        .store
+        .get_cold_block_root(wss_block.slot())
+        .unwrap()
+        .unwrap();
+    assert_eq!(new_node_block_root_at_wss_block, wss_block.canonical_root());
 
     // Forwards iterator from 0 should fail as we lack blocks.
     assert!(matches!(
@@ -2497,8 +2511,19 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         HistoricalBlockError::InvalidSignature
     ));
 
+    let available_blocks_slots = available_blocks
+        .iter()
+        .map(|block| (block.block().slot(), block.block().canonical_root()))
+        .collect::<Vec<_>>();
+    info!(
+        ?available_blocks_slots,
+        "wss_block_slot" = wss_block.slot().as_usize(),
+        "Importing historical block batch"
+    );
+
     // Importing the batch with valid signatures should succeed.
     let available_blocks_dup = available_blocks.iter().map(clone_block).collect::<Vec<_>>();
+    assert_eq!(beacon_chain.store.get_oldest_block_slot(), wss_block.slot());
     beacon_chain
         .import_historical_block_batch(available_blocks_dup)
         .unwrap();
@@ -2508,6 +2533,14 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     beacon_chain
         .import_historical_block_batch(available_blocks)
         .unwrap();
+
+    let new_node_block_root_at_wss_block = beacon_chain
+        .store
+        .get_cold_block_root(wss_block.slot())
+        .unwrap()
+        .unwrap();
+    info!(?new_node_block_root_at_wss_block, "wss_block_slot" = %wss_block.slot());
+    assert_eq!(new_node_block_root_at_wss_block, wss_block.canonical_root());
 
     // The forwards iterator should now match the original chain
     let forwards = beacon_chain
@@ -2559,11 +2592,25 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     }
 
     // Anchor slot is still set to the slot of the checkpoint block.
-    assert_eq!(store.get_anchor_info().anchor_slot, wss_block.slot());
+    // Note: since hot tree states the anchor slot is set to the aligned ws state slot
+    // https://github.com/sigp/lighthouse/pull/6750
+    let wss_aligned_slot = if checkpoint_slot % E::slots_per_epoch() == 0 {
+        checkpoint_slot
+    } else {
+        (checkpoint_slot.epoch(E::slots_per_epoch()) + Epoch::new(1))
+            .start_slot(E::slots_per_epoch())
+    };
+    assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
+    assert_eq!(
+        store.get_anchor_info().state_upper_limit,
+        Slot::new(u64::MAX)
+    );
+    info!(anchor = ?store.get_anchor_info(), "anchor pre");
 
     // Reconstruct states.
     store.clone().reconstruct_historic_states(None).unwrap();
-    assert_eq!(store.get_anchor_info().anchor_slot, 0);
+    assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
+    assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
 }
 
 /// Test that blocks and attestations that refer to states around an unaligned split state are

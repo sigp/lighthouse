@@ -380,7 +380,8 @@ where
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
-                    genesis_beacon_block.message().parent_root(),
+                    genesis_beacon_block.parent_root(),
+                    genesis_beacon_block.slot(),
                     Slot::new(0),
                     retain_historic_states,
                 )
@@ -532,6 +533,12 @@ where
             .cold_db
             .do_atomically(block_root_batch)
             .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
+        debug!(
+            from = %weak_subj_block.slot(),
+            to_excl = %weak_subj_state.slot(),
+            block_root = ?weak_subj_block_root,
+            "Stored frozen block roots at skipped slots"
+        );
 
         // Write the anchor to memory before calling `put_state` otherwise hot hdiff can't store
         // states that do not align with the start_slot grid
@@ -539,7 +546,8 @@ where
         self.pending_io_batch.push(
             store
                 .init_anchor_info(
-                    weak_subj_block.message().parent_root(),
+                    weak_subj_block.parent_root(),
+                    weak_subj_block.slot(),
                     weak_subj_slot,
                     retain_historic_states,
                 )

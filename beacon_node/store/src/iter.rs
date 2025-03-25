@@ -401,7 +401,7 @@ mod test {
         // Init achor info so anchor slot is set. Use a random block as it is only used for the
         // parent_root
         let _ = store
-            .init_anchor_info(Hash256::ZERO, Slot::new(0), false)
+            .init_anchor_info(Hash256::ZERO, Slot::new(0), Slot::new(0), false)
             .unwrap();
         // Write a state with state root 0 which is the base `put_state` below tries to diff from
         {

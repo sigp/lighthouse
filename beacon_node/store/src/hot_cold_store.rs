@@ -2438,6 +2438,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn init_anchor_info(
         &self,
         oldest_block_parent: Hash256,
+        oldest_block_slot: Slot,
         anchor_slot: Slot,
         retain_historic_states: bool,
     ) -> Result<KeyValueStoreOp, Error> {
@@ -2454,7 +2455,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else {
             AnchorInfo {
                 anchor_slot,
-                oldest_block_slot: anchor_slot,
+                oldest_block_slot,
                 oldest_block_parent,
                 state_upper_limit,
                 state_lower_limit: self.spec.genesis_slot,
@@ -2845,6 +2846,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             ));
         }
         Ok(ops)
+    }
+
+    /// Returns a single block root from the cold DB
+    pub fn get_cold_block_root(&self, slot: Slot) -> Result<Option<Hash256>, Error> {
+        Ok(self
+            .cold_db
+            .get_bytes(DBColumn::BeaconBlockRoots, &slot.as_u64().to_be_bytes())?
+            .map(|bytes| Hash256::from_ssz_bytes(&bytes).unwrap()))
     }
 
     /// Try to prune all execution payloads, returning early if there is no need to prune.
