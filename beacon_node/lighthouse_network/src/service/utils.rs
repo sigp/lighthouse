@@ -20,6 +20,7 @@ use tracing::{debug, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId,
 };
+use clap::ArgMatches;
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The filename to store our local metadata.
