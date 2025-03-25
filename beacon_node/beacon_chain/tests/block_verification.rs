@@ -994,7 +994,7 @@ async fn block_gossip_verification() {
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
-    let cgc = harness.chain.spec.custody_requirement;
+    let cgc = harness.chain.spec.custody_requirement as usize;
 
     harness
         .chain
@@ -1835,7 +1835,7 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
 fn get_cgc<E: EthSpec>(blobs_opt: &Option<DataSidecars<E>>) -> usize {
     if let Some(data_sidecars) = blobs_opt.as_ref() {
         match data_sidecars {
-            DataSidecars::Blobs(b) => 0,
+            DataSidecars::Blobs(_) => 0,
             DataSidecars::DataColumns(d) => d.len(),
         }
     } else {
