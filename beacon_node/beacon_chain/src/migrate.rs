@@ -123,14 +123,23 @@ pub enum Notification {
     Finalization(FinalizationNotification),
     Reconstruction,
     PruneBlobs(Epoch),
+    ManualFinalization(ManualFinalizationNotification),
+    ManualCompaction,
+}
+
+pub struct ManualFinalizationNotification {
+    pub state_root: BeaconStateHash,
+    pub checkpoint: Checkpoint,
+    pub head_tracker: Arc<HeadTracker>,
+    pub genesis_block_root: Hash256,
 }
 
 pub struct FinalizationNotification {
-    finalized_state_root: BeaconStateHash,
-    finalized_checkpoint: Checkpoint,
-    head_tracker: Arc<HeadTracker>,
-    prev_migration: Arc<Mutex<PrevMigration>>,
-    genesis_block_root: Hash256,
+    pub finalized_state_root: BeaconStateHash,
+    pub finalized_checkpoint: Checkpoint,
+    pub head_tracker: Arc<HeadTracker>,
+    pub prev_migration: Arc<Mutex<PrevMigration>>,
+    pub genesis_block_root: Hash256,
 }
 
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
@@ -185,6 +194,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
 
         Ok(())
+    }
+
+    pub fn process_manual_compaction(&self) {
+        if let Some(Notification::ManualCompaction) =
+            self.send_background_notification(Notification::ManualCompaction)
+        {
+            Self::run_manual_compaction(self.db.clone());
+        }
+    }
+
+    pub fn process_manual_finalization(&self, notif: ManualFinalizationNotification) {
+        if let Some(Notification::ManualFinalization(notif)) =
+            self.send_background_notification(Notification::ManualFinalization(notif))
+        {
+            Self::run_manual_migration(self.db.clone(), notif);
+        }
     }
 
     pub fn process_reconstruction(&self) {
@@ -277,6 +302,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
     }
 
+    fn run_manual_migration(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        notif: ManualFinalizationNotification,
+    ) {
+        // We create a "dummy" prev migration
+        let prev_migration = PrevMigration {
+            epoch: Epoch::new(1),
+            epochs_per_migration: 2,
+        };
+        let notif = FinalizationNotification {
+            finalized_state_root: notif.state_root,
+            finalized_checkpoint: notif.checkpoint,
+            head_tracker: notif.head_tracker,
+            prev_migration: Arc::new(prev_migration.into()),
+            genesis_block_root: notif.genesis_block_root,
+        };
+        Self::run_migration(db, notif);
+    }
+
     /// Perform the actual work of `process_finalization`.
     fn run_migration(db: Arc<HotColdDB<E, Hot, Cold>>, notif: FinalizationNotification) {
         // Do not run too frequently.
@@ -303,7 +347,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let finalized_state_root = notif.finalized_state_root;
         let finalized_block_root = notif.finalized_checkpoint.root;
 
-        let finalized_state = match db.get_state(&finalized_state_root.into(), None) {
+        // The enshrined finalized state should be in the state cache.
+        let finalized_state = match db.get_state(&finalized_state_root.into(), None, true) {
             Ok(Some(state)) => state,
             other => {
                 error!(
@@ -382,6 +427,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         debug!("Database consolidation complete");
     }
 
+    fn run_manual_compaction(db: Arc<HotColdDB<E, Hot, Cold>>) {
+        debug!("Running manual compaction");
+        if let Err(error) = db.compact() {
+            warn!(?error, "Database compaction failed");
+        } else {
+            debug!("Manual compaction completed");
+        }
+    }
+
     /// Spawn a new child thread to run the migration process.
     ///
     /// Return a channel handle for sending requests to the thread.
@@ -394,16 +448,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             while let Ok(notif) = rx.recv() {
                 let mut reconstruction_notif = None;
                 let mut finalization_notif = None;
+                let mut manual_finalization_notif = None;
+                let mut manual_compaction_notif = None;
                 let mut prune_blobs_notif = None;
                 match notif {
                     Notification::Reconstruction => reconstruction_notif = Some(notif),
                     Notification::Finalization(fin) => finalization_notif = Some(fin),
+                    Notification::ManualFinalization(fin) => manual_finalization_notif = Some(fin),
                     Notification::PruneBlobs(dab) => prune_blobs_notif = Some(dab),
+                    Notification::ManualCompaction => manual_compaction_notif = Some(notif),
                 }
                 // Read the rest of the messages in the channel, taking the best of each type.
                 for notif in rx.try_iter() {
                     match notif {
                         Notification::Reconstruction => reconstruction_notif = Some(notif),
+                        Notification::ManualCompaction => manual_compaction_notif = Some(notif),
+                        Notification::ManualFinalization(fin) => {
+                            if let Some(current) = manual_finalization_notif.as_mut() {
+                                if fin.checkpoint.epoch > current.checkpoint.epoch {
+                                    *current = fin;
+                                }
+                            } else {
+                                manual_finalization_notif = Some(fin);
+                            }
+                        }
                         Notification::Finalization(fin) => {
                             if let Some(current) = finalization_notif.as_mut() {
                                 if fin.finalized_checkpoint.epoch
@@ -426,11 +494,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 if let Some(fin) = finalization_notif {
                     Self::run_migration(db.clone(), fin);
                 }
+                if let Some(fin) = manual_finalization_notif {
+                    Self::run_manual_migration(db.clone(), fin);
+                }
                 if let Some(dab) = prune_blobs_notif {
                     Self::run_prune_blobs(db.clone(), dab);
                 }
                 if reconstruction_notif.is_some() {
                     Self::run_reconstruction(db.clone(), Some(inner_tx.clone()));
+                }
+                if manual_compaction_notif.is_some() {
+                    Self::run_manual_compaction(db.clone());
                 }
             }
         });
