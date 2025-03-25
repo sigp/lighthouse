@@ -122,12 +122,15 @@ impl<E: EthSpec> NetworkGlobals<E> {
 
     /// Returns true if this node is configured as a PeerDAS supernode
     pub fn is_supernode(&self) -> bool {
-        self.custody_group_count == self.spec.number_of_columns
+        self.custody_group_count == self.spec.number_of_custody_groups
     }
 
     /// Returns the count of custody columns this node must sample for block import
     pub fn custody_columns_count(&self) -> u64 {
-        self.custody_group_count
+        // This only panics if the chain spec contains invalid values
+        self.spec
+            .sampling_size(self.custody_group_count)
+            .expect("should compute node sampling size from valid chain spec")
     }
 
     /// Returns the number of libp2p connected peers.
