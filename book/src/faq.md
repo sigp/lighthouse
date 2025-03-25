@@ -146,7 +146,7 @@ An example of the full log is shown below:
 WARN BlockProcessingFailure                  outcome: MissingBeaconBlock(0xbdba211f8d72029554e405d8e4906690dca807d1d7b1bc8c9b88d7970f1648bc), msg: unexpected condition in processing block.
 ```
 
-`MissingBeaconBlock` suggests that the database has corrupted. You should wipe the database and use [Checkpoint Sync](./checkpoint-sync.md) to resync the beacon chain.
+`MissingBeaconBlock` suggests that the database has corrupted. You should wipe the database and use [Checkpoint Sync](./advanced_checkpoint_sync.md) to resync the beacon chain.
 
 ### <a name="bn-download-slow"></a> After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?
 
@@ -281,7 +281,7 @@ You should **never** use duplicate/redundant validator keypairs or validator cli
 duplicate your JSON keystores and don't run `lighthouse vc` twice). This will lead to slashing.
 
 However, there are some components which can be configured with redundancy. See the
-[Redundancy](./redundancy.md) guide for more information.
+[Redundancy](./advanced_redundancy.md) guide for more information.
 
 ### <a name="vc-missed-attestations"></a> I am missing attestations. Why?
 
@@ -323,7 +323,7 @@ Another possible reason for missing the head vote is due to a chain "reorg". A r
 
 ### <a name="vc-exit"></a> Can I submit a voluntary exit message without running a beacon node?
 
-Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/voluntary-exit.md).
+Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/docs/voluntary-exit.md).
 
 It is also noted that you can submit your BLS-to-execution-change message to update your withdrawal credentials from type `0x00` to `0x01` using the same link.
 
@@ -341,13 +341,13 @@ No. You can just import new validator keys to the destination directory. If the 
 
 Generally yes.
 
-If you do not want to stop `lighthouse vc`, you can use the [key manager API](./api-vc-endpoints.md) to import keys.
+If you do not want to stop `lighthouse vc`, you can use the [key manager API](./api_vc_endpoints.md) to import keys.
 
 ### <a name="vc-delete"></a> How can I delete my validator once it is imported?
 
 Lighthouse supports the [KeyManager API](https://ethereum.github.io/keymanager-APIs/#/Local%20Key%20Manager/deleteKeys) to delete validators and remove them from the `validator_definitions.yml` file. To do so, start the validator client with the flag `--http` and call the API.
 
-If you are looking to delete the validators in one node and import it to another, you can use the [validator-manager](./validator-manager-move.md) to move the validators across nodes without the hassle of deleting and importing the keys.
+If you are looking to delete the validators in one node and import it to another, you can use the [validator-manager](./validator_manager_move.md) to move the validators across nodes without the hassle of deleting and importing the keys.
 
 ## Network, Monitoring and Maintenance
 
@@ -389,9 +389,9 @@ expect, there are a few things to check on:
 
 ### <a name="net-update"></a> How do I update lighthouse?
 
-If you are updating to new release binaries, it will be the same process as described [here.](./installation-binaries.md)
+If you are updating to new release binaries, it will be the same process as described [here.](./installation_binaries.md)
 
-If you are updating by rebuilding from source, see [here.](./installation-source.md#update-lighthouse)
+If you are updating by rebuilding from source, see [here.](./installation_source.md#update-lighthouse)
 
 If you are running the docker image provided by Sigma Prime on Dockerhub, you can update to specific versions, for example:
 
@@ -399,7 +399,7 @@ If you are running the docker image provided by Sigma Prime on Dockerhub, you ca
 docker pull sigp/lighthouse:v1.0.0
 ```
 
-If you are building a docker image, the process will be similar to the one described [here.](./docker.md#building-the-docker-image)
+If you are building a docker image, the process will be similar to the one described [here.](./installation_docker.md#building-the-docker-image)
 You just need to make sure the code you have checked out is up to date.
 
 ### <a name="net-port-forwarding"></a> Do I need to set up any port mappings (port forwarding)?
@@ -436,7 +436,7 @@ Opening these ports will make your Lighthouse node maximally contactable.
 
 Apart from using block explorers, you may use the "Validator Monitor" built into Lighthouse which
 provides logging and Prometheus/Grafana metrics for individual validators. See [Validator
-Monitoring](./validator-monitoring.md) for more information. Lighthouse has also developed Lighthouse UI (Siren) to monitor performance, see [Lighthouse UI (Siren)](./lighthouse-ui.md).
+Monitoring](./validator_monitoring.md) for more information. Lighthouse has also developed Lighthouse UI (Siren) to monitor performance, see [Lighthouse UI (Siren)](./ui.md).
 
 ### <a name="net-bn-vc"></a> My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
 
@@ -454,7 +454,7 @@ The setting on the beacon node is the same for both cases below. In the beacon n
    curl "http://local_IP:5052/eth/v1/node/version"
    ```
 
-   You can refer to [Redundancy](./redundancy.md) for more information.
+   You can refer to [Redundancy](./advanced_redundancy.md) for more information.
 
 2. If the beacon node and validator clients are on different servers _and different networks_, it is necessary to perform port forwarding of the SSH port (e.g., the default port 22) on the router, and also allow firewall on the SSH port. The connection can be established via port forwarding on the router.
 
@@ -514,11 +514,11 @@ which shows that there are a total of 36 peers connected via QUIC.
 
 ### <a name="misc-slashing"></a> What should I do if I lose my slashing protection database?
 
-See [here](./slashing-protection.md#misplaced-slashing-database).
+See [here](./validator_slashing_protection.md#misplaced-slashing-database).
 
 ### <a name="misc-compile"></a> I can't compile lighthouse
 
-See [here.](./installation-source.md#troubleshooting)
+See [here.](./installation_source.md#troubleshooting)
 
 ### <a name="misc-version"></a> How do I check the version of Lighthouse that is running?
 
@@ -550,7 +550,7 @@ which says that the version is v4.1.0.
 
 ### <a name="misc-prune"></a> Does Lighthouse have pruning function like the execution client to save disk space?
 
-Yes, Lighthouse supports [state pruning](./database-migrations.md#how-to-prune-historic-states) which can help to save disk space.
+Yes, Lighthouse supports [state pruning](./advanced_database_migrations.md#how-to-prune-historic-states) which can help to save disk space.
 
 ### <a name="misc-freezer"></a> Can I use a HDD for the freezer database and only have the hot db on SSD?
 

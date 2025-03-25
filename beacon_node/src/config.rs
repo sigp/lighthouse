@@ -2,7 +2,7 @@ use account_utils::{read_input_from_user, STDIN_INPUTS_FLAG};
 use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-    DEFAULT_RE_ORG_PARENT_THRESHOLD,
+    DEFAULT_RE_ORG_PARENT_THRESHOLD, INVALID_HOLESKY_BLOCK_ROOT,
 };
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::TrustedSetup;
@@ -19,9 +19,10 @@ use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
 use std::cmp::max;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fs;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read};
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::num::NonZeroU16;
@@ -447,6 +448,12 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "epochs-per-migration")?
     {
         client_config.chain.epochs_per_migration = epochs_per_migration;
+    }
+
+    if let Some(state_cache_headroom) =
+        clap_utils::parse_optional(cli_args, "state-cache-headroom")?
+    {
+        client_config.store.state_cache_headroom = state_cache_headroom;
     }
 
     if let Some(prune_blobs) = clap_utils::parse_optional(cli_args, "prune-blobs")? {
@@ -895,6 +902,35 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-data-column-publishing")? {
         client_config.chain.data_column_publishing_delay = Some(Duration::from_secs_f64(delay));
+    }
+
+    if let Some(invalid_block_roots_file_path) =
+        clap_utils::parse_optional::<String>(cli_args, "invalid-block-roots")?
+    {
+        let mut file = std::fs::File::open(invalid_block_roots_file_path)
+            .map_err(|e| format!("Failed to open invalid-block-roots file: {}", e))?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)
+            .map_err(|e| format!("Failed to read invalid-block-roots file {}", e))?;
+        let invalid_block_roots: HashSet<Hash256> = contents
+            .split(',')
+            .filter_map(
+                |s| match Hash256::from_str(s.strip_prefix("0x").unwrap_or(s).trim()) {
+                    Ok(block_root) => Some(block_root),
+                    Err(error) => {
+                        warn!(block_root = s, ?error, "Unable to parse invalid block root",);
+                        None
+                    }
+                },
+            )
+            .collect();
+        client_config.chain.invalid_block_roots = invalid_block_roots;
+    } else if spec
+        .config_name
+        .as_ref()
+        .is_some_and(|network_name| network_name == "holesky")
+    {
+        client_config.chain.invalid_block_roots = HashSet::from([*INVALID_HOLESKY_BLOCK_ROOT]);
     }
 
     Ok(client_config)
