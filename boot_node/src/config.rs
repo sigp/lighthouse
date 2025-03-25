@@ -13,6 +13,8 @@ use std::net::{SocketAddrV4, SocketAddrV6};
 use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
+use clap::ArgMatches;
+use crate::utils;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
 pub struct BootNodeConfig<E: EthSpec> {
@@ -83,7 +85,10 @@ impl<E: EthSpec> BootNodeConfig<E> {
             network_config.discv5_config.enr_update = false;
         }
 
-        let private_key = load_private_key(&network_config, &cli_args);
+        pub fn initialize_network(config: NetworkConfig, cli_args: &ArgMatches) {
+            let local_keypair = utils::load_private_key(&config, cli_args);
+        }
+        
         let local_key = CombinedKey::from_libp2p(private_key)?;
 
         let local_enr = if let Some(dir) = matches.get_one::<String>("network-dir") {
