@@ -2,7 +2,7 @@
 use crate::database::interface::BeaconNodeBackend;
 use crate::hot_cold_store::HotColdDB;
 use crate::{DBColumn, Error};
-use slog::debug;
+use tracing::debug;
 use types::EthSpec;
 
 impl<E> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>
@@ -24,11 +24,7 @@ where
             }
         });
         if !ops.is_empty() {
-            debug!(
-                self.log,
-                "Garbage collecting {} temporary states",
-                ops.len()
-            );
+            debug!("Garbage collecting {} temporary states", ops.len());
 
             self.delete_batch(DBColumn::BeaconState, ops.clone())?;
             self.delete_batch(DBColumn::BeaconStateSummary, ops.clone())?;

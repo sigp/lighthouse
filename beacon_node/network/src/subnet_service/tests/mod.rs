@@ -13,12 +13,15 @@ use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
 use task_executor::test_utils::TestRuntime;
+use tracing_subscriber::EnvFilter;
 use types::{
     CommitteeIndex, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SubnetId,
     SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
 };
 
 const SLOT_DURATION_MILLIS: u64 = 400;
+
+const TEST_LOG_LEVEL: Option<&str> = None;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
@@ -37,11 +40,11 @@ impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
         let spec = Arc::new(MainnetEthSpec::default_spec());
 
+        get_tracing_subscriber(TEST_LOG_LEVEL);
+
         let keypairs = generate_deterministic_keypairs(1);
 
-        let log = logging::test_logger();
-        let store =
-            HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
+        let store = HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone()).unwrap();
 
         let kzg = get_kzg(&spec);
 
@@ -51,7 +54,6 @@ impl TestBeaconChain {
 
         let chain = Arc::new(
             BeaconChainBuilder::new(MainnetEthSpec, kzg.clone())
-                .logger(log.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))
                 .task_executor(test_runtime.task_executor.clone())
@@ -91,10 +93,18 @@ pub fn recent_genesis_time() -> u64 {
         .as_secs()
 }
 
+fn get_tracing_subscriber(log_level: Option<&str>) {
+    if let Some(level) = log_level {
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::try_new(level).unwrap())
+            .try_init()
+            .unwrap();
+    }
+}
+
 static CHAIN: LazyLock<TestBeaconChain> = LazyLock::new(TestBeaconChain::new_with_system_clock);
 
 fn get_subnet_service() -> SubnetService<TestBeaconChainType> {
-    let log = logging::test_logger();
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
@@ -103,7 +113,6 @@ fn get_subnet_service() -> SubnetService<TestBeaconChainType> {
         beacon_chain,
         lighthouse_network::discv5::enr::NodeId::random(),
         &config,
-        &log,
     )
 }
 

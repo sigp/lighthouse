@@ -9,14 +9,12 @@ test_logger = [] # Print log output to stderr when running tests instead of drop
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+logroller = { workspace = true }
 metrics = { workspace = true }
+once_cell = "1.17.1"
 parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-slog = { workspace = true }
-slog-term = { workspace = true }
-sloggers = { workspace = true }
-take_mut = "0.2.2"
 tokio = { workspace = true, features = [ "time" ] }
 tracing = "0.1"
 tracing-appender = { workspace = true }

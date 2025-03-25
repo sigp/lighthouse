@@ -26,7 +26,6 @@ use http_api::{
     BlockId, StateId,
 };
 use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
-use logging::test_logger;
 use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
@@ -135,7 +134,6 @@ impl ApiTester {
                 reconstruct_historic_states: config.retain_historic_states,
                 ..ChainConfig::default()
             })
-            .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -277,8 +275,6 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let log = test_logger();
-
         let ApiServer {
             ctx,
             server,
@@ -286,7 +282,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -375,7 +371,6 @@ impl ApiTester {
         let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
-        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -384,7 +379,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -1187,6 +1182,60 @@ impl ApiTester {
                 .unwrap();
 
             assert_eq!(result.unwrap().randao, *randao_mix);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_pending_deposits(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = self
+                .client
+                .get_beacon_states_pending_deposits(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let expected = state.pending_deposits().unwrap();
+
+            assert_eq!(result.unwrap(), expected.to_vec());
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_pending_partial_withdrawals(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = self
+                .client
+                .get_beacon_states_pending_partial_withdrawals(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let expected = state.pending_partial_withdrawals().unwrap();
+
+            assert_eq!(result.unwrap(), expected.to_vec());
         }
 
         self
@@ -5691,19 +5740,6 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_lighthouse_database_info(self) -> Self {
-        let info = self.client.get_lighthouse_database_info().await.unwrap();
-
-        assert_eq!(info.anchor, self.chain.store.get_anchor_info());
-        assert_eq!(info.split, self.chain.store.get_split_info());
-        assert_eq!(
-            info.schema_version,
-            store::metadata::CURRENT_SCHEMA_VERSION.as_u64()
-        );
-
-        self
-    }
-
     pub async fn test_post_lighthouse_database_reconstruct(self) -> Self {
         let response = self
             .client
@@ -6313,6 +6349,22 @@ async fn beacon_get_state_info() {
         .test_beacon_states_validator_id()
         .await
         .test_beacon_states_randao()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_get_state_info_electra() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_states_pending_deposits()
+        .await
+        .test_beacon_states_pending_partial_withdrawals()
         .await;
 }
 
@@ -7258,8 +7310,6 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_eth1_deposit_cache()
         .await
         .test_get_lighthouse_staking()
-        .await
-        .test_get_lighthouse_database_info()
         .await
         .test_post_lighthouse_database_reconstruct()
         .await

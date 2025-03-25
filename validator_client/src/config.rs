@@ -12,11 +12,11 @@ use graffiti_file::GraffitiFile;
 use initialized_validators::Config as InitializedValidatorsConfig;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
+use tracing::{info, warn};
 use types::GRAFFITI_BYTES_LEN;
 use validator_http_api::{self, PK_FILENAME};
 use validator_http_metrics;
@@ -141,7 +141,6 @@ impl Config {
     pub fn from_cli(
         cli_args: &ArgMatches,
         validator_client_config: &ValidatorClient,
-        log: &Logger,
     ) -> Result<Config, String> {
         let mut config = Config::default();
 
@@ -207,7 +206,10 @@ impl Config {
                 .read_graffiti_file()
                 .map_err(|e| format!("Error reading graffiti file: {:?}", e))?;
             config.graffiti_file = Some(graffiti_file);
-            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path.to_str());
+            info!(
+                path = graffiti_file_path.to_str(),
+                "Successfully loaded graffiti file"
+            );
         }
 
         if let Some(input_graffiti) = validator_client_config.graffiti.as_ref() {
@@ -375,10 +377,9 @@ impl Config {
         config.validator_store.enable_web3signer_slashing_protection =
             if validator_client_config.disable_slashing_protection_web3signer {
                 warn!(
-                    log,
-                    "Slashing protection for remote keys disabled";
-                    "info" => "ensure slashing protection on web3signer is enabled or you WILL \
-                            get slashed"
+                    info = "ensure slashing protection on web3signer is enabled or you WILL \
+                               get slashed",
+                    "Slashing protection for remote keys disabled"
                 );
                 false
             } else {
