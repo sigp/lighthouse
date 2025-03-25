@@ -44,6 +44,8 @@ use types::{
 };
 use types::{ChainSpec, ForkName};
 use utils::{build_transport, strip_peer_id, Context as ServiceContext};
+use clap::ArgMatches;
+use crate::utils;
 
 pub mod api_types;
 mod gossip_cache;
@@ -178,8 +180,9 @@ impl<E: EthSpec> Network<E> {
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");
         // initialise the node's ID
-        let local_keypair = utils::load_private_key(&config, &cli_args);
-
+        pub fn initialize_network(config: NetworkConfig, cli_args: &ArgMatches) {
+            let local_keypair = utils::load_private_key(&config, cli_args);
+        }
         // Trusted peers will also be marked as explicit in GossipSub.
         // Cfr. https://github.com/libp2p/specs/blob/master/pubsub/gossipsub/gossipsub-v1.1.md#explicit-peering-agreements
         let trusted_peers: Vec<PeerId> = config
