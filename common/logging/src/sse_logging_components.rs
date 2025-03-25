@@ -1,3 +1,4 @@
+// TODO(tracing) fix the comments below and remove reference of slog::Drain
 //! This module provides an implementation of `slog::Drain` that optionally writes to a channel if
 //! there are subscribers to a HTTP SSE stream.
 

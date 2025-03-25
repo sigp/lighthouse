@@ -50,7 +50,6 @@ warp_utils = { workspace = true }
 [dev-dependencies]
 genesis = { workspace = true }
 proto_array = { workspace = true }
-serde_json = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"

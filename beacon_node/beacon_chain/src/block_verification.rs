@@ -282,6 +282,9 @@ pub enum BlockError {
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
     ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    /// This is a known invalid block that was listed in Lighthouses configuration.
+    /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
+    KnownInvalidExecutionPayload(Hash256),
     /// The block is a slashable equivocation from the proposer.
     ///
     /// ## Peer scoring
@@ -862,6 +865,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
+        // Do not process a block that is known to be invalid.
+        chain.check_invalid_block_roots(block_root)?;
+
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
@@ -1079,6 +1085,9 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             .as_block()
             .fork_name(&chain.spec)
             .map_err(BlockError::InconsistentFork)?;
+
+        // Check whether the block is a banned block prior to loading the parent.
+        chain.check_invalid_block_roots(block_root)?;
 
         let (mut parent, block) = load_parent(block, chain)?;
 
@@ -1746,7 +1755,22 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
     fork_choice: &BeaconForkChoice<T>,
     block: B,
 ) -> Result<B, BlockError> {
-    if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root()) {
+    // If we have a split block newer than finalization then we also ban blocks which are not
+    // descended from that split block. It's important not to try checking `is_descendant` if
+    // finality is ahead of the split and the split block has been pruned, as `is_descendant` will
+    // return `false` in this case.
+    let finalized_slot = fork_choice
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch());
+    let split = chain.store.get_split_info();
+    let is_descendant_from_split_block = split.slot == 0
+        || split.slot <= finalized_slot
+        || fork_choice.is_descendant(split.block_root, block.parent_root());
+
+    if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root())
+        && is_descendant_from_split_block
+    {
         Ok(block)
     } else {
         // If fork choice does *not* consider the parent to be a descendant of the finalized block,

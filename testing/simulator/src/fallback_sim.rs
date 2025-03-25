@@ -94,7 +94,6 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let (
         env_builder,
-        filter_layer,
         libp2p_discv5_layer,
         file_logging_layer,
         stdout_logging_layer,
@@ -124,7 +123,6 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     if let Err(e) = tracing_subscriber::registry()
         .with(dependency_log_filter)
-        .with(filter_layer)
         .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
         .with(stdout_logging_layer.with_filter(logger_config.debug_level))
         .with(libp2p_discv5_layer)
