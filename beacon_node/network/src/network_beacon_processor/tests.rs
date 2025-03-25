@@ -279,10 +279,9 @@ impl TestRig {
                 .unwrap()
                 .into_iter()
                 .filter(|c| network_globals.sampling_columns.contains(&c.index))
-                .collect::<Vec<_>>()
-                .into();
+                .collect::<Vec<_>>();
 
-                (None, Some(custody_columns.into()))
+                (None, Some(custody_columns))
             } else {
                 let blob_sidecars =
                     BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap();
@@ -1123,12 +1122,14 @@ async fn test_rpc_block_reprocessing() {
 
     let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
     if num_blobs > 0 {
+        rig.enqueue_single_lookup_rpc_blobs();
         rig.assert_event_journal_completes(&[WorkType::RpcBlobs])
             .await;
     }
 
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     if num_data_columns > 0 {
+        rig.enqueue_single_lookup_rpc_data_columns();
         rig.assert_event_journal_completes(&[WorkType::RpcCustodyColumn])
             .await;
     }
