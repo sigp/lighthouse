@@ -99,6 +99,13 @@ impl<E: EthSpec> PeerDB<E> {
         }
     }
 
+    pub fn trusted_peers(&self) -> Vec<PeerId> {
+        self.peers
+            .iter()
+            .filter_map(|(id, info)| if info.is_trusted { Some(*id) } else { None })
+            .collect()
+    }
+
     /// Gives the ids of all known peers.
     pub fn peer_ids(&self) -> impl Iterator<Item = &PeerId> {
         self.peers.keys()

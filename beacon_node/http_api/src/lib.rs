@@ -4152,7 +4152,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     publish_network_message(&network_tx, NetworkMessage::ConnectTrustedPeer(enr))?;
 
-                    Ok(api_types::GenericResponse::from(()))
+                    Ok(())
                 })
             },
         );
@@ -4182,14 +4182,14 @@ pub fn serve<T: BeaconChainTypes>(
                         "peer_id" => %enr.peer_id(),
                         "multiaddr" => ?enr.multiaddr()
                     );
-                    network_globals.add_trusted_peer(enr.clone());
+                    network_globals.remove_trusted_peer(enr.clone());
 
                     publish_network_message(
                         &network_tx,
                         NetworkMessage::DisconnectTrustedPeer(enr),
                     )?;
 
-                    Ok(api_types::GenericResponse::from(()))
+                    Ok(())
                 })
             },
         );
