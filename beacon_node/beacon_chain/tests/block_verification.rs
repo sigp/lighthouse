@@ -30,6 +30,8 @@ type E = MainnetEthSpec;
 const VALIDATOR_COUNT: usize = 24;
 const CHAIN_SEGMENT_LENGTH: usize = 64 * 5;
 const BLOCK_INDICES: &[usize] = &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT_LENGTH - 1];
+// Default custody group count for tests
+const CGC: usize = 8;
 
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
@@ -992,7 +994,7 @@ async fn block_gossip_verification() {
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
-    let cgc = 0;
+    let cgc = harness.chain.spec.custody_requirement;
 
     harness
         .chain
@@ -1354,7 +1356,7 @@ async fn verify_block_for_gossip_slashing_detection() {
         )
         .await
         .unwrap();
-    unwrap_err(harness.chain.verify_block_for_gossip(block2, 0).await);
+    unwrap_err(harness.chain.verify_block_for_gossip(block2, CGC).await);
 
     // Slasher should have been handed the two conflicting blocks and crafted a slashing.
     slasher.process_queued(Epoch::new(0)).unwrap();
@@ -1380,7 +1382,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
         .collect::<Vec<_>>();
     let verified_block = harness
         .chain
-        .verify_block_for_gossip(block, 0)
+        .verify_block_for_gossip(block, CGC)
         .await
         .unwrap();
     harness
@@ -1529,7 +1531,7 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(base_block.clone()), 0)
+            .verify_block_for_gossip(Arc::new(base_block.clone()), CGC)
             .await
             .expect_err("should error when processing base block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1665,7 +1667,7 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(altair_block.clone()), 0)
+            .verify_block_for_gossip(Arc::new(altair_block.clone()), CGC)
             .await
             .expect_err("should error when processing altair block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1833,7 +1835,7 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
 fn get_cgc<E: EthSpec>(blobs_opt: &Option<DataSidecars<E>>) -> usize {
     if let Some(data_sidecars) = blobs_opt.as_ref() {
         match data_sidecars {
-            DataSidecars::Blobs(b) => b.len(),
+            DataSidecars::Blobs(b) => 0,
             DataSidecars::DataColumns(d) => d.len(),
         }
     } else {

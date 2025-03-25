@@ -618,8 +618,7 @@ where
         let sampling_column_count = if self.import_all_data_columns {
             chain.spec.number_of_custody_groups as usize
         } else {
-            // Default minimum value
-            8
+            chain.spec.custody_requirement as usize
         };
 
         BeaconChainHarness {

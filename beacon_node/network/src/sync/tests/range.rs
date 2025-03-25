@@ -453,7 +453,7 @@ fn build_rpc_block(
                 None,
                 block,
                 columns.clone(),
-                // TODO
+                // TODO(das): Assumes CGC = max value. Change if we want to do more complex tests
                 columns.len(),
                 spec,
             )
