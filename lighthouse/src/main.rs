@@ -503,6 +503,12 @@ fn main() {
             exit(1)
         }
     }
+
+    let cli_args = cli::parse_args();
+    let config = NetworkConfig::default();
+
+    // pass `cli_args` explicitly into initialize_network
+    network::initialize_network(config, &cli_args)
 }
 
 fn run<E: EthSpec>(
