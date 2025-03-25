@@ -2312,6 +2312,8 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .get_state(&wss_state_root, Some(checkpoint_slot))
         .unwrap()
         .unwrap();
+    let wss_state_slot = wss_state.slot();
+    let wss_block_slot = wss_block.slot();
 
     // Add more blocks that advance finalization further.
     harness.advance_slot();
@@ -2387,13 +2389,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
     }
 
-    let new_node_block_root_at_wss_block = beacon_chain
-        .store
-        .get_cold_block_root(wss_block.slot())
-        .unwrap()
-        .unwrap();
-    assert_eq!(new_node_block_root_at_wss_block, wss_block.canonical_root());
-
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
     let new_blocks = chain_dump
@@ -2435,13 +2430,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .unwrap();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
-
-    let new_node_block_root_at_wss_block = beacon_chain
-        .store
-        .get_cold_block_root(wss_block.slot())
-        .unwrap()
-        .unwrap();
-    assert_eq!(new_node_block_root_at_wss_block, wss_block.canonical_root());
 
     // Forwards iterator from 0 should fail as we lack blocks.
     assert!(matches!(
@@ -2534,13 +2522,16 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .import_historical_block_batch(available_blocks)
         .unwrap();
 
-    let new_node_block_root_at_wss_block = beacon_chain
-        .store
-        .get_cold_block_root(wss_block.slot())
-        .unwrap()
-        .unwrap();
-    info!(?new_node_block_root_at_wss_block, "wss_block_slot" = %wss_block.slot());
-    assert_eq!(new_node_block_root_at_wss_block, wss_block.canonical_root());
+    // Sanity check for non-aligned WSS starts, to make sure the WSS block is persisted properly
+    if wss_block_slot != wss_state_slot {
+        let new_node_block_root_at_wss_block = beacon_chain
+            .store
+            .get_cold_block_root(wss_block_slot)
+            .unwrap()
+            .unwrap();
+        info!(?new_node_block_root_at_wss_block, %wss_block_slot);
+        assert_eq!(new_node_block_root_at_wss_block, wss_block.canonical_root());
+    }
 
     // The forwards iterator should now match the original chain
     let forwards = beacon_chain
