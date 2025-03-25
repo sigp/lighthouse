@@ -31,6 +31,7 @@ use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+use rand::RngCore;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{per_slot_processing, AllCaches};
@@ -106,6 +107,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
+    rng: Option<Arc<RwLock<Box<dyn RngCore + Sync + Send>>>>,
 }
 
 impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
@@ -147,6 +149,7 @@ where
             task_executor: None,
             validator_monitor_config: None,
             import_all_data_columns: false,
+            rng: None,
         }
     }
 
@@ -699,6 +702,14 @@ where
         self
     }
 
+    /// Sets the `rng` field.
+    /// 
+    /// Currently used for shuffling column sidecars in block publishing.
+    pub fn rng(mut self, rng: Arc<RwLock<Box<dyn RngCore + Sync + Send>>>) -> Self {
+        self.rng = Some(rng);
+        self
+    }
+
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -724,6 +735,7 @@ where
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
+        let rng = self.rng.ok_or("Cannot build without an RNG")?;
         let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
@@ -980,6 +992,7 @@ where
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
+            rng,
         };
 
         let head = beacon_chain.head_snapshot();
@@ -1188,6 +1201,7 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .rng(Arc::new(RwLock::new(Box::new(StdRng::seed_from_u64(42)))))
             .build()
             .expect("should build");
 

@@ -2398,6 +2398,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .chain_config(ChainConfig::default())
         .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
+        .rng(Arc::new(RwLock::new(Box::new(StdRng::seed_from_u64(42)))))
         .build()
         .expect("should build");
 

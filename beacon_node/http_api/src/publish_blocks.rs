@@ -17,7 +17,7 @@ use execution_layer::ProvenancedPayload;
 use futures::TryFutureExt;
 use lighthouse_network::{NetworkGlobals, PubsubMessage};
 use network::NetworkMessage;
-use rand::{prelude::SliceRandom, rngs::StdRng, thread_rng, RngCore, SeedableRng};
+use rand::prelude::SliceRandom;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -83,7 +83,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-    deterministic_col_ordering: bool,
 ) -> Result<Response, Rejection> {
     let seen_timestamp = timestamp_now();
     let block_publishing_delay_for_testing = chain.config.block_publishing_delay;
@@ -220,13 +219,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 tokio::time::sleep(delay).await;
             }
         }
-        publish_column_sidecars(
-            network_tx,
-            &gossip_verified_columns,
-            &chain,
-            deterministic_col_ordering,
-        )
-        .map_err(|_| {
+        publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
         let sampling_columns_indices = &network_globals.sampling_columns;
@@ -514,7 +507,6 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
     sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     data_column_sidecars: &[Option<GossipVerifiedDataColumn<T>>],
     chain: &BeaconChain<T>,
-    deterministic_col_ordering: bool,
 ) -> Result<(), BlockError> {
     let malicious_withhold_count = chain.config.malicious_withhold_count;
     let mut data_column_sidecars = data_column_sidecars
@@ -527,13 +519,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             .len()
             .saturating_sub(malicious_withhold_count);
         // Randomize columns before dropping the last malicious_withhold_count items
-        // Use deterministic ordering for test use-cases
-        let mut rng: Box<dyn RngCore> = if deterministic_col_ordering {
-            Box::new(StdRng::seed_from_u64(42))
-        } else {
-            Box::new(thread_rng())
-        };
-        data_column_sidecars.shuffle(&mut rng);
+        data_column_sidecars.shuffle(&mut **chain.rng.write());
         data_column_sidecars.truncate(columns_to_keep);
     }
     let pubsub_messages = data_column_sidecars
@@ -634,7 +620,6 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-    deterministic_col_ordering: bool,
 ) -> Result<Response, Rejection> {
     let block_root = blinded_block.canonical_root();
     let full_block = reconstruct_block(chain.clone(), block_root, blinded_block).await?;
@@ -646,7 +631,6 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         validation_level,
         duplicate_status_code,
         network_globals,
-        deterministic_col_ordering,
     )
     .await
 }

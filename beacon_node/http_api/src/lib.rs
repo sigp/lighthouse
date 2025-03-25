@@ -1260,7 +1260,6 @@ pub fn serve<T: BeaconChainTypes>(
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         network_globals,
-                        false,
                     )
                     .await
                 })
@@ -1300,7 +1299,6 @@ pub fn serve<T: BeaconChainTypes>(
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         network_globals,
-                        false,
                     )
                     .await
                 })
@@ -1333,7 +1331,6 @@ pub fn serve<T: BeaconChainTypes>(
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         network_globals,
-                        false,
                     )
                     .await
                 })
@@ -1375,7 +1372,6 @@ pub fn serve<T: BeaconChainTypes>(
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         network_globals,
-                        false,
                     )
                     .await
                 })
@@ -1410,7 +1406,6 @@ pub fn serve<T: BeaconChainTypes>(
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         network_globals,
-                        false,
                     )
                     .await
                 })
@@ -1449,7 +1444,6 @@ pub fn serve<T: BeaconChainTypes>(
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         network_globals,
-                        false,
                     )
                     .await
                 })
@@ -1481,7 +1475,6 @@ pub fn serve<T: BeaconChainTypes>(
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         network_globals,
-                        false,
                     )
                     .await
                 })
@@ -1521,7 +1514,6 @@ pub fn serve<T: BeaconChainTypes>(
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         network_globals,
-                        false,
                     )
                     .await
                 })
