@@ -45,7 +45,8 @@ use types::{
 use types::{ChainSpec, ForkName};
 use utils::{build_transport, strip_peer_id, Context as ServiceContext};
 use clap::ArgMatches;
-use crate::utils;
+use super::utils;
+use crate::NetworkConfig;
 
 pub mod api_types;
 mod gossip_cache;
