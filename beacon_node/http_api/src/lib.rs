@@ -87,11 +87,11 @@ use tokio_stream::{
 use tracing::{debug, error, info, warn};
 use types::{
     fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
-    AttesterSlashing, BeaconStateError, ChainSpec, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
-    ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing,
-    RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    AttesterSlashing, BeaconStateError, ChainSpec, Checkpoint, CommitteeCache, ConfigAndPreset,
+    Epoch, EthSpec, ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData,
+    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -1074,6 +1074,72 @@ pub fn serve<T: BeaconChainTypes>(
                         api_types::GenericResponse::from(api_types::RandaoMix { randao })
                             .add_execution_optimistic_finalized(execution_optimistic, finalized),
                     )
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/pending_deposits
+    let get_beacon_state_pending_deposits = beacon_states_path
+        .clone()
+        .and(warp::path("pending_deposits"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(deposits) = state.pending_deposits() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending deposits not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((deposits.clone(), execution_optimistic, finalized))
+                            },
+                        )?;
+
+                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                        data,
+                        execution_optimistic: Some(execution_optimistic),
+                        finalized: Some(finalized),
+                    })
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/pending_partial_withdrawals
+    let get_beacon_state_pending_partial_withdrawals = beacon_states_path
+        .clone()
+        .and(warp::path("pending_partial_withdrawals"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(withdrawals) = state.pending_partial_withdrawals() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending withdrawals not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((withdrawals.clone(), execution_optimistic, finalized))
+                            },
+                        )?;
+
+                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                        data,
+                        execution_optimistic: Some(execution_optimistic),
+                        finalized: Some(finalized),
+                    })
                 })
             },
         );
@@ -3903,6 +3969,52 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/finalize
+    let post_lighthouse_finalize = warp::path("lighthouse")
+        .and(warp::path("finalize"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |request_data: api_types::ManualFinalizationRequestData,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let checkpoint = Checkpoint {
+                        epoch: request_data.epoch,
+                        root: request_data.block_root,
+                    };
+
+                    chain
+                        .manually_finalize_state(request_data.state_root, checkpoint)
+                        .map(|_| api_types::GenericResponse::from(request_data))
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "Failed to finalize state due to error: {e:?}"
+                            ))
+                        })
+                })
+            },
+        );
+
+    // POST lighthouse/compaction
+    let post_lighthouse_compaction = warp::path("lighthouse")
+        .and(warp::path("compaction"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    chain.manually_compact_database();
+                    Ok(api_types::GenericResponse::from(String::from(
+                        "Triggered manual compaction",
+                    )))
+                })
+            },
+        );
+
     // POST lighthouse/liveness
     let post_lighthouse_liveness = warp::path("lighthouse")
         .and(warp::path("liveness"))
@@ -4557,6 +4669,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_committees)
                 .uor(get_beacon_state_sync_committees)
                 .uor(get_beacon_state_randao)
+                .uor(get_beacon_state_pending_deposits)
+                .uor(get_beacon_state_pending_partial_withdrawals)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)
@@ -4658,6 +4772,8 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)
+                    .uor(post_lighthouse_finalize)
+                    .uor(post_lighthouse_compaction)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )

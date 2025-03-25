@@ -118,7 +118,7 @@ Options:
       --epochs-per-blob-prune <EPOCHS>
           The epoch interval with which to prune blobs from Lighthouse's
           database when they are older than the data availability boundary
-          relative to the current epoch. [default: 1]
+          relative to the current epoch. [default: 256]
       --epochs-per-migration <N>
           The number of epochs to wait between running the migration of data
           from the hot DB to the cold DB. Less frequent runs can be useful for
@@ -286,7 +286,7 @@ Options:
           monitoring-endpoint. Default: 60s
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky, hoodi]
       --network-dir <DIR>
           Data directory for network keys. Defaults to network/ inside the
           beacon node dir.
@@ -381,8 +381,11 @@ Options:
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
           DEPRECATED. This flag has no effect.
+      --state-cache-headroom <N>
+          Minimum number of states to cull from the state cache when it gets
+          full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 128]
+          Specifies the size of the state cache [default: 32]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the
