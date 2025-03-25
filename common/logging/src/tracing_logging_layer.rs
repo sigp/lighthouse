@@ -1,4 +1,5 @@
 use crate::utils::is_ascii_control;
+use std::collections::HashSet;
 
 use chrono::prelude::*;
 use serde_json::{Map, Value};
@@ -261,6 +262,12 @@ fn build_log_json(
     let module_field = format!("{}:{}", module_path, line_number);
     log_map.insert("module".to_string(), Value::String(module_field));
 
+    // Avoid adding duplicate fields; prefer event fields when duplicates exist.
+    for (key, val) in span_fields {
+        let parsed_span_val = parse_field(val);
+        log_map.insert(key.clone(), parsed_span_val);
+    }
+
     for (key, val) in visitor.fields.clone().into_iter() {
         let cleaned_value = if val.starts_with('\"') && val.ends_with('\"') && val.len() >= 2 {
             &val[1..val.len() - 1]
@@ -270,11 +277,6 @@ fn build_log_json(
         let parsed_val =
             serde_json::from_str(cleaned_value).unwrap_or(Value::String(cleaned_value.to_string()));
         log_map.insert(key, parsed_val);
-    }
-
-    for (key, val) in span_fields {
-        let parsed_span_val = parse_field(val);
-        log_map.insert(key.clone(), parsed_span_val);
     }
 
     let json_obj = Value::Object(log_map);
@@ -298,23 +300,6 @@ fn build_log_text(
 ) {
     let bold_start = "\x1b[1m";
     let bold_end = "\x1b[0m";
-
-    let mut formatted_spans = String::new();
-    for (i, (field_name, field_value)) in span_fields.iter().rev().enumerate() {
-        if use_color {
-            formatted_spans.push_str(&format!(
-                "{}{}{}: {}",
-                bold_start, field_name, bold_end, field_value
-            ));
-        } else {
-            formatted_spans.push_str(&format!("{}: {}", field_name, field_value));
-        }
-
-        // Check if this is not the last span.
-        if i != span_fields.len() - 1 {
-            formatted_spans.push_str(", ");
-        }
-    }
 
     let pad = if plain_level_str.len() < ALIGNED_LEVEL_WIDTH {
         " "
@@ -351,24 +336,26 @@ fn build_log_text(
         message_content.clone()
     };
 
-    let mut formatted_fields = String::new();
-    for (i, (field_name, field_value)) in visitor.fields.iter().enumerate() {
-        if i > 0 {
-            formatted_fields.push_str(", ");
-        }
-        if use_color {
-            formatted_fields.push_str(&format!(
-                "{}{}{}: {}",
-                bold_start, field_name, bold_end, field_value
-            ));
-        } else {
-            formatted_fields.push_str(&format!("{}: {}", field_name, field_value));
-        }
-        // Check if this is the last field and that we are also adding spans.
-        if i == visitor.fields.len() - 1 && !span_fields.is_empty() {
-            formatted_fields.push(',');
-        }
-    }
+    // Avoid adding duplicate fields; prefer event fields when duplicates exist.
+    let mut added_field_names = HashSet::new();
+    let formatted_fields = visitor
+        .fields
+        .iter()
+        .chain(span_fields.iter())
+        .filter_map(|(field_name, field_value)| {
+            if added_field_names.insert(field_name) {
+                let formatted_field = if use_color {
+                    format!("{}{}{}: {}", bold_start, field_name, bold_end, field_value)
+                } else {
+                    format!("{}: {}", field_name, field_value)
+                };
+                Some(formatted_field)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
 
     let full_message = if !formatted_fields.is_empty() {
         format!("{}  {}", padded_message, formatted_fields)
@@ -378,14 +365,11 @@ fn build_log_text(
 
     let message = if !location.is_empty() {
         format!(
-            "{} {} {} {} {}\n",
-            timestamp, level_str, location, full_message, formatted_spans
+            "{} {} {} {}\n",
+            timestamp, level_str, location, full_message
         )
     } else {
-        format!(
-            "{} {} {} {}\n",
-            timestamp, level_str, full_message, formatted_spans
-        )
+        format!("{} {} {}\n", timestamp, level_str, full_message)
     };
 
     if let Err(e) = writer.write_all(message.as_bytes()) {
@@ -436,7 +420,7 @@ mod tests {
     fn test_build_log_text_single_log_field() {
         let log_fields = vec![("field_name".to_string(), "field_value".to_string())];
         let span_fields = vec![];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name: field_value \n";
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name: field_value\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -447,7 +431,7 @@ mod tests {
             ("field_name2".to_string(), "field_value2".to_string()),
         ];
         let span_fields = vec![];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name1: field_value1, field_name2: field_value2 \n";
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name1: field_value1, field_name2: field_value2\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -469,7 +453,7 @@ mod tests {
             "span_field_name".to_string(),
             "span_field_value".to_string(),
         )];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name: span_field_value\n";
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  span_field_name: span_field_value\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -486,7 +470,7 @@ mod tests {
                 "span_field_value2".to_string(),
             ),
         ];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name2: span_field_value2, span_field_name1: span_field_value1\n";
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  span_field_name1: span_field_value1, span_field_name2: span_field_value2\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -503,7 +487,35 @@ mod tests {
                 "span_field_value1-2".to_string(),
             ),
         ];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name1-2: span_field_value1-2, span_field_name1-1: span_field_value1-1\n";
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  span_field_name1-1: span_field_value1-1, span_field_name1-2: span_field_value1-2\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_no_duplicate_log_span_fields() {
+        let log_fields = vec![
+            ("field_name_1".to_string(), "field_value_1".to_string()),
+            ("field_name_2".to_string(), "field_value_2".to_string()),
+        ];
+        let span_fields = vec![
+            ("field_name_1".to_string(), "field_value_1".to_string()),
+            ("field_name_3".to_string(), "field_value_3".to_string()),
+        ];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name_1: field_value_1, field_name_2: field_value_2, field_name_3: field_value_3\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_duplicate_fields_prefer_log_fields() {
+        let log_fields = vec![
+            ("field_name_1".to_string(), "field_value_1_log".to_string()),
+            ("field_name_2".to_string(), "field_value_2".to_string()),
+        ];
+        let span_fields = vec![
+            ("field_name_1".to_string(), "field_value_1_span".to_string()),
+            ("field_name_3".to_string(), "field_value_3".to_string()),
+        ];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name_1: field_value_1_log, field_name_2: field_value_2, field_name_3: field_value_3\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 

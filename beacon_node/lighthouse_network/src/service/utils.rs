@@ -30,6 +30,8 @@ pub struct Context<'a> {
     pub fork_context: Arc<ForkContext>,
     pub chain_spec: Arc<ChainSpec>,
     pub libp2p_registry: Option<&'a mut Registry>,
+    pub keypair: Keypair,
+    pub incoming_connections: Option<u32>,
 }
 
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
@@ -41,7 +43,7 @@ pub fn build_transport(
     quic_support: bool,
 ) -> std::io::Result<BoxedTransport> {
     // mplex config
-    let mut mplex_config = libp2p_mplex::MplexConfig::new();
+    let mut mplex_config = libp2p_mplex::Config::new();
     mplex_config.set_max_buffer_size(256);
     mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
 

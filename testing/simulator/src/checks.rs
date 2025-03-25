@@ -424,7 +424,7 @@ pub async fn verify_full_blob_production_up_to<E: EthSpec>(
         // the `verify_full_block_production_up_to` function.
         if block.is_some() {
             remote_node
-                .get_blobs::<E>(BlockId::Slot(Slot::new(slot)), None, &E::default_spec())
+                .get_blobs::<E>(BlockId::Slot(Slot::new(slot)), None)
                 .await
                 .map_err(|e| format!("Failed to get blobs at slot {slot:?}: {e:?}"))?
                 .ok_or_else(|| format!("No blobs available at slot {slot:?}"))?;

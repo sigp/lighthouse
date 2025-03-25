@@ -1,7 +1,10 @@
-use crate::rpc::methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage};
+use crate::rpc::methods::{
+    Ping, ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage,
+};
 use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
+use strum::IntoStaticStr;
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
@@ -124,8 +127,9 @@ pub enum AppRequestId {
 //       sent. The main difference is the absense of Pong and Metadata, which don't leave the
 //       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
 //       `RPCCodedResponse`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 pub enum Response<E: EthSpec> {
+    Ping(u64),
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
@@ -178,6 +182,7 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
                 None => RpcResponse::StreamTermination(ResponseTermination::DataColumnsByRange),
             },
             Response::Status(s) => RpcResponse::Success(RpcSuccessResponse::Status(s)),
+            Response::Ping(data) => RpcResponse::Success(RpcSuccessResponse::Pong(Ping { data })),
             Response::LightClientBootstrap(b) => {
                 RpcResponse::Success(RpcSuccessResponse::LightClientBootstrap(b))
             }

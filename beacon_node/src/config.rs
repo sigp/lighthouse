@@ -170,13 +170,6 @@ pub fn get_config<E: EthSpec>(
             parse_required(cli_args, "http-duplicate-block-status")?;
     }
 
-    if cli_args.get_flag("light-client-server") {
-        warn!(
-            "The --light-client-server flag is deprecated. The light client server is enabled \
-             by default"
-        );
-    }
-
     if cli_args.get_flag("disable-light-client-server") {
         client_config.chain.enable_light_client_server = false;
     }
@@ -260,24 +253,6 @@ pub fn get_config<E: EthSpec>(
     // Do not scrape for malloc metrics if we've disabled tuning malloc as it may cause panics.
     if cli_args.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
         client_config.http_metrics.allocator_metrics_enabled = false;
-    }
-
-    /*
-     * Deprecated Eth1 flags (can be removed in the next minor release after v7.1.0)
-     */
-    if cli_args
-        .get_one::<String>("eth1-blocks-per-log-query")
-        .is_some()
-    {
-        warn!("The eth1-blocks-per-log-query flag is deprecated");
-    }
-
-    if cli_args.get_flag("eth1-purge-cache") {
-        warn!("The eth1-purge-cache flag is deprecated");
-    }
-
-    if clap_utils::parse_optional::<u64>(cli_args, "eth1-cache-follow-distance")?.is_some() {
-        warn!("The eth1-cache-follow-distance flag is deprecated");
     }
 
     // `--execution-endpoint` is required now.
@@ -773,10 +748,6 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
-    if cli_args.get_flag("disable-deposit-contract-sync") {
-        warn!("The disable-deposit-contract-sync flag is deprecated");
-    }
-
     client_config.chain.prepare_payload_lookahead =
         clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
             .map(Duration::from_millis)
@@ -823,6 +794,14 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.get_flag("genesis-backfill") {
         client_config.chain.genesis_backfill = true;
+    }
+
+    client_config.chain.complete_blob_backfill = cli_args.get_flag("complete-blob-backfill");
+
+    // Ensure `prune_blobs` is false whenever complete-blob-backfill is set. This overrides any
+    // setting of `--prune-blobs true` applied earlier in flag parsing.
+    if client_config.chain.complete_blob_backfill {
+        client_config.store.prune_blobs = false;
     }
 
     // Backfill sync rate-limiting
@@ -1154,7 +1133,7 @@ pub fn set_network_config(
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
-    if parse_flag(cli_args, "subscribe-all-data-column-subnets") {
+    if parse_flag(cli_args, "supernode") {
         config.subscribe_all_data_column_subnets = true;
     }
 

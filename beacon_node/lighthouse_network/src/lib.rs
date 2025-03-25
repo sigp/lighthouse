@@ -2,10 +2,11 @@
 /// all required libp2p functionality.
 ///
 /// This crate builds and manages the libp2p services required by the beacon node.
-mod config;
+pub mod config;
 pub mod service;
 
 pub mod discovery;
+mod mallory_config;
 pub mod metrics;
 pub mod peer_manager;
 pub mod rpc;
@@ -33,6 +34,12 @@ impl FromStr for PeerIdSerialized {
         Ok(Self(
             PeerId::from_str(s).map_err(|e| format!("Invalid peer id: {}", e))?,
         ))
+    }
+}
+
+impl From<PeerId> for PeerIdSerialized {
+    fn from(peer_id: PeerId) -> Self {
+        PeerIdSerialized(peer_id)
     }
 }
 
@@ -110,13 +117,16 @@ pub use discv5;
 pub use gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p;
 pub use libp2p::{Multiaddr, multiaddr};
-pub use libp2p::{PeerId, Swarm, core::ConnectedPoint};
+pub use libp2p::{PeerId, Swarm, core::ConnectedPoint, identity::Keypair};
+pub use mallory_config::MalloryConfig;
+pub use network_utils::discovery_metrics::scrape_discovery_metrics;
 pub use peer_manager::{
     ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
     peerdb::PeerDB,
     peerdb::client::Client,
     peerdb::score::{PeerAction, ReportSource},
 };
+pub use service::Behaviour;
 // pub use service::{load_private_key, Context, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
 pub use service::api_types::Response;
 pub use service::utils::*;

@@ -39,6 +39,7 @@ EthStaker
 Exercism
 Extractable
 FFG
+Fulu
 Geth
 GiB
 Gitcoin

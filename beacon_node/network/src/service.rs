@@ -267,6 +267,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             &beacon_chain.spec,
         ));
 
+        debug!(fork_name = ?fork_context.current_fork_name(), "Current fork");
+
+        let keypair = lighthouse_network::load_private_key(&config);
+
         // construct the libp2p service context
         let service_context = Context {
             config: config.clone(),
@@ -274,6 +278,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             fork_context: fork_context.clone(),
             chain_spec: beacon_chain.spec.clone(),
             libp2p_registry,
+            keypair,
+            incoming_connections: None,
         };
 
         // launch libp2p service
@@ -284,6 +290,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 .data_availability_checker
                 .custody_context()
                 .custody_group_count_at_head(&beacon_chain.spec),
+            None,
         )
         .await?;
 
@@ -474,6 +481,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         shutdown_sender: &mut Sender<ShutdownReason>,
     ) {
         match ev {
+            // mallory event
+            NetworkEvent::MallorySwarmEvent(_) => {}
+            // mallory event
+            NetworkEvent::IdentifyReceived(_) => {}
+
             NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                 self.send_to_router(RouterMessage::StatusPeer(peer_id));
             }
@@ -840,6 +852,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     new_fork = ?new_fork_name,
                     "Transitioned to new fork"
                 );
+                new_fork_name.fork_ascii();
             }
 
             fork_context.update_current_fork(*new_fork_name, new_fork_digest, current_epoch);
