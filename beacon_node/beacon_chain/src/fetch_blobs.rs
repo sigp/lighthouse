@@ -216,8 +216,8 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         .into_iter()
         .filter_map(|blob_and_proof_opt| {
             blob_and_proof_opt.map(|blob_and_proof| {
-                let BlobAndProofV2 { blob, cell_proofs } = blob_and_proof;
-                (blob, cell_proofs)
+                let BlobAndProofV2 { blob, proofs } = blob_and_proof;
+                (blob, proofs)
             })
         })
         .unzip();

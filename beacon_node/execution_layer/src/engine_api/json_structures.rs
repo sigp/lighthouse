@@ -1,6 +1,5 @@
 use super::*;
 use alloy_rlp::RlpEncodable;
-use eth2::types::BlobsBundleV1;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use strum::EnumString;
@@ -506,10 +505,8 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     pub execution_payload: JsonExecutionPayloadV5<E>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
-    #[superstruct(only(V3, V4), partial_getter(rename = "blobs_bundle_v1"))]
+    #[superstruct(only(V3, V4, V5))]
     pub blobs_bundle: JsonBlobsBundleV1<E>,
-    #[superstruct(only(V5), partial_getter(rename = "blobs_bundle_v2"))]
-    pub blobs_bundle: JsonBlobsBundleV2<E>,
     #[superstruct(only(V3, V4, V5))]
     pub should_override_builder: bool,
     #[superstruct(only(V4, V5))]
@@ -692,26 +689,17 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
     }
 }
 
-#[superstruct(
-    variants(V1, V2),
-    variant_attributes(
-        derive(Debug, PartialEq, Serialize, Deserialize),
-        serde(bound = "E: EthSpec", rename_all = "camelCase")
-    )
-)]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub struct JsonBlobsBundle<E: EthSpec> {
+#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
+pub struct JsonBlobsBundleV1<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
-    #[superstruct(only(V1))]
     pub proofs: KzgProofs<E>,
-    #[superstruct(only(V2))]
-    pub cell_proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
 }
 
-impl<E: EthSpec> From<BlobsBundleV1<E>> for JsonBlobsBundleV1<E> {
-    fn from(blobs_bundle: BlobsBundleV1<E>) -> Self {
+impl<E: EthSpec> From<BlobsBundle<E>> for JsonBlobsBundleV1<E> {
+    fn from(blobs_bundle: BlobsBundle<E>) -> Self {
         Self {
             commitments: blobs_bundle.commitments,
             proofs: blobs_bundle.proofs,
@@ -719,32 +707,11 @@ impl<E: EthSpec> From<BlobsBundleV1<E>> for JsonBlobsBundleV1<E> {
         }
     }
 }
-
-impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundleV1<E> {
+impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
     fn from(json_blobs_bundle: JsonBlobsBundleV1<E>) -> Self {
         Self {
             commitments: json_blobs_bundle.commitments,
             proofs: json_blobs_bundle.proofs,
-            blobs: json_blobs_bundle.blobs,
-        }
-    }
-}
-
-impl<E: EthSpec> From<BlobsBundleV2<E>> for JsonBlobsBundleV2<E> {
-    fn from(blobs_bundle: BlobsBundleV2<E>) -> Self {
-        Self {
-            commitments: blobs_bundle.commitments,
-            cell_proofs: blobs_bundle.cell_proofs,
-            blobs: blobs_bundle.blobs,
-        }
-    }
-}
-
-impl<E: EthSpec> From<JsonBlobsBundleV2<E>> for BlobsBundleV2<E> {
-    fn from(json_blobs_bundle: JsonBlobsBundleV2<E>) -> Self {
-        Self {
-            commitments: json_blobs_bundle.commitments,
-            cell_proofs: json_blobs_bundle.cell_proofs,
             blobs: json_blobs_bundle.blobs,
         }
     }
@@ -761,10 +728,12 @@ impl<E: EthSpec> From<JsonBlobsBundleV2<E>> for BlobsBundleV2<E> {
 pub struct BlobAndProof<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<E>,
+    /// KZG proof for the blob (Deneb)
     #[superstruct(only(V1))]
     pub proof: KzgProof,
+    /// KZG cell proofs for the extended blob (PeerDAS)
     #[superstruct(only(V2))]
-    pub cell_proofs: KzgProofs<E>,
+    pub proofs: KzgProofs<E>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

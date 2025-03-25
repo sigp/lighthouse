@@ -45,7 +45,7 @@ pub fn validate_blob<E: EthSpec>(
 }
 
 // TODO
-pub fn verify_cell_proof_batch<'a, E: EthSpec>(
+pub fn verify_cell_proof_batch<E: EthSpec>(
     _kzg: &Kzg,
     _cells: Vec<Cell<E>>,
     _cell_indices: Vec<u64>,
@@ -434,6 +434,7 @@ mod test {
         blobs_to_data_column_sidecars, reconstruct_blobs, reconstruct_data_columns,
     };
     use bls::Signature;
+    use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
     use kzg::{trusted_setup::get_trusted_setup, Kzg, KzgCommitment, TrustedSetup};
     use types::{
@@ -588,7 +589,11 @@ mod test {
         let mut signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
         let fork = signed_block.fork_name_unchecked();
         let (blobs_bundle, _) = generate_blobs::<E>(num_of_blobs, fork).unwrap();
-        let (blobs, proofs, commitments) = blobs_bundle.deconstruct();
+        let BlobsBundle {
+            blobs,
+            commitments,
+            proofs,
+        } = blobs_bundle;
 
         *signed_block
             .message_mut()

@@ -3247,7 +3247,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
             }
-            message.body.blob_kzg_commitments = bundle.commitments().clone();
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
             bundle
         }
         SignedBeaconBlock::Electra(SignedBeaconBlockElectra {
@@ -3266,7 +3266,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
             }
-            message.body.blob_kzg_commitments = bundle.commitments().clone();
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
             bundle
         }
         SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
@@ -3285,13 +3285,17 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
             }
-            message.body.blob_kzg_commitments = bundle.commitments().clone();
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
             bundle
         }
         _ => return (block, blob_sidecars),
     };
 
-    let (blobs, proofs, commitments) = bundle.deconstruct();
+    let eth2::types::BlobsBundle {
+        commitments,
+        proofs,
+        blobs,
+    } = bundle;
 
     for (index, ((blob, kzg_commitment), kzg_proof)) in blobs
         .into_iter()

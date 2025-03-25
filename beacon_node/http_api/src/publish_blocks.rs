@@ -10,7 +10,7 @@ use beacon_chain::{
     BeaconChainTypes, BlockError, IntoGossipVerifiedBlock, NotifyExecutionLayer,
 };
 use eth2::types::{
-    BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
+    BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
     PublishBlockRequest, SignedBlockContents,
 };
 use execution_layer::ProvenancedPayload;
@@ -867,7 +867,11 @@ pub fn into_full_block_and_blobs<T: BeaconChainTypes>(
                 .try_into_full_block(Some(execution_payload))
                 .ok_or("Failed to build full block with payload".to_string())?;
 
-            let (blobs, proofs, _commitments) = blobs_bundle.deconstruct();
+            let BlobsBundle {
+                commitments: _,
+                proofs,
+                blobs,
+            } = blobs_bundle;
 
             Ok((Arc::new(signed_block), Some((proofs, blobs))))
         }

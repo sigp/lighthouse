@@ -6,7 +6,7 @@ use crate::engine_api::{
 };
 use crate::engines::ForkchoiceState;
 use crate::EthersTransaction;
-use eth2::types::{BlobsBundle, BlobsBundleV1, BlobsBundleV2};
+use eth2::types::BlobsBundle;
 use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
 use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -722,11 +722,11 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
 pub fn load_test_blobs_bundle_v1<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String>
 {
-    let BlobsBundleV1::<E> {
+    let BlobsBundle::<E> {
         commitments,
         proofs,
         blobs,
-    } = BlobsBundleV1::from_ssz_bytes(TEST_BLOB_BUNDLE)
+    } = BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE)
         .map_err(|e| format!("Unable to decode ssz: {:?}", e))?;
 
     Ok((
@@ -747,11 +747,11 @@ pub fn load_test_blobs_bundle_v1<E: EthSpec>() -> Result<(KzgCommitment, KzgProo
 
 pub fn load_test_blobs_bundle_v2<E: EthSpec>(
 ) -> Result<(KzgCommitment, KzgProofs<E>, Blob<E>), String> {
-    let BlobsBundleV2::<E> {
+    let BlobsBundle::<E> {
         commitments,
-        cell_proofs,
+        proofs,
         blobs,
-    } = BlobsBundleV2::from_ssz_bytes(TEST_BLOB_BUNDLE_V2)
+    } = BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE_V2)
         .map_err(|e| format!("Unable to decode ssz: {:?}", e))?;
 
     Ok((
@@ -760,7 +760,7 @@ pub fn load_test_blobs_bundle_v2<E: EthSpec>(
             .cloned()
             .ok_or("commitment missing in test bundle")?,
         // there's only one blob in the test bundle, hence we take all the cell proofs here.
-        cell_proofs,
+        proofs,
         blobs
             .first()
             .cloned()
@@ -778,24 +778,22 @@ pub fn generate_blobs<E: EthSpec>(
 
     let bundle = if fork_name.fulu_enabled() {
         let (kzg_commitment, kzg_proofs, blob) = load_test_blobs_bundle_v2::<E>()?;
-        let bundle = BlobsBundleV2 {
+        BlobsBundle {
             commitments: vec![kzg_commitment; n_blobs].into(),
-            cell_proofs: vec![kzg_proofs.to_vec(); n_blobs]
+            proofs: vec![kzg_proofs.to_vec(); n_blobs]
                 .into_iter()
                 .flatten()
                 .collect::<Vec<_>>()
                 .into(),
             blobs: vec![blob; n_blobs].into(),
-        };
-        BlobsBundle::V2(bundle)
+        }
     } else {
         let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1::<E>()?;
-        let bundle = BlobsBundleV1 {
+        BlobsBundle {
             commitments: vec![kzg_commitment; n_blobs].into(),
             proofs: vec![kzg_proof; n_blobs].into(),
             blobs: vec![blob; n_blobs].into(),
-        };
-        BlobsBundle::V1(bundle)
+        }
     };
 
     Ok((bundle, transactions.into()))

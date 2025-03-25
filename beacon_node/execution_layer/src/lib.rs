@@ -17,7 +17,7 @@ pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
-use eth2::types::{BlobsBundleRef, FullPayloadContents};
+use eth2::types::{BlobsBundle, FullPayloadContents};
 use ethers_core::types::Transaction as EthersTransaction;
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
@@ -250,16 +250,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
     fn try_from(response: GetPayloadResponse<E>) -> Result<Self, Error> {
         let (execution_payload, block_value, maybe_bundle, maybe_requests) = response.into();
         match maybe_bundle {
-            Some(bundle) => {
-                let (blobs, proofs, commitments) = bundle.deconstruct();
-                Ok(Self::PayloadAndBlobs {
-                    payload: execution_payload.into(),
-                    block_value,
-                    kzg_commitments: commitments,
-                    blobs_and_proofs: Some((blobs, proofs)),
-                    requests: maybe_requests,
-                })
-            }
+            Some(bundle) => Ok(Self::PayloadAndBlobs {
+                payload: execution_payload.into(),
+                block_value,
+                kzg_commitments: bundle.commitments,
+                blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
+                requests: maybe_requests,
+            }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
                 block_value,
@@ -413,7 +410,7 @@ pub enum FailedCondition {
     EpochsSinceFinalization,
 }
 
-type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<BlobsBundleRef<'a, E>>);
+type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<&'a BlobsBundle<E>>);
 
 struct Inner<E: EthSpec> {
     engine: Arc<Engine>,
@@ -601,7 +598,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let (payload_ref, maybe_json_blobs_bundle) = payload_and_blobs;
 
         let payload = payload_ref.clone_from_ref();
-        let maybe_blobs_bundle = maybe_json_blobs_bundle.map(|b| b.into());
+        let maybe_blobs_bundle = maybe_json_blobs_bundle.cloned();
 
         self.inner
             .payload_cache

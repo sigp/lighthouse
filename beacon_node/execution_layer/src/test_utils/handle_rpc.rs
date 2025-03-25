@@ -422,9 +422,10 @@ pub async fn handle_rpc<E: EthSpec>(
                             execution_payload,
                             block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                             blobs_bundle: maybe_blobs
-                                .ok_or("No blobs returned despite V3 Payload".to_string())
-                                .and_then(|b| b.try_into_v1())
-                                .map_err(|e| (e, GENERIC_ERROR_CODE))?
+                                .ok_or((
+                                    "No blobs returned despite V3 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
                                 .into(),
                             should_override_builder: false,
                         })
@@ -438,9 +439,10 @@ pub async fn handle_rpc<E: EthSpec>(
                             execution_payload,
                             block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                             blobs_bundle: maybe_blobs
-                                .ok_or("No blobs returned despite V4 Payload".to_string())
-                                .and_then(|b| b.try_into_v1())
-                                .map_err(|e| (e, GENERIC_ERROR_CODE))?
+                                .ok_or((
+                                    "No blobs returned despite V4 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
                                 .into(),
                             should_override_builder: false,
                             // TODO(electra): add EL requests in mock el
@@ -456,9 +458,10 @@ pub async fn handle_rpc<E: EthSpec>(
                             execution_payload,
                             block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                             blobs_bundle: maybe_blobs
-                                .ok_or("No blobs returned despite V5 Payload".to_string())
-                                .and_then(|b| b.try_into_v2())
-                                .map_err(|e| (e, GENERIC_ERROR_CODE))?
+                                .ok_or((
+                                    "No blobs returned despite V5 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
                                 .into(),
                             should_override_builder: false,
                             execution_requests: Default::default(),
