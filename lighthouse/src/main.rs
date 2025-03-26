@@ -72,11 +72,11 @@ fn bls_hardware_acceleration() -> bool {
 }
 
 fn allocator_name() -> String {
-    #[cfg(any(not(feature = "jemalloc"), target_os = "windows"))]
+    #[cfg(target_os = "windows")]
     {
         "system".to_string()
     }
-    #[cfg(all(feature = "jemalloc", not(target_os = "windows")))]
+    #[cfg(not(target_os = "windows"))]
     match malloc_utils::jemalloc::page_size() {
         Ok(page_size) => format!("jemalloc ({}K)", page_size / 1024),
         Err(e) => format!("jemalloc (error: {e:?})"),
