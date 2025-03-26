@@ -256,13 +256,6 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
                 return;
             };
 
-            // At the moment non supernodes are not required to publish any columns.
-            // TODO(das): we could experiment with having full nodes publish their custodied
-            // columns here.
-            if !chain_cloned.data_availability_checker.is_supernode() {
-                return;
-            }
-
             publish_fn(BlobsOrDataColumns::DataColumns(all_data_columns));
         },
         "compute_and_publish_data_columns",

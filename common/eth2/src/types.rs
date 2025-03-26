@@ -1405,6 +1405,13 @@ pub struct StandardLivenessResponseData {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ManualFinalizationRequestData {
+    pub state_root: Hash256,
+    pub epoch: Epoch,
+    pub block_root: Hash256,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LivenessRequestData {
     pub epoch: Epoch,
     #[serde(with = "serde_utils::quoted_u64_vec")]
