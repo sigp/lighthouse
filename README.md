@@ -63,6 +63,7 @@ of the Lighthouse book.
 
 ## Contact
 
+
 The best place for discussion is the [Lighthouse Discord
 server](https://discord.gg/cyAszAh).
 
