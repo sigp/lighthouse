@@ -111,35 +111,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
-        import_all_data_columns: bool,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
-        let custody_group_count = spec.custody_group_count(import_all_data_columns);
-        // This should only panic if the chain spec contains invalid values.
-        let sampling_size = spec
-            .sampling_size(custody_group_count)
-            .expect("should compute node sampling size from valid chain spec");
-
-        let inner = DataAvailabilityCheckerInner::new(
-            OVERFLOW_LRU_CAPACITY,
-            store,
-            sampling_size as usize,
-            spec.clone(),
-        )?;
+        let inner = DataAvailabilityCheckerInner::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
         Ok(Self {
             availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
             spec,
         })
-    }
-
-    pub fn get_sampling_column_count(&self) -> usize {
-        self.availability_cache.sampling_column_count()
-    }
-
-    pub(crate) fn is_supernode(&self) -> bool {
-        self.get_sampling_column_count() == self.spec.number_of_columns as usize
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -326,6 +306,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
+        let custody_columns_count = block.custody_columns_count();
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs {
@@ -339,7 +320,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     spec: self.spec.clone(),
                 }))
             } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                Ok(MaybeAvailableBlock::AvailabilityPending {
+                    block_root,
+                    block,
+                    custody_columns_count,
+                })
             };
         }
         if self.data_columns_required_for_block(&block) {
@@ -364,7 +349,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     spec: self.spec.clone(),
                 }))
             } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                Ok(MaybeAvailableBlock::AvailabilityPending {
+                    block_root,
+                    block,
+                    custody_columns_count,
+                })
             };
         }
 
@@ -421,6 +410,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         for block in blocks {
+            let custody_columns_count = block.custody_columns_count();
             let (block_root, block, blobs, data_columns) = block.deconstruct();
 
             let maybe_available_block = if self.blobs_required_for_block(&block) {
@@ -433,7 +423,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         spec: self.spec.clone(),
                     })
                 } else {
-                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
+                    MaybeAvailableBlock::AvailabilityPending {
+                        block_root,
+                        block,
+                        custody_columns_count,
+                    }
                 }
             } else if self.data_columns_required_for_block(&block) {
                 if let Some(data_columns) = data_columns {
@@ -447,7 +441,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         spec: self.spec.clone(),
                     })
                 } else {
-                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
+                    MaybeAvailableBlock::AvailabilityPending {
+                        block_root,
+                        block,
+                        custody_columns_count,
+                    }
                 }
             } else {
                 MaybeAvailableBlock::Available(AvailableBlock {
@@ -804,6 +802,7 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
     AvailabilityPending {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
+        custody_columns_count: usize,
     },
 }
 
