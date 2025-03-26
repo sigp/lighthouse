@@ -150,7 +150,6 @@ pub struct Config {
     pub idontwant_message_size_threshold: usize,
 
     /// Advertise a false custody group count in metadata.
-    /// Makes peers think this node custodies more columns than it actually does.
     pub advertise_false_custody_group_count: Option<u64>,
 }
 
