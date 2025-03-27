@@ -821,7 +821,7 @@ logs emitted are INFO level or higher.
 ## `GET /lighthouse/beacon/health`
 
 Provides information about the sync status and execution layer health of each connected beacon node.
-For more inormation about how to interpret the beacon node health, see [Fallback Health](./advanced_redundancy.md#fallback-health).
+For more information about how to interpret the beacon node health, see [Fallback Health](./advanced_redundancy.md#fallback-health).
 
 ### HTTP Specification
 
