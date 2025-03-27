@@ -196,7 +196,8 @@ fn verify_and_publish_inclusion_list<T: BeaconChainTypes>(
 
     info!(
         slot = ?verified_inclusion_list.signed_il.message.slot,
-        "Published inclusion list"
+        validator_index = verified_inclusion_list.signed_il.message.validator_index,
+        "Verified inclusion list and republished"
     );
 
     // TODO(focil) add reprocess logic?

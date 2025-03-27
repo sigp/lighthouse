@@ -16,3 +16,4 @@ serde = { workspace = true }
 serde_yaml = { workspace = true }
 superstruct = { workspace = true }
 types = { workspace = true }
+tracing = { workspace = true }

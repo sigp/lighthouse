@@ -10,6 +10,7 @@ use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
     FixedBytesExtended, Hash256, Slot,
 };
+use tracing::info;
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
@@ -197,6 +198,7 @@ impl ProtoArray {
             let execution_status_is_invalid = node.execution_status.is_invalid();
 
             // TODO(focil) seems sketchy...
+            // TODO(focil) improve loggings
             // modify is viable for head
             // debug/fork_choice
             let mut node_delta = if execution_status_is_invalid
@@ -206,6 +208,12 @@ impl ProtoArray {
                         .get(&current_slot)
                         .unwrap_or(&Hash256::ZERO)
             {
+                info!(
+                    root = %node.root,
+                    ?current_slot,
+                    is_unsatisfied_il_block = self.unsatisfied_inclusion_list_blocks.contains_key(&current_slot),
+                    "Potentially unsatisfied IL block",
+                );
                 // If the node has an invalid execution payload, or the payload doesn't satisfy
                 // an inclusion list, reduce its weight to zero.
                 0_i64
@@ -905,6 +913,11 @@ impl ProtoArray {
                 .get(&current_slot)
                 .unwrap_or(&Hash256::ZERO)
         {
+            info!(
+                ?current_slot,
+                source = "node_is_viable_for_head",
+                "this block doesn't satisfy the inclusion list"
+            );
             return false;
         }
 

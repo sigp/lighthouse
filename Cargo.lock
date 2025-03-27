@@ -6820,6 +6820,7 @@ dependencies = [
  "serde",
  "serde_yaml",
  "superstruct",
+ "tracing",
  "types",
 ]
 

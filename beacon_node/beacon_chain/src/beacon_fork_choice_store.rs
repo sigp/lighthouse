@@ -19,6 +19,7 @@ use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
     FixedBytesExtended, Hash256, Slot,
 };
+use tracing::info;
 
 #[derive(Debug)]
 pub enum Error {
@@ -352,6 +353,11 @@ where
     }
 
     fn set_unsatisfied_inclusion_list_block(&mut self, slot: Slot, block_root: Hash256) {
+        info!(
+            ?slot,
+            %block_root,
+            "Set unsatisfied inclusion list block"
+        );
         self.unsatisfied_inclusion_list_blocks
             .insert(slot, block_root);
     }

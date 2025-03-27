@@ -24,7 +24,7 @@ use state_processing::per_block_processing::{
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{debug, warn};
+use tracing::{debug, warn, info};
 use tree_hash::TreeHash;
 use types::payload::BlockProductionVersion;
 use types::*;
@@ -164,6 +164,11 @@ async fn notify_new_payload<T: BeaconChainTypes>(
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
     let execution_block_hash = block.execution_payload()?.block_hash();
+
+    info!(
+        il_tx_count = il_transactions.len(),
+        "Submit new payload with il_transactions"
+    );
     let new_payload_response = execution_layer
         .notify_new_payload(NewPayloadRequest::try_from_block_and_il_transactions(
             block,
@@ -217,7 +222,11 @@ async fn notify_new_payload<T: BeaconChainTypes>(
                     // transactions for this slot, update the fork choice store before processing
                     // the invalid EL payload.
                     if *validation_error == Some("INVALID_INCLUSION_LIST".to_string()) {
-                        debug!("Unsatisfied inclusion list");
+                        debug!(
+                            slot = ?block.slot(),
+                            blocK_root = %block.tree_hash_root(),
+                            "Unsatisfied inclusion list"
+                        );
                         chain
                             .set_unsatisfied_inclusion_list_block(
                                 block.slot(),
