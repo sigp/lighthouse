@@ -833,6 +833,7 @@ For more inormation about how to interpret the beacon node health, see [Fallback
 | Typical Responses | 200, 400                                   |
 
 Command:
+
 ```bash
 DATADIR=/var/lib/lighthouse
 curl -X GET http://localhost:5062/lighthouse/beacon/health \
