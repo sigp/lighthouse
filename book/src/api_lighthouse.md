@@ -794,8 +794,9 @@ curl -X GET "http://localhost:5052/lighthouse/analysis/global_validator_supply/0
 ```
 
 The two boolean flags in the response are respectively:
-* `execution_optimistic`: whether the response was computed using optimistically synced data
-* `finalized`: whether the response was computed over finalized dasta
+
+- `execution_optimistic`: whether the response was computed using optimistically synced data
+- `finalized`: whether the response was computed over finalized dasta
 
 ## `/lighthouse/logs`
 
