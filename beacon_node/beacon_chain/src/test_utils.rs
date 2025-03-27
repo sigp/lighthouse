@@ -2173,6 +2173,38 @@ where
         block.body_mut().voluntary_exits_mut().push(exit).unwrap();
     }
 
+    /// Create a new block,with some deposits.
+    ///
+    /// The state returned is a pre-block state at the same slot as the produced block.
+    pub async fn make_block_with_deposit<'a>(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        let ((block, blobs), mut state) = self.make_block_return_pre_state(state, slot).await;
+
+        let (mut block, _) = (*block).clone().deconstruct();
+
+        let (deposits, state) = self.make_deposits(&mut state, 1, None, None);
+
+        for deposit in deposits {
+            block.body_mut().deposits_mut().push(deposit).unwrap();
+        }
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        let signed_block = block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        );
+        ((Arc::new(signed_block), blobs), state.clone())
+    }
+
     /// Create a new block, apply `block_modifier` to it, sign it and return it.
     ///
     /// The state returned is a pre-block state at the same slot as the produced block.
@@ -2289,7 +2321,8 @@ where
         *state.eth1_deposit_index_mut() = 0;
 
         // Building the merkle tree used for generating proofs
-        let tree = MerkleTree::create(&leaves[..], self.spec.deposit_contract_tree_depth as usize);
+        let tree: MerkleTree =
+            MerkleTree::create(&leaves[..], self.spec.deposit_contract_tree_depth as usize);
 
         // Building proofs
         let mut proofs = vec![];
