@@ -129,7 +129,7 @@ INFO Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/
 
 Once backfill is complete, a `INFO Historical block download complete` log will be emitted.
 
-Check out the [FAQ](./checkpoint-sync.md#faq) for more information on checkpoint sync.
+Check out the [FAQ](./advanced_checkpoint_sync.md#faq) for more information on checkpoint sync.
 
 ### Logs - Syncing
 
@@ -146,11 +146,10 @@ Once you see the above message - congratulations! This means that your node is s
 
 Several other resources are the next logical step to explore after running your beacon node:
 
-- If you intend to run a validator, proceed to [become a validator](./mainnet-validator.md);
-- Explore how to [manage your keys](./key-management.md);
-- Research on [validator management](./validator-management.md);
+- If you intend to run a validator, proceed to [become a validator](./mainnet_validator.md);
+- Explore how to [manage your keys](./archived_key_management.md);
+- Research on [validator management](./validator_management.md);
 - Dig into the [APIs](./api.md) that the beacon node and validator client provide;
-- Study even more about [checkpoint sync](./checkpoint-sync.md); or
-- Investigate what steps had to be taken in the past to execute a smooth [merge migration](./merge-migration.md).
+- Study even more about [checkpoint sync](./advanced_checkpoint_sync.md); or
 
 Finally, if you are struggling with anything, join our [Discord](https://discord.gg/cyAszAh). We are happy to help!

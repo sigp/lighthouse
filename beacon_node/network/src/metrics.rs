@@ -14,6 +14,7 @@ pub use metrics::*;
 use std::sync::{Arc, LazyLock};
 use strum::AsRefStr;
 use strum::IntoEnumIterator;
+use types::DataColumnSubnetId;
 use types::EthSpec;
 
 pub const SUCCESS: &str = "SUCCESS";
@@ -374,8 +375,15 @@ pub static PEERS_PER_SYNC_TYPE: LazyLock<Result<IntGaugeVec>> = LazyLock::new(||
 });
 pub static PEERS_PER_COLUMN_SUBNET: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(
-        "peers_per_column_subnet",
+        "sync_peers_per_column_subnet",
         "Number of connected peers per column subnet",
+        &["subnet_id"],
+    )
+});
+pub static PEERS_PER_CUSTODY_COLUMN_SUBNET: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "sync_peers_per_custody_column_subnet",
+        "Number of connected peers per custody column subnet",
         &["subnet_id"],
     )
 });
@@ -746,16 +754,42 @@ pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>)
 
     // count per sync status, the number of connected peers
     let mut peers_per_sync_type = FnvHashMap::default();
-    for sync_type in network_globals
-        .peers
-        .read()
-        .connected_peers()
-        .map(|(_peer_id, info)| info.sync_status().as_str())
-    {
+    let mut peers_per_column_subnet = FnvHashMap::default();
+
+    for (_, info) in network_globals.peers.read().connected_peers() {
+        let sync_type = info.sync_status().as_str();
         *peers_per_sync_type.entry(sync_type).or_default() += 1;
+
+        for subnet in info.custody_subnets_iter() {
+            *peers_per_column_subnet.entry(*subnet).or_default() += 1;
+        }
     }
 
     for (sync_type, peer_count) in peers_per_sync_type {
         set_gauge_entry(&PEERS_PER_SYNC_TYPE, &[sync_type], peer_count);
+    }
+
+    let all_column_subnets =
+        (0..network_globals.spec.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new);
+    let custody_column_subnets = network_globals.sampling_subnets.iter();
+
+    // Iterate all subnet values to set to zero the empty entries in peers_per_column_subnet
+    for subnet in all_column_subnets {
+        set_gauge_entry(
+            &PEERS_PER_COLUMN_SUBNET,
+            &[&format!("{subnet}")],
+            peers_per_column_subnet.get(&subnet).copied().unwrap_or(0),
+        );
+    }
+
+    // Registering this metric is a duplicate for supernodes but helpful for fullnodes. This way
+    // operators can monitor the health of only the subnets of their interest without complex
+    // Grafana queries.
+    for subnet in custody_column_subnets {
+        set_gauge_entry(
+            &PEERS_PER_CUSTODY_COLUMN_SUBNET,
+            &[&format!("{subnet}")],
+            peers_per_column_subnet.get(subnet).copied().unwrap_or(0),
+        );
     }
 }

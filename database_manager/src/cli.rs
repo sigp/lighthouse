@@ -59,13 +59,12 @@ pub struct DatabaseManager {
 
     #[clap(
         long,
-        global = true,
-        help = "Prints help information",
-        action = clap::ArgAction::HelpLong,
+        value_name = "DATABASE",
+        help = "Set the database backend to be used by the beacon node.",
         display_order = 0,
-        help_heading = FLAG_HEADER
+        default_value_t = store::config::DatabaseBackend::LevelDb
     )]
-    help: Option<bool>,
+    pub backend: store::config::DatabaseBackend,
 
     #[clap(subcommand)]
     pub subcommand: DatabaseManagerSubcommand,

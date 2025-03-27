@@ -33,12 +33,13 @@ use eth2::lighthouse_vc::{
         PublicKeyBytes, SetGraffitiRequest, UpdateCandidatesRequest, UpdateCandidatesResponse,
     },
 };
+use health_metrics::observe::Observe;
 use lighthouse_version::version_with_platform;
+use logging::crit;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
@@ -50,6 +51,7 @@ use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tracing::{info, warn};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use validator_services::block_service::BlockService;
@@ -89,7 +91,6 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub graffiti_flag: Option<Graffiti>,
     pub spec: Arc<ChainSpec>,
     pub config: Config,
-    pub log: Logger,
     pub sse_logging_components: Option<SSELoggingComponents>,
     pub slot_clock: T,
     pub _phantom: PhantomData<E>,
@@ -110,6 +111,7 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        // This value is always overridden when building config from CLI.
         let http_token_path = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(DEFAULT_ROOT_DIR)
@@ -152,7 +154,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let allow_keystore_export = config.allow_keystore_export;
     let store_passwords_in_secrets_dir = config.store_passwords_in_secrets_dir;
     let use_long_timeouts = config.bn_long_timeouts;
-    let log = ctx.log.clone();
 
     // Configure CORS.
     let cors_builder = {
@@ -169,7 +170,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     // Sanity check.
     if !config.enabled {
-        crit!(log, "Cannot start disabled metrics HTTP server");
+        crit!("Cannot start disabled metrics HTTP server");
         return Err(Error::Other(
             "A disabled metrics server should not be started".to_string(),
         ));
@@ -183,9 +184,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         Ok(abs_path) => api_token_path = abs_path,
         Err(e) => {
             warn!(
-                log,
-                "Error canonicalizing token path";
-                "error" => ?e,
+                error = ?e,
+                "Error canonicalizing token path"
             );
         }
     };
@@ -242,9 +242,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let inner_graffiti_flag = ctx.graffiti_flag;
     let graffiti_flag_filter = warp::any().map(move || inner_graffiti_flag);
-
-    let inner_ctx = ctx.clone();
-    let log_filter = warp::any().map(move || inner_ctx.log.clone());
 
     let inner_slot_clock = ctx.slot_clock.clone();
     let slot_clock_filter = warp::any().map(move || inner_slot_clock.clone());
@@ -403,12 +400,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(graffiti_file_filter.clone())
         .and(graffiti_flag_filter)
-        .and(log_filter.clone())
         .then(
             |validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
-             graffiti_flag: Option<Graffiti>,
-             log| {
+             graffiti_flag: Option<Graffiti>| {
                 blocking_json_task(move || {
                     let mut result = HashMap::new();
                     for (key, graffiti_definition) in validator_store
@@ -418,7 +413,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     {
                         let graffiti = determine_graffiti(
                             key,
-                            &log,
                             graffiti_file.clone(),
                             graffiti_definition,
                             graffiti_flag,
@@ -771,7 +765,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         // Disabling an already disabled validator *with no other changes* is a
                         // no-op.
                         (Some(false), None)
-                            if body.enabled.map_or(true, |enabled| !enabled)
+                            if body.enabled.is_none_or(|enabled| !enabled)
                                 && body.gas_limit.is_none()
                                 && body.builder_boost_factor.is_none()
                                 && body.builder_proposals.is_none()
@@ -838,11 +832,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        .and(log_filter.clone())
-        .then(move |request, validator_store, task_executor, log| {
+        .then(move |request, validator_store, task_executor| {
             blocking_json_task(move || {
                 if allow_keystore_export {
-                    keystores::export(request, validator_store, task_executor, log)
+                    keystores::export(request, validator_store, task_executor)
                 } else {
                     Err(warp_utils::reject::custom_bad_request(
                         "keystore export is disabled".to_string(),
@@ -1135,14 +1128,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(slot_clock_filter)
-        .and(log_filter.clone())
         .and(task_executor_filter.clone())
         .then(
             |pubkey: PublicKey,
              query: api_types::VoluntaryExitQuery,
              validator_store: Arc<ValidatorStore<T, E>>,
              slot_clock: T,
-             log,
              task_executor: TaskExecutor| {
                 blocking_json_task(move || {
                     if let Some(handle) = task_executor.handle() {
@@ -1152,7 +1143,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 query.epoch,
                                 validator_store,
                                 slot_clock,
-                                log,
                             ))?;
                         Ok(signed_voluntary_exit)
                     } else {
@@ -1252,9 +1242,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(secrets_dir_filter)
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        .and(log_filter.clone())
         .then(
-            move |request, validator_dir, secrets_dir, validator_store, task_executor, log| {
+            move |request, validator_dir, secrets_dir, validator_store, task_executor| {
                 let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                 blocking_json_task(move || {
                     keystores::import(
@@ -1263,7 +1252,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         secrets_dir,
                         validator_store,
                         task_executor,
-                        log,
                     )
                 })
             },
@@ -1274,11 +1262,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        .and(log_filter.clone())
-        .then(|request, validator_store, task_executor, log| {
-            blocking_json_task(move || {
-                keystores::delete(request, validator_store, task_executor, log)
-            })
+        .then(|request, validator_store, task_executor| {
+            blocking_json_task(move || keystores::delete(request, validator_store, task_executor))
         });
 
     // GET /eth/v1/remotekeys
@@ -1293,11 +1278,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        .and(log_filter.clone())
-        .then(|request, validator_store, task_executor, log| {
-            blocking_json_task(move || {
-                remotekeys::import(request, validator_store, task_executor, log)
-            })
+        .then(|request, validator_store, task_executor| {
+            blocking_json_task(move || remotekeys::import(request, validator_store, task_executor))
         });
 
     // DELETE /eth/v1/remotekeys
@@ -1305,11 +1287,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter)
         .and(task_executor_filter)
-        .and(log_filter.clone())
-        .then(|request, validator_store, task_executor, log| {
-            blocking_json_task(move || {
-                remotekeys::delete(request, validator_store, task_executor, log)
-            })
+        .then(|request, validator_store, task_executor| {
+            blocking_json_task(move || remotekeys::delete(request, validator_store, task_executor))
         });
 
     // Subscribe to get VC logs via Server side events
@@ -1327,7 +1306,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             match msg {
                                 Ok(data) => {
                                     // Serialize to json
-                                    match data.to_json_string() {
+                                    match serde_json::to_string(&data)
+                                        .map_err(|e| format!("{:?}", e))
+                                    {
                                         // Send the json as a Server Sent Event
                                         Ok(json) => Event::default().json_data(json).map_err(|e| {
                                             warp_utils::reject::server_sent_event_error(format!(
@@ -1421,10 +1402,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     )?;
 
     info!(
-        log,
-        "HTTP API started";
-        "listen_address" => listening_socket.to_string(),
-        "api_token_file" => ?api_token_path,
+        listen_address = listening_socket.to_string(),
+        ?api_token_path,
+        "HTTP API started"
     );
 
     Ok((listening_socket, server))

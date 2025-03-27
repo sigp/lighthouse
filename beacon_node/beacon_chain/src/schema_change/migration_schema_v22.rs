@@ -1,16 +1,15 @@
 use crate::beacon_chain::BeaconChainTypes;
-use slog::{info, Logger};
 use std::sync::Arc;
 use store::chunked_iter::ChunkedVectorIter;
 use store::{
     chunked_vector::BlockRootsChunked,
-    get_key_for_col,
     metadata::{
         SchemaVersion, ANCHOR_FOR_ARCHIVE_NODE, ANCHOR_UNINITIALIZED, STATE_UPPER_LIMIT_NO_RETAIN,
     },
     partial_beacon_state::PartialBeaconState,
     AnchorInfo, DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp,
 };
+use tracing::info;
 use types::{BeaconState, Hash256, Slot};
 
 const LOG_EVERY: usize = 200_000;
@@ -21,7 +20,7 @@ fn load_old_schema_frozen_state<T: BeaconChainTypes>(
 ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
     let Some(partial_state_bytes) = db
         .cold_db
-        .get_bytes(DBColumn::BeaconState.into(), state_root.as_slice())?
+        .get_bytes(DBColumn::BeaconState, state_root.as_slice())?
     else {
         return Ok(None);
     };
@@ -41,9 +40,8 @@ fn load_old_schema_frozen_state<T: BeaconChainTypes>(
 pub fn upgrade_to_v22<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     genesis_state_root: Option<Hash256>,
-    log: Logger,
 ) -> Result<(), Error> {
-    info!(log, "Upgrading from v21 to v22");
+    info!("Upgrading from v21 to v22");
 
     let old_anchor = db.get_anchor_info();
 
@@ -72,9 +70,8 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
     // this write.
     if split_slot > 0 {
         info!(
-            log,
-            "Re-storing genesis state";
-            "state_root" => ?genesis_state_root,
+            state_root = ?genesis_state_root,
+            "Re-storing genesis state"
         );
         db.store_cold_state(&genesis_state_root, &genesis_state, &mut cold_ops)?;
     }
@@ -88,7 +85,6 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
         oldest_block_slot,
         split_slot,
         &mut cold_ops,
-        &log,
     )?;
 
     // Commit this first batch of non-destructive cold database ops.
@@ -108,14 +104,13 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
     db.store_schema_version_atomically(SchemaVersion(22), hot_ops)?;
 
     // Finally, clean up the old-format data from the freezer database.
-    delete_old_schema_freezer_data::<T>(&db, &log)?;
+    delete_old_schema_freezer_data::<T>(&db)?;
 
     Ok(())
 }
 
 pub fn delete_old_schema_freezer_data<T: BeaconChainTypes>(
     db: &Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    log: &Logger,
 ) -> Result<(), Error> {
     let mut cold_ops = vec![];
 
@@ -136,19 +131,12 @@ pub fn delete_old_schema_freezer_data<T: BeaconChainTypes>(
     for column in columns {
         for res in db.cold_db.iter_column_keys::<Vec<u8>>(column) {
             let key = res?;
-            cold_ops.push(KeyValueStoreOp::DeleteKey(get_key_for_col(
-                column.as_str(),
-                &key,
-            )));
+            cold_ops.push(KeyValueStoreOp::DeleteKey(column, key));
         }
     }
     let delete_ops = cold_ops.len();
 
-    info!(
-        log,
-        "Deleting historic states";
-        "delete_ops" => delete_ops,
-    );
+    info!(delete_ops, "Deleting historic states");
     db.cold_db.do_atomically(cold_ops)?;
 
     // In order to reclaim space, we need to compact the freezer DB as well.
@@ -163,19 +151,18 @@ pub fn write_new_schema_block_roots<T: BeaconChainTypes>(
     oldest_block_slot: Slot,
     split_slot: Slot,
     cold_ops: &mut Vec<KeyValueStoreOp>,
-    log: &Logger,
 ) -> Result<(), Error> {
     info!(
-        log,
-        "Starting beacon block root migration";
-        "oldest_block_slot" => oldest_block_slot,
-        "genesis_block_root" => ?genesis_block_root,
+        %oldest_block_slot,
+        ?genesis_block_root,
+        "Starting beacon block root migration"
     );
 
     // Store the genesis block root if it would otherwise not be stored.
     if oldest_block_slot != 0 {
         cold_ops.push(KeyValueStoreOp::PutKeyValue(
-            get_key_for_col(DBColumn::BeaconBlockRoots.into(), &0u64.to_be_bytes()),
+            DBColumn::BeaconBlockRoots,
+            0u64.to_be_bytes().to_vec(),
             genesis_block_root.as_slice().to_vec(),
         ));
     }
@@ -192,18 +179,15 @@ pub fn write_new_schema_block_roots<T: BeaconChainTypes>(
     // OK to hold these in memory (10M slots * 43 bytes per KV ~= 430 MB).
     for (i, (slot, block_root)) in block_root_iter.enumerate() {
         cold_ops.push(KeyValueStoreOp::PutKeyValue(
-            get_key_for_col(
-                DBColumn::BeaconBlockRoots.into(),
-                &(slot as u64).to_be_bytes(),
-            ),
+            DBColumn::BeaconBlockRoots,
+            slot.to_be_bytes().to_vec(),
             block_root.as_slice().to_vec(),
         ));
 
         if i > 0 && i % LOG_EVERY == 0 {
             info!(
-                log,
-                "Beacon block root migration in progress";
-                "roots_migrated" => i
+                roots_migrated = i,
+                "Beacon block root migration in progress"
             );
         }
     }

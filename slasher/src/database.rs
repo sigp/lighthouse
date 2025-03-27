@@ -12,12 +12,12 @@ use interface::{Environment, OpenDatabases, RwTransaction};
 use lru::LruCache;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
-use slog::{info, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::borrow::{Borrow, Cow};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use tracing::info;
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttestationData, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
@@ -287,8 +287,8 @@ fn ssz_decode<T: Decode>(bytes: Cow<[u8]>) -> Result<T, Error> {
 }
 
 impl<E: EthSpec> SlasherDB<E> {
-    pub fn open(config: Arc<Config>, spec: Arc<ChainSpec>, log: Logger) -> Result<Self, Error> {
-        info!(log, "Opening slasher database"; "backend" => %config.backend);
+    pub fn open(config: Arc<Config>, spec: Arc<ChainSpec>) -> Result<Self, Error> {
+        info!(backend = %config.backend, "Opening slasher database");
 
         std::fs::create_dir_all(&config.database_path)?;
 
@@ -406,7 +406,7 @@ impl<E: EthSpec> SlasherDB<E> {
     ) -> Result<(), Error> {
         // Don't update maximum if new target is less than or equal to previous. In the case of
         // no previous we *do* want to update.
-        if previous_max_target.map_or(false, |prev_max| max_target <= prev_max) {
+        if previous_max_target.is_some_and(|prev_max| max_target <= prev_max) {
             return Ok(());
         }
 
@@ -665,7 +665,7 @@ impl<E: EthSpec> SlasherDB<E> {
         target: Epoch,
         prev_max_target: Option<Epoch>,
     ) -> Result<Option<CompactAttesterRecord>, Error> {
-        if prev_max_target.map_or(true, |prev_max| target > prev_max) {
+        if prev_max_target.is_none_or(|prev_max| target > prev_max) {
             return Ok(None);
         }
 

@@ -5,14 +5,14 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [dependencies]
-environment = { workspace = true }
 beacon_node = { workspace = true }
-types = { workspace = true }
-tempfile = { workspace = true }
-eth2 = { workspace = true }
-validator_client = { workspace = true }
 beacon_node_fallback = { workspace = true }
-validator_dir = { workspace = true, features = ["insecure_keys"] }
-sensitive_url = { workspace = true }
+environment = { workspace = true }
+eth2 = { workspace = true }
 execution_layer = { workspace = true }
+sensitive_url = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
+types = { workspace = true }
+validator_client = { workspace = true }
+validator_dir = { workspace = true, features = ["insecure_keys"] }

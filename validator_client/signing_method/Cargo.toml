@@ -6,12 +6,12 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [dependencies]
 eth2_keystore = { workspace = true }
+ethereum_serde_utils = { workspace = true }
 lockfile = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
+serde = { workspace = true }
 task_executor = { workspace = true }
 types = { workspace = true }
 url = { workspace = true }
 validator_metrics = { workspace = true }
-serde = { workspace = true }
-ethereum_serde_utils = { workspace = true }

@@ -14,15 +14,15 @@ use crate::{metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes
 use execution_layer::json_structures::BlobAndProofV1;
 use execution_layer::Error as ExecutionLayerError;
 use metrics::{inc_counter, inc_counter_by, TryExt};
-use slog::{debug, error, o, Logger};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::oneshot;
+use tracing::{debug, error};
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::{
-    BeaconStateError, BlobSidecar, DataColumnSidecar, DataColumnSidecarList, EthSpec, FullPayload,
-    Hash256, SignedBeaconBlock, SignedBeaconBlockHeader,
+    BeaconStateError, BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockHeader,
 };
 
 pub enum BlobsOrDataColumns<T: BeaconChainTypes> {
@@ -50,11 +50,6 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
-    let block_root_str = format!("{:?}", block_root);
-    let log = chain
-        .log
-        .new(o!("service" => "fetch_engine_blobs", "block_root" => block_root_str));
-
     let versioned_hashes = if let Some(kzg_commitments) = block
         .message()
         .body()
@@ -67,10 +62,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             .map(kzg_commitment_to_versioned_hash)
             .collect::<Vec<_>>()
     } else {
-        debug!(
-            log,
-            "Fetch blobs not triggered - none required";
-        );
+        debug!("Fetch blobs not triggered - none required");
         return Ok(None);
     };
 
@@ -81,22 +73,14 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
 
-    debug!(
-        log,
-        "Fetching blobs from the EL";
-        "num_expected_blobs" => num_expected_blobs,
-    );
+    debug!(num_expected_blobs, "Fetching blobs from the EL");
     let response = execution_layer
         .get_blobs(versioned_hashes)
         .await
         .map_err(FetchEngineBlobError::RequestFailed)?;
 
-    if response.is_empty() {
-        debug!(
-           log,
-            "No blobs fetched from the EL";
-            "num_expected_blobs" => num_expected_blobs,
-        );
+    if response.is_empty() || response.iter().all(|opt| opt.is_none()) {
+        debug!(num_expected_blobs, "No blobs fetched from the EL");
         inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
         return Ok(None);
     } else {
@@ -112,6 +96,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         response,
         signed_block_header,
         &kzg_commitments_proof,
+        &chain.spec,
     )?;
 
     let num_fetched_blobs = fixed_blob_sidecar_list
@@ -153,11 +138,34 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
         if num_fetched_blobs != num_expected_blobs {
             debug!(
-                log,
-                "Not all blobs fetched from the EL";
-                "info" => "Unable to compute data columns",
-                "num_fetched_blobs" => num_fetched_blobs,
-                "num_expected_blobs" => num_expected_blobs,
+                info = "Unable to compute data columns",
+                num_fetched_blobs, num_expected_blobs, "Not all blobs fetched from the EL"
+            );
+            return Ok(None);
+        }
+
+        if chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            // Avoid computing columns if block has already been imported.
+            debug!(
+                info = "block has already been imported",
+                "Ignoring EL blobs response"
+            );
+            return Ok(None);
+        }
+
+        if chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            // Avoid computing columns if block has already been imported.
+            debug!(
+                info = "block has already been imported",
+                "Ignoring EL blobs response"
             );
             return Ok(None);
         }
@@ -167,7 +175,6 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             block.clone(),
             fixed_blob_sidecar_list.clone(),
             publish_fn,
-            log.clone(),
         );
 
         Some(data_columns_receiver)
@@ -179,11 +186,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         None
     };
 
-    debug!(
-        log,
-        "Processing engine blobs";
-        "num_fetched_blobs" => num_fetched_blobs,
-    );
+    debug!(num_fetched_blobs, "Processing engine blobs");
 
     let availability_processing_status = chain
         .process_engine_blobs(
@@ -211,10 +214,9 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: FixedBlobSidecarList<T::EthSpec>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
-    log: Logger,
-) -> Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
+) -> oneshot::Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
     let chain_cloned = chain.clone();
-    let (data_columns_sender, data_columns_receiver) = tokio::sync::mpsc::channel(1);
+    let (data_columns_sender, data_columns_receiver) = oneshot::channel();
 
     chain.task_executor.spawn_blocking(
         move || {
@@ -239,28 +241,20 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
                 Ok(d) => d,
                 Err(e) => {
                     error!(
-                        log,
-                        "Failed to build data column sidecars from blobs";
-                        "error" => ?e
+                        error = ?e,
+                        "Failed to build data column sidecars from blobs"
                     );
                     return;
                 }
             };
 
-            if let Err(e) = data_columns_sender.try_send(all_data_columns.clone()) {
-                error!(log, "Failed to send computed data columns"; "error" => ?e);
-            };
-
-            // Check indices from cache before sending the columns, to make sure we don't
-            // publish components already seen on gossip.
-            let is_supernode = chain_cloned.data_availability_checker.is_supernode();
-
-            // At the moment non supernodes are not required to publish any columns.
-            // TODO(das): we could experiment with having full nodes publish their custodied
-            // columns here.
-            if !is_supernode {
+            if data_columns_sender.send(all_data_columns.clone()).is_err() {
+                // Data column receiver have been dropped - block may have already been imported.
+                // This race condition exists because gossip columns may arrive and trigger block
+                // import during the computation. Here we just drop the computed columns.
+                debug!("Failed to send computed data columns");
                 return;
-            }
+            };
 
             publish_fn(BlobsOrDataColumns::DataColumns(all_data_columns));
         },
@@ -275,8 +269,11 @@ fn build_blob_sidecars<E: EthSpec>(
     response: Vec<Option<BlobAndProofV1<E>>>,
     signed_block_header: SignedBeaconBlockHeader,
     kzg_commitments_inclusion_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+    spec: &ChainSpec,
 ) -> Result<FixedBlobSidecarList<E>, FetchEngineBlobError> {
-    let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
+    let epoch = block.epoch();
+    let mut fixed_blob_sidecar_list =
+        FixedBlobSidecarList::default(spec.max_blobs_per_block(epoch) as usize);
     for (index, blob_and_proof) in response
         .into_iter()
         .enumerate()

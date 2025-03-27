@@ -14,13 +14,15 @@ pub fn upgrade_to_electra<E: EthSpec>(
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
 
+    let activation_exit_epoch = spec.compute_activation_exit_epoch(epoch)?;
     let earliest_exit_epoch = pre_state
         .validators()
         .iter()
         .filter(|v| v.exit_epoch != spec.far_future_epoch)
         .map(|v| v.exit_epoch)
         .max()
-        .unwrap_or(epoch)
+        .unwrap_or(activation_exit_epoch)
+        .max(activation_exit_epoch)
         .safe_add(1)?;
 
     // The total active balance cache must be built before the consolidation churn limit
@@ -45,10 +47,11 @@ pub fn upgrade_to_electra<E: EthSpec>(
         .enumerate()
         .filter(|(_, validator)| validator.activation_epoch == spec.far_future_epoch)
         .sorted_by_key(|(index, validator)| (validator.activation_eligibility_epoch, *index))
+        .map(|(index, _)| index)
         .collect::<Vec<_>>();
 
     // Process validators to queue entire balance and reset them
-    for (index, _) in pre_activation {
+    for index in pre_activation {
         let balance = post
             .balances_mut()
             .get_mut(index)
