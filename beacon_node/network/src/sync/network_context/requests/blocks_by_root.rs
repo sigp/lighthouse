@@ -1,7 +1,7 @@
 use beacon_chain::get_block_root;
 use lighthouse_network::rpc::BlocksByRootRequest;
 use std::sync::Arc;
-use types::{ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
+use types::{EthSpec, ForkContext, Hash256, SignedBeaconBlock};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 
@@ -9,8 +9,8 @@ use super::{ActiveRequestItems, LookupVerifyError};
 pub struct BlocksByRootSingleRequest(pub Hash256);
 
 impl BlocksByRootSingleRequest {
-    pub fn into_request(self, spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![self.0], spec)
+    pub fn into_request(self, fork_context: &ForkContext) -> BlocksByRootRequest {
+        BlocksByRootRequest::new(vec![self.0], fork_context)
     }
 }
 

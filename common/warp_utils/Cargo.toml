@@ -9,7 +9,6 @@ edition = { workspace = true }
 bytes = { workspace = true }
 eth2 = { workspace = true }
 headers = "0.3.2"
-metrics = { workspace = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
 serde_array_query = "0.1.0"

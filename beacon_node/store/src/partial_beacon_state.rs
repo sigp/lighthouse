@@ -2,8 +2,8 @@ use crate::chunked_vector::{
     load_variable_list_from_db, load_vector_from_db, BlockRootsChunked, HistoricalRoots,
     HistoricalSummaries, RandaoMixes, StateRootsChunked,
 };
-use crate::{Error, KeyValueStore};
-use ssz::{Decode, DecodeError};
+use crate::{DBColumn, Error, KeyValueStore, KeyValueStoreOp};
+use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::historical_summary::HistoricalSummary;
@@ -170,6 +170,15 @@ impl<E: EthSpec> PartialBeaconState<E> {
             Self,
             <_>::from_ssz_bytes(bytes)?
         ))
+    }
+
+    /// Prepare the partial state for storage in the KV database.
+    pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
+        KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconState,
+            state_root.as_slice().to_vec(),
+            self.as_ssz_bytes(),
+        )
     }
 
     pub fn load_block_roots<S: KeyValueStore<E>>(

@@ -6,7 +6,9 @@ authors = ["Sean Anderson <sean@sigmaprime.io>"]
 
 [dependencies]
 eth2 = { workspace = true }
+ethereum_ssz = { workspace = true }
 lighthouse_version = { workspace = true }
 reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }

@@ -34,19 +34,24 @@ impl ForkName {
     }
 
     pub fn list_all_fork_epochs(spec: &ChainSpec) -> Vec<(ForkName, Option<Epoch>)> {
-        vec![
-            (ForkName::Altair, spec.altair_fork_epoch),
-            (ForkName::Bellatrix, spec.bellatrix_fork_epoch),
-            (ForkName::Capella, spec.capella_fork_epoch),
-            (ForkName::Deneb, spec.deneb_fork_epoch),
-            (ForkName::Electra, spec.electra_fork_epoch),
-            (ForkName::Fulu, spec.fulu_fork_epoch),
-        ]
+        ForkName::list_all()
+            .into_iter()
+            // Skip Base
+            .skip(1)
+            .map(|fork| (fork, spec.fork_epoch(fork)))
+            .collect()
     }
 
     pub fn latest() -> ForkName {
         // This unwrap is safe as long as we have 1+ forks. It is tested below.
         *ForkName::list_all().last().unwrap()
+    }
+
+    /// Returns the fork primarily used for testing purposes.
+    /// This fork serves as the baseline for many tests, and the goal
+    /// is to ensure features are passing on this fork.
+    pub fn latest_stable() -> ForkName {
+        ForkName::Electra
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`

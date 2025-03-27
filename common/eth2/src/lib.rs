@@ -16,10 +16,12 @@ pub mod types;
 
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::{Error as ResponseError, *};
+use ::types::fork_versioned_response::ExecutionOptimisticFinalizedForkVersionedResponse;
 use derivative::Derivative;
+use either::Either;
 use futures::Stream;
 use futures_util::StreamExt;
-use lighthouse_network::PeerId;
+use libp2p_identity::PeerId;
 use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
 use reqwest::{
@@ -35,7 +37,6 @@ use std::fmt;
 use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
-use store::fork_versioned_response::ExecutionOptimisticFinalizedForkVersionedResponse;
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -48,6 +49,7 @@ pub const CONSENSUS_BLOCK_VALUE_HEADER: &str = "Eth-Consensus-Block-Value";
 
 pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
 pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
+pub const JSON_CONTENT_TYPE_HEADER: &str = "application/json";
 
 #[derive(Debug)]
 pub enum Error {
@@ -111,9 +113,9 @@ impl Error {
             Error::InvalidSignatureHeader => None,
             Error::MissingSignatureHeader => None,
             Error::InvalidJson(_) => None,
+            Error::InvalidSsz(_) => None,
             Error::InvalidServerSentEvent(_) => None,
             Error::InvalidHeaders(_) => None,
-            Error::InvalidSsz(_) => None,
             Error::TokenReadError(..) => None,
             Error::NoServerPubkey | Error::NoToken => None,
         }
@@ -327,7 +329,6 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP POST request, returning a JSON response.
-    #[cfg(feature = "lighthouse")]
     async fn post_with_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
         &self,
         url: U,
@@ -776,6 +777,45 @@ impl BeaconNodeHttpClient {
             .push(&state_id.to_string())
             .push("validators")
             .push(&validator_id.to_string());
+
+        self.get_opt(path).await
+    }
+
+    /// `GET beacon/states/{state_id}/pending_deposits`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_pending_deposits(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingDeposit>>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("pending_deposits");
+
+        self.get_opt(path).await
+    }
+
+    /// `GET beacon/states/{state_id}/pending_partial_withdrawals`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_pending_partial_withdrawals(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingPartialWithdrawal>>>, Error>
+    {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("pending_partial_withdrawals");
 
         self.get_opt(path).await
     }
@@ -1324,9 +1364,9 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST v2/beacon/pool/attestations`
-    pub async fn post_beacon_pool_attestations_v2(
+    pub async fn post_beacon_pool_attestations_v2<E: EthSpec>(
         &self,
-        attestations: &[SingleAttestation],
+        attestations: Either<Vec<Attestation<E>>, Vec<SingleAttestation>>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V2)?;
@@ -1337,13 +1377,26 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attestations");
 
-        self.post_with_timeout_and_consensus_header(
-            path,
-            &attestations,
-            self.timeouts.attestation,
-            fork_name,
-        )
-        .await?;
+        match attestations {
+            Either::Right(attestations) => {
+                self.post_with_timeout_and_consensus_header(
+                    path,
+                    &attestations,
+                    self.timeouts.attestation,
+                    fork_name,
+                )
+                .await?;
+            }
+            Either::Left(attestations) => {
+                self.post_with_timeout_and_consensus_header(
+                    path,
+                    &attestations,
+                    self.timeouts.attestation,
+                    fork_name,
+                )
+                .await?;
+            }
+        };
 
         Ok(())
     }
@@ -1587,33 +1640,34 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/rewards/sync_committee`
     pub async fn post_beacon_rewards_sync_committee(
         &self,
-        rewards: &[Option<Vec<lighthouse::SyncCommitteeReward>>],
-    ) -> Result<(), Error> {
+        block_id: BlockId,
+        validators: &[ValidatorId],
+    ) -> Result<GenericResponse<Vec<SyncCommitteeReward>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("rewards")
-            .push("sync_committee");
+            .push("sync_committee")
+            .push(&block_id.to_string());
 
-        self.post(path, &rewards).await?;
-
-        Ok(())
+        self.post_with_response(path, &validators).await
     }
 
     /// `GET beacon/rewards/blocks`
-    pub async fn get_beacon_rewards_blocks(&self, epoch: Epoch) -> Result<(), Error> {
+    pub async fn get_beacon_rewards_blocks(
+        &self,
+        block_id: BlockId,
+    ) -> Result<GenericResponse<StandardBlockReward>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("rewards")
-            .push("blocks");
-
-        path.query_pairs_mut()
-            .append_pair("epoch", &epoch.to_string());
+            .push("blocks")
+            .push(&block_id.to_string());
 
         self.get(path).await
     }
@@ -1621,19 +1675,19 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/rewards/attestations`
     pub async fn post_beacon_rewards_attestations(
         &self,
-        attestations: &[ValidatorId],
-    ) -> Result<(), Error> {
+        epoch: Epoch,
+        validators: &[ValidatorId],
+    ) -> Result<StandardAttestationRewards, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("rewards")
-            .push("attestations");
+            .push("attestations")
+            .push(&epoch.to_string());
 
-        self.post(path, &attestations).await?;
-
-        Ok(())
+        self.post_with_response(path, &validators).await
     }
 
     // GET builder/states/{state_id}/expected_withdrawals

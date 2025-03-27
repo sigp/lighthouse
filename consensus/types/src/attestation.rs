@@ -2,7 +2,6 @@ use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, Hash256, Slot};
 use crate::{Checkpoint, ForkVersionDeserialize};
 use derivative::Derivative;
-use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
@@ -12,22 +11,18 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 use super::{
-    AggregateSignature, AttestationData, BitList, ChainSpec, CommitteeIndex, Domain, EthSpec, Fork,
-    SecretKey, Signature, SignedRoot,
+    AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
+    Signature, SignedRoot,
 };
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     AlreadySigned(usize),
-    SubnetCountIsZero(ArithError),
     IncorrectStateVariant,
     InvalidCommitteeLength,
     InvalidCommitteeIndex,
-    AttesterNotInCommittee(usize),
-    InvalidCommittee,
-    MissingCommittee,
-    NoCommitteeForSlotAndIndex { slot: Slot, index: CommitteeIndex },
 }
 
 impl From<ssz_types::Error> for Error {
@@ -229,7 +224,7 @@ impl<E: EthSpec> Attestation<E> {
         }
     }
 
-    pub fn get_aggregation_bit(&self, index: usize) -> Result<bool, ssz_types::Error> {
+    pub fn get_aggregation_bit(&self, index: usize) -> Result<bool, ssz::BitfieldError> {
         match self {
             Attestation::Base(att) => att.aggregation_bits.get(index),
             Attestation::Electra(att) => att.aggregation_bits.get(index),
@@ -238,7 +233,7 @@ impl<E: EthSpec> Attestation<E> {
 
     pub fn to_single_attestation_with_attester_index(
         &self,
-        attester_index: usize,
+        attester_index: u64,
     ) -> Result<SingleAttestation, Error> {
         match self {
             Self::Base(_) => Err(Error::IncorrectStateVariant),
@@ -359,13 +354,13 @@ impl<E: EthSpec> AttestationElectra<E> {
         if self
             .aggregation_bits
             .get(committee_position)
-            .map_err(Error::SszTypesError)?
+            .map_err(Error::BitfieldError)?
         {
             Err(Error::AlreadySigned(committee_position))
         } else {
             self.aggregation_bits
                 .set(committee_position, true)
-                .map_err(Error::SszTypesError)?;
+                .map_err(Error::BitfieldError)?;
 
             self.signature.add_assign(signature);
 
@@ -375,14 +370,14 @@ impl<E: EthSpec> AttestationElectra<E> {
 
     pub fn to_single_attestation_with_attester_index(
         &self,
-        attester_index: usize,
+        attester_index: u64,
     ) -> Result<SingleAttestation, Error> {
         let Some(committee_index) = self.committee_index() else {
             return Err(Error::InvalidCommitteeIndex);
         };
 
         Ok(SingleAttestation {
-            committee_index: committee_index as usize,
+            committee_index,
             attester_index,
             data: self.data.clone(),
             signature: self.signature.clone(),
@@ -433,13 +428,13 @@ impl<E: EthSpec> AttestationBase<E> {
         if self
             .aggregation_bits
             .get(committee_position)
-            .map_err(Error::SszTypesError)?
+            .map_err(Error::BitfieldError)?
         {
             Err(Error::AlreadySigned(committee_position))
         } else {
             self.aggregation_bits
                 .set(committee_position, true)
-                .map_err(Error::SszTypesError)?;
+                .map_err(Error::BitfieldError)?;
 
             self.signature.add_assign(signature);
 
@@ -449,7 +444,7 @@ impl<E: EthSpec> AttestationBase<E> {
 
     pub fn extend_aggregation_bits(
         &self,
-    ) -> Result<BitList<E::MaxValidatorsPerSlot>, ssz_types::Error> {
+    ) -> Result<BitList<E::MaxValidatorsPerSlot>, ssz::BitfieldError> {
         self.aggregation_bits.resize::<E::MaxValidatorsPerSlot>()
     }
 }
@@ -579,42 +574,12 @@ impl<E: EthSpec> ForkVersionDeserialize for Vec<Attestation<E>> {
     PartialEq,
 )]
 pub struct SingleAttestation {
-    pub committee_index: usize,
-    pub attester_index: usize,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub committee_index: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub attester_index: u64,
     pub data: AttestationData,
     pub signature: AggregateSignature,
-}
-
-impl SingleAttestation {
-    pub fn to_attestation<E: EthSpec>(&self, committee: &[usize]) -> Result<Attestation<E>, Error> {
-        let aggregation_bit = committee
-            .iter()
-            .enumerate()
-            .find_map(|(i, &validator_index)| {
-                if self.attester_index == validator_index {
-                    return Some(i);
-                }
-                None
-            })
-            .ok_or(Error::AttesterNotInCommittee(self.attester_index))?;
-
-        let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
-        committee_bits
-            .set(self.committee_index, true)
-            .map_err(|_| Error::InvalidCommitteeIndex)?;
-
-        let mut aggregation_bits =
-            BitList::with_capacity(committee.len()).map_err(|_| Error::InvalidCommitteeLength)?;
-
-        aggregation_bits.set(aggregation_bit, true)?;
-
-        Ok(Attestation::Electra(AttestationElectra {
-            aggregation_bits,
-            committee_bits,
-            data: self.data.clone(),
-            signature: self.signature.clone(),
-        }))
-    }
 }
 
 #[cfg(test)]
@@ -636,12 +601,12 @@ mod tests {
         let attestation_data = size_of::<AttestationData>();
         let signature = size_of::<AggregateSignature>();
 
-        assert_eq!(aggregation_bits, 56);
+        assert_eq!(aggregation_bits, 152);
         assert_eq!(attestation_data, 128);
         assert_eq!(signature, 288 + 16);
 
         let attestation_expected = aggregation_bits + attestation_data + signature;
-        assert_eq!(attestation_expected, 488);
+        assert_eq!(attestation_expected, 584);
         assert_eq!(
             size_of::<AttestationBase<MainnetEthSpec>>(),
             attestation_expected
@@ -659,13 +624,13 @@ mod tests {
             size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxCommitteesPerSlot>>();
         let signature = size_of::<AggregateSignature>();
 
-        assert_eq!(aggregation_bits, 56);
-        assert_eq!(committee_bits, 56);
+        assert_eq!(aggregation_bits, 152);
+        assert_eq!(committee_bits, 152);
         assert_eq!(attestation_data, 128);
         assert_eq!(signature, 288 + 16);
 
         let attestation_expected = aggregation_bits + committee_bits + attestation_data + signature;
-        assert_eq!(attestation_expected, 544);
+        assert_eq!(attestation_expected, 736);
         assert_eq!(
             size_of::<AttestationElectra<MainnetEthSpec>>(),
             attestation_expected

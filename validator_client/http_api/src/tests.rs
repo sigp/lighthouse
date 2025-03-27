@@ -18,7 +18,6 @@ use eth2::{
     Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
-use logging::test_logger;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
@@ -61,8 +60,6 @@ impl ApiTester {
     }
 
     pub async fn new_with_config(config: ValidatorStoreConfig) -> Self {
-        let log = test_logger();
-
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join("api-token.txt");
@@ -73,7 +70,6 @@ impl ApiTester {
             validator_defs,
             validator_dir.path().into(),
             InitializedValidatorsConfig::default(),
-            log.clone(),
         )
         .await
         .unwrap();
@@ -100,11 +96,10 @@ impl ApiTester {
             slashing_protection,
             Hash256::repeat_byte(42),
             spec.clone(),
-            Some(Arc::new(DoppelgangerService::new(log.clone()))),
+            Some(Arc::new(DoppelgangerService::default())),
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            log.clone(),
         ));
 
         validator_store
@@ -133,7 +128,6 @@ impl ApiTester {
                 http_token_path: token_path,
             },
             sse_logging_components: None,
-            log,
             slot_clock: slot_clock.clone(),
             _phantom: PhantomData,
         });

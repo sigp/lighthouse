@@ -8,9 +8,6 @@ edition = { workspace = true }
 name = "validator_client"
 path = "src/lib.rs"
 
-[dev-dependencies]
-tokio = { workspace = true }
-
 [dependencies]
 account_utils = { workspace = true }
 beacon_node_fallback = { workspace = true }
@@ -32,9 +29,9 @@ reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 slashing_protection = { workspace = true }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 types  = { workspace = true }
 validator_http_api = { workspace = true }
 validator_http_metrics = { workspace = true }

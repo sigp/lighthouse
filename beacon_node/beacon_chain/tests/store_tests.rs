@@ -1,7 +1,6 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::Error as AttnError;
-use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
@@ -15,7 +14,7 @@ use beacon_chain::{
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use logging::test_logger;
+use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -25,10 +24,11 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
+use store::database::interface::BeaconNodeBackend;
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
-    BlobInfo, DBColumn, HotColdDB, LevelDB, StoreConfig,
+    BlobInfo, DBColumn, HotColdDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use tokio::time::sleep;
@@ -39,6 +39,9 @@ use types::*;
 pub const LOW_VALIDATOR_COUNT: usize = 24;
 pub const HIGH_VALIDATOR_COUNT: usize = 64;
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(HIGH_VALIDATOR_COUNT));
@@ -46,19 +49,23 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
-fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
-    get_store_generic(db_path, StoreConfig::default(), test_spec::<E>())
+fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+    let store_config = StoreConfig {
+        prune_payloads: false,
+        ..StoreConfig::default()
+    };
+    get_store_generic(db_path, store_config, test_spec::<E>())
 }
 
 fn get_store_generic(
     db_path: &TempDir,
     config: StoreConfig,
     spec: ChainSpec,
-) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+    create_test_tracing_subscriber();
     let hot_path = db_path.path().join("chain_db");
     let cold_path = db_path.path().join("freezer_db");
     let blobs_path = db_path.path().join("blobs_db");
-    let log = test_logger();
 
     HotColdDB::open(
         &hot_path,
@@ -67,13 +74,12 @@ fn get_store_generic(
         |_, _, _| Ok(()),
         config,
         spec.into(),
-        log,
     )
     .expect("disk store should initialize")
 }
 
 fn get_harness(
-    store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
     validator_count: usize,
 ) -> TestHarness {
     // Most tests expect to retain historic states, so we use this as the default.
@@ -81,21 +87,34 @@ fn get_harness(
         reconstruct_historic_states: true,
         ..ChainConfig::default()
     };
-    get_harness_generic(store, validator_count, chain_config)
+    get_harness_generic(store, validator_count, chain_config, false)
+}
+
+fn get_harness_import_all_data_columns(
+    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    validator_count: usize,
+) -> TestHarness {
+    // Most tests expect to retain historic states, so we use this as the default.
+    let chain_config = ChainConfig {
+        reconstruct_historic_states: true,
+        ..ChainConfig::default()
+    };
+    get_harness_generic(store, validator_count, chain_config, true)
 }
 
 fn get_harness_generic(
-    store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
     validator_count: usize,
     chain_config: ChainConfig,
+    import_all_data_columns: bool,
 ) -> TestHarness {
     let harness = TestHarness::builder(MinimalEthSpec)
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .logger(store.logger().clone())
         .fresh_disk_store(store)
         .mock_execution_layer()
         .chain_config(chain_config)
+        .import_all_data_columns(import_all_data_columns)
         .build();
     harness.advance_slot();
     harness
@@ -244,7 +263,6 @@ async fn full_participation_no_skips() {
             AttestationStrategy::AllValidators,
         )
         .await;
-
     check_finalization(&harness, num_blocks_produced);
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
@@ -741,6 +759,7 @@ async fn delete_blocks_and_states() {
         .get_state(
             &faulty_head_block.state_root(),
             Some(faulty_head_block.slot()),
+            CACHE_STATE_IN_TESTS,
         )
         .expect("no db error")
         .expect("faulty head state exists");
@@ -754,7 +773,12 @@ async fn delete_blocks_and_states() {
             break;
         }
         store.delete_state(&state_root, slot).unwrap();
-        assert_eq!(store.get_state(&state_root, Some(slot)).unwrap(), None);
+        assert_eq!(
+            store
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+                .unwrap(),
+            None
+        );
     }
 
     // Double-deleting should also be OK (deleting non-existent things is fine)
@@ -1038,7 +1062,11 @@ fn get_state_for_block(harness: &TestHarness, block_root: Hash256) -> BeaconStat
         .unwrap();
     harness
         .chain
-        .get_state(&head_block.state_root(), Some(head_block.slot()))
+        .get_state(
+            &head_block.state_root(),
+            Some(head_block.slot()),
+            CACHE_STATE_IN_TESTS,
+        )
         .unwrap()
         .unwrap()
 }
@@ -1875,7 +1903,10 @@ fn check_all_states_exist<'a>(
     states: impl Iterator<Item = &'a BeaconStateHash>,
 ) {
     for &state_hash in states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
+        let state = harness
+            .chain
+            .get_state(&state_hash.into(), None, CACHE_STATE_IN_TESTS)
+            .unwrap();
         assert!(
             state.is_some(),
             "expected state {:?} to be in DB",
@@ -1893,7 +1924,7 @@ fn check_no_states_exist<'a>(
         assert!(
             harness
                 .chain
-                .get_state(&state_root.into(), None)
+                .get_state(&state_root.into(), None, CACHE_STATE_IN_TESTS)
                 .unwrap()
                 .is_none(),
             "state {:?} should not be in the DB",
@@ -2286,7 +2317,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
 
     let temp1 = tempdir().unwrap();
     let full_store = get_store(&temp1);
-    let harness = get_harness(full_store.clone(), LOW_VALIDATOR_COUNT);
+
+    // TODO(das): Run a supernode so the node has full blobs stored.
+    // This may not be required in the future if we end up implementing downloading checkpoint
+    // blobs from p2p peers:
+    // https://github.com/sigp/lighthouse/issues/6837
+    let harness = get_harness_import_all_data_columns(full_store.clone(), LOW_VALIDATOR_COUNT);
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
@@ -2319,12 +2355,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .unwrap();
     let wss_blobs_opt = harness
         .chain
-        .store
-        .get_blobs(&wss_block_root)
-        .unwrap()
-        .blobs();
+        .get_or_reconstruct_blobs(&wss_block_root)
+        .unwrap();
     let wss_state = full_store
-        .get_state(&wss_state_root, Some(checkpoint_slot))
+        .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
         .unwrap()
         .unwrap();
 
@@ -2339,7 +2373,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .await;
 
     let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
-    let log = harness.chain.logger().clone();
+
     let temp2 = tempdir().unwrap();
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
@@ -2365,7 +2399,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .store(store.clone())
         .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
-        .logger(log.clone())
         .weak_subjectivity_state(
             wss_state,
             wss_block.clone(),
@@ -2379,10 +2412,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .slot_clock(slot_clock)
         .shutdown_sender(shutdown_tx)
         .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
         .build()
         .expect("should build");
@@ -2395,14 +2425,16 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .await
         .unwrap()
         .unwrap();
+    // This test may break in the future if we no longer store the full checkpoint data columns.
     let store_wss_blobs_opt = beacon_chain
-        .store
-        .get_blobs(&wss_block_root)
-        .unwrap()
-        .blobs();
+        .get_or_reconstruct_blobs(&wss_block_root)
+        .unwrap();
 
     assert_eq!(store_wss_block, wss_block);
-    assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
+    // TODO(fulu): Remove this condition once #6760 (PeerDAS checkpoint sync) is merged.
+    if !beacon_chain.spec.is_peer_das_scheduled() {
+        assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
+    }
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
@@ -2418,7 +2450,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .await
             .unwrap()
             .unwrap();
-        let blobs = harness.chain.get_blobs(&block_root).expect("blobs").blobs();
+
         let slot = full_block.slot();
         let state_root = full_block.state_root();
 
@@ -2426,7 +2458,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         beacon_chain
             .process_block(
                 full_block.canonical_root(),
-                RpcBlock::new(Some(block_root), Arc::new(full_block), blobs).unwrap(),
+                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -2438,7 +2470,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         // Check that the new block's state can be loaded correctly.
         let mut state = beacon_chain
             .store
-            .get_state(&state_root, Some(slot))
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
@@ -2480,13 +2512,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .await
             .expect("should get block")
             .expect("should get block");
-        let blobs = harness.chain.get_blobs(&block_root).expect("blobs").blobs();
 
         if let MaybeAvailableBlock::Available(block) = harness
             .chain
             .data_availability_checker
             .verify_kzg_for_rpc_block(
-                RpcBlock::new(Some(block_root), Arc::new(full_block), blobs).unwrap(),
+                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
             )
             .expect("should verify kzg")
         {
@@ -2496,18 +2527,13 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
 
     // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
     // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
-    let mut batch_with_invalid_first_block = available_blocks.clone();
+    let mut batch_with_invalid_first_block =
+        available_blocks.iter().map(clone_block).collect::<Vec<_>>();
     batch_with_invalid_first_block[0] = {
-        let (block_root, block, blobs, data_columns) = available_blocks[0].clone().deconstruct();
+        let (block_root, block, data) = clone_block(&available_blocks[0]).deconstruct();
         let mut corrupt_block = (*block).clone();
         *corrupt_block.signature_mut() = Signature::empty();
-        AvailableBlock::__new_for_testing(
-            block_root,
-            Arc::new(corrupt_block),
-            blobs,
-            data_columns,
-            Arc::new(spec),
-        )
+        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), data, Arc::new(spec))
     };
 
     // Importing the invalid batch should error.
@@ -2519,8 +2545,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     ));
 
     // Importing the batch with valid signatures should succeed.
+    let available_blocks_dup = available_blocks.iter().map(clone_block).collect::<Vec<_>>();
     beacon_chain
-        .import_historical_block_batch(available_blocks.clone())
+        .import_historical_block_batch(available_blocks_dup)
         .unwrap();
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
@@ -2554,6 +2581,15 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         if block_root != prev_block_root {
             assert_eq!(block.slot(), slot);
         }
+
+        // Prune_payloads is set to false in the default config, so the payload should exist
+        if block.message().execution_payload().is_ok() {
+            assert!(beacon_chain
+                .store
+                .execution_payload_exists(&block_root)
+                .unwrap(),);
+        }
+
         prev_block_root = block_root;
     }
 
@@ -2564,7 +2600,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .unwrap()
         .map(Result::unwrap)
     {
-        let mut state = store.get_state(&state_root, Some(slot)).unwrap().unwrap();
+        let mut state = store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .unwrap();
         assert_eq!(state.slot(), slot);
         assert_eq!(state.canonical_root().unwrap(), state_root);
     }
@@ -2587,7 +2626,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let harness = get_harness_generic(store.clone(), LOW_VALIDATOR_COUNT, chain_config);
+    let harness = get_harness_generic(store.clone(), LOW_VALIDATOR_COUNT, chain_config, false);
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
@@ -3028,7 +3067,6 @@ async fn schema_downgrade_to_min_version() {
         genesis_state_root,
         CURRENT_SCHEMA_VERSION,
         min_version,
-        store.logger().clone(),
     )
     .expect("schema downgrade to minimum version should work");
 
@@ -3038,7 +3076,6 @@ async fn schema_downgrade_to_min_version() {
         genesis_state_root,
         min_version,
         CURRENT_SCHEMA_VERSION,
-        store.logger().clone(),
     )
     .expect("schema upgrade from minimum version should work");
 
@@ -3046,7 +3083,6 @@ async fn schema_downgrade_to_min_version() {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
-        .logger(store.logger().clone())
         .testing_slot_clock(slot_clock)
         .resumed_disk_store(store.clone())
         .mock_execution_layer()
@@ -3064,7 +3100,6 @@ async fn schema_downgrade_to_min_version() {
         genesis_state_root,
         CURRENT_SCHEMA_VERSION,
         min_version_sub_1,
-        harness.logger().clone(),
     )
     .expect_err("should not downgrade below minimum version");
 }
@@ -3075,6 +3110,10 @@ async fn deneb_prune_blobs_happy_case() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
+    if store.get_chain_spec().is_peer_das_scheduled() {
+        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
+        return;
+    }
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3122,6 +3161,10 @@ async fn deneb_prune_blobs_no_finalization() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
+    if store.get_chain_spec().is_peer_das_scheduled() {
+        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
+        return;
+    }
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3266,6 +3309,10 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, config, test_spec::<E>());
 
+    if store.get_chain_spec().is_peer_das_scheduled() {
+        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
+        return;
+    }
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3382,9 +3429,10 @@ async fn prune_historic_states() {
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let genesis_state_root = harness.chain.genesis_state_root;
+
     let genesis_state = harness
         .chain
-        .get_state(&genesis_state_root, None)
+        .get_state(&genesis_state_root, None, CACHE_STATE_IN_TESTS)
         .unwrap()
         .unwrap();
 
@@ -3405,7 +3453,10 @@ async fn prune_historic_states() {
         .map(Result::unwrap)
         .collect::<Vec<_>>();
     for &(state_root, slot) in &first_epoch_state_roots {
-        assert!(store.get_state(&state_root, Some(slot)).unwrap().is_some());
+        assert!(store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .is_some());
     }
 
     store
@@ -3420,7 +3471,10 @@ async fn prune_historic_states() {
     // Ensure all epoch 0 states other than the genesis have been pruned.
     for &(state_root, slot) in &first_epoch_state_roots {
         assert_eq!(
-            store.get_state(&state_root, Some(slot)).unwrap().is_some(),
+            store
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+                .unwrap()
+                .is_some(),
             slot == 0
         );
     }
@@ -3508,7 +3562,10 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
 }
 
 /// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
-fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) {
+fn check_split_slot(
+    harness: &TestHarness,
+    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+) {
     let split_slot = store.get_split_slot();
     assert_eq!(
         harness
@@ -3526,7 +3583,6 @@ fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, L
 /// Check that all the states in a chain dump have the correct tree hash.
 fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
     let mut chain_dump = harness.chain.chain_dump().unwrap();
-    let split_slot = harness.chain.store.get_split_slot();
 
     assert_eq!(chain_dump.len() as u64, expected_len);
 
@@ -3544,7 +3600,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
             harness
                 .chain
                 .store
-                .get_state(&checkpoint.beacon_state_root(), None)
+                .get_state(&checkpoint.beacon_state_root(), None, CACHE_STATE_IN_TESTS)
                 .expect("no error")
                 .expect("state exists")
                 .slot(),
@@ -3553,13 +3609,12 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
 
         // Check presence of execution payload on disk.
         if harness.chain.spec.bellatrix_fork_epoch.is_some() {
-            assert_eq!(
+            assert!(
                 harness
                     .chain
                     .store
                     .execution_payload_exists(&checkpoint.beacon_block_root)
                     .unwrap(),
-                checkpoint.beacon_block.slot() >= split_slot,
                 "incorrect payload storage for block at slot {}: {:?}",
                 checkpoint.beacon_block.slot(),
                 checkpoint.beacon_block_root,
@@ -3607,7 +3662,7 @@ fn check_iterators(harness: &TestHarness) {
             harness
                 .chain
                 .store
-                .get_state(&state_root, Some(slot))
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
                 .unwrap()
                 .is_some(),
             "state {:?} from canonical chain should be in DB",
@@ -3646,4 +3701,8 @@ fn get_blocks(
         .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()
+}
+
+fn clone_block<E: EthSpec>(block: &AvailableBlock<E>) -> AvailableBlock<E> {
+    block.__clone_without_recv().unwrap()
 }

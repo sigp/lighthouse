@@ -11,6 +11,9 @@ Options:
       --auto-compact-db <auto-compact-db>
           Enable or disable automatic compaction of the database on
           finalization. [default: true]
+      --beacon-node-backend <DATABASE>
+          Set the database backend to be used by the beacon node. [possible
+          values: leveldb]
       --blob-prune-margin-epochs <EPOCHS>
           The margin for blob pruning in epochs. The oldest blobs are pruned up
           until data_availability_boundary - blob_prune_margin_epochs. [default:
@@ -25,6 +28,8 @@ Options:
           network. Multiaddr is also supported.
       --builder <builder>
           The URL of a service compatible with the MEV-boost API.
+      --builder-disable-ssz
+          Disables sending requests using SSZ over the builder API.
       --builder-fallback-epochs-since-finalization <builder-fallback-epochs-since-finalization>
           If this node is proposing a block and the chain has not finalized
           within this number of epochs, it will NOT query any connected
@@ -73,8 +78,7 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --discovery-port <PORT>
           The UDP port that discovery will listen on. Defaults to `port`
       --discovery-port6 <PORT>
@@ -113,7 +117,7 @@ Options:
       --epochs-per-blob-prune <EPOCHS>
           The epoch interval with which to prune blobs from Lighthouse's
           database when they are older than the data availability boundary
-          relative to the current epoch. [default: 1]
+          relative to the current epoch. [default: 256]
       --epochs-per-migration <N>
           The number of epochs to wait between running the migration of data
           from the hot DB to the cold DB. Less frequent runs can be useful for
@@ -227,7 +231,7 @@ Options:
           peer without an ENR.
       --listen-address [<ADDRESS>...]
           The address lighthouse will listen for UDP and TCP connections. To
-          listen over IpV4 and IpV6 set this flag twice with the different
+          listen over IPv4 and IPv6 set this flag twice with the different
           values.
           Examples:
           - --listen-address '0.0.0.0' will listen over IPv4.
@@ -235,19 +239,16 @@ Options:
           - --listen-address '0.0.0.0' --listen-address '::' will listen over
           both IPv4 and IPv6. The order of the given addresses is not relevant.
           However, multiple IPv4, or multiple IPv6 addresses will not be
-          accepted. [default: 0.0.0.0]
+          accepted. If omitted, Lighthouse will listen on all interfaces, for
+          both IPv4 and IPv6.
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
-      --logfile <FILE>
-          File path where the log file will be stored. Once it grows to the
-          value specified in `--logfile-max-size` a new log file is generated
-          where future logs are stored. Once the number of log files exceeds the
-          value specified in `--logfile-max-number` the oldest log file will be
-          overwritten.
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
+      --logfile-dir <DIR>
+          Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
           [possible values: DEFAULT, JSON]
@@ -284,7 +285,7 @@ Options:
           monitoring-endpoint. Default: 60s
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky, hoodi]
       --network-dir <DIR>
           Data directory for network keys. Defaults to network/ inside the
           beacon node dir.
@@ -298,8 +299,8 @@ Options:
           [default: 9000]
       --port6 <PORT>
           The TCP/UDP ports to listen on over IPv6 when listening over both IPv4
-          and IPv6. Defaults to 9090 when required. The Quic UDP port will be
-          set to this value + 1. [default: 9090]
+          and IPv6. Defaults to --port. The Quic UDP port will be set to this
+          value + 1.
       --prepare-payload-lookahead <MILLISECONDS>
           The time before the start of a proposal slot at which payload
           attributes should be sent. Low values are useful for execution nodes
@@ -379,8 +380,11 @@ Options:
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
           DEPRECATED. This flag has no effect.
+      --state-cache-headroom <N>
+          Minimum number of states to cull from the state cache when it gets
+          full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 128]
+          Specifies the size of the state cache [default: 32]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the
@@ -455,6 +459,8 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
+      --disable-light-client-server
+          Disables light client support on the p2p network
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
@@ -508,10 +514,14 @@ Flags:
           already-subscribed subnets, use with --subscribe-all-subnets to ensure
           all attestations are received for import.
       --light-client-server
-          Act as a full node supporting light clients on the p2p network
-          [experimental]
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+          DEPRECATED
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
+      --log-extra-info
+          If present, show module,file,line in logs
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.
