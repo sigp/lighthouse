@@ -348,6 +348,8 @@ jobs:
           bins: cargo-audit
     - name: Check formatting with cargo fmt
       run: make cargo-fmt
+    - name: Markdown-linter
+      run: make mdlint
     - name: Lint code for quality and style with Clippy
       run: make lint-full
     - name: Certify Cargo.lock freshness
@@ -360,8 +362,6 @@ jobs:
       run: make audit-CI
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
-    - name: Markdown-linter
-      run: make mdlint
     - name: Spell-check
       uses: rojopolis/spellcheck-github-actions@v0
   check-msrv:
