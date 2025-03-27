@@ -87,7 +87,7 @@ sorted into tiers based onto sync distance and execution layer status. You can u
 multiple nodes fall into the same tier, user order is used to tie-break.
 
 To see health information for each connected node, you can use the
-[`/lighthouse/beacon/health` API endpoint](./api-vc-endpoints.md#get-lighthousebeaconhealth).
+[`/lighthouse/beacon/health` API endpoint](./api_vc_endpoints.md#get-lighthousebeaconhealth).
 
 ### Broadcast modes
 

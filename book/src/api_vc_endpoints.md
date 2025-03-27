@@ -821,7 +821,7 @@ logs emitted are INFO level or higher.
 ## `GET /lighthouse/beacon/health`
 
 Provides information about the sync status and execution layer health of each connected beacon node.
-For more inormation about how to interpret the beacon node health, see [Fallback Health](./redundancy.md#fallback-health).
+For more inormation about how to interpret the beacon node health, see [Fallback Health](./advanced_redundancy.md#fallback-health).
 
 ### HTTP Specification
 
@@ -829,7 +829,7 @@ For more inormation about how to interpret the beacon node health, see [Fallback
 |-------------------|--------------------------------------------|
 | Path              | `/lighthouse/beacon/health`                |
 | Method            | GET                                        |
-| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
 | Typical Responses | 200, 400                                   |
 
 Command:
