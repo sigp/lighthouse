@@ -323,10 +323,10 @@ impl BytesDiff {
     }
 
     pub fn compute_xdelta(source_bytes: &[u8], target_bytes: &[u8]) -> Result<Self, Error> {
-        // TODO: Use a smaller estimate for the output diff buffer size, currently the xdelta3 lib
-        // will use 2x the size of the source plus the target length, which is 4x the size of the
-        // hdiff buffer. In practice, diffs are almost always smaller than buffers (by a signficiant
-        // factor), so this is 4-16x larger than necessary in a temporary allocation.
+        // TODO(hdiff): Use a smaller estimate for the output diff buffer size, currently the
+        // xdelta3 lib will use 2x the size of the source plus the target length, which is 4x the
+        // size of the hdiff buffer. In practice, diffs are almost always smaller than buffers (by a
+        // signficiant factor), so this is 4-16x larger than necessary in a temporary allocation.
         //
         // We should use an estimated size that *should* be enough, and then dynamically increase it
         // if we hit an insufficient space error.
@@ -340,8 +340,8 @@ impl BytesDiff {
     }
 
     pub fn apply_xdelta(&self, source: &[u8], target: &mut Vec<u8>) -> Result<(), Error> {
-        // Dynamic buffer allocation. This is a stopgap until we implement a schema change to store
-        // the output buffer size inside the `BytesDiff`.
+        // TODO(hdiff): Dynamic buffer allocation. This is a stopgap until we implement a schema
+        // change to store the output buffer size inside the `BytesDiff`.
         let mut output_length = ((source.len() + self.bytes.len()) * 3) / 2;
         let mut num_resizes = 0;
         loop {
