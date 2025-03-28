@@ -325,8 +325,19 @@ where
                 .unwrap_or_else(OperationPool::new),
         );
 
-        let pubkey_cache = ValidatorPubkeyCache::load_from_store(store)
+        let mut pubkey_cache = ValidatorPubkeyCache::load_from_store(store.clone())
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
+
+        // If any validators weren't persisted to disk on previous runs, this will use the genesis_state to
+        // "top-up" the in-memory validator cache and its on-disk representation with any missing validators.
+        let pubkey_store_ops = pubkey_cache
+            .import_new_pubkeys(&genesis_state)
+            .map_err(|e| format!("Unable to top-up persisted pubkey cache {:?}", e))?;
+
+        // Write any missed validators to disk
+        store
+            .do_atomically_with_block_and_blobs_cache(pubkey_store_ops)
+            .map_err(|e| format!("Unable to write pubkeys to disk {:?}", e))?;
 
         self.genesis_block_root = Some(chain.genesis_block_root);
         self.genesis_state_root = Some(genesis_block.state_root());
