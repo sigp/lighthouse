@@ -5768,6 +5768,27 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_lighthouse_add_remove_peer(self) -> Self {
+        let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
+        // Check that there aren't any trusted peers on startup
+        assert!(trusted_peers.is_empty());
+        let enr = AdminPeer {enr: "enr:-QESuEDpVVjo8dmDuneRhLnXdIGY3e9NQiaG4sJR3GS-VMQCQDsmBYoQhJRaPeZzPlTsZj2F8v-iV4lKJEYIRIyztqexHodhdHRuZXRziAwAAAAAAAAAhmNsaWVudNiKTGlnaHRob3VzZYw3LjAuMC1iZXRhLjSEZXRoMpDS8Zl_YAAJEAAIAAAAAAAAgmlkgnY0gmlwhIe11XmDaXA2kCoBBPkAOitZAAAAAAAAAAKEcXVpY4IjKYVxdWljNoIjg4lzZWNwMjU2azGhA43ihEr9BUVVnIHIfFqBR3Izs4YRHHPsTqIbUgEb3Hc8iHN5bmNuZXRzD4N0Y3CCIyiEdGNwNoIjgoN1ZHCCIyiEdWRwNoIjgg".to_string()};
+        self.client
+            .post_lighthouse_add_peer(enr.clone())
+            .await
+            .unwrap();
+        let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
+        // Should have 1 trusted peer
+        assert_eq!(trusted_peers.len(), 1);
+
+        self.client.post_lighthouse_remove_peer(enr).await.unwrap();
+        let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
+        // Should be empty after removing
+        assert!(trusted_peers.is_empty());
+
+        self
+    }
+
     pub async fn test_post_lighthouse_liveness(self) -> Self {
         let epoch = self.chain.epoch().unwrap();
         let head_state = self.chain.head_beacon_state_cloned();
@@ -7334,6 +7355,8 @@ async fn lighthouse_endpoints() {
         .test_post_lighthouse_database_reconstruct()
         .await
         .test_post_lighthouse_liveness()
+        .await
+        .test_post_lighthouse_add_remove_peer()
         .await;
 }
 
