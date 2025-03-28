@@ -1128,6 +1128,12 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
             }
         }
 
+        if !verify_attestation_is_finalized_checkpoint_or_descendant(attestation.data(), chain) {
+            return Err(Error::HeadBlockFinalized {
+                beacon_block_root: attestation.data().beacon_block_root,
+            });
+        }
+
         Ok(block)
     } else if chain.is_pre_finalization_block(attestation.data().beacon_block_root)? {
         Err(Error::HeadBlockFinalized {
@@ -1359,6 +1365,29 @@ pub fn verify_committee_index<E: EthSpec>(attestation: AttestationRef<E>) -> Res
         }
     }
     Ok(())
+}
+
+fn verify_attestation_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
+    attestation_data: &AttestationData,
+    chain: &BeaconChain<T>,
+) -> bool {
+    // If we have a split block newer than finalization then we also ban attestations which are not
+    // descended from that split block. It's important not to try checking `is_descendant` if
+    // finality is ahead of the split and the split block has been pruned, as `is_descendant` will
+    // return `false` in this case.
+    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+    let attestation_block_root = attestation_data.beacon_block_root;
+    let finalized_slot = fork_choice
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch());
+    let split = chain.store.get_split_info();
+    let is_descendant_from_split_block = split.slot == 0
+        || split.slot <= finalized_slot
+        || fork_choice.is_descendant(split.block_root, attestation_block_root);
+
+    fork_choice.is_finalized_checkpoint_or_descendant(attestation_block_root)
+        && is_descendant_from_split_block
 }
 
 /// Assists in readability.
