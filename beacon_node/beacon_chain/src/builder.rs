@@ -31,6 +31,7 @@ use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+use rand::rngs::StdRng;
 use rand::RngCore;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -703,7 +704,7 @@ where
     }
 
     /// Sets the `rng` field.
-    /// 
+    ///
     /// Currently used for shuffling column sidecars in block publishing.
     pub fn rng(mut self, rng: Arc<RwLock<Box<dyn RngCore + Sync + Send>>>) -> Self {
         self.rng = Some(rng);
