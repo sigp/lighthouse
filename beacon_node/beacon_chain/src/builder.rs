@@ -850,7 +850,7 @@ where
         let validator_pubkey_cache = self
             .validator_pubkey_cache
             .map(|mut validator_pubkey_cache| {
-                // If any validators weren't persisted to disk on previous runs, this will use the genesis_state to
+                // If any validators weren't persisted to disk on previous runs, this will use the head state to
                 // "top-up" the in-memory validator cache and its on-disk representation with any missing validators.
                 let pubkey_store_ops = validator_pubkey_cache
                     .import_new_pubkeys(&head_snapshot.beacon_state)
