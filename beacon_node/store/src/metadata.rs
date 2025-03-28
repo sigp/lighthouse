@@ -153,16 +153,6 @@ impl AnchorInfo {
     pub fn full_state_pruning_enabled(&self) -> bool {
         self.state_lower_limit == 0 && self.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN
     }
-
-    pub fn as_archive_node(&self) -> Self {
-        AnchorInfo {
-            anchor_slot: self.anchor_slot,
-            oldest_block_slot: Slot::new(0),
-            oldest_block_parent: Hash256::ZERO,
-            state_upper_limit: Slot::new(0),
-            state_lower_limit: Slot::new(0),
-        }
-    }
 }
 
 impl StoreItem for AnchorInfo {
