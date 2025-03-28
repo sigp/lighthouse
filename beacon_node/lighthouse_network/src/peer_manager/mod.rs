@@ -947,8 +947,8 @@ impl<E: EthSpec> PeerManager<E> {
 
     fn maintain_trusted_peers(&mut self) {
         let trusted_peers = self.trusted_peers.clone();
-        for trusted_peer in &trusted_peers {
-            self.dial_peer(trusted_peer.clone());
+        for trusted_peer in trusted_peers {
+            self.dial_peer(trusted_peer);
         }
     }
 
