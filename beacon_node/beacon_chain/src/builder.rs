@@ -325,7 +325,7 @@ where
                 .unwrap_or_else(OperationPool::new),
         );
 
-        let pubkey_cache = ValidatorPubkeyCache::load_from_store(store.clone())
+        let pubkey_cache = ValidatorPubkeyCache::load_from_store(store)
             .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
 
         self.genesis_block_root = Some(chain.genesis_block_root);
