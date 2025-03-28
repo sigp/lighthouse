@@ -855,11 +855,17 @@ where
                 let pubkey_store_ops = validator_pubkey_cache
                     .import_new_pubkeys(&head_snapshot.beacon_state)
                     .map_err(|e| format!("Unable to top-up persisted pubkey cache {:?}", e))?;
-                // Write any missed validators to disk
-                store
-                    .clone()
-                    .do_atomically_with_block_and_blobs_cache(pubkey_store_ops)
-                    .map_err(|e| format!("Unable to write pubkeys to disk {:?}", e))?;
+                if !pubkey_store_ops.is_empty() {
+                    // Write any missed validators to disk
+                    debug!(
+                        store.log,
+                        "Topping up validator pubkey cache";
+                        "missing_validators" => pubkey_store_ops.len()
+                    );
+                    store
+                        .do_atomically_with_block_and_blobs_cache(pubkey_store_ops)
+                        .map_err(|e| format!("Unable to write pubkeys to disk {:?}", e))?;
+                }
                 Ok(validator_pubkey_cache)
             })
             .unwrap_or_else(|| {
