@@ -32,7 +32,7 @@ To exit all validators on the validator client, use the keyword `all`:
 lighthouse vm exit --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validators all --beacon-node http://localhost:5052
 ```
 
-To check the voluntary exit status, refer to [the list command](./validator-manager-api.md#list).
+To check the voluntary exit status, refer to [the list command](./validator_manager_api.md#list).
 
 The following command will only generate a presign voluntary exit message and save it to a file named `{validator_pubkey}.json`. It **will not** publish the voluntary exit to the network.
 
