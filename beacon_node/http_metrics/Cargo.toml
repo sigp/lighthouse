@@ -10,12 +10,13 @@ beacon_chain = { workspace = true }
 health_metrics = { workspace = true }
 lighthouse_network = { workspace = true }
 lighthouse_version = { workspace = true }
+logging = { workspace = true }
 malloc_utils = { workspace = true }
 metrics = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 store = { workspace = true }
+tracing = { workspace = true }
 warp = { workspace = true }
 warp_utils = { workspace = true }
 

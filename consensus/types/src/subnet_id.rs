@@ -67,7 +67,7 @@ impl SubnetId {
     ) -> Result<SubnetId, ArithError> {
         Self::compute_subnet::<E>(
             attestation.data.slot,
-            attestation.committee_index as u64,
+            attestation.committee_index,
             committee_count_per_slot,
             spec,
         )

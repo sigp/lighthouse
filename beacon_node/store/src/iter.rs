@@ -27,8 +27,10 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         &self,
         store: &'a HotColdDB<E, Hot, Cold>,
     ) -> Option<BlockRootsIterator<'a, E, Hot, Cold>> {
+        // Ancestor roots and their states are probably in the cold db
+        // but we set `update_cache` to false just in case
         let state = store
-            .get_state(&self.message().state_root(), Some(self.slot()))
+            .get_state(&self.message().state_root(), Some(self.slot()), false)
             .ok()??;
 
         Some(BlockRootsIterator::owned(store, state))
@@ -189,8 +191,10 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> RootsIterator<'a, E,
         let block = store
             .get_blinded_block(&block_hash)?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash.into()))?;
+        // We are querying some block from the database. It's not clear if the block's state is useful,
+        // we elect not to cache it.
         let state = store
-            .get_state(&block.state_root(), Some(block.slot()))?
+            .get_state(&block.state_root(), Some(block.slot()), false)?
             .ok_or_else(|| BeaconStateError::MissingBeaconState(block.state_root().into()))?;
         Ok(Self::owned(store, state))
     }
@@ -362,8 +366,9 @@ fn next_historical_root_backtrack_state<E: EthSpec, Hot: ItemStore<E>, Cold: Ite
 
     if new_state_slot >= historic_state_upper_limit {
         let new_state_root = current_state.get_state_root(new_state_slot)?;
+        // We are backtracking through historical states, we don't want to cache these.
         Ok(store
-            .get_state(new_state_root, Some(new_state_slot))?
+            .get_state(new_state_root, Some(new_state_slot), false)?
             .ok_or_else(|| BeaconStateError::MissingBeaconState((*new_state_root).into()))?)
     } else {
         Err(Error::HistoryUnavailable)
@@ -382,7 +387,6 @@ mod test {
     use crate::StoreConfig as Config;
     use beacon_chain::test_utils::BeaconChainHarness;
     use beacon_chain::types::{ChainSpec, MainnetEthSpec};
-    use sloggers::{null::NullLoggerBuilder, Build};
     use std::sync::Arc;
     use types::FixedBytesExtended;
 
@@ -398,10 +402,8 @@ mod test {
 
     #[test]
     fn block_root_iter() {
-        let log = NullLoggerBuilder.build().unwrap();
         let store =
-            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
-                .unwrap();
+            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal())).unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -447,10 +449,8 @@ mod test {
 
     #[test]
     fn state_root_iter() {
-        let log = NullLoggerBuilder.build().unwrap();
         let store =
-            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
-                .unwrap();
+            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal())).unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();

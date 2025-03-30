@@ -130,6 +130,22 @@ fn use_long_timeouts_flag() {
 }
 
 #[test]
+fn long_timeouts_multiplier_flag_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.long_timeouts_multiplier, 1));
+}
+
+#[test]
+fn long_timeouts_multiplier_flag() {
+    CommandLineTest::new()
+        .flag("use-long-timeouts", None)
+        .flag("long-timeouts-multiplier", Some("10"))
+        .run()
+        .with_config(|config| assert_eq!(config.long_timeouts_multiplier, 10));
+}
+
+#[test]
 fn beacon_nodes_tls_certs_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
@@ -407,6 +423,13 @@ fn metrics_port_flag() {
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
 }
 #[test]
+fn metrics_port_flag_default() {
+    CommandLineTest::new()
+        .flag("metrics", None)
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_port, 5064));
+}
+#[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
         .flag("metrics", None)
@@ -458,7 +481,7 @@ fn no_doppelganger_protection_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.validator_store.gas_limit.is_none()));
+        .with_config(|config| assert!(config.validator_store.gas_limit == Some(30_000_000)));
 }
 #[test]
 fn gas_limit_flag() {
@@ -560,7 +583,7 @@ fn broadcast_flag() {
         });
     // Other valid variants
     CommandLineTest::new()
-        .flag("broadcast", Some("blocks, subscriptions"))
+        .flag("broadcast", Some("blocks,subscriptions"))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -605,7 +628,7 @@ fn beacon_nodes_sync_tolerances_flag() {
 }
 
 #[test]
-#[should_panic(expected = "Unknown API topic")]
+#[should_panic(expected = "invalid value")]
 fn wrong_broadcast_flag() {
     CommandLineTest::new()
         .flag("broadcast", Some("foo, subscriptions"))

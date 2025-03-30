@@ -8,11 +8,11 @@ use eth2::lighthouse_vc::std_types::{
     ListRemotekeysResponse, SingleListRemotekeysResponse, Status,
 };
 use initialized_validators::{Error, InitializedValidators};
-use slog::{info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
+use tracing::{info, warn};
 use types::{EthSpec, PublicKeyBytes};
 use url::Url;
 use validator_store::ValidatorStore;
@@ -52,12 +52,10 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportRemotekeysRequest,
     validator_store: Arc<ValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<ImportRemotekeysResponse, Rejection> {
     info!(
-        log,
-        "Importing remotekeys via standard HTTP API";
-        "count" => request.remote_keys.len(),
+        count = request.remote_keys.len(),
+        "Importing remotekeys via standard HTTP API"
     );
     // Import each remotekey. Some remotekeys may fail to be imported, so we record a status for each.
     let mut statuses = Vec::with_capacity(request.remote_keys.len());
@@ -70,10 +68,9 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
                 Ok(status) => Status::ok(status),
                 Err(e) => {
                     warn!(
-                        log,
-                        "Error importing keystore, skipped";
-                        "pubkey" => remotekey.pubkey.to_string(),
-                        "error" => ?e,
+                        pubkey = remotekey.pubkey.to_string(),
+                        error = ?e,
+                        "Error importing keystore, skipped"
                     );
                     Status::error(ImportRemotekeyStatus::Error, e)
                 }
@@ -148,12 +145,10 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteRemotekeysRequest,
     validator_store: Arc<ValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<DeleteRemotekeysResponse, Rejection> {
     info!(
-        log,
-        "Deleting remotekeys via standard HTTP API";
-        "count" => request.pubkeys.len(),
+        count = request.pubkeys.len(),
+        "Deleting remotekeys via standard HTTP API"
     );
     // Remove from initialized validators.
     let initialized_validators_rwlock = validator_store.initialized_validators();
@@ -171,10 +166,9 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
                 Ok(status) => Status::ok(status),
                 Err(error) => {
                     warn!(
-                        log,
-                        "Error deleting keystore";
-                        "pubkey" => ?pubkey_bytes,
-                        "error" => ?error,
+                        pubkey = ?pubkey_bytes,
+                        ?error,
+                        "Error deleting keystore"
                     );
                     Status::error(DeleteRemotekeyStatus::Error, error)
                 }

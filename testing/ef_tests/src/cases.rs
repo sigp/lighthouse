@@ -91,6 +91,9 @@ pub use transition::TransitionTest;
 ///     to return `true` for the feature in order for the feature test vector to be tested.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FeatureName {
+    // TODO(fulu): to be removed once we start using Fulu types for test vectors.
+    // Existing SSZ types for PeerDAS (Fulu) are the same as Electra, so the test vectors get
+    // loaded as Electra types (default serde behaviour for untagged enums).
     Fulu,
 }
 

@@ -134,13 +134,13 @@ impl<T: Decode> RuntimeVariableList<T> {
                 )));
             }
 
-            bytes
-                .chunks(<T as Decode>::ssz_fixed_len())
-                .try_fold(Vec::with_capacity(num_items), |mut vec, chunk| {
+            bytes.chunks(<T as Decode>::ssz_fixed_len()).try_fold(
+                Vec::with_capacity(num_items),
+                |mut vec, chunk| {
                     vec.push(<T as Decode>::from_ssz_bytes(chunk)?);
                     Ok(vec)
-                })
-                .map(Into::into)?
+                },
+            )?
         } else {
             ssz::decode_list_of_variable_length_items(bytes, Some(max_len))?
         };

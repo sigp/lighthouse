@@ -157,11 +157,12 @@ pub enum Error {
         current_fork: ForkName,
     },
     TotalActiveBalanceDiffUninitialized,
+    GeneralizedIndexNotSupported(usize),
     IndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
-    NonExecutionAddresWithdrawalCredential,
+    NonExecutionAddressWithdrawalCredential,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
     InvalidSelectionProof {
@@ -2214,7 +2215,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     // ******* Electra accessors *******
 
-    /// Return the churn limit for the current epoch.
+    /// Return the churn limit for the current epoch.
     pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, Error> {
         let total_active_balance = self.get_total_active_balance()?;
         let churn = std::cmp::max(
@@ -2329,21 +2330,12 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Electra(_) => {
-                let state = self.as_electra_mut()?;
-
+            BeaconState::Electra(_) | BeaconState::Fulu(_) => {
                 // Consume the balance and update state variables
-                state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
-                state.earliest_exit_epoch = earliest_exit_epoch;
-                Ok(state.earliest_exit_epoch)
-            }
-            BeaconState::Fulu(_) => {
-                let state = self.as_fulu_mut()?;
-
-                // Consume the balance and update state variables
-                state.exit_balance_to_consume = exit_balance_to_consume.safe_sub(exit_balance)?;
-                state.earliest_exit_epoch = earliest_exit_epoch;
-                Ok(state.earliest_exit_epoch)
+                *self.exit_balance_to_consume_mut()? =
+                    exit_balance_to_consume.safe_sub(exit_balance)?;
+                *self.earliest_exit_epoch_mut()? = earliest_exit_epoch;
+                self.earliest_exit_epoch()
             }
         }
     }
@@ -2385,23 +2377,12 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Electra(_) => {
-                let state = self.as_electra_mut()?;
-
+            BeaconState::Electra(_) | BeaconState::Fulu(_) => {
                 // Consume the balance and update state variables.
-                state.consolidation_balance_to_consume =
+                *self.consolidation_balance_to_consume_mut()? =
                     consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
-                state.earliest_consolidation_epoch = earliest_consolidation_epoch;
-                Ok(state.earliest_consolidation_epoch)
-            }
-            BeaconState::Fulu(_) => {
-                let state = self.as_fulu_mut()?;
-
-                // Consume the balance and update state variables.
-                state.consolidation_balance_to_consume =
-                    consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
-                state.earliest_consolidation_epoch = earliest_consolidation_epoch;
-                Ok(state.earliest_consolidation_epoch)
+                *self.earliest_consolidation_epoch_mut()? = earliest_consolidation_epoch;
+                self.earliest_consolidation_epoch()
             }
         }
     }
@@ -2600,11 +2581,12 @@ impl<E: EthSpec> BeaconState<E> {
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
         // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-        let field_index = if self.fork_name_unchecked().electra_enabled() {
+        let field_gindex = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
         } else {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
         };
+        let field_index = field_gindex.safe_sub(self.num_fields_pow2())?;
         let leaves = self.get_beacon_state_leaves();
         self.generate_proof(field_index, &leaves)
     }
@@ -2614,11 +2596,12 @@ impl<E: EthSpec> BeaconState<E> {
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
         // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-        let field_index = if self.fork_name_unchecked().electra_enabled() {
+        let field_gindex = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
         } else {
             light_client_update::NEXT_SYNC_COMMITTEE_INDEX
         };
+        let field_index = field_gindex.safe_sub(self.num_fields_pow2())?;
         let leaves = self.get_beacon_state_leaves();
         self.generate_proof(field_index, &leaves)
     }
@@ -2626,17 +2609,24 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn compute_finalized_root_proof(&self) -> Result<Vec<Hash256>, Error> {
         // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
         // the generalized index of `state.finalized_checkpoint`.
-        let field_index = if self.fork_name_unchecked().electra_enabled() {
-            // Index should be 169/2 - 64 = 20 which matches the position
-            // of `finalized_checkpoint` in `BeaconState`
+        let checkpoint_root_gindex = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
         } else {
-            // Index should be 105/2 - 32 = 20 which matches the position
-            // of `finalized_checkpoint` in `BeaconState`
             light_client_update::FINALIZED_ROOT_INDEX
         };
+        let checkpoint_gindex = checkpoint_root_gindex / 2;
+
+        // Convert gindex to index by subtracting 2**depth (gindex = 2**depth + index).
+        //
+        // After Electra, the index should be 169/2 - 64 = 20 which matches the position
+        // of `finalized_checkpoint` in `BeaconState`.
+        //
+        // Prior to Electra, the index should be 105/2 - 32 = 20 which matches the position
+        // of `finalized_checkpoint` in `BeaconState`.
+        let checkpoint_index = checkpoint_gindex.safe_sub(self.num_fields_pow2())?;
+
         let leaves = self.get_beacon_state_leaves();
-        let mut proof = self.generate_proof(field_index, &leaves)?;
+        let mut proof = self.generate_proof(checkpoint_index, &leaves)?;
         proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
         Ok(proof)
     }
@@ -2646,6 +2636,10 @@ impl<E: EthSpec> BeaconState<E> {
         field_index: usize,
         leaves: &[Hash256],
     ) -> Result<Vec<Hash256>, Error> {
+        if field_index >= leaves.len() {
+            return Err(Error::IndexNotSupported(field_index));
+        }
+
         let depth = self.num_fields_pow2().ilog2() as usize;
         let tree = merkle_proof::MerkleTree::create(leaves, depth);
         let (_, proof) = tree.generate_proof(field_index, depth)?;

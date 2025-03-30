@@ -5,11 +5,13 @@ use crate::{
     Error as ServerError, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
     EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
 };
-use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
+use enr::{CombinedKey, Enr};
 use mediatype::{names, MediaType, MediaTypeList};
+use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+use serde_utils::quoted_u64::Quoted;
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::fmt::{self, Display};
@@ -578,18 +580,26 @@ pub struct ChainHeadData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdentityData {
     pub peer_id: String,
-    pub enr: Enr,
+    pub enr: Enr<CombinedKey>,
     pub p2p_addresses: Vec<Multiaddr>,
     pub discovery_addresses: Vec<Multiaddr>,
     pub metadata: MetaData,
 }
 
+#[superstruct(
+    variants(V2, V3),
+    variant_attributes(derive(Clone, Debug, PartialEq, Serialize, Deserialize))
+)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub struct MetaData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub seq_number: u64,
     pub attnets: String,
     pub syncnets: String,
+    #[superstruct(only(V3))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub custody_group_count: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -853,19 +863,6 @@ pub enum PeerState {
     Disconnecting,
 }
 
-impl PeerState {
-    pub fn from_peer_connection_status(status: &PeerConnectionStatus) -> Self {
-        match status {
-            PeerConnectionStatus::Connected { .. } => PeerState::Connected,
-            PeerConnectionStatus::Dialing { .. } => PeerState::Connecting,
-            PeerConnectionStatus::Disconnecting { .. } => PeerState::Disconnecting,
-            PeerConnectionStatus::Disconnected { .. }
-            | PeerConnectionStatus::Banned { .. }
-            | PeerConnectionStatus::Unknown => PeerState::Disconnected,
-        }
-    }
-}
-
 impl FromStr for PeerState {
     type Err = String;
 
@@ -896,15 +893,6 @@ impl fmt::Display for PeerState {
 pub enum PeerDirection {
     Inbound,
     Outbound,
-}
-
-impl PeerDirection {
-    pub fn from_connection_direction(direction: &ConnectionDirection) -> Self {
-        match direction {
-            ConnectionDirection::Incoming => PeerDirection::Inbound,
-            ConnectionDirection::Outgoing => PeerDirection::Outbound,
-        }
-    }
 }
 
 impl FromStr for PeerDirection {
@@ -1417,6 +1405,13 @@ pub struct StandardLivenessResponseData {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ManualFinalizationRequestData {
+    pub state_root: Hash256,
+    pub epoch: Epoch,
+    pub block_root: Hash256,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LivenessRequestData {
     pub epoch: Epoch,
     #[serde(with = "serde_utils::quoted_u64_vec")]
@@ -1656,7 +1651,7 @@ impl<E: EthSpec> FullBlockContents<E> {
     }
 
     /// SSZ decode with fork variant determined by slot.
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, DecodeError> {
         let slot_len = <Slot as Decode>::ssz_fixed_len();
         let slot_bytes = bytes
             .get(0..slot_len)
@@ -1670,10 +1665,7 @@ impl<E: EthSpec> FullBlockContents<E> {
     }
 
     /// SSZ decode with fork variant passed in explicitly.
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
@@ -1828,7 +1820,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
     }
 
     /// SSZ decode with fork variant determined by `fork_name`.
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
             builder.register_anonymous_variable_length_item()?;
@@ -1837,7 +1829,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 
             let mut decoder = builder.build()?;
             let block = decoder.decode_next_with(|bytes| {
-                SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+                SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, fork_name)
             })?;
             let kzg_proofs = decoder.decode_next()?;
             let blobs = decoder.decode_next()?;
@@ -1846,7 +1838,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
                 Some((kzg_proofs, blobs)),
             ))
         } else {
-            SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+            SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, fork_name)
                 .map(|block| PublishBlockRequest::Block(Arc::new(block)))
         }
     }
@@ -1938,6 +1930,24 @@ pub enum FullPayloadContents<E: EthSpec> {
     PayloadAndBlobs(ExecutionPayloadAndBlobs<E>),
 }
 
+impl<E: EthSpec> ForkVersionDecode for FullPayloadContents<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+        if fork_name.deneb_enabled() {
+            Ok(Self::PayloadAndBlobs(
+                ExecutionPayloadAndBlobs::from_ssz_bytes_by_fork(bytes, fork_name)?,
+            ))
+        } else if fork_name.bellatrix_enabled() {
+            Ok(Self::Payload(ExecutionPayload::from_ssz_bytes_by_fork(
+                bytes, fork_name,
+            )?))
+        } else {
+            Err(ssz::DecodeError::BytesInvalid(format!(
+                "FullPayloadContents decoding for {fork_name} not implemented"
+            )))
+        }
+    }
+}
+
 impl<E: EthSpec> FullPayloadContents<E> {
     pub fn new(
         execution_payload: ExecutionPayload<E>,
@@ -2004,6 +2014,36 @@ pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub blobs_bundle: BlobsBundle<E>,
 }
 
+impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadAndBlobs<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<BlobsBundle<E>>()?;
+        let mut decoder = builder.build()?;
+
+        if fork_name.deneb_enabled() {
+            let execution_payload = decoder.decode_next_with(|bytes| {
+                ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)
+            })?;
+            let blobs_bundle = decoder.decode_next()?;
+            Ok(Self {
+                execution_payload,
+                blobs_bundle,
+            })
+        } else {
+            Err(DecodeError::BytesInvalid(format!(
+                "ExecutionPayloadAndBlobs decoding for {fork_name} not implemented"
+            )))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ContentType {
+    Json,
+    Ssz,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
@@ -2011,6 +2051,90 @@ pub struct BlobsBundle<E: EthSpec> {
     pub proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
+}
+
+/// Details about the rewards paid to sync committee members for attesting headers
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct SyncCommitteeReward {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    /// sync committee reward in gwei for the validator
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub reward: i64,
+}
+
+/// Details about the rewards for a single block
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct StandardBlockReward {
+    /// proposer of the block, the proposer index who receives these rewards
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub proposer_index: u64,
+    /// total block reward in gwei,
+    /// equal to attestations + sync_aggregate + proposer_slashings + attester_slashings
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub total: u64,
+    /// block reward component due to included attestations in gwei
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub attestations: u64,
+    /// block reward component due to included sync_aggregate in gwei
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub sync_aggregate: u64,
+    /// block reward component due to included proposer_slashings in gwei
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub proposer_slashings: u64,
+    /// block reward component due to included attester_slashings in gwei
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub attester_slashings: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct IdealAttestationRewards {
+    /// Validator's effective balance in gwei
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub effective_balance: u64,
+    /// Ideal attester's reward for head vote in gwei
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub head: u64,
+    /// Ideal attester's reward for target vote in gwei
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub target: u64,
+    /// Ideal attester's reward for source vote in gwei
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub source: u64,
+    /// Ideal attester's inclusion_delay reward in gwei (phase0 only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inclusion_delay: Option<Quoted<u64>>,
+    /// Ideal attester's inactivity penalty in gwei
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub inactivity: i64,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct TotalAttestationRewards {
+    /// one entry for every validator based on their attestations in the epoch
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    /// attester's reward for head vote in gwei
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub head: i64,
+    /// attester's reward for target vote in gwei
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub target: i64,
+    /// attester's reward for source vote in gwei
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub source: i64,
+    /// attester's inclusion_delay reward in gwei (phase0 only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inclusion_delay: Option<Quoted<u64>>,
+    /// attester's inactivity penalty in gwei
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub inactivity: i64,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct StandardAttestationRewards {
+    pub ideal_rewards: Vec<IdealAttestationRewards>,
+    pub total_rewards: Vec<TotalAttestationRewards>,
 }
 
 #[cfg(test)]

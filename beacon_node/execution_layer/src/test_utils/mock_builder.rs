@@ -1,15 +1,19 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
+use bytes::Bytes;
 use eth2::types::PublishBlockRequest;
 use eth2::types::{
     BlobsBundle, BlockId, BroadcastValidation, EventKind, EventTopic, FullPayloadContents,
     ProposerData, StateId, ValidatorId,
 };
-use eth2::{BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER};
+use eth2::{
+    BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
+    SSZ_CONTENT_TYPE_HEADER,
+};
 use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use slog::{debug, error, info, warn, Logger};
+use ssz::Encode;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -19,6 +23,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tokio_stream::StreamExt;
+use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::builder_bid::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
@@ -26,11 +31,12 @@ use types::builder_bid::{
 };
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionedResponse, Hash256,
-    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
-    SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode,
+    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedBlindedBeaconBlock,
+    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
+use warp::reply::{self, Reply};
 use warp::{Filter, Rejection};
 
 pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -303,7 +309,6 @@ pub struct MockBuilder<E: EthSpec> {
     max_bid: bool,
     /// A cache that stores the proposers index for a given epoch
     proposers_cache: Arc<RwLock<HashMap<Epoch, Vec<ProposerData>>>>,
-    log: Logger,
 }
 
 impl<E: EthSpec> MockBuilder<E> {
@@ -325,8 +330,7 @@ impl<E: EthSpec> MockBuilder<E> {
             ..Default::default()
         };
 
-        let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
+        let el = ExecutionLayer::from_config(config, executor.clone()).unwrap();
 
         let builder = MockBuilder::new(
             el,
@@ -336,7 +340,6 @@ impl<E: EthSpec> MockBuilder<E> {
             false,
             spec,
             None,
-            executor.log().clone(),
         );
         let host: Ipv4Addr = Ipv4Addr::LOCALHOST;
         let port = 0;
@@ -353,16 +356,12 @@ impl<E: EthSpec> MockBuilder<E> {
         max_bid: bool,
         spec: Arc<ChainSpec>,
         sk: Option<&[u8]>,
-        log: Logger,
     ) -> Self {
         let builder_sk = if let Some(sk_bytes) = sk {
             match SecretKey::deserialize(sk_bytes) {
                 Ok(sk) => sk,
                 Err(_) => {
-                    error!(
-                        log,
-                        "Invalid sk_bytes provided, generating random secret key"
-                    );
+                    error!("Invalid sk_bytes provided, generating random secret key");
                     SecretKey::random()
                 }
             }
@@ -384,7 +383,6 @@ impl<E: EthSpec> MockBuilder<E> {
             apply_operations,
             max_bid,
             genesis_time: None,
-            log,
         }
     }
 
@@ -419,18 +417,13 @@ impl<E: EthSpec> MockBuilder<E> {
         &self,
         registrations: Vec<SignedValidatorRegistrationData>,
     ) -> Result<(), String> {
-        info!(
-            self.log,
-            "Registering validators";
-            "count" => registrations.len(),
-        );
+        info!(count = registrations.len(), "Registering validators");
         for registration in registrations {
             if !registration.verify_signature(&self.spec) {
                 error!(
-                    self.log,
-                    "Failed to register validator";
-                    "error" => "invalid signature",
-                    "validator" => %registration.message.pubkey
+                    error = "invalid signature",
+                    validator = %registration.message.pubkey,
+                    "Failed to register validator"
                 );
                 return Err("invalid signature".to_string());
             }
@@ -466,9 +459,8 @@ impl<E: EthSpec> MockBuilder<E> {
             }
         };
         info!(
-            self.log,
-            "Submitting blinded beacon block to builder";
-            "block_hash" => %root
+            block_hash = %root,
+            "Submitting blinded beacon block to builder"
         );
         let payload = self
             .el
@@ -480,10 +472,9 @@ impl<E: EthSpec> MockBuilder<E> {
             .try_into_full_block(Some(payload.clone()))
             .ok_or("Internal error, just provided a payload")?;
         debug!(
-            self.log,
-            "Got full payload, sending to local beacon node for propagation";
-            "txs_count" => payload.transactions().len(),
-            "blob_count" => blobs.as_ref().map(|b| b.commitments.len())
+            txs_count = payload.transactions().len(),
+            blob_count = blobs.as_ref().map(|b| b.commitments.len()),
+            "Got full payload, sending to local beacon node for propagation"
         );
         let publish_block_request = PublishBlockRequest::new(
             Arc::new(full_block),
@@ -502,7 +493,7 @@ impl<E: EthSpec> MockBuilder<E> {
         parent_hash: ExecutionBlockHash,
         pubkey: PublicKeyBytes,
     ) -> Result<SignedBuilderBid<E>, String> {
-        info!(self.log, "In get_header");
+        info!("In get_header");
         // Check if the pubkey has registered with the builder if required
         if self.validate_pubkey && !self.val_registration_cache.read().contains_key(&pubkey) {
             return Err("validator not registered with builder".to_string());
@@ -515,15 +506,12 @@ impl<E: EthSpec> MockBuilder<E> {
         let payload_parameters = match payload_parameters {
             Some(params) => params,
             None => {
-                warn!(
-                    self.log,
-                    "Payload params not cached for parent_hash {}", parent_hash
-                );
+                warn!("Payload params not cached for parent_hash {}", parent_hash);
                 self.get_payload_params(slot, None, pubkey, None).await?
             }
         };
 
-        info!(self.log, "Got payload params");
+        info!("Got payload params");
 
         let fork = self.fork_name_at_slot(slot);
         let payload_response_type = self
@@ -539,7 +527,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .await
             .map_err(|e| format!("couldn't get payload {:?}", e))?;
 
-        info!(self.log, "Got payload message, fork {}", fork);
+        info!("Got payload message, fork {}", fork);
 
         let mut message = match payload_response_type {
             crate::GetPayloadResponseType::Full(payload_response) => {
@@ -610,10 +598,10 @@ impl<E: EthSpec> MockBuilder<E> {
         };
 
         if self.apply_operations {
-            info!(self.log, "Applying operations");
+            info!("Applying operations");
             self.apply_operations(&mut message);
         }
-        info!(self.log, "Signing builder message");
+        info!("Signing builder message");
 
         let mut signature = message.sign_builder_message(&self.builder_sk, &self.spec);
 
@@ -621,7 +609,7 @@ impl<E: EthSpec> MockBuilder<E> {
             signature = Signature::empty();
         };
         let signed_bid = SignedBuilderBid { message, signature };
-        info!(self.log, "Builder bid {:?}", &signed_bid.message.value());
+        info!("Builder bid {:?}", &signed_bid.message.value());
         Ok(signed_bid)
     }
 
@@ -642,10 +630,7 @@ impl<E: EthSpec> MockBuilder<E> {
     /// Prepare the execution layer for payload creation every slot for the correct
     /// proposer index
     pub async fn prepare_execution_layer(&self) -> Result<(), String> {
-        info!(
-            self.log,
-            "Starting a task to prepare the execution layer";
-        );
+        info!("Starting a task to prepare the execution layer");
         let mut head_event_stream = self
             .beacon_client
             .get_events::<E>(&[EventTopic::Head])
@@ -656,9 +641,8 @@ impl<E: EthSpec> MockBuilder<E> {
             match event {
                 EventKind::Head(head) => {
                     debug!(
-                        self.log,
-                        "Got a new head event";
-                        "block_hash" => %head.block
+                        block_hash = %head.block,
+                        "Got a new head event"
                     );
                     let next_slot = head.slot + 1;
                     // Find the next proposer index from the cached data or through a beacon api call
@@ -706,9 +690,8 @@ impl<E: EthSpec> MockBuilder<E> {
                 }
                 e => {
                     warn!(
-                        self.log,
-                        "Got an unexpected event";
-                        "event" => %e.topic_name()
+                        event = %e.topic_name(),
+                        "Got an unexpected event"
                     );
                 }
             }
@@ -806,7 +789,6 @@ impl<E: EthSpec> MockBuilder<E> {
                 ),
                 None => {
                     warn!(
-                        self.log,
                         "Validator not registered {}, using default fee recipient and gas limits",
                         pubkey
                     );
@@ -955,6 +937,33 @@ pub fn serve<E: EthSpec>(
         )
         .boxed();
 
+    let blinded_block_ssz = prefix
+        .and(warp::path("blinded_blocks"))
+        .and(warp::body::bytes())
+        .and(warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(warp::path::end())
+        .and(ctx_filter.clone())
+        .and_then(
+            |block_bytes: Bytes, fork_name: ForkName, builder: MockBuilder<E>| async move {
+                let block =
+                    SignedBlindedBeaconBlock::<E>::from_ssz_bytes_by_fork(&block_bytes, fork_name)
+                        .map_err(|e| warp::reject::custom(Custom(format!("{:?}", e))))?;
+                let payload = builder
+                    .submit_blinded_block(block)
+                    .await
+                    .map_err(|e| warp::reject::custom(Custom(e)))?;
+
+                Ok::<_, warp::reject::Rejection>(
+                    warp::http::Response::builder()
+                        .status(200)
+                        .body(payload.as_ssz_bytes())
+                        .map(add_ssz_content_type_header)
+                        .map(|res| add_consensus_version_header(res, fork_name))
+                        .unwrap(),
+                )
+            },
+        );
+
     let blinded_block =
         prefix
             .and(warp::path("blinded_blocks"))
@@ -1007,35 +1016,47 @@ pub fn serve<E: EthSpec>(
         )
         .and(warp::path::end())
         .and(ctx_filter.clone())
+        .and(warp::header::optional::<eth2::types::Accept>("accept"))
         .and_then(
             |slot: Slot,
              parent_hash: ExecutionBlockHash,
              pubkey: PublicKeyBytes,
-             builder: MockBuilder<E>| async move {
+             builder: MockBuilder<E>,
+             accept_header: Option<eth2::types::Accept>| async move {
                 let fork_name = builder.fork_name_at_slot(slot);
                 let signed_bid = builder
                     .get_header(slot, parent_hash, pubkey)
                     .await
                     .map_err(|e| warp::reject::custom(Custom(e)))?;
-
-                let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                    version: Some(fork_name),
-                    metadata: Default::default(),
-                    data: signed_bid,
-                };
-                let json_bid = serde_json::to_string(&resp)
-                    .map_err(|_| reject("coudn't serialize signed bid"))?;
-                Ok::<_, Rejection>(
-                    warp::http::Response::builder()
-                        .status(200)
-                        .body(json_bid)
-                        .unwrap(),
-                )
+                let accept_header = accept_header.unwrap_or(eth2::types::Accept::Any);
+                match accept_header {
+                    eth2::types::Accept::Ssz => Ok::<_, Rejection>(
+                        warp::http::Response::builder()
+                            .status(200)
+                            .body(signed_bid.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map(|res| add_consensus_version_header(res, fork_name))
+                            .unwrap(),
+                    ),
+                    eth2::types::Accept::Json | eth2::types::Accept::Any => {
+                        let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
+                            version: Some(fork_name),
+                            metadata: Default::default(),
+                            data: signed_bid,
+                        };
+                        Ok::<_, Rejection>(warp::reply::json(&resp).into_response())
+                    }
+                }
             },
         );
 
     let routes = warp::post()
-        .and(validators.or(blinded_block))
+        // Routes which expect `application/octet-stream` go within this `and`.
+        .and(
+            warp::header::exact(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
+                .and(blinded_block_ssz),
+        )
+        .or(validators.or(blinded_block))
         .or(warp::get().and(status).or(header))
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-builder-server"));
 
@@ -1047,4 +1068,14 @@ pub fn serve<E: EthSpec>(
 
 fn reject(msg: &'static str) -> Rejection {
     warp::reject::custom(Custom(msg.to_string()))
+}
+
+/// Add the 'Content-Type application/octet-stream` header to a response.
+fn add_ssz_content_type_header<T: Reply>(reply: T) -> warp::reply::Response {
+    reply::with_header(reply, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER).into_response()
+}
+
+/// Add the `Eth-Consensus-Version` header to a response.
+fn add_consensus_version_header<T: Reply>(reply: T, fork_name: ForkName) -> warp::reply::Response {
+    reply::with_header(reply, CONSENSUS_VERSION_HEADER, fork_name.to_string()).into_response()
 }

@@ -25,6 +25,9 @@ pub type E = MainnetEthSpec;
 
 pub const VALIDATOR_COUNT: usize = 64;
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 /// Defines some delay between when an attestation is created and when it is mutated.
 pub enum MutationDelay {
     /// No delay between creation and mutation.
@@ -54,7 +57,7 @@ impl ForkChoiceTest {
     /// Creates a new tester with a custom chain config.
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
         // Run fork choice tests against the latest fork.
-        let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
+        let spec = ForkName::latest_stable().make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.into())
             .chain_config(chain_config)
@@ -373,7 +376,7 @@ impl ForkChoiceTest {
         let state = harness
             .chain
             .store
-            .get_state(&state_root, None)
+            .get_state(&state_root, None, CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
         let balances = state
