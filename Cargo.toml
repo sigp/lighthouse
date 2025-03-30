@@ -278,7 +278,7 @@ validator_metrics = { path = "validator_client/validator_metrics" }
 validator_store = { path = "validator_client/validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
 warp_utils = { path = "common/warp_utils" }
-xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "50d63cdf1878e5cf3538e9aae5eed34a22c64e4a" }
+xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9febb584ba93b9d16bb2ae3825a" }
 zstd = "0.13"
 
 [profile.maxperf]
