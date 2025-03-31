@@ -9,6 +9,15 @@ use std::process;
 use tracing_subscriber::filter::LevelFilter;
 use types::EthSpec;
 
+/// Constructs all logging layers including both Lighthouse-specific and
+/// dependency logging.
+///
+/// The `Layer`s are as follows:
+/// - A `Layer` which logs to `stdout`
+/// - An `Option<Layer>` which logs to a log file
+/// - An `Option<Layer>` which emits logs to an SSE stream
+/// - An `Option<Layer>` which logs relevant dependencies to their
+/// own log files. (Currently only `libp2p` and `discv5`)
 pub fn construct_logger<E: EthSpec>(
     logger_config: LoggerConfig,
     matches: &ArgMatches,
@@ -30,7 +39,7 @@ pub fn construct_logger<E: EthSpec>(
     let libp2p_discv5_layer = if let Some(subcommand_name) = subcommand_name {
         if subcommand_name == "beacon_node" || subcommand_name == "boot_node" {
             if logger_config.max_log_size == 0 || logger_config.max_log_number == 0 {
-                // User has explictly disabled logging to file.
+                // User has explicitly disabled logging to file.
                 None
             } else {
                 create_libp2p_discv5_tracing_layer(

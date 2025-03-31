@@ -197,6 +197,13 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    /// Initialize the Lighthouse-specific tracing logging components from
+    /// the provided config.
+    ///
+    /// This consists of 3 tracing `Layers`:
+    /// - A `Layer` which logs to `stdout`
+    /// - An `Option<Layer>` which logs to a log file
+    /// - An `Option<Layer>` which emits logs to an SSE stream
     pub fn init_tracing(
         mut self,
         config: LoggerConfig,
