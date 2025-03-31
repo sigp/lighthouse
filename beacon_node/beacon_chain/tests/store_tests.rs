@@ -3110,10 +3110,9 @@ async fn deneb_prune_blobs_happy_case() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
-    if store.get_chain_spec().is_peer_das_scheduled() {
-        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
-        return;
-    }
+    // Test data column pruning for Fulu / PeerDAS
+    let check_data_columns = store.get_chain_spec().is_peer_das_scheduled();
+
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3138,6 +3137,9 @@ async fn deneb_prune_blobs_happy_case() {
         Some(deneb_fork_slot)
     );
     check_blob_existence(&harness, Slot::new(1), harness.head_slot(), true);
+    if check_data_columns {
+        check_data_column_existence(&harness, Slot::new(1), harness.head_slot(), true);
+    }
 
     // Trigger blob pruning of blobs older than epoch 2.
     let data_availability_boundary = Epoch::new(2);
@@ -3153,6 +3155,10 @@ async fn deneb_prune_blobs_happy_case() {
     );
     check_blob_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
     check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+    if check_data_columns {
+        check_data_column_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
+        check_data_column_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+    }
 }
 
 /// Check that blob pruning does not prune without finalization.
@@ -3161,10 +3167,9 @@ async fn deneb_prune_blobs_no_finalization() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
-    if store.get_chain_spec().is_peer_das_scheduled() {
-        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
-        return;
-    }
+    // Test data column pruning for Fulu / PeerDAS
+    let check_data_columns = store.get_chain_spec().is_peer_das_scheduled();
+
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3205,6 +3210,9 @@ async fn deneb_prune_blobs_no_finalization() {
         Some(deneb_fork_slot)
     );
     check_blob_existence(&harness, Slot::new(0), harness.head_slot(), true);
+    if check_data_columns {
+        check_data_column_existence(&harness, Slot::new(0), harness.head_slot(), true);
+    }
 
     // Attempt blob pruning of blobs older than epoch 4, which is newer than finalization.
     let data_availability_boundary = Epoch::new(4);
@@ -3217,6 +3225,10 @@ async fn deneb_prune_blobs_no_finalization() {
     assert_eq!(oldest_blob_slot, finalized_slot);
     check_blob_existence(&harness, Slot::new(0), finalized_slot - 1, false);
     check_blob_existence(&harness, finalized_slot, harness.head_slot(), true);
+    if check_data_columns {
+        check_data_column_existence(&harness, Slot::new(0), finalized_slot - 1, false);
+        check_data_column_existence(&harness, finalized_slot, harness.head_slot(), true);
+    }
 }
 
 /// Check that blob pruning does not fail trying to prune across the fork boundary.
@@ -3309,10 +3321,9 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, config, test_spec::<E>());
 
-    if store.get_chain_spec().is_peer_das_scheduled() {
-        // TODO(fulu): add prune tests for Fulu / PeerDAS data columns.
-        return;
-    }
+    // Test data column pruning for Fulu / PeerDAS
+    let check_data_columns = store.get_chain_spec().is_peer_das_scheduled();
+
     let Some(deneb_fork_epoch) = store.get_chain_spec().deneb_fork_epoch else {
         // No-op prior to Deneb.
         return;
@@ -3337,6 +3348,9 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
         Some(deneb_fork_slot)
     );
     check_blob_existence(&harness, Slot::new(1), harness.head_slot(), true);
+    if check_data_columns {
+        check_data_column_existence(&harness, Slot::new(1), harness.head_slot(), true);
+    }
 
     // Trigger blob pruning of blobs older than epoch 6 - margin (6 is the minimum, due to
     // finalization).
@@ -3359,6 +3373,10 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
     );
     check_blob_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
     check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+    if check_data_columns {
+        check_data_column_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
+        check_data_column_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+    }
 }
 
 /// Check that a database with `blobs_db=false` can be upgraded to `blobs_db=true` before Deneb.
@@ -3393,6 +3411,33 @@ async fn change_to_separate_blobs_db_before_deneb() {
     drop(store);
     let store = get_store(&db_path);
     assert_eq!(store.get_blob_info(), init_blob_info);
+}
+
+/// Check tat there are data column sidecars (or not) at every slot in the range.
+fn check_data_column_existence(
+    harness: &TestHarness,
+    start_slot: Slot,
+    end_slot: Slot,
+    should_exist: bool,
+) {
+    let mut columns_seen = 0;
+    for (block_root, slot) in harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap()
+        .map(Result::unwrap)
+    {
+        if let Some(columns) = harness.chain.store.get_data_columns(&block_root).unwrap() {
+            assert!(should_exist, "columns at slot {slot} exist but should not");
+            columns_seen += columns.len();
+        } else {
+            // We don't actually store empty columns, so unfortunately we can't assert anything
+            // meaningful here (like asserting that the column should not exist).
+        }
+    }
+    if should_exist {
+        assert_ne!(columns_seen, 0, "expected non-zero number of columns");
+    }
 }
 
 /// Check that there are blob sidecars (or not) at every slot in the range.

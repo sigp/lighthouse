@@ -2765,13 +2765,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.try_prune_blobs(force, min_data_availability_boundary)
     }
 
-    /// Try to prune blobs older than the data availability boundary.
+    /// Try to prune blobs and data columns older than the data availability boundary.
     ///
     /// Blobs from the epoch `data_availability_boundary - blob_prune_margin_epochs` are retained.
     /// This epoch is an _exclusive_ endpoint for the pruning process.
     ///
-    /// This function only supports pruning blobs older than the split point, which is older than
-    /// (or equal to) finalization. Pruning blobs newer than finalization is not supported.
+    /// This function only supports pruning blobs and data columns older than the split point,
+    /// which is older than (or equal to) finalization. Pruning blobs and data columns newer than
+    /// finalization is not supported.
     ///
     /// This function also assumes that the split is stationary while it runs. It should only be
     /// run from the migrator thread (where `migrate_database` runs) or the database manager.
