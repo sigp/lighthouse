@@ -800,13 +800,13 @@ pub struct LightClientUpdatesQuery {
 }
 
 #[derive(Encode, Decode)]
-pub struct LightClientUpdateSszResponse {
-    pub response_chunk_len: Vec<u8>,
-    pub response_chunk: Vec<u8>,
+pub struct LightClientUpdateResponseChunk {
+    pub response_chunk_len: u8,
+    pub response_chunk: LightClientUpdateResponseChunkInner,
 }
 
 #[derive(Encode, Decode)]
-pub struct LightClientUpdateResponseChunk {
+pub struct LightClientUpdateResponseChunkInner {
     pub context: [u8; 4],
     pub payload: Vec<u8>,
 }
