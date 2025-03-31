@@ -17,7 +17,7 @@ use types::EthSpec;
 /// - An `Option<Layer>` which logs to a log file
 /// - An `Option<Layer>` which emits logs to an SSE stream
 /// - An `Option<Layer>` which logs relevant dependencies to their
-/// own log files. (Currently only `libp2p` and `discv5`)
+///   own log files. (Currently only `libp2p` and `discv5`)
 pub fn construct_logger<E: EthSpec>(
     logger_config: LoggerConfig,
     matches: &ArgMatches,
