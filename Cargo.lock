@@ -5311,15 +5311,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lighthouse_macros"
-version = "0.1.0"
-dependencies = [
- "cargo_metadata 0.19.2",
- "proc-macro2",
- "quote",
-]
-
-[[package]]
 name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
@@ -5469,7 +5460,6 @@ name = "logging"
 version = "0.2.0"
 dependencies = [
  "chrono",
- "lighthouse_macros",
  "logroller",
  "metrics",
  "once_cell",
@@ -5482,6 +5472,7 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-subscriber",
+ "workspace_members",
 ]
 
 [[package]]
@@ -10174,6 +10165,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c"
 dependencies = [
  "bitflags 2.9.0",
+]
+
+[[package]]
+name = "workspace_members"
+version = "0.1.0"
+dependencies = [
+ "cargo_metadata 0.19.2",
+ "proc-macro2",
+ "quote",
 ]
 
 [[package]]

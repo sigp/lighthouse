@@ -1,6 +1,6 @@
-use lighthouse_macros::workspace_crates;
 use std::collections::HashSet;
 use tracing_subscriber::filter::FilterFn;
+use workspace_members::workspace_crates;
 
 const WORKSPACE_CRATES: Result<&[&str], &str> = workspace_crates!();
 

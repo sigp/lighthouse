@@ -24,9 +24,8 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{info, warn};
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing::{info, warn, Level};
+use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -642,7 +641,15 @@ fn run<E: EthSpec>(
     }
 
     if let Some(libp2p_discv5_layer) = libp2p_discv5_layer {
-        logging_layers.push(libp2p_discv5_layer.boxed());
+        logging_layers.push(
+            libp2p_discv5_layer
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(Level::DEBUG.into())
+                        .from_env_lossy(),
+                )
+                .boxed(),
+        );
     }
 
     logging_layers.push(MetricsLayer.boxed());

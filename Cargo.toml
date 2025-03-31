@@ -33,7 +33,6 @@ members = [
     "common/eth2_wallet_manager",
     "common/filesystem",
     "common/health_metrics",
-    "common/lighthouse_macros",
     "common/lighthouse_version",
     "common/lockfile",
     "common/logging",
@@ -52,6 +51,7 @@ members = [
     "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
+    "common/workspace_members",
 
     "consensus/fixed_bytes",
     "consensus/fork_choice",
@@ -249,7 +249,7 @@ kzg = { path = "crypto/kzg" }
 metrics = { path = "common/metrics" }
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_version = { path = "common/lighthouse_version" }
-lighthouse_macros = { path = "common/lighthouse_macros" }
+workspace_members = { path = "common/workspace_members" }
 lockfile = { path = "common/lockfile" }
 logging = { path = "common/logging" }
 lru_cache = { path = "common/lru_cache" }

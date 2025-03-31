@@ -1,5 +1,5 @@
 [package]
-name = "lighthouse_macros"
+name = "workspace_members"
 version = "0.1.0"
 edition = { workspace = true }
 
