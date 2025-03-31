@@ -25,13 +25,13 @@ pub fn workspace_crates(_input: TokenStream) -> TokenStream {
         Ok(crate_names) => {
             let crate_strs = crate_names.iter().map(|s| s.as_str());
             quote! {
-                Ok(&[#(#crate_strs),*])
+                &[#(#crate_strs),*]
             }
         }
         Err(e) => {
-            let error_msg = e.to_string();
+            let msg = format!("Failed to get workspace crates: {e}");
             quote! {
-                Err(#error_msg)
+                compile_error!(#msg);
             }
         }
     }

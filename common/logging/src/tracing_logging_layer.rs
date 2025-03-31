@@ -15,7 +15,7 @@ use tracing_subscriber::Layer;
 
 pub struct LoggingLayer {
     pub non_blocking_writer: NonBlocking,
-    pub guard: WorkerGuard,
+    _guard: WorkerGuard,
     pub disable_log_timestamp: bool,
     pub log_color: bool,
     pub log_format: Option<String>,
@@ -27,7 +27,7 @@ impl LoggingLayer {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         non_blocking_writer: NonBlocking,
-        guard: WorkerGuard,
+        _guard: WorkerGuard,
         disable_log_timestamp: bool,
         log_color: bool,
         log_format: Option<String>,
@@ -35,7 +35,7 @@ impl LoggingLayer {
     ) -> Self {
         Self {
             non_blocking_writer,
-            guard,
+            _guard,
             disable_log_timestamp,
             log_color,
             log_format,

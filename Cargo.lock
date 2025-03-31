@@ -10172,7 +10172,6 @@ name = "workspace_members"
 version = "0.1.0"
 dependencies = [
  "cargo_metadata 0.19.2",
- "proc-macro2",
  "quote",
 ]
 

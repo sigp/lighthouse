@@ -8,5 +8,4 @@ proc-macro = true
 
 [dependencies]
 cargo_metadata = { workspace = true }
-proc-macro2 = { workspace = true }
 quote = { workspace = true }

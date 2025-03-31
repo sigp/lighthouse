@@ -10,7 +10,7 @@ mod sse_logging_components;
 mod tracing_libp2p_discv5_logging_layer;
 pub mod tracing_logging_layer;
 mod tracing_metrics_layer;
-pub mod utils;
+mod utils;
 
 pub use sse_logging_components::SSELoggingComponents;
 pub use tracing_libp2p_discv5_logging_layer::{

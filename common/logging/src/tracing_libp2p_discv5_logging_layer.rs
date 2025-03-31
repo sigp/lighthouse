@@ -8,9 +8,9 @@ use tracing_subscriber::{layer::Context, Layer};
 
 pub struct Libp2pDiscv5TracingLayer {
     pub libp2p_non_blocking_writer: NonBlocking,
-    pub _libp2p_guard: WorkerGuard,
+    _libp2p_guard: WorkerGuard,
     pub discv5_non_blocking_writer: NonBlocking,
-    pub _discv5_guard: WorkerGuard,
+    _discv5_guard: WorkerGuard,
 }
 
 impl<S> Layer<S> for Libp2pDiscv5TracingLayer
