@@ -3891,6 +3891,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 pubkey_cache.import_new_pubkeys(&state)?;
                 pubkey_cache.get_db_ops()
             } else {
+                // Even if no new validators were written to the cache,
+                // we may still have validators staged to be written to the db
+                // because of a previous failed import.
                 pubkey_cache.get_db_ops()
             }
         };
@@ -3911,7 +3914,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
         // Do not import a block that doesn't descend from the finalized root.
-        // TODO: move that up
         let signed_block =
             check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
         let block = signed_block.message();
@@ -4078,7 +4080,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .err()
                 .unwrap_or(e.into()));
         }
-
         drop(txn_lock);
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
@@ -4086,7 +4087,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(fork_choice);
 
         // We can safely flush `indices_to_write` from `staged_indices` as they are now guaranteed to be written to disk.
-        if indices_to_write.is_empty() {
+        if !indices_to_write.is_empty() {
             let mut pubkey_cache = self.validator_pubkey_cache.write();
             pubkey_cache.flush_staged_indices(indices_to_write);
         }

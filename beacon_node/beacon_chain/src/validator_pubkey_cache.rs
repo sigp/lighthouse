@@ -118,9 +118,9 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                 .try_into()
                 .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?;
 
-            // Stage the new validator keys for writing to disk.
-            // These will be committed atomically when the block that introduced it is written to disk.
-            // Notably they are NOT written while the write lock on the cache is held.
+            // Stage the new validator key for writing to disk.
+            // It will be committed atomically when the block that introduced it is written to disk.
+            // Notably it is NOT written while the write lock on the cache is held.
             // See: https://github.com/sigp/lighthouse/issues/2327
             self.staged_indices.insert(i, pubkey.clone());
 
@@ -163,7 +163,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     }
 
     /// Returns a list of validator indices and their associated database operations
-    /// from `staged_indices`` that are currently being persisted in the cache.
+    /// from the mapping of `staged_indices` that are currently being persisted in the cache.
     pub fn get_db_ops(&self) -> (Vec<usize>, Vec<StoreOp<'static, T::EthSpec>>) {
         let mut store_ops = vec![];
         let mut indices = vec![];
