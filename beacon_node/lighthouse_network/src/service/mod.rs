@@ -1652,7 +1652,7 @@ impl<E: EthSpec> Network<E> {
             return None;
         }
 
-        let connection_id = event.conn_id;
+        let connection_id = event.connection_id;
         // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match event.message {
             Err(handler_err) => {
@@ -1706,7 +1706,11 @@ impl<E: EthSpec> Network<E> {
                         // send the requested meta-data
                         self.send_meta_data_response(
                             req,
-                            ResponseId::new(connection_id, substream_id, request_id),
+                            ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             peer_id,
                         );
                         None
@@ -1733,7 +1737,11 @@ impl<E: EthSpec> Network<E> {
                         // propagate the STATUS message upwards
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1756,7 +1764,11 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1764,7 +1776,11 @@ impl<E: EthSpec> Network<E> {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1772,7 +1788,11 @@ impl<E: EthSpec> Network<E> {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1780,7 +1800,11 @@ impl<E: EthSpec> Network<E> {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1791,7 +1815,11 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1802,7 +1830,11 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1813,7 +1845,11 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1824,7 +1860,11 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1835,7 +1875,11 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }
@@ -1846,7 +1890,11 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId::new(connection_id, substream_id, request_id),
+                            response_id: ResponseId {
+                                connection_id,
+                                substream_id,
+                                request_id,
+                            },
                             request_type,
                         })
                     }

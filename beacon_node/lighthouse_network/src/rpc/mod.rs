@@ -130,7 +130,7 @@ pub struct RPCMessage<Id, E: EthSpec> {
     /// The peer that sent the message.
     pub peer_id: PeerId,
     /// Handler managing this message.
-    pub conn_id: ConnectionId,
+    pub connection_id: ConnectionId,
     /// The message that was sent.
     pub message: Result<RPCReceived<Id, E>, HandlerErr<Id>>,
 }
@@ -380,7 +380,7 @@ where
                 for (id, proto) in limiter.peer_disconnected(peer_id) {
                     let error_msg = ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
-                        conn_id: connection_id,
+                        connection_id,
                         message: Err(HandlerErr::Outbound {
                             id,
                             proto,
@@ -401,7 +401,7 @@ where
                 } if *p == peer_id => {
                     *event = ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
-                        conn_id: connection_id,
+                        connection_id,
                         message: Err(HandlerErr::Outbound {
                             id: *request_id,
                             proto: req.versioned_protocol().protocol(),
@@ -417,7 +417,7 @@ where
     fn on_connection_handler_event(
         &mut self,
         peer_id: PeerId,
-        conn_id: ConnectionId,
+        connection_id: ConnectionId,
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
         match event {
@@ -446,7 +446,11 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                ResponseId::new(conn_id, substream_id, request_id),
+                                ResponseId {
+                                    connection_id,
+                                    substream_id,
+                                    request_id,
+                                },
                                 RpcResponse::Error(
                                     RpcErrorResponse::RateLimited,
                                     "Rate limited. Request too large".into(),
@@ -460,7 +464,11 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                ResponseId::new(conn_id, substream_id, request_id),
+                                ResponseId {
+                                    connection_id,
+                                    substream_id,
+                                    request_id,
+                                },
                                 RpcResponse::Error(
                                     RpcErrorResponse::RateLimited,
                                     format!("Wait {:?}", wait_time).into(),
@@ -475,10 +483,14 @@ where
 
                 // If we received a Ping, we queue a Pong response.
                 if let RequestType::Ping(_) = request_type {
-                    trace!(connection_id = %conn_id, %peer_id, "Received Ping, queueing Pong");
+                    trace!(connection_id = %connection_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
                         peer_id,
-                        ResponseId::new(conn_id, substream_id, request_id),
+                        ResponseId {
+                            connection_id,
+                            substream_id,
+                            request_id,
+                        },
                         RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
                             data: self.seq_number,
                         })),
@@ -487,21 +499,21 @@ where
 
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
-                    conn_id,
+                    connection_id,
                     message: Ok(RPCReceived::Request(request_id, request_type, substream_id)),
                 }));
             }
             HandlerEvent::Ok(rpc) => {
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
-                    conn_id,
+                    connection_id,
                     message: Ok(rpc),
                 }));
             }
             HandlerEvent::Err(err) => {
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
-                    conn_id,
+                    connection_id,
                     message: Err(err),
                 }));
             }

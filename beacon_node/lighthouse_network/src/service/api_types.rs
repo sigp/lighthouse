@@ -15,7 +15,6 @@ pub type Id = u32;
 // All RPC Responses require this structure. It contains two IDs required to correctly send a
 // response.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-
 pub struct ResponseId {
     /// The connection ID of the peer that sent the request.
     pub connection_id: ConnectionId,
@@ -23,20 +22,6 @@ pub struct ResponseId {
     pub substream_id: SubstreamId,
     /// The logical identifier of the RPC request.
     pub request_id: RequestId,
-}
-
-impl ResponseId {
-    pub fn new(
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
-    ) -> Self {
-        Self {
-            connection_id,
-            substream_id,
-            request_id,
-        }
-    }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
