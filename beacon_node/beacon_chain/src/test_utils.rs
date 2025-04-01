@@ -35,6 +35,7 @@ pub use genesis::{InteropGenesisBuilder, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Kzg, TrustedSetup};
+use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::Mutex;
@@ -44,17 +45,12 @@ use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
-use slog::{o, Drain, Logger};
-use slog_async::Async;
-use slog_term::{FullFormat, PlainSyncDecorator, TermDecorator};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::fs::{File, OpenOptions};
-use std::io::BufWriter;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -235,7 +231,6 @@ pub struct Builder<T: BeaconChainTypes> {
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
     import_all_data_columns: bool,
     runtime: TestRuntime,
-    log: Logger,
 }
 
 impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
@@ -247,12 +242,8 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             .expect("cannot build without validator keypairs");
 
         let store = Arc::new(
-            HotColdDB::open_ephemeral(
-                self.store_config.clone().unwrap_or_default(),
-                spec.clone(),
-                self.log.clone(),
-            )
-            .unwrap(),
+            HotColdDB::open_ephemeral(self.store_config.clone().unwrap_or_default(), spec.clone())
+                .unwrap(),
         );
         let genesis_state_builder = self.genesis_state_builder.take().unwrap_or_else(|| {
             // Set alternating withdrawal credentials if no builder is specified.
@@ -283,12 +274,8 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         let spec = self.spec.as_ref().expect("cannot build without spec");
 
         let store = Arc::new(
-            HotColdDB::open_ephemeral(
-                self.store_config.clone().unwrap_or_default(),
-                spec.clone(),
-                self.log.clone(),
-            )
-            .unwrap(),
+            HotColdDB::open_ephemeral(self.store_config.clone().unwrap_or_default(), spec.clone())
+                .unwrap(),
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
             builder
@@ -372,7 +359,6 @@ where
 {
     pub fn new(eth_spec_instance: E) -> Self {
         let runtime = TestRuntime::default();
-        let log = runtime.log.clone();
 
         Self {
             eth_spec_instance,
@@ -391,7 +377,6 @@ where
             genesis_state_builder: None,
             import_all_data_columns: false,
             runtime,
-            log,
         }
     }
 
@@ -436,12 +421,6 @@ where
 
     pub fn spec_or_default(mut self, spec: Option<Arc<ChainSpec>>) -> Self {
         self.spec = Some(spec.unwrap_or_else(|| Arc::new(test_spec::<E>())));
-        self
-    }
-
-    pub fn logger(mut self, log: Logger) -> Self {
-        self.log = log.clone();
-        self.runtime.set_logger(log);
         self
     }
 
@@ -501,12 +480,8 @@ where
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
-        let execution_layer = ExecutionLayer::from_config(
-            config,
-            self.runtime.task_executor.clone(),
-            self.log.clone(),
-        )
-        .unwrap();
+        let execution_layer =
+            ExecutionLayer::from_config(config, self.runtime.task_executor.clone()).unwrap();
 
         self.execution_layer = Some(execution_layer);
         self
@@ -586,7 +561,6 @@ where
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
-        let log = self.log;
         let spec = self.spec.expect("cannot build without spec");
         let seconds_per_slot = spec.seconds_per_slot;
         let validator_keypairs = self
@@ -599,7 +573,6 @@ where
 
         let chain_config = self.chain_config.unwrap_or_default();
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance, kzg.clone())
-            .logger(log.clone())
             .custom_spec(spec.clone())
             .store(self.store.expect("cannot build without store"))
             .store_migrator_config(
@@ -614,10 +587,7 @@ where
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .import_all_data_columns(self.import_all_data_columns)
-            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-                log.clone(),
-                5,
-            )))
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
             .validator_monitor_config(validator_monitor_config);
 
         builder = if let Some(mutator) = self.initial_mutator {
@@ -645,6 +615,12 @@ where
 
         let chain = builder.build().expect("should build");
 
+        let sampling_column_count = if self.import_all_data_columns {
+            chain.spec.number_of_custody_groups as usize
+        } else {
+            chain.spec.custody_requirement as usize
+        };
+
         BeaconChainHarness {
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
@@ -655,6 +631,7 @@ where
             mock_execution_layer: self.mock_execution_layer,
             mock_builder: None,
             rng: make_rng(),
+            sampling_column_count,
         }
     }
 }
@@ -711,6 +688,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
+    pub sampling_column_count: usize,
 
     pub rng: Mutex<StdRng>,
 }
@@ -737,11 +715,8 @@ where
     Cold: ItemStore<E>,
 {
     pub fn builder(eth_spec_instance: E) -> Builder<BaseHarnessType<E, Hot, Cold>> {
+        create_test_tracing_subscriber();
         Builder::new(eth_spec_instance)
-    }
-
-    pub fn logger(&self) -> &slog::Logger {
-        &self.chain.log
     }
 
     pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
@@ -779,6 +754,7 @@ where
                 SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap(),
                 None,
                 None,
+                false,
             )
             .unwrap();
 
@@ -812,6 +788,10 @@ where
 
     pub fn get_all_validators(&self) -> Vec<usize> {
         (0..self.validator_keypairs.len()).collect()
+    }
+
+    pub fn get_sampling_column_count(&self) -> usize {
+        self.sampling_column_count
     }
 
     pub fn slots_per_epoch(&self) -> u64 {
@@ -889,7 +869,7 @@ where
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain
             .store
-            .load_hot_state(&state_hash.into())
+            .load_hot_state(&state_hash.into(), true)
             .unwrap()
             .map(|(state, _)| state)
     }
@@ -2374,8 +2354,14 @@ where
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
-                .unwrap()
+            RpcBlock::new_with_custody_columns(
+                Some(block_root),
+                block,
+                custody_columns,
+                self.get_sampling_column_count(),
+                &self.spec,
+            )
+            .unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             RpcBlock::new(Some(block_root), block, blobs).unwrap()
@@ -2390,10 +2376,7 @@ where
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RpcBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let sampling_column_count = self
-                .chain
-                .data_availability_checker
-                .get_sampling_column_count();
+            let sampling_column_count = self.get_sampling_column_count();
 
             if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
@@ -2404,7 +2387,13 @@ where
                     .take(sampling_column_count)
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+                RpcBlock::new_with_custody_columns(
+                    Some(block_root),
+                    block,
+                    columns,
+                    sampling_column_count,
+                    &self.spec,
+                )?
             } else {
                 RpcBlock::new_without_blobs(Some(block_root), block)
             }
@@ -2617,7 +2606,6 @@ where
             return;
         }
 
-        let log = self.logger();
         let contributions =
             self.make_sync_contributions(state, block_root, slot, RelativeSyncCommittee::Current);
 
@@ -2648,7 +2636,6 @@ where
                 slot,
                 &block_root,
                 &sync_aggregate,
-                log,
                 &self.spec,
             );
     }
@@ -2712,16 +2699,16 @@ where
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
-            let (block_hash, new_state) = self
-                .add_attested_block_at_slot_with_sync(
-                    *slot,
-                    state,
-                    state_root,
-                    validators,
-                    sync_committee_strategy,
-                )
-                .await
-                .unwrap();
+            // Using a `Box::pin` to reduce the stack size. Clippy was raising a lints.
+            let (block_hash, new_state) = Box::pin(self.add_attested_block_at_slot_with_sync(
+                *slot,
+                state,
+                state_root,
+                validators,
+                sync_committee_strategy,
+            ))
+            .await
+            .unwrap();
 
             state = new_state;
 
@@ -3105,10 +3092,7 @@ where
         let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
         if is_peerdas_enabled {
             let custody_columns = custody_columns_opt.unwrap_or_else(|| {
-                let sampling_column_count = self
-                    .chain
-                    .data_availability_checker
-                    .get_sampling_column_count() as u64;
+                let sampling_column_count = self.get_sampling_column_count() as u64;
                 (0..sampling_column_count).collect()
             });
 
@@ -3156,58 +3140,6 @@ pub struct MakeAttestationOptions {
     pub limit: Option<usize>,
     /// Fork to use for signing attestations.
     pub fork: Fork,
-}
-
-pub enum LoggerType {
-    Test,
-    // The logs are output to files for each test.
-    CI,
-    // No logs will be printed.
-    Null,
-}
-
-fn ci_decorator() -> PlainSyncDecorator<BufWriter<File>> {
-    let log_dir = std::env::var(CI_LOGGER_DIR_ENV_VAR).unwrap_or_else(|e| {
-        panic!("{CI_LOGGER_DIR_ENV_VAR} env var must be defined when using ci_logger: {e:?}");
-    });
-    let fork_name = std::env::var(FORK_NAME_ENV_VAR)
-        .map(|s| format!("{s}_"))
-        .unwrap_or_default();
-    // The current test name can be got via the thread name.
-    let test_name = std::thread::current()
-        .name()
-        .unwrap()
-        .to_string()
-        // Colons are not allowed in files that are uploaded to GitHub Artifacts.
-        .replace("::", "_");
-    let log_path = format!("/{log_dir}/{fork_name}{test_name}.log");
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-        .unwrap();
-    let file = BufWriter::new(file);
-    PlainSyncDecorator::new(file)
-}
-
-pub fn build_log(level: slog::Level, logger_type: LoggerType) -> Logger {
-    match logger_type {
-        LoggerType::Test => {
-            let drain = FullFormat::new(TermDecorator::new().build()).build().fuse();
-            let drain = Async::new(drain).chan_size(10_000).build().fuse();
-            Logger::root(drain.filter_level(level).fuse(), o!())
-        }
-        LoggerType::CI => {
-            let drain = FullFormat::new(ci_decorator()).build().fuse();
-            let drain = Async::new(drain).chan_size(10_000).build().fuse();
-            Logger::root(drain.filter_level(level).fuse(), o!())
-        }
-        LoggerType::Null => {
-            let drain = FullFormat::new(TermDecorator::new().build()).build().fuse();
-            let drain = Async::new(drain).build().fuse();
-            Logger::root(drain.filter(|_| false).fuse(), o!())
-        }
-    }
 }
 
 pub enum NumBlobs {

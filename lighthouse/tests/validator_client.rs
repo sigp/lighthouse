@@ -130,6 +130,22 @@ fn use_long_timeouts_flag() {
 }
 
 #[test]
+fn long_timeouts_multiplier_flag_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.long_timeouts_multiplier, 1));
+}
+
+#[test]
+fn long_timeouts_multiplier_flag() {
+    CommandLineTest::new()
+        .flag("use-long-timeouts", None)
+        .flag("long-timeouts-multiplier", Some("10"))
+        .run()
+        .with_config(|config| assert_eq!(config.long_timeouts_multiplier, 10));
+}
+
+#[test]
 fn beacon_nodes_tls_certs_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()

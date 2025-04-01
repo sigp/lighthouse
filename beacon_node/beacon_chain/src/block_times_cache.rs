@@ -173,7 +173,7 @@ impl BlockTimesCache {
         if block_times
             .timestamps
             .all_blobs_observed
-            .map_or(true, |prev| timestamp > prev)
+            .is_none_or(|prev| timestamp > prev)
         {
             block_times.timestamps.all_blobs_observed = Some(timestamp);
         }
@@ -195,7 +195,7 @@ impl BlockTimesCache {
             .entry(block_root)
             .or_insert_with(|| BlockTimesCacheValue::new(slot));
         let existing_timestamp = field(&mut block_times.timestamps);
-        if existing_timestamp.map_or(true, |prev| timestamp < prev) {
+        if existing_timestamp.is_none_or(|prev| timestamp < prev) {
             *existing_timestamp = Some(timestamp);
         }
     }
