@@ -5,7 +5,7 @@ use super::methods::{GoodbyeReason, RpcErrorResponse, RpcResponse};
 use super::outbound::OutboundRequestContainer;
 use super::protocol::{InboundOutput, Protocol, RPCError, RPCProtocol, RequestType};
 use super::RequestId;
-use super::{RPCReceived, RPCSend, ReqId, Request};
+use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::OutboundFramed;
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
@@ -986,12 +986,11 @@ where
             self.shutdown(None);
         }
 
-        self.events_out
-            .push(HandlerEvent::Ok(RPCReceived::Request(Request {
-                id: RequestId::next(),
-                substream_id: self.current_inbound_substream_id,
-                r#type: req,
-            })));
+        self.events_out.push(HandlerEvent::Ok(RPCReceived::Request(
+            RequestId::next(),
+            req,
+            self.current_inbound_substream_id,
+        )));
         self.current_inbound_substream_id.0 += 1;
     }
 

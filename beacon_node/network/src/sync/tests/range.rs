@@ -223,7 +223,7 @@ impl TestRig {
                         RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(
                             OldBlocksByRangeRequestV2 { start_slot, .. },
                         )),
-                    request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
+                    app_request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
                 } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                 _ => None,
             })
@@ -240,7 +240,7 @@ impl TestRig {
                         RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
                             start_slot, ..
                         }),
-                    request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
+                    app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
                 } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                 _ => None,
             }) {
@@ -256,7 +256,7 @@ impl TestRig {
                     NetworkMessage::SendRequest {
                         peer_id,
                         request: RequestType::BlobsByRange(BlobsByRangeRequest { start_slot, .. }),
-                        request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
+                        app_request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
                     } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                     _ => None,
                 })

@@ -36,6 +36,8 @@ pub use methods::{
 };
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
+use crate::ResponseId;
+
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use self::protocol::RPCProtocol;
 use self::self_limiter::SelfRateLimiter;
@@ -80,7 +82,7 @@ pub enum RPCReceived<Id, E: EthSpec> {
     ///
     /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    Request(Request<E>),
+    Request(RequestId, RequestType<E>, SubstreamId),
     /// A response received from the outside.
     ///
     /// The `Id` corresponds to the application given ID of the original request sent to the
@@ -110,14 +112,6 @@ impl RequestId {
     pub fn new_unchecked(id: usize) -> Self {
         Self(id)
     }
-}
-
-/// An Rpc Request.
-#[derive(Debug, Clone)]
-pub struct Request<E: EthSpec> {
-    pub id: RequestId,
-    pub substream_id: SubstreamId,
-    pub r#type: RequestType<E>,
 }
 
 impl<E: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, E> {
@@ -215,14 +209,13 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        id: (ConnectionId, SubstreamId),
-        _request_id: RequestId,
+        response_id: ResponseId,
         event: RpcResponse<E>,
     ) {
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
-            handler: NotifyHandler::One(id.0),
-            event: RPCSend::Response(id.1, event),
+            handler: NotifyHandler::One(response_id.connection_id),
+            event: RPCSend::Response(response_id.substream_id, event),
         });
     }
 
@@ -428,17 +421,13 @@ where
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
         match event {
-            HandlerEvent::Ok(RPCReceived::Request(Request {
-                id,
-                substream_id,
-                r#type,
-            })) => {
+            HandlerEvent::Ok(RPCReceived::Request(request_id, request_type, substream_id)) => {
                 if let Some(limiter) = self.limiter.as_mut() {
                     // check if the request is conformant to the quota
-                    match limiter.allows(&peer_id, &r#type) {
+                    match limiter.allows(&peer_id, &request_type) {
                         Err(RateLimitedErr::TooLarge) => {
                             // we set the batch sizes, so this is a coding/config err for most protocols
-                            let protocol = r#type.versioned_protocol().protocol();
+                            let protocol = request_type.versioned_protocol().protocol();
                             if matches!(
                                 protocol,
                                 Protocol::BlocksByRange
@@ -448,7 +437,7 @@ where
                                     | Protocol::BlobsByRoot
                                     | Protocol::DataColumnsByRoot
                             ) {
-                                debug!(request = %r#type, %protocol, "Request too large to process");
+                                debug!(request = %request_type, %protocol, "Request too large to process");
                             } else {
                                 // Other protocols shouldn't be sending large messages, we should flag the peer kind
                                 crit!(%protocol, "Request size too large to ever be processed");
@@ -457,8 +446,7 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                (conn_id, substream_id),
-                                id,
+                                ResponseId::new(conn_id, substream_id, request_id),
                                 RpcResponse::Error(
                                     RpcErrorResponse::RateLimited,
                                     "Rate limited. Request too large".into(),
@@ -467,13 +455,12 @@ where
                             return;
                         }
                         Err(RateLimitedErr::TooSoon(wait_time)) => {
-                            debug!(request = %r#type, %peer_id, wait_time_ms = wait_time.as_millis(), "Request exceeds the rate limit");
+                            debug!(request = %request_type, %peer_id, wait_time_ms = wait_time.as_millis(), "Request exceeds the rate limit");
                             // send an error code to the peer.
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                (conn_id, substream_id),
-                                id,
+                                ResponseId::new(conn_id, substream_id, request_id),
                                 RpcResponse::Error(
                                     RpcErrorResponse::RateLimited,
                                     format!("Wait {:?}", wait_time).into(),
@@ -487,12 +474,11 @@ where
                 }
 
                 // If we received a Ping, we queue a Pong response.
-                if let RequestType::Ping(_) = r#type {
+                if let RequestType::Ping(_) = request_type {
                     trace!(connection_id = %conn_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
                         peer_id,
-                        (conn_id, substream_id),
-                        id,
+                        ResponseId::new(conn_id, substream_id, request_id),
                         RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
                             data: self.seq_number,
                         })),
@@ -502,11 +488,7 @@ where
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
                     conn_id,
-                    message: Ok(RPCReceived::Request(Request {
-                        id,
-                        substream_id,
-                        r#type,
-                    })),
+                    message: Ok(RPCReceived::Request(request_id, request_type, substream_id)),
                 }));
             }
             HandlerEvent::Ok(rpc) => {

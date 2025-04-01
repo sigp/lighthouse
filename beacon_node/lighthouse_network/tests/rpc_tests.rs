@@ -98,7 +98,7 @@ fn test_tcp_status_rpc() {
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: AppRequestId::Router,
+                        app_request_id: AppRequestId::Router,
                         response,
                     } => {
                         // Should receive the RPC response
@@ -118,13 +118,13 @@ fn test_tcp_status_rpc() {
                 match receiver.next_event().await {
                     NetworkEvent::RequestReceived {
                         peer_id,
-                        id,
-                        request,
+                        response_id,
+                        request_type,
                     } => {
-                        if request.r#type == rpc_request {
+                        if request_type == rpc_request {
                             // send the response
                             debug!("Receiver Received");
-                            receiver.send_response(peer_id, id, request.id, rpc_response.clone());
+                            receiver.send_response(peer_id, response_id, rpc_response.clone());
                         }
                     }
                     _ => {} // Ignore other events
@@ -204,7 +204,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: _,
+                        app_request_id: _,
                         response,
                     } => {
                         warn!("Sender received a response");
@@ -240,10 +240,10 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                 match receiver.next_event().await {
                     NetworkEvent::RequestReceived {
                         peer_id,
-                        id,
-                        request,
+                        response_id,
+                        request_type,
                     } => {
-                        if request.r#type == rpc_request {
+                        if request_type == rpc_request {
                             // send the response
                             warn!("Receiver got request");
                             for i in 0..messages_to_send {
@@ -256,18 +256,12 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                                 } else {
                                     rpc_response_bellatrix_small.clone()
                                 };
-                                receiver.send_response(
-                                    peer_id,
-                                    id,
-                                    request.id,
-                                    rpc_response.clone(),
-                                );
+                                receiver.send_response(peer_id, response_id, rpc_response.clone());
                             }
                             // send the stream termination
                             receiver.send_response(
                                 peer_id,
-                                id,
-                                request.id,
+                                response_id,
                                 Response::BlocksByRange(None),
                             );
                         }
@@ -338,7 +332,7 @@ fn test_blobs_by_range_chunked_rpc() {
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: _,
+                        app_request_id: _,
                         response,
                     } => {
                         warn!("Sender received a response");
@@ -368,27 +362,21 @@ fn test_blobs_by_range_chunked_rpc() {
                 match receiver.next_event().await {
                     NetworkEvent::RequestReceived {
                         peer_id,
-                        id,
-                        request,
+                        response_id,
+                        request_type,
                     } => {
-                        if request.r#type == rpc_request {
+                        if request_type == rpc_request {
                             // send the response
                             warn!("Receiver got request");
                             for _ in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
                                 // second as altair and third as bellatrix.
-                                receiver.send_response(
-                                    peer_id,
-                                    id,
-                                    request.id,
-                                    rpc_response.clone(),
-                                );
+                                receiver.send_response(peer_id, response_id, rpc_response.clone());
                             }
                             // send the stream termination
                             receiver.send_response(
                                 peer_id,
-                                id,
-                                request.id,
+                                response_id,
                                 Response::BlobsByRange(None),
                             );
                         }
@@ -459,8 +447,8 @@ fn test_tcp_blocks_by_range_over_limit() {
                             .unwrap();
                     }
                     // The request will fail because the sender will refuse to send anything > MAX_RPC_SIZE
-                    NetworkEvent::RPCFailed { id, .. } => {
-                        assert!(matches!(id, AppRequestId::Router));
+                    NetworkEvent::RPCFailed { app_request_id, .. } => {
+                        assert!(matches!(app_request_id, AppRequestId::Router));
                         return;
                     }
                     _ => {} // Ignore other behaviour events
@@ -474,26 +462,20 @@ fn test_tcp_blocks_by_range_over_limit() {
                 match receiver.next_event().await {
                     NetworkEvent::RequestReceived {
                         peer_id,
-                        id,
-                        request,
+                        response_id,
+                        request_type,
                     } => {
-                        if request.r#type == rpc_request {
+                        if request_type == rpc_request {
                             // send the response
                             warn!("Receiver got request");
                             for _ in 0..messages_to_send {
                                 let rpc_response = rpc_response_bellatrix_large.clone();
-                                receiver.send_response(
-                                    peer_id,
-                                    id,
-                                    request.id,
-                                    rpc_response.clone(),
-                                );
+                                receiver.send_response(peer_id, response_id, rpc_response.clone());
                             }
                             // send the stream termination
                             receiver.send_response(
                                 peer_id,
-                                id,
-                                request.id,
+                                response_id,
                                 Response::BlocksByRange(None),
                             );
                         }
@@ -566,7 +548,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: _,
+                        app_request_id: _,
                         response,
                     } =>
                     // Should receive the RPC response
@@ -608,15 +590,15 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     futures::future::Either::Left((
                         NetworkEvent::RequestReceived {
                             peer_id,
-                            id,
-                            request,
+                            response_id,
+                            request_type,
                         },
                         _,
                     )) => {
-                        if request.r#type == rpc_request {
+                        if request_type == rpc_request {
                             // send the response
                             warn!("Receiver got request");
-                            message_info = Some((peer_id, id, request.id));
+                            message_info = Some((peer_id, response_id));
                         }
                     }
                     futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
@@ -626,8 +608,8 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                 // if we need to send messages send them here. This will happen after a delay
                 if message_info.is_some() {
                     messages_sent += 1;
-                    let (peer_id, stream_id, request_id) = message_info.as_ref().unwrap();
-                    receiver.send_response(*peer_id, *stream_id, *request_id, rpc_response.clone());
+                    let (peer_id, response_id) = message_info.as_ref().unwrap();
+                    receiver.send_response(*peer_id, *response_id, rpc_response.clone());
                     debug!("Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
@@ -700,7 +682,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: AppRequestId::Router,
+                        app_request_id: AppRequestId::Router,
                         response,
                     } => match response {
                         Response::BlocksByRange(Some(_)) => {
@@ -727,26 +709,20 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                 match receiver.next_event().await {
                     NetworkEvent::RequestReceived {
                         peer_id,
-                        id,
-                        request,
+                        response_id,
+                        request_type,
                     } => {
-                        if request.r#type == rpc_request {
+                        if request_type == rpc_request {
                             // send the response
                             warn!("Receiver got request");
 
                             for _ in 1..=messages_to_send {
-                                receiver.send_response(
-                                    peer_id,
-                                    id,
-                                    request.id,
-                                    rpc_response.clone(),
-                                );
+                                receiver.send_response(peer_id, response_id, rpc_response.clone());
                             }
                             // send the stream termination
                             receiver.send_response(
                                 peer_id,
-                                id,
-                                request.id,
+                                response_id,
                                 Response::BlocksByRange(None),
                             );
                         }
@@ -837,7 +813,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: AppRequestId::Router,
+                        app_request_id: AppRequestId::Router,
                         response,
                     } => match response {
                         Response::BlocksByRoot(Some(_)) => {
@@ -870,10 +846,10 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                 match receiver.next_event().await {
                     NetworkEvent::RequestReceived {
                         peer_id,
-                        id,
-                        request,
+                        response_id,
+                        request_type,
                     } => {
-                        if request.r#type == rpc_request {
+                        if request_type == rpc_request {
                             // send the response
                             debug!("Receiver got request");
 
@@ -886,14 +862,13 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                                 } else {
                                     rpc_response_bellatrix_small.clone()
                                 };
-                                receiver.send_response(peer_id, id, request.id, rpc_response);
+                                receiver.send_response(peer_id, response_id, rpc_response);
                                 debug!("Sending message");
                             }
                             // send the stream termination
                             receiver.send_response(
                                 peer_id,
-                                id,
-                                request.id,
+                                response_id,
                                 Response::BlocksByRange(None),
                             );
                             debug!("Send stream term");
@@ -977,7 +952,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: AppRequestId::Router,
+                        app_request_id: AppRequestId::Router,
                         response,
                     } => {
                         debug!("Sender received a response");
@@ -1019,15 +994,15 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     futures::future::Either::Left((
                         NetworkEvent::RequestReceived {
                             peer_id,
-                            id,
-                            request,
+                            response_id,
+                            request_type,
                         },
                         _,
                     )) => {
-                        if request.r#type == rpc_request {
+                        if request_type == rpc_request {
                             // send the response
                             warn!("Receiver got request");
-                            message_info = Some((peer_id, id, request.id));
+                            message_info = Some((peer_id, response_id));
                         }
                     }
                     futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
@@ -1037,8 +1012,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                 // if we need to send messages send them here. This will happen after a delay
                 if message_info.is_some() {
                     messages_sent += 1;
-                    let (peer_id, stream_id, request_id) = message_info.as_ref().unwrap();
-                    receiver.send_response(*peer_id, *stream_id, *request_id, rpc_response.clone());
+                    let (peer_id, response_id) = message_info.as_ref().unwrap();
+                    receiver.send_response(*peer_id, *response_id, rpc_response.clone());
                     debug!("Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
