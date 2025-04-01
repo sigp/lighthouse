@@ -3880,16 +3880,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // is so we don't have to think about lock ordering with respect to the fork choice lock.
         // There are a bunch of places where we lock both fork choice and the pubkey cache and it
         // would be difficult to check that they all lock fork choice first.
-        let mut ops = {
+        let (indices_to_write, mut ops) = {
             let _timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_PUBKEY_CACHE_LOCK);
             let pubkey_cache = self.validator_pubkey_cache.upgradable_read();
 
             // Only take a write lock if there are new keys to import.
             if state.validators().len() > pubkey_cache.len() {
-                parking_lot::RwLockUpgradableReadGuard::upgrade(pubkey_cache)
-                    .import_new_pubkeys(&state)?
+                let mut pubkey_cache =
+                    parking_lot::RwLockUpgradableReadGuard::upgrade(pubkey_cache);
+                pubkey_cache.import_new_pubkeys(&state)?;
+                pubkey_cache.get_db_ops()
             } else {
-                vec![]
+                pubkey_cache.get_db_ops()
             }
         };
 
@@ -3909,6 +3911,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
         // Do not import a block that doesn't descend from the finalized root.
+        // TODO: move that up
         let signed_block =
             check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, signed_block)?;
         let block = signed_block.message();
@@ -4075,11 +4078,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .err()
                 .unwrap_or(e.into()));
         }
+
         drop(txn_lock);
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
         drop(fork_choice);
+
+        // We can safely flush `indices_to_write` from `staged_indices` as they are now guaranteed to be written to disk.
+        if indices_to_write.is_empty() {
+            let mut pubkey_cache = self.validator_pubkey_cache.write();
+            pubkey_cache.flush_staged_indices(indices_to_write);
+        }
 
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.

@@ -852,9 +852,10 @@ where
             .map(|mut validator_pubkey_cache| {
                 // If any validators weren't persisted to disk on previous runs, this will use the head state to
                 // "top-up" the in-memory validator cache and its on-disk representation with any missing validators.
-                let pubkey_store_ops = validator_pubkey_cache
+                validator_pubkey_cache
                     .import_new_pubkeys(&head_snapshot.beacon_state)
                     .map_err(|e| format!("Unable to top-up persisted pubkey cache {:?}", e))?;
+                let (_, pubkey_store_ops) = validator_pubkey_cache.get_db_ops();
                 if !pubkey_store_ops.is_empty() {
                     // Write any missed validators to disk
                     debug!(

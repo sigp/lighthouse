@@ -4,7 +4,7 @@ use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
 use smallvec::SmallVec;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
 use types::{BeaconState, FixedBytesExtended, Hash256, PublicKey, PublicKeyBytes};
@@ -21,6 +21,8 @@ pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
     pubkey_bytes: Vec<PublicKeyBytes>,
+    // Indices in this set should be flushed to disk
+    staged_indices: BTreeMap<usize, PublicKey>,
     _phantom: PhantomData<T>,
 }
 
@@ -36,11 +38,13 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             pubkeys: vec![],
             indices: HashMap::new(),
             pubkey_bytes: vec![],
+            staged_indices: BTreeMap::new(),
             _phantom: PhantomData,
         };
 
-        let store_ops = cache.import_new_pubkeys(state)?;
-        store.do_atomically_with_block_and_blobs_cache(store_ops)?;
+        cache.import_new_pubkeys(state)?;
+        let (_, db_ops) = cache.get_db_ops();
+        store.do_atomically_with_block_and_blobs_cache(db_ops)?;
 
         Ok(cache)
     }
@@ -68,6 +72,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             pubkeys,
             indices,
             pubkey_bytes,
+            staged_indices: BTreeMap::new(),
             _phantom: PhantomData,
         })
     }
@@ -80,7 +85,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     pub fn import_new_pubkeys(
         &mut self,
         state: &BeaconState<T::EthSpec>,
-    ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError> {
+    ) -> Result<(), BeaconChainError> {
         if state.validators().len() > self.pubkeys.len() {
             self.import(
                 state
@@ -89,15 +94,12 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                     .map(|v| v.pubkey),
             )
         } else {
-            Ok(vec![])
+            Ok(())
         }
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(
-        &mut self,
-        validator_keys: I,
-    ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError>
+    fn import<I>(&mut self, validator_keys: I) -> Result<(), BeaconChainError>
     where
         I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
     {
@@ -105,7 +107,6 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
 
-        let mut store_ops = Vec::with_capacity(validator_keys.len());
         for pubkey_bytes in validator_keys {
             let i = self.pubkeys.len();
 
@@ -113,25 +114,22 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                 return Err(BeaconChainError::DuplicateValidatorPublicKey);
             }
 
-            let pubkey = (&pubkey_bytes)
+            let pubkey: PublicKey = (&pubkey_bytes)
                 .try_into()
                 .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?;
 
-            // Stage the new validator key for writing to disk.
-            // It will be committed atomically when the block that introduced it is written to disk.
-            // Notably it is NOT written while the write lock on the cache is held.
+            // Stage the new validator keys for writing to disk.
+            // These will be committed atomically when the block that introduced it is written to disk.
+            // Notably they are NOT written while the write lock on the cache is held.
             // See: https://github.com/sigp/lighthouse/issues/2327
-            store_ops.push(StoreOp::KeyValueOp(
-                DatabasePubkey::from_pubkey(&pubkey)
-                    .as_kv_store_op(DatabasePubkey::key_for_index(i)),
-            ));
+            self.staged_indices.insert(i, pubkey.clone());
 
             self.pubkeys.push(pubkey);
             self.pubkey_bytes.push(pubkey_bytes);
             self.indices.insert(pubkey_bytes, i);
         }
 
-        Ok(store_ops)
+        Ok(())
     }
 
     /// Get the public key for a validator with index `i`.
@@ -162,6 +160,30 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     /// Returns `true` if there are no validators in the cache.
     pub fn is_empty(&self) -> bool {
         self.indices.is_empty()
+    }
+
+    /// Returns a list of validator indices and their associated database operations
+    /// from `staged_indices`` that are currently being persisted in the cache.
+    pub fn get_db_ops(&self) -> (Vec<usize>, Vec<StoreOp<'static, T::EthSpec>>) {
+        let mut store_ops = vec![];
+        let mut indices = vec![];
+
+        for (i, pubkey) in self.staged_indices.iter() {
+            store_ops.push(StoreOp::KeyValueOp(
+                DatabasePubkey::from_pubkey(pubkey)
+                    .as_kv_store_op(DatabasePubkey::key_for_index(*i)),
+            ));
+            indices.push(*i);
+        }
+        (indices, store_ops)
+    }
+
+    /// Flush `indices` from the `staged_indices` cache. This action should only
+    /// be made after writing validators to disk.
+    pub fn flush_staged_indices(&mut self, indices: Vec<usize>) {
+        for index in indices {
+            self.staged_indices.remove(&index);
+        }
     }
 }
 
@@ -315,10 +337,12 @@ mod test {
 
         // Add some more keypairs.
         let (state, keypairs) = get_state(12);
-        let ops = cache
+        cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
-        store.do_atomically_with_block_and_blobs_cache(ops).unwrap();
+        store
+            .do_atomically_with_block_and_blobs_cache(cache.get_db_ops().1)
+            .unwrap();
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 
