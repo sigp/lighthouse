@@ -49,7 +49,7 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks.
       --graffiti-file <GRAFFITI-FILE>

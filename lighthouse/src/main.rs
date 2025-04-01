@@ -411,7 +411,7 @@ fn main() {
                     "The timeout in seconds for the request to --genesis-state-url.",
                 )
                 .action(ArgAction::Set)
-                .default_value("180")
+                .default_value("300")
                 .global(true)
                 .display_order(0)
         )
