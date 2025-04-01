@@ -36,7 +36,7 @@ pub use methods::{
 };
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
-use crate::ResponseId;
+use crate::OutboundRequestId;
 
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use self::protocol::RPCProtocol;
@@ -209,7 +209,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         event: RpcResponse<E>,
     ) {
         self.events.push(ToSwarm::NotifyHandler {
@@ -446,7 +446,7 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                ResponseId {
+                                OutboundRequestId {
                                     connection_id,
                                     substream_id,
                                     request_id,
@@ -464,7 +464,7 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                ResponseId {
+                                OutboundRequestId {
                                     connection_id,
                                     substream_id,
                                     request_id,
@@ -486,7 +486,7 @@ where
                     trace!(connection_id = %connection_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
                         peer_id,
-                        ResponseId {
+                        OutboundRequestId {
                             connection_id,
                             substream_id,
                             request_id,

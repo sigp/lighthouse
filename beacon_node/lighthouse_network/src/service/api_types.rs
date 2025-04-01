@@ -12,10 +12,9 @@ use types::{
 
 pub type Id = u32;
 
-// All RPC Responses require this structure. It contains two IDs required to correctly send a
-// response.
+// An Outbound Request identifier.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct ResponseId {
+pub struct OutboundRequestId {
     /// The connection ID of the peer that sent the request.
     pub connection_id: ConnectionId,
     /// The ID of the substream that sent the request.

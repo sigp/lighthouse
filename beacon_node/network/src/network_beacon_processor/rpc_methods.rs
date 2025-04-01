@@ -7,7 +7,7 @@ use itertools::process_results;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
-use lighthouse_network::{rpc::*, ResponseId};
+use lighthouse_network::{rpc::*, OutboundRequestId};
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
@@ -33,7 +33,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_response(
         &self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         response: Response<T::EthSpec>,
     ) {
         self.send_network_message(NetworkMessage::SendResponse {
@@ -48,7 +48,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         error: RpcErrorResponse,
         reason: String,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
     ) {
         self.send_network_message(NetworkMessage::SendErrorResponse {
             peer_id,
@@ -155,7 +155,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         request: BlocksByRootRequest,
     ) {
         self.terminate_response_stream(
@@ -172,7 +172,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_root_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         request: BlocksByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let log_results = |peer_id, requested_blocks, send_block_count| {
@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_blobs_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         request: BlobsByRootRequest,
     ) {
         self.terminate_response_stream(
@@ -260,7 +260,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_blobs_by_root_request_inner(
         &self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         request: BlobsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let Some(requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
@@ -335,7 +335,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         request: DataColumnsByRootRequest,
     ) {
         self.terminate_response_stream(
@@ -350,7 +350,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_root_request_inner(
         &self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         request: DataColumnsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
@@ -395,7 +395,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_updates_by_range(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         request: LightClientUpdatesByRangeRequest,
     ) {
         self.terminate_response_stream(
@@ -411,7 +411,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_updates_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         req: LightClientUpdatesByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -482,7 +482,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         request: LightClientBootstrapRequest,
     ) {
         self.terminate_response_single_item(
@@ -512,7 +512,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_optimistic_update(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
     ) {
         self.terminate_response_single_item(
             peer_id,
@@ -536,7 +536,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_finality_update(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
     ) {
         self.terminate_response_single_item(
             peer_id,
@@ -560,7 +560,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         req: BlocksByRangeRequest,
     ) {
         self.terminate_response_stream(
@@ -577,7 +577,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         req: BlocksByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -760,7 +760,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_blobs_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         req: BlobsByRangeRequest,
     ) {
         self.terminate_response_stream(
@@ -775,7 +775,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn handle_blobs_by_range_request_inner(
         &self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         req: BlobsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -943,7 +943,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_range_request(
         &self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         req: DataColumnsByRangeRequest,
     ) {
         self.terminate_response_stream(
@@ -958,7 +958,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_range_request_inner(
         &self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         req: DataColumnsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -1134,7 +1134,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn terminate_response_single_item<R, F: Fn(R) -> Response<T::EthSpec>>(
         &self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         result: Result<R, (RpcErrorResponse, String)>,
         into_response: F,
     ) {
@@ -1157,7 +1157,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn terminate_response_stream<R, F: FnOnce(Option<R>) -> Response<T::EthSpec>>(
         &self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         result: Result<(), (RpcErrorResponse, &'static str)>,
         into_response: F,
     ) {

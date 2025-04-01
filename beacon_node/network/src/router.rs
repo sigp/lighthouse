@@ -17,7 +17,7 @@ use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
     service::api_types::{AppRequestId, SyncRequestId},
-    MessageId, NetworkGlobals, PeerId, PubsubMessage, Response, ResponseId,
+    MessageId, NetworkGlobals, OutboundRequestId, PeerId, PubsubMessage, Response,
 };
 use logging::crit;
 use logging::TimeLatch;
@@ -52,7 +52,7 @@ pub enum RouterMessage<E: EthSpec> {
     /// An RPC request has been received.
     RPCRequestReceived {
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         request_type: RequestType<E>,
     },
     /// An RPC response has been received.
@@ -188,7 +188,7 @@ impl<T: BeaconChainTypes> Router<T> {
     fn handle_rpc_request<E: EthSpec>(
         &mut self,
         peer_id: PeerId,
-        response_id: ResponseId, // Use ResponseId here
+        response_id: OutboundRequestId, // Use ResponseId here
         request_type: RequestType<E>,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
@@ -531,7 +531,7 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        response_id: ResponseId, // Use ResponseId here
+        response_id: OutboundRequestId, // Use ResponseId here
         status: StatusMessage,
     ) {
         debug!(%peer_id, ?status, "Received Status Request");
@@ -785,7 +785,7 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         response: Response<E>,
     ) {
         self.inform_network(NetworkMessage::SendResponse {

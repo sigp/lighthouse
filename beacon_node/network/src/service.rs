@@ -14,7 +14,7 @@ use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::Enr;
-use lighthouse_network::ResponseId;
+use lighthouse_network::OutboundRequestId;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RpcErrorResponse},
@@ -67,13 +67,13 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         response: Response<E>,
     },
     /// Sends an error response to an RPC request.
     SendErrorResponse {
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         error: RpcErrorResponse,
         reason: String,
     },

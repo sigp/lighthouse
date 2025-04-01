@@ -20,7 +20,7 @@ use crate::types::{
 use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use api_types::{AppRequestId, Response, ResponseId};
+use api_types::{AppRequestId, OutboundRequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
     IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
@@ -76,7 +76,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// The peer that sent the request.
         peer_id: PeerId,
         /// Identifier of the request. All responses to this request must use this id.
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         /// Request the peer sent.
         request_type: RequestType<E>,
     },
@@ -1127,7 +1127,7 @@ impl<E: EthSpec> Network<E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         response: Response<E>,
     ) {
         self.eth2_rpc_mut()
@@ -1144,7 +1144,7 @@ impl<E: EthSpec> Network<E> {
     pub fn send_error_response(
         &mut self,
         peer_id: PeerId,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         error: RpcErrorResponse,
         reason: String,
     ) {
@@ -1404,7 +1404,7 @@ impl<E: EthSpec> Network<E> {
     fn send_meta_data_response(
         &mut self,
         _req: MetadataRequest<E>,
-        response_id: ResponseId,
+        response_id: OutboundRequestId,
         peer_id: PeerId,
     ) {
         let metadata = self.network_globals.local_metadata.read().clone();
@@ -1706,7 +1706,7 @@ impl<E: EthSpec> Network<E> {
                         // send the requested meta-data
                         self.send_meta_data_response(
                             req,
-                            ResponseId {
+                            OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1737,7 +1737,7 @@ impl<E: EthSpec> Network<E> {
                         // propagate the STATUS message upwards
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1764,7 +1764,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1776,7 +1776,7 @@ impl<E: EthSpec> Network<E> {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1788,7 +1788,7 @@ impl<E: EthSpec> Network<E> {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1800,7 +1800,7 @@ impl<E: EthSpec> Network<E> {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1815,7 +1815,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1830,7 +1830,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1845,7 +1845,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1860,7 +1860,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1875,7 +1875,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
@@ -1890,7 +1890,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            response_id: ResponseId {
+                            response_id: OutboundRequestId {
                                 connection_id,
                                 substream_id,
                                 request_id,
