@@ -1411,6 +1411,11 @@ pub struct ManualFinalizationRequestData {
     pub block_root: Hash256,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AdminPeer {
+    pub enr: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LivenessRequestData {
     pub epoch: Epoch,

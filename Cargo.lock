@@ -808,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "7.0.0-beta.4"
+version = "7.0.0-beta.5"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "7.0.0-beta.4"
+version = "7.0.0-beta.5"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -4704,7 +4704,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "7.0.0-beta.4"
+version = "7.0.0-beta.5"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5266,7 +5266,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "7.0.0-beta.4"
+version = "7.0.0-beta.5"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -10253,7 +10253,7 @@ dependencies = [
 [[package]]
 name = "xdelta3"
 version = "0.1.5"
-source = "git+http://github.com/sigp/xdelta3-rs?rev=50d63cdf1878e5cf3538e9aae5eed34a22c64e4a#50d63cdf1878e5cf3538e9aae5eed34a22c64e4a"
+source = "git+http://github.com/sigp/xdelta3-rs?rev=4db64086bb02e9febb584ba93b9d16bb2ae3825a#4db64086bb02e9febb584ba93b9d16bb2ae3825a"
 dependencies = [
  "bindgen",
  "cc",
