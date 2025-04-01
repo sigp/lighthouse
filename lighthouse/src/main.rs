@@ -17,17 +17,15 @@ use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODE
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
-use logging::crit;
-use logging::MetricsLayer;
+use logging::{build_workspace_filter, crit, MetricsLayer};
 use malloc_utils::configure_memory_allocator;
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{info, warn};
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing::{info, warn, Level};
+use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -592,12 +590,11 @@ fn run<E: EthSpec>(
 
     let (
         builder,
-        libp2p_discv5_layer,
-        file_logging_layer,
-        stdout_logging_layer,
-        sse_logging_layer_opt,
         logger_config,
-        dependency_log_filter,
+        stdout_logging_layer,
+        file_logging_layer,
+        sse_logging_layer_opt,
+        libp2p_discv5_layer,
     ) = tracing_common::construct_logger(
         LoggerConfig {
             path: log_path.clone(),
@@ -619,21 +616,50 @@ fn run<E: EthSpec>(
         environment_builder,
     );
 
-    let logging = tracing_subscriber::registry()
-        .with(dependency_log_filter)
-        .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
-        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
-        .with(MetricsLayer)
-        .with(libp2p_discv5_layer);
+    let workspace_filter = build_workspace_filter()?;
 
-    let logging_result = if let Some(sse_logging_layer) = sse_logging_layer_opt {
-        logging.with(sse_logging_layer).try_init()
-    } else {
-        logging.try_init()
-    };
+    let mut logging_layers = Vec::new();
+
+    logging_layers.push(
+        stdout_logging_layer
+            .with_filter(logger_config.debug_level)
+            .with_filter(workspace_filter.clone())
+            .boxed(),
+    );
+
+    if let Some(file_logging_layer) = file_logging_layer {
+        logging_layers.push(
+            file_logging_layer
+                .with_filter(logger_config.logfile_debug_level)
+                .with_filter(workspace_filter)
+                .boxed(),
+        );
+    }
+
+    if let Some(sse_logging_layer) = sse_logging_layer_opt {
+        logging_layers.push(sse_logging_layer.boxed());
+    }
+
+    if let Some(libp2p_discv5_layer) = libp2p_discv5_layer {
+        logging_layers.push(
+            libp2p_discv5_layer
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(Level::DEBUG.into())
+                        .from_env_lossy(),
+                )
+                .boxed(),
+        );
+    }
+
+    logging_layers.push(MetricsLayer.boxed());
+
+    let logging_result = tracing_subscriber::registry()
+        .with(logging_layers)
+        .try_init();
 
     if let Err(e) = logging_result {
-        eprintln!("Failed to initialize dependency logging: {e}");
+        eprintln!("Failed to initialize logger: {e}");
     }
 
     let mut environment = builder
