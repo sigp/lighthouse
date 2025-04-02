@@ -193,12 +193,12 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         &mut self,
         peer_id: PeerId,
         request_id: InboundRequestId,
-        event: RpcResponse<E>,
+        response: RpcResponse<E>,
     ) {
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
             handler: NotifyHandler::One(request_id.connection_id),
-            event: RPCSend::Response(request_id.substream_id, event),
+            event: RPCSend::Response(request_id.substream_id, response),
         });
     }
 
