@@ -996,7 +996,7 @@ impl<E: EthSpec> Network<E> {
                         }
                     }
 
-                    if let PublishError::InsufficientPeers = e {
+                    if let PublishError::NoPeersSubscribedToTopic = e {
                         self.gossip_cache.insert(topic, message_data);
                     }
                 }
@@ -1473,6 +1473,21 @@ impl<E: EthSpec> Network<E> {
                 debug!(%peer_id, "Added cached ENR peer to dial queue");
             }
         }
+    }
+
+    /// Adds the given `enr` to the trusted peers mapping and tries to dial it
+    /// every heartbeat to maintain the connection.
+    pub fn dial_trusted_peer(&mut self, enr: Enr) {
+        self.peer_manager_mut().add_trusted_peer(enr.clone());
+        self.peer_manager_mut().dial_peer(enr);
+    }
+
+    /// Remove the given peer from the trusted peers mapping if it exists and disconnect
+    /// from it.
+    pub fn remove_trusted_peer(&mut self, enr: Enr) {
+        self.peer_manager_mut().remove_trusted_peer(enr.clone());
+        self.peer_manager_mut()
+            .disconnect_peer(enr.peer_id(), GoodbyeReason::TooManyPeers);
     }
 
     /* Sub-behaviour event handling functions */

@@ -16,6 +16,7 @@ mod builder_states;
 mod database;
 mod light_client;
 mod metrics;
+mod peer;
 mod produce_block;
 mod proposer_duties;
 mod publish_attestations;
@@ -53,7 +54,7 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
 use lighthouse_network::rpc::methods::MetaData;
-use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
+use lighthouse_network::{types::SyncState, Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use logging::{crit, SSELoggingComponents};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
@@ -71,6 +72,7 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::Arc;
 use sysinfo::{System, SystemExt};
 use system_health::{observe_nat, observe_system_health_bn};
@@ -86,11 +88,11 @@ use tokio_stream::{
 use tracing::{debug, error, info, warn};
 use types::{
     fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
-    AttesterSlashing, BeaconStateError, ChainSpec, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
-    ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing,
-    RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    AttesterSlashing, BeaconStateError, ChainSpec, Checkpoint, CommitteeCache, ConfigAndPreset,
+    Epoch, EthSpec, ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData,
+    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -1073,6 +1075,72 @@ pub fn serve<T: BeaconChainTypes>(
                         api_types::GenericResponse::from(api_types::RandaoMix { randao })
                             .add_execution_optimistic_finalized(execution_optimistic, finalized),
                     )
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/pending_deposits
+    let get_beacon_state_pending_deposits = beacon_states_path
+        .clone()
+        .and(warp::path("pending_deposits"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(deposits) = state.pending_deposits() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending deposits not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((deposits.clone(), execution_optimistic, finalized))
+                            },
+                        )?;
+
+                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                        data,
+                        execution_optimistic: Some(execution_optimistic),
+                        finalized: Some(finalized),
+                    })
+                })
+            },
+        );
+
+    // GET beacon/states/{state_id}/pending_partial_withdrawals
+    let get_beacon_state_pending_partial_withdrawals = beacon_states_path
+        .clone()
+        .and(warp::path("pending_partial_withdrawals"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(withdrawals) = state.pending_partial_withdrawals() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending withdrawals not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((withdrawals.clone(), execution_optimistic, finalized))
+                            },
+                        )?;
+
+                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                        data,
+                        execution_optimistic: Some(execution_optimistic),
+                        finalized: Some(finalized),
+                    })
                 })
             },
         );
@@ -3022,15 +3090,13 @@ pub fn serve<T: BeaconChainTypes>(
                         };
 
                         // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                        if let Some(dir) = peer_info.connection_direction().as_ref() {
+                        if let Some(&dir) = peer_info.connection_direction() {
                             return Ok(api_types::GenericResponse::from(api_types::PeerData {
                                 peer_id: peer_id.to_string(),
                                 enr: peer_info.enr().map(|enr| enr.to_base64()),
                                 last_seen_p2p_address: address,
-                                direction: api_types::PeerDirection::from_connection_direction(dir),
-                                state: api_types::PeerState::from_peer_connection_status(
-                                    peer_info.connection_status(),
-                                ),
+                                direction: dir.into(),
+                                state: peer_info.connection_status().clone().into(),
                             }));
                         }
                     }
@@ -3071,12 +3137,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 };
 
                             // the eth2 API spec implies only peers we have been connected to at some point should be included.
-                            if let Some(dir) = peer_info.connection_direction() {
-                                let direction =
-                                    api_types::PeerDirection::from_connection_direction(dir);
-                                let state = api_types::PeerState::from_peer_connection_status(
-                                    peer_info.connection_status(),
-                                );
+                            if let Some(&dir) = peer_info.connection_direction() {
+                                let direction = dir.into();
+                                let state = peer_info.connection_status().clone().into();
 
                                 let state_matches = query.state.as_ref().is_none_or(|states| {
                                     states.iter().any(|state_param| *state_param == state)
@@ -3128,9 +3191,8 @@ pub fn serve<T: BeaconChainTypes>(
                         .read()
                         .peers()
                         .for_each(|(_, peer_info)| {
-                            let state = api_types::PeerState::from_peer_connection_status(
-                                peer_info.connection_status(),
-                            );
+                            let state =
+                                api_types::PeerState::from(peer_info.connection_status().clone());
                             match state {
                                 api_types::PeerState::Connected => connected += 1,
                                 api_types::PeerState::Connecting => connecting += 1,
@@ -3525,7 +3587,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(warp_utils::json::json())
-        .and(network_tx_filter)
+        .and(network_tx_filter.clone())
         .then(
             |not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -3908,6 +3970,117 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/finalize
+    let post_lighthouse_finalize = warp::path("lighthouse")
+        .and(warp::path("finalize"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |request_data: api_types::ManualFinalizationRequestData,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let checkpoint = Checkpoint {
+                        epoch: request_data.epoch,
+                        root: request_data.block_root,
+                    };
+
+                    chain
+                        .manually_finalize_state(request_data.state_root, checkpoint)
+                        .map(|_| api_types::GenericResponse::from(request_data))
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "Failed to finalize state due to error: {e:?}"
+                            ))
+                        })
+                })
+            },
+        );
+
+    // POST lighthouse/compaction
+    let post_lighthouse_compaction = warp::path("lighthouse")
+        .and(warp::path("compaction"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    chain.manually_compact_database();
+                    Ok(api_types::GenericResponse::from(String::from(
+                        "Triggered manual compaction",
+                    )))
+                })
+            },
+        );
+
+    // POST lighthouse/add_peer
+    let post_lighthouse_add_peer = warp::path("lighthouse")
+        .and(warp::path("add_peer"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(network_globals.clone())
+        .and(network_tx_filter.clone())
+        .then(
+            |request_data: api_types::AdminPeer,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let enr = Enr::from_str(&request_data.enr).map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid enr error {}", e))
+                    })?;
+                    info!(
+                        peer_id = %enr.peer_id(),
+                        multiaddr = ?enr.multiaddr(),
+                        "Adding trusted peer"
+                    );
+                    network_globals.add_trusted_peer(enr.clone());
+
+                    publish_network_message(&network_tx, NetworkMessage::ConnectTrustedPeer(enr))?;
+
+                    Ok(())
+                })
+            },
+        );
+
+    // POST lighthouse/remove_peer
+    let post_lighthouse_remove_peer = warp::path("lighthouse")
+        .and(warp::path("remove_peer"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(network_globals.clone())
+        .and(network_tx_filter.clone())
+        .then(
+            |request_data: api_types::AdminPeer,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let enr = Enr::from_str(&request_data.enr).map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid enr error {}", e))
+                    })?;
+                    info!(
+                        peer_id = %enr.peer_id(),
+                        multiaddr = ?enr.multiaddr(),
+                        "Removing trusted peer"
+                    );
+                    network_globals.remove_trusted_peer(enr.clone());
+
+                    publish_network_message(
+                        &network_tx,
+                        NetworkMessage::DisconnectTrustedPeer(enr),
+                    )?;
+
+                    Ok(())
+                })
+            },
+        );
+
     // POST lighthouse/liveness
     let post_lighthouse_liveness = warp::path("lighthouse")
         .and(warp::path("liveness"))
@@ -4089,7 +4262,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .peers
                         .read()
                         .peers()
-                        .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
+                        .map(|(peer_id, peer_info)| peer::Peer {
                             peer_id: peer_id.to_string(),
                             peer_info: peer_info.clone(),
                         })
@@ -4109,15 +4282,14 @@ pub fn serve<T: BeaconChainTypes>(
             |task_spawner: TaskSpawner<T::EthSpec>,
              network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    Ok(network_globals
-                        .peers
-                        .read()
-                        .connected_peers()
-                        .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
+                    let mut peers = vec![];
+                    for (peer_id, peer_info) in network_globals.peers.read().connected_peers() {
+                        peers.push(peer::Peer {
                             peer_id: peer_id.to_string(),
                             peer_info: peer_info.clone(),
-                        })
-                        .collect::<Vec<_>>())
+                        });
+                    }
+                    Ok(peers)
                 })
             },
         );
@@ -4563,6 +4735,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_committees)
                 .uor(get_beacon_state_sync_committees)
                 .uor(get_beacon_state_randao)
+                .uor(get_beacon_state_pending_deposits)
+                .uor(get_beacon_state_pending_partial_withdrawals)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)
@@ -4664,6 +4838,10 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)
                     .uor(post_lighthouse_ui_validator_info)
+                    .uor(post_lighthouse_finalize)
+                    .uor(post_lighthouse_compaction)
+                    .uor(post_lighthouse_add_peer)
+                    .uor(post_lighthouse_remove_peer)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )
