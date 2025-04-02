@@ -784,7 +784,6 @@ impl Service {
     ) -> Result<Option<RangeInclusive<u64>>, Error> {
         let follow_distance = self.cache_follow_distance();
         let latest_cached_block = self.latest_cached_block();
-        // 3415708
         let next_required_block = match head_type {
             HeadType::Deposit => self
                 .deposits()
@@ -852,7 +851,6 @@ impl Service {
         &self,
         new_block_numbers: Option<Option<RangeInclusive<u64>>>,
     ) -> Result<DepositCacheUpdateOutcome, Error> {
-        // 3415708
         let client = self.client();
         let deposit_contract_address = self.config().deposit_contract_address.clone();
 
@@ -902,12 +900,6 @@ impl Service {
              * Step 1. Download logs.
              */
             let block_range_ref = &block_range;
-            debug!(
-                self.log,
-                "Getting deposit logs in range";
-                "start" => block_range_ref.start,
-                "end" => block_range_ref.end,
-            );
             let logs = client
                 .get_deposit_logs_in_range(
                     deposit_contract_address_ref,
@@ -943,31 +935,12 @@ impl Service {
                 // a block, but not _all_ logs for that block). This scenario can cause the
                 // node to choose an invalid genesis state or propose an invalid block.
                 .try_for_each(|deposit_log| {
-                    match cache
+                    if let DepositCacheInsertOutcome::Inserted = cache
                         .cache
-                        .insert_log(deposit_log.clone())
-                        .map_err(Error::FailedToInsertDeposit) {
-                            Ok(DepositCacheInsertOutcome::Inserted) => {
-                                logs_imported += 1;
-                            }
-                            Ok(DepositCacheInsertOutcome::Duplicate) => {
-                                debug!(
-                                    self.log,
-                                    "Attempted to insert duplicate log";
-                                    "log" => ?deposit_log
-                                );
-                            }
-                            Err(err) => {
-                                debug!(
-                                    self.log,
-                                    "Error while inserting deposit log";
-                                    "deposit_log" => ?deposit_log
-                                );
-                                return Err(err);
-                            }
-
-                        }
+                        .insert_log(deposit_log)
+                        .map_err(Error::FailedToInsertDeposit)?
                     {
+                        logs_imported += 1;
                     }
 
                     Ok::<_, Error>(())
@@ -1178,7 +1151,6 @@ fn relevant_block_range(
     latest_cached_block: Option<&Eth1Block>,
     spec: &ChainSpec,
 ) -> Result<Option<RangeInclusive<u64>>, Error> {
-    // 3415708
     // If the latest cached block is lagging the head block by more than `cache_follow_distance`
     // times the expected block time then the eth1 block time is likely quite different from what we
     // assumed.
