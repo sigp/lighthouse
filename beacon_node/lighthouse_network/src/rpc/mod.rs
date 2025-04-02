@@ -16,7 +16,6 @@ use libp2p::PeerId;
 use logging::crit;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -48,8 +47,6 @@ mod outbound;
 mod protocol;
 mod rate_limiter;
 mod self_limiter;
-
-static NEXT_REQUEST_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// Composite trait for a request id.
 pub trait ReqId: Send + 'static + std::fmt::Debug + Copy + Clone {}
@@ -91,36 +88,13 @@ pub enum RPCReceived<Id, E: EthSpec> {
     EndOfStream(Id, ResponseTermination),
 }
 
-/// Rpc `Request` identifier.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RequestId(usize);
-
-impl RequestId {
-    /// Returns the next available [`RequestId`].
-    pub fn next() -> Self {
-        Self(NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst))
-    }
-
-    /// Creates an _unchecked_ [`RequestId`].
-    ///
-    /// [`Rpc`] enforces that [`RequestId`]s are unique and not reused.
-    /// This constructor does not, hence the _unchecked_.
-    ///
-    /// It is primarily meant for allowing manual tests.
-    pub fn new_unchecked(id: usize) -> Self {
-        Self(id)
-    }
-}
-
 // An identifier for the inbound requests received via Rpc.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct InboundRequestId {
     /// The connection ID of the peer that sent the request.
-    pub connection_id: ConnectionId,
+    connection_id: ConnectionId,
     /// The ID of the substream that sent the request.
-    pub substream_id: SubstreamId,
-    /// The logical identifier of the RPC request.
-    pub request_id: RequestId,
+    substream_id: SubstreamId,
 }
 
 impl<E: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, E> {

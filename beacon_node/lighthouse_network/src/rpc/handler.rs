@@ -4,7 +4,6 @@
 use super::methods::{GoodbyeReason, RpcErrorResponse, RpcResponse};
 use super::outbound::OutboundRequestContainer;
 use super::protocol::{InboundOutput, Protocol, RPCError, RPCProtocol, RequestType};
-use super::RequestId;
 use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::OutboundFramed;
 use crate::rpc::protocol::InboundFramed;
@@ -993,7 +992,6 @@ where
             super::InboundRequestId {
                 connection_id: self.connection_id,
                 substream_id: self.current_inbound_substream_id,
-                request_id: RequestId::next(),
             },
             req,
         )));
