@@ -52,7 +52,7 @@ pub enum RouterMessage<E: EthSpec> {
     /// An RPC request has been received.
     RPCRequestReceived {
         peer_id: PeerId,
-        response_id: OutboundRequestId,
+        response_id: InboundRequestId,
         request_type: RequestType<E>,
     },
     /// An RPC response has been received.
@@ -188,7 +188,7 @@ impl<T: BeaconChainTypes> Router<T> {
     fn handle_rpc_request<E: EthSpec>(
         &mut self,
         peer_id: PeerId,
-        response_id: OutboundRequestId, // Use ResponseId here
+        response_id: InboundRequestId, // Use ResponseId here
         request_type: RequestType<E>,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
@@ -531,7 +531,7 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        response_id: OutboundRequestId, // Use ResponseId here
+        response_id: InboundRequestId, // Use ResponseId here
         status: StatusMessage,
     ) {
         debug!(%peer_id, ?status, "Received Status Request");
@@ -785,7 +785,7 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        response_id: OutboundRequestId,
+        response_id: InboundRequestId,
         response: Response<E>,
     ) {
         self.inform_network(NetworkMessage::SendResponse {

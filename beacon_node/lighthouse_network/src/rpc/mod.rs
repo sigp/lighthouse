@@ -112,9 +112,9 @@ impl RequestId {
     }
 }
 
-// An Outbound Request identifier.
+// An identifier for the inbound requests received via Rpc.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct OutboundRequestId {
+pub struct InboundRequestId {
     /// The connection ID of the peer that sent the request.
     pub connection_id: ConnectionId,
     /// The ID of the substream that sent the request.
@@ -218,7 +218,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        response_id: OutboundRequestId,
+        response_id: InboundRequestId,
         event: RpcResponse<E>,
     ) {
         self.events.push(ToSwarm::NotifyHandler {
@@ -455,7 +455,7 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                OutboundRequestId {
+                                InboundRequestId {
                                     connection_id,
                                     substream_id,
                                     request_id,
@@ -473,7 +473,7 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                OutboundRequestId {
+                                InboundRequestId {
                                     connection_id,
                                     substream_id,
                                     request_id,
@@ -495,7 +495,7 @@ where
                     trace!(connection_id = %connection_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
                         peer_id,
-                        OutboundRequestId {
+                        InboundRequestId {
                             connection_id,
                             substream_id,
                             request_id,
