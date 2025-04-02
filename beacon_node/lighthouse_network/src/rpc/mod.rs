@@ -97,6 +97,21 @@ pub struct InboundRequestId {
     substream_id: SubstreamId,
 }
 
+impl InboundRequestId {
+    /// Creates an _unchecked_ [`InboundRequestId`].
+    ///
+    /// [`Rpc`] enforces that [`InboundRequestId`]s are unique and not reused.
+    /// This constructor does not, hence the _unchecked_.
+    ///
+    /// It is primarily meant for allowing manual tests.
+    pub fn new_unchecked(connection_id: usize, substream_id: usize) -> Self {
+        Self {
+            connection_id: ConnectionId::new_unchecked(connection_id),
+            substream_id: SubstreamId::new(substream_id),
+        }
+    }
+}
+
 impl<E: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
