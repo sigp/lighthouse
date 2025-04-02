@@ -67,13 +67,13 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        request_id: InboundRequestId,
         response: Response<E>,
     },
     /// Sends an error response to an RPC request.
     SendErrorResponse {
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        request_id: InboundRequestId,
         error: RpcErrorResponse,
         reason: String,
     },
@@ -487,12 +487,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             NetworkEvent::RequestReceived {
                 peer_id,
-                response_id,
+                request_id,
                 request_type,
             } => {
                 self.send_to_router(RouterMessage::RPCRequestReceived {
                     peer_id,
-                    response_id,
+                    request_id,
                     request_type,
                 });
             }
@@ -618,7 +618,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             NetworkMessage::SendResponse {
                 peer_id,
-                response_id,
+                request_id: response_id,
                 response,
             } => {
                 self.libp2p.send_response(peer_id, response_id, response);
@@ -626,7 +626,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::SendErrorResponse {
                 peer_id,
                 error,
-                response_id,
+                request_id: response_id,
                 reason,
             } => {
                 self.libp2p

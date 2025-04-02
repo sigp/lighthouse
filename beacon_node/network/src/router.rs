@@ -52,7 +52,7 @@ pub enum RouterMessage<E: EthSpec> {
     /// An RPC request has been received.
     RPCRequestReceived {
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        request_id: InboundRequestId,
         request_type: RequestType<E>,
     },
     /// An RPC response has been received.
@@ -157,10 +157,10 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             RouterMessage::RPCRequestReceived {
                 peer_id,
-                response_id,
+                request_id,
                 request_type,
             } => {
-                self.handle_rpc_request(peer_id, response_id, request_type);
+                self.handle_rpc_request(peer_id, request_id, request_type);
             }
             RouterMessage::RPCResponseReceived {
                 peer_id,
@@ -188,7 +188,7 @@ impl<T: BeaconChainTypes> Router<T> {
     fn handle_rpc_request<E: EthSpec>(
         &mut self,
         peer_id: PeerId,
-        response_id: InboundRequestId, // Use ResponseId here
+        request_id: InboundRequestId, // Use ResponseId here
         request_type: RequestType<E>,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
@@ -197,7 +197,7 @@ impl<T: BeaconChainTypes> Router<T> {
         }
         match request_type {
             RequestType::Status(status_message) => {
-                self.on_status_request(peer_id, response_id, status_message)
+                self.on_status_request(peer_id, request_id, status_message)
             }
             RequestType::BlocksByRange(request) => {
                 let mut count = *request.count();
@@ -216,56 +216,47 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_blocks_by_range_request(
                         peer_id,
-                        response_id,
+                        request_id,
                         blocks_request,
                     ),
                 )
             }
             RequestType::BlocksByRoot(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor.send_blocks_by_roots_request(
-                    peer_id,
-                    response_id,
-                    request,
-                ),
+                self.network_beacon_processor
+                    .send_blocks_by_roots_request(peer_id, request_id, request),
             ),
             RequestType::BlobsByRange(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor.send_blobs_by_range_request(
-                    peer_id,
-                    response_id,
-                    request,
-                ),
+                self.network_beacon_processor
+                    .send_blobs_by_range_request(peer_id, request_id, request),
             ),
             RequestType::BlobsByRoot(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor.send_blobs_by_roots_request(
-                    peer_id,
-                    response_id,
-                    request,
-                ),
+                self.network_beacon_processor
+                    .send_blobs_by_roots_request(peer_id, request_id, request),
             ),
             RequestType::DataColumnsByRoot(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_data_columns_by_roots_request(peer_id, response_id, request),
+                    .send_data_columns_by_roots_request(peer_id, request_id, request),
             ),
             RequestType::DataColumnsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_data_columns_by_range_request(peer_id, response_id, request),
+                    .send_data_columns_by_range_request(peer_id, request_id, request),
             ),
             RequestType::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_light_client_bootstrap_request(peer_id, response_id, request),
+                    .send_light_client_bootstrap_request(peer_id, request_id, request),
             ),
             RequestType::LightClientOptimisticUpdate => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_light_client_optimistic_update_request(peer_id, response_id),
+                    .send_light_client_optimistic_update_request(peer_id, request_id),
             ),
             RequestType::LightClientFinalityUpdate => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_light_client_finality_update_request(peer_id, response_id),
+                    .send_light_client_finality_update_request(peer_id, request_id),
             ),
             RequestType::LightClientUpdatesByRange(request) => self
                 .handle_beacon_processor_send_result(
                     self.network_beacon_processor
-                        .send_light_client_updates_by_range_request(peer_id, response_id, request),
+                        .send_light_client_updates_by_range_request(peer_id, request_id, request),
                 ),
             _ => {}
         }
@@ -531,7 +522,7 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        response_id: InboundRequestId, // Use ResponseId here
+        request_id: InboundRequestId, // Use ResponseId here
         status: StatusMessage,
     ) {
         debug!(%peer_id, ?status, "Received Status Request");
@@ -539,7 +530,7 @@ impl<T: BeaconChainTypes> Router<T> {
         // Say status back.
         self.network.send_response(
             peer_id,
-            response_id,
+            request_id,
             Response::Status(status_message(&self.chain)),
         );
 
@@ -785,12 +776,12 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        request_id: InboundRequestId,
         response: Response<E>,
     ) {
         self.inform_network(NetworkMessage::SendResponse {
             peer_id,
-            response_id,
+            request_id,
             response,
         })
     }
