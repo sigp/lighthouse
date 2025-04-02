@@ -496,7 +496,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// The KZG trusted setup used by this chain.
     pub kzg: Arc<Kzg>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
-    pub rng: Arc<RwLock<Box<dyn RngCore + Sync + Send>>>,
+    pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {

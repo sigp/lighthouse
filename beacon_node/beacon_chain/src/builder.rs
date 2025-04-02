@@ -31,7 +31,6 @@ use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
-use rand::rngs::StdRng;
 use rand::RngCore;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -108,7 +107,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
-    rng: Option<Arc<RwLock<Box<dyn RngCore + Sync + Send>>>>,
+    rng: Option<Box<dyn RngCore + Send>>,
 }
 
 impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
@@ -706,7 +705,7 @@ where
     /// Sets the `rng` field.
     ///
     /// Currently used for shuffling column sidecars in block publishing.
-    pub fn rng(mut self, rng: Arc<RwLock<Box<dyn RngCore + Sync + Send>>>) -> Self {
+    pub fn rng(mut self, rng: Box<dyn RngCore + Send>) -> Self {
         self.rng = Some(rng);
         self
     }
@@ -993,7 +992,7 @@ where
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
-            rng,
+            rng: Arc::new(Mutex::new(rng)),
         };
 
         let head = beacon_chain.head_snapshot();
@@ -1202,7 +1201,7 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
-            .rng(Arc::new(RwLock::new(Box::new(StdRng::seed_from_u64(42)))))
+            .rng(Box::new(StdRng::seed_from_u64(42)))
             .build()
             .expect("should build");
 

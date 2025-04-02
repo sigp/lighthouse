@@ -7,7 +7,6 @@ use crate::Client;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
 use beacon_chain::graffiti_calculator::start_engine_version_cache_refresh_service;
-use beacon_chain::parking_lot::RwLock;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
@@ -214,9 +213,9 @@ where
             .execution_layer(execution_layer)
             .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
             .validator_monitor_config(config.validator_monitor.clone())
-            .rng(Arc::new(RwLock::new(Box::new(
+            .rng(Box::new(
                 StdRng::from_rng(OsRng).map_err(|e| format!("Failed to create RNG: {:?}", e))?,
-            ))));
+            ));
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
