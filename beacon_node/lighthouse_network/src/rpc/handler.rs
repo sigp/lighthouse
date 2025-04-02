@@ -91,6 +91,11 @@ pub struct RPCHandler<Id, E>
 where
     E: EthSpec,
 {
+    /// The PeerId matching this `ConnectionHandler`.
+    peer_id: PeerId,
+
+    /// The ConnectionId matching this `ConnectionHandler`.
+    connection_id: ConnectionId,
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
 
@@ -139,9 +144,6 @@ where
 
     /// Timeout that will me used for inbound and outbound responses.
     resp_timeout: Duration,
-
-    /// Information about this handler for logging purposes.
-    log_info: (PeerId, ConnectionId),
 }
 
 enum HandlerState {
@@ -228,6 +230,8 @@ where
         connection_id: ConnectionId,
     ) -> Self {
         RPCHandler {
+            connection_id,
+            peer_id,
             listen_protocol,
             events_out: SmallVec::new(),
             dial_queue: SmallVec::new(),
@@ -244,7 +248,6 @@ where
             fork_context,
             waker: None,
             resp_timeout,
-            log_info: (peer_id, connection_id),
         }
     }
 
@@ -255,8 +258,8 @@ where
             if !self.dial_queue.is_empty() {
                 debug!(
                     unsent_queued_requests = self.dial_queue.len(),
-                    peer_id = %self.log_info.0,
-                    connection_id = %self.log_info.1,
+                    peer_id = %self.peer_id,
+                    connection_id = %self.connection_id,
                     "Starting handler shutdown"
                 );
             }
@@ -306,8 +309,8 @@ where
             if !matches!(response, RpcResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
                 trace!(%response, id = ?inbound_id,
-                    peer_id = %self.log_info.0,
-                    connection_id = %self.log_info.1,
+                    peer_id = %self.peer_id,
+                    connection_id = %self.connection_id,
                     "Inbound stream has expired. Response not sent");
             }
             return;
@@ -324,8 +327,8 @@ where
         if matches!(self.state, HandlerState::Deactivated) {
             // we no longer send responses after the handler is deactivated
             debug!(%response, id = ?inbound_id,
-                    peer_id = %self.log_info.0,
-                    connection_id = %self.log_info.1,
+                    peer_id = %self.peer_id,
+                    connection_id = %self.connection_id,
                     "Response not sent. Deactivated handler");
             return;
         }
@@ -394,8 +397,8 @@ where
                 Poll::Ready(_) => {
                     self.state = HandlerState::Deactivated;
                     debug!(
-                        peer_id = %self.log_info.0,
-                        connection_id = %self.log_info.1,
+                        peer_id = %self.peer_id,
+                        connection_id = %self.connection_id,
                         "Shutdown timeout elapsed, Handler deactivated"
                     );
                     return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
@@ -445,8 +448,8 @@ where
                 )));
             } else {
                 crit!(
-                    peer_id = %self.log_info.0,
-                    connection_id = %self.log_info.1,
+                    peer_id = %self.peer_id,
+                    connection_id = %self.connection_id,
                     stream_id = ?outbound_id.get_ref(), "timed out substream not in the books");
             }
         }
@@ -577,8 +580,8 @@ where
                                 // Its useful to log when the request was completed.
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
                                     debug!(
-                                        peer_id = %self.log_info.0,
-                                        connection_id = %self.log_info.1,
+                                        peer_id = %self.peer_id,
+                                        connection_id = %self.connection_id,
                                         duration = Instant::now()
                                             .duration_since(info.request_start_time)
                                             .as_secs(),
@@ -587,8 +590,8 @@ where
                                 }
                                 if matches!(info.protocol, Protocol::BlobsByRange) {
                                     debug!(
-                                        peer_id = %self.log_info.0,
-                                        connection_id = %self.log_info.1,
+                                        peer_id = %self.peer_id,
+                                        connection_id = %self.connection_id,
                                         duration = Instant::now()
                                             .duration_since(info.request_start_time)
                                             .as_secs(),
@@ -617,16 +620,16 @@ where
 
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
                                     debug!(
-                                        peer_id = %self.log_info.0,
-                                        connection_id = %self.log_info.1,
+                                        peer_id = %self.peer_id,
+                                        connection_id = %self.connection_id,
                                         duration = info.request_start_time.elapsed().as_secs(),
                                         "BlocksByRange Response failed"
                                     );
                                 }
                                 if matches!(info.protocol, Protocol::BlobsByRange) {
                                     debug!(
-                                        peer_id = %self.log_info.0,
-                                        connection_id = %self.log_info.1,
+                                        peer_id = %self.peer_id,
+                                        connection_id = %self.connection_id,
                                         duration = info.request_start_time.elapsed().as_secs(),
                                         "BlobsByRange Response failed"
                                     );
@@ -816,8 +819,8 @@ where
                 }
                 OutboundSubstreamState::Poisoned => {
                     crit!(
-                        peer_id = %self.log_info.0,
-                        connection_id = %self.log_info.1,
+                        peer_id = %self.peer_id,
+                        connection_id = %self.connection_id,
                         "Poisoned outbound substream"
                     );
                     unreachable!("Coding Error: Outbound substream is poisoned")
@@ -852,8 +855,8 @@ where
                 && self.dial_negotiated == 0
             {
                 debug!(
-                    peer_id = %self.log_info.0,
-                    connection_id = %self.log_info.1,
+                    peer_id = %self.peer_id,
+                    connection_id = %self.connection_id,
                     "Goodbye sent, Handler deactivated"
                 );
                 self.state = HandlerState::Deactivated;
@@ -988,7 +991,7 @@ where
 
         self.events_out.push(HandlerEvent::Ok(RPCReceived::Request(
             super::InboundRequestId {
-                connection_id: self.log_info.1,
+                connection_id: self.connection_id,
                 substream_id: self.current_inbound_substream_id,
                 request_id: RequestId::next(),
             },
@@ -1051,9 +1054,8 @@ where
                 .is_some()
             {
                 crit!(
-                    peer_id = %self.log_info.0,
-                    connection_id = %self.log_info.1,
-
+                    peer_id = %self.peer_id,
+                    connection_id = %self.connection_id,
                     id = ?self.current_outbound_substream_id, "Duplicate outbound substream id");
             }
             self.current_outbound_substream_id.0 += 1;
