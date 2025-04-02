@@ -80,7 +80,7 @@ pub enum RPCReceived<Id, E: EthSpec> {
     ///
     /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    Request(RequestId, RequestType<E>, SubstreamId),
+    Request(InboundRequestId, RequestType<E>),
     /// A response received from the outside.
     ///
     /// The `Id` corresponds to the application given ID of the original request sent to the
@@ -430,7 +430,7 @@ where
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
         match event {
-            HandlerEvent::Ok(RPCReceived::Request(request_id, request_type, substream_id)) => {
+            HandlerEvent::Ok(RPCReceived::Request(request_id, request_type)) => {
                 if let Some(limiter) = self.limiter.as_mut() {
                     // check if the request is conformant to the quota
                     match limiter.allows(&peer_id, &request_type) {
@@ -455,11 +455,7 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                InboundRequestId {
-                                    connection_id,
-                                    substream_id,
-                                    request_id,
-                                },
+                                request_id,
                                 RpcResponse::Error(
                                     RpcErrorResponse::RateLimited,
                                     "Rate limited. Request too large".into(),
@@ -473,11 +469,7 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                InboundRequestId {
-                                    connection_id,
-                                    substream_id,
-                                    request_id,
-                                },
+                                request_id,
                                 RpcResponse::Error(
                                     RpcErrorResponse::RateLimited,
                                     format!("Wait {:?}", wait_time).into(),
@@ -495,11 +487,7 @@ where
                     trace!(connection_id = %connection_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
                         peer_id,
-                        InboundRequestId {
-                            connection_id,
-                            substream_id,
-                            request_id,
-                        },
+                        request_id,
                         RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
                             data: self.seq_number,
                         })),
@@ -509,7 +497,7 @@ where
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
                     connection_id,
-                    message: Ok(RPCReceived::Request(request_id, request_type, substream_id)),
+                    message: Ok(RPCReceived::Request(request_id, request_type)),
                 }));
             }
             HandlerEvent::Ok(rpc) => {

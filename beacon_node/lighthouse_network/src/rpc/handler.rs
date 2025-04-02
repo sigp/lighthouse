@@ -987,9 +987,12 @@ where
         }
 
         self.events_out.push(HandlerEvent::Ok(RPCReceived::Request(
-            RequestId::next(),
+            super::InboundRequestId {
+                connection_id: self.log_info.1,
+                substream_id: self.current_inbound_substream_id,
+                request_id: RequestId::next(),
+            },
             req,
-            self.current_inbound_substream_id,
         )));
         self.current_inbound_substream_id.0 += 1;
     }
