@@ -93,27 +93,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(0);
         }
 
-        // Blobs are stored per block, and data columns are each stored individually
-        let n_blob_ops_per_block = if self.spec.is_peer_das_scheduled() {
-            // TODO(das): `available_block includes all sampled columns, but we only need to store
-            // custody columns. To be clarified in spec PR.
-            self.data_availability_checker.get_sampling_column_count()
-        } else {
-            1
-        };
-
-        let blob_batch_size = blocks_to_import
-            .iter()
-            .filter(|available_block| available_block.has_blobs())
-            .count()
-            .saturating_mul(n_blob_ops_per_block);
-
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
-        let mut blob_batch = Vec::<KeyValueStoreOp>::with_capacity(blob_batch_size);
+        let mut blob_batch = Vec::<KeyValueStoreOp>::new();
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());

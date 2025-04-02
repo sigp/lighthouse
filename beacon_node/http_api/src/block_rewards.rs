@@ -42,8 +42,10 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         .map_err(unhandled_error)?
         .ok_or_else(|| custom_bad_request(format!("prior state at slot {} unknown", prior_slot)))?;
 
+    // This branch is reached from the HTTP API. We assume the user wants
+    // to cache states so that future calls are faster.
     let mut state = chain
-        .get_state(&state_root, Some(prior_slot))
+        .get_state(&state_root, Some(prior_slot), true)
         .and_then(|maybe_state| maybe_state.ok_or(BeaconChainError::MissingBeaconState(state_root)))
         .map_err(unhandled_error)?;
 
@@ -124,8 +126,10 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
                     ))
                 })?;
 
+            // This branch is reached from the HTTP API. We assume the user wants
+            // to cache states so that future calls are faster.
             let parent_state = chain
-                .get_state(&parent_block.state_root(), Some(parent_block.slot()))
+                .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)
                 .map_err(unhandled_error)?
                 .ok_or_else(|| {
                     custom_bad_request(format!(

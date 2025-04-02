@@ -777,6 +777,15 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("state-cache-headroom")
+                .long("state-cache-headroom")
+                .value_name("N")
+                .help("Minimum number of states to cull from the state cache when it gets full")
+                .default_value("1")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("block-cache-size")
                 .long("block-cache-size")
                 .value_name("SIZE")
@@ -812,7 +821,7 @@ pub fn cli_app() -> Command {
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the state cache")
-                .default_value("128")
+                .default_value("32")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1009,7 +1018,7 @@ pub fn cli_app() -> Command {
                        database when they are older than the data availability boundary \
                        relative to the current epoch.")
                 .action(ArgAction::Set)
-                .default_value("1")
+                .default_value("256")
                 .display_order(0)
         )
         .arg(
@@ -1645,6 +1654,14 @@ pub fn cli_app() -> Command {
                        DO NOT USE IN PRODUCTION.")
                 .hide(true)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("invalid-block-roots")
+                .long("invalid-block-roots")
+                .value_name("FILE")
+                .help("Path to a comma separated file containing block roots that should be treated as invalid during block verification.")
+                .action(ArgAction::Set)
+                .hide(true)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))
 }

@@ -13,6 +13,7 @@ use futures::prelude::*;
 use lighthouse_network::rpc::{RequestId, RequestType};
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
+use lighthouse_network::Enr;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RpcErrorResponse},
@@ -101,6 +102,10 @@ pub enum NetworkMessage<E: EthSpec> {
         reason: GoodbyeReason,
         source: ReportSource,
     },
+    /// Connect to a trusted peer and try to maintain the connection.
+    ConnectTrustedPeer(Enr),
+    /// Disconnect from a trusted peer and remove it from the `trusted_peers` mapping.
+    DisconnectTrustedPeer(Enr),
 }
 
 /// Messages triggered by validators that may trigger a subscription to a subnet.
@@ -666,6 +671,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 reason,
                 source,
             } => self.libp2p.goodbye_peer(&peer_id, reason, source),
+            NetworkMessage::ConnectTrustedPeer(enr) => {
+                self.libp2p.dial_trusted_peer(enr);
+            }
+            NetworkMessage::DisconnectTrustedPeer(enr) => {
+                self.libp2p.remove_trusted_peer(enr);
+            }
             NetworkMessage::SubscribeCoreTopics => {
                 if self.subscribed_core_topics() {
                     return;
