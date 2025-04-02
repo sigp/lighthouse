@@ -10,11 +10,11 @@ use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconPro
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
+use lighthouse_network::rpc::OutboundRequestId;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::Enr;
-use lighthouse_network::OutboundRequestId;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RpcErrorResponse},

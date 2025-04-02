@@ -17,7 +17,7 @@ use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
     service::api_types::{AppRequestId, SyncRequestId},
-    MessageId, NetworkGlobals, OutboundRequestId, PeerId, PubsubMessage, Response,
+    MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
 };
 use logging::crit;
 use logging::TimeLatch;

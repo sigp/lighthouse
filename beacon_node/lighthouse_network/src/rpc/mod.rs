@@ -36,8 +36,6 @@ pub use methods::{
 };
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
-use crate::OutboundRequestId;
-
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use self::protocol::RPCProtocol;
 use self::self_limiter::SelfRateLimiter;
@@ -112,6 +110,17 @@ impl RequestId {
     pub fn new_unchecked(id: usize) -> Self {
         Self(id)
     }
+}
+
+// An Outbound Request identifier.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct OutboundRequestId {
+    /// The connection ID of the peer that sent the request.
+    pub connection_id: ConnectionId,
+    /// The ID of the substream that sent the request.
+    pub substream_id: SubstreamId,
+    /// The logical identifier of the RPC request.
+    pub request_id: RequestId,
 }
 
 impl<E: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, E> {

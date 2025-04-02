@@ -19,7 +19,7 @@ use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
     LightClientUpdatesByRangeRequest,
 };
-use lighthouse_network::OutboundRequestId;
+use lighthouse_network::rpc::OutboundRequestId;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,

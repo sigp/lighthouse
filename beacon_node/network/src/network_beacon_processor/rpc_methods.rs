@@ -7,7 +7,7 @@ use itertools::process_results;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
-use lighthouse_network::{rpc::*, OutboundRequestId};
+use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;

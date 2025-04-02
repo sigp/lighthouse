@@ -10,8 +10,9 @@ use crate::peer_manager::{
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
-    GoodbyeReason, HandlerErr, NetworkParams, Protocol, RPCError, RPCMessage, RPCReceived,
-    RequestType, ResponseTermination, RpcErrorResponse, RpcResponse, RpcSuccessResponse, RPC,
+    GoodbyeReason, HandlerErr, NetworkParams, OutboundRequestId, Protocol, RPCError, RPCMessage,
+    RPCReceived, RequestType, ResponseTermination, RpcErrorResponse, RpcResponse,
+    RpcSuccessResponse, RPC,
 };
 use crate::types::{
     all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
@@ -20,7 +21,7 @@ use crate::types::{
 use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use api_types::{AppRequestId, OutboundRequestId, Response};
+use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
     IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,

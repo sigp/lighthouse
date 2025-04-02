@@ -1,8 +1,4 @@
-use crate::rpc::{
-    methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage},
-    RequestId, SubstreamId,
-};
-use libp2p::swarm::ConnectionId;
+use crate::rpc::methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage};
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
@@ -11,17 +7,6 @@ use types::{
 };
 
 pub type Id = u32;
-
-// An Outbound Request identifier.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct OutboundRequestId {
-    /// The connection ID of the peer that sent the request.
-    pub connection_id: ConnectionId,
-    /// The ID of the substream that sent the request.
-    pub substream_id: SubstreamId,
-    /// The logical identifier of the RPC request.
-    pub request_id: RequestId,
-}
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct SingleLookupReqId {
