@@ -1146,7 +1146,7 @@ async fn test_blobs_by_range() {
         if let NetworkMessage::SendResponse {
             peer_id: _,
             response: Response::BlobsByRange(blob),
-            request_id: _,
+            inbound_request_id: _,
         } = next
         {
             if blob.is_some() {
