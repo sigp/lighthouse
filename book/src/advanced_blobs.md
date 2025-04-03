@@ -5,8 +5,8 @@ In the Deneb network upgrade, one of the changes is the implementation of EIP-48
 ## FAQ
 
 1. What is the storage requirement for blobs?
-
-   We expect an additional increase of ~50 GB of storage requirement for blobs (on top of what is required by the consensus and execution clients database). The calculation is as below:
+   
+   After Deneb, we expect an additional increase of ~50 GB of storage requirement for blobs (on top of what is required by the consensus and execution clients database). The calculation is as below:
 
    One blob is 128 KB in size. Each block can carry a maximum of 6 blobs. Blobs will be kept for 4096 epochs and pruned afterwards. This means that the maximum increase in storage requirement will be:
 
@@ -15,6 +15,8 @@ In the Deneb network upgrade, one of the changes is the implementation of EIP-48
    ```
 
    However, the blob base fee targets 3 blobs per block and it works similarly to how EIP-1559 operates in the Ethereum gas fee. Therefore, practically it is very likely to average to 3 blobs per blocks, which translates to a storage requirement of 48 GB.
+   
+   After Electra, the target blobs is increased to 6 blobs per block. This means blobs storage is expected to use ~100GB of disk space. 
 
 1. Do I have to add any flags for blobs?
 
