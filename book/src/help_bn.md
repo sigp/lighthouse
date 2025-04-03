@@ -166,7 +166,7 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.

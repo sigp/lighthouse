@@ -4,12 +4,11 @@ use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use itertools::process_results;
-use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
 use lighthouse_network::rpc::*;
-use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
+use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
@@ -34,15 +33,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_response(
         &self,
         peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
         response: Response<T::EthSpec>,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
     ) {
         self.send_network_message(NetworkMessage::SendResponse {
             peer_id,
-            request_id,
-            id: (connection_id, substream_id),
+            inbound_request_id,
             response,
         })
     }
@@ -52,15 +48,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         error: RpcErrorResponse,
         reason: String,
-        id: PeerRequestId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
     ) {
         self.send_network_message(NetworkMessage::SendErrorResponse {
             peer_id,
             error,
             reason,
-            id,
-            request_id,
+            inbound_request_id,
         })
     }
 
@@ -161,24 +155,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlocksByRootRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             self.clone()
-                .handle_blocks_by_root_request_inner(
-                    peer_id,
-                    connection_id,
-                    substream_id,
-                    request_id,
-                    request,
-                )
+                .handle_blocks_by_root_request_inner(peer_id, inbound_request_id, request)
                 .await,
             Response::BlocksByRoot,
         );
@@ -188,9 +172,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_root_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlocksByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let log_results = |peer_id, requested_blocks, send_block_count| {
@@ -220,10 +202,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Ok(Some(block)) => {
                     self.send_response(
                         peer_id,
+                        inbound_request_id,
                         Response::BlocksByRoot(Some(block.clone())),
-                        connection_id,
-                        substream_id,
-                        request_id,
                     );
                     send_block_count += 1;
                 }
@@ -265,23 +245,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_blobs_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
-            self.handle_blobs_by_root_request_inner(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            ),
+            inbound_request_id,
+            self.handle_blobs_by_root_request_inner(peer_id, inbound_request_id, request),
             Response::BlobsByRoot,
         );
     }
@@ -290,9 +260,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_blobs_by_root_request_inner(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let Some(requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
@@ -314,10 +282,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
                 self.send_response(
                     peer_id,
+                    inbound_request_id,
                     Response::BlobsByRoot(Some(blob)),
-                    connection_id,
-                    substream_id,
-                    request_id,
                 );
                 send_blob_count += 1;
             } else {
@@ -339,10 +305,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             if blob_sidecar.index == *index {
                                 self.send_response(
                                     peer_id,
+                                    inbound_request_id,
                                     Response::BlobsByRoot(Some(blob_sidecar.clone())),
-                                    connection_id,
-                                    substream_id,
-                                    request_id,
                                 );
                                 send_blob_count += 1;
                                 break 'inner;
@@ -375,23 +339,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: DataColumnsByRootRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
-            self.handle_data_columns_by_root_request_inner(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            ),
+            inbound_request_id,
+            self.handle_data_columns_by_root_request_inner(peer_id, inbound_request_id, request),
             Response::DataColumnsByRoot,
         );
     }
@@ -400,9 +354,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_root_request_inner(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: DataColumnsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
@@ -416,10 +368,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     send_data_column_count += 1;
                     self.send_response(
                         peer_id,
+                        inbound_request_id,
                         Response::DataColumnsByRoot(Some(data_column)),
-                        connection_id,
-                        substream_id,
-                        request_id,
                     );
                 }
                 Ok(None) => {} // no-op
@@ -449,22 +399,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_updates_by_range(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: LightClientUpdatesByRangeRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             self.clone()
                 .handle_light_client_updates_by_range_request_inner(
                     peer_id,
-                    connection_id,
-                    substream_id,
-                    request_id,
+                    inbound_request_id,
                     request,
                 ),
             Response::LightClientUpdatesByRange,
@@ -475,9 +419,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_updates_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: LightClientUpdatesByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -516,8 +458,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.send_network_message(NetworkMessage::SendResponse {
                 peer_id,
                 response: Response::LightClientUpdatesByRange(Some(Arc::new(lc_update.clone()))),
-                request_id,
-                id: (connection_id, substream_id),
+                inbound_request_id,
             });
         }
 
@@ -549,16 +490,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: LightClientBootstrapRequest,
     ) {
         self.terminate_response_single_item(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             match self.chain.get_light_client_bootstrap(&request.root) {
                 Ok(Some((bootstrap, _))) => Ok(Arc::new(bootstrap)),
                 Ok(None) => Err((
@@ -583,15 +520,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_optimistic_update(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
     ) {
         self.terminate_response_single_item(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             match self
                 .chain
                 .light_client_server_cache
@@ -611,15 +544,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_finality_update(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
     ) {
         self.terminate_response_single_item(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             match self
                 .chain
                 .light_client_server_cache
@@ -639,24 +568,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: BlocksByRangeRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             self.clone()
-                .handle_blocks_by_range_request_inner(
-                    peer_id,
-                    connection_id,
-                    substream_id,
-                    request_id,
-                    req,
-                )
+                .handle_blocks_by_range_request_inner(peer_id, inbound_request_id, req)
                 .await,
             Response::BlocksByRange,
         );
@@ -666,9 +585,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: BlocksByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -789,9 +706,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         blocks_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             response: Response::BlocksByRange(Some(block.clone())),
-                            id: (connection_id, substream_id),
                         });
                     }
                 }
@@ -852,23 +768,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_blobs_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: BlobsByRangeRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
-            self.handle_blobs_by_range_request_inner(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                req,
-            ),
+            inbound_request_id,
+            self.handle_blobs_by_range_request_inner(peer_id, inbound_request_id, req),
             Response::BlobsByRange,
         );
     }
@@ -877,9 +783,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn handle_blobs_by_range_request_inner(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: BlobsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -1016,9 +920,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         blobs_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
+                            inbound_request_id,
                             response: Response::BlobsByRange(Some(blob_sidecar.clone())),
-                            request_id,
-                            id: (connection_id, substream_id),
                         });
                     }
                 }
@@ -1048,23 +951,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_range_request(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: DataColumnsByRangeRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
-            self.handle_data_columns_by_range_request_inner(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                req,
-            ),
+            inbound_request_id,
+            self.handle_data_columns_by_range_request_inner(peer_id, inbound_request_id, req),
             Response::DataColumnsByRange,
         );
     }
@@ -1073,9 +966,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_range_request_inner(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: DataColumnsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -1205,11 +1096,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         data_columns_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             response: Response::DataColumnsByRange(Some(
                                 data_column_sidecar.clone(),
                             )),
-                            id: (connection_id, substream_id),
                         });
                     }
                     Ok(None) => {} // no-op
@@ -1252,32 +1142,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn terminate_response_single_item<R, F: Fn(R) -> Response<T::EthSpec>>(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         result: Result<R, (RpcErrorResponse, String)>,
         into_response: F,
     ) {
         match result {
             Ok(resp) => {
-                // Not necessary to explicitly send a termination message if this InboundRequest
-                // returns <= 1 for InboundRequest::expected_responses
-                // https://github.com/sigp/lighthouse/blob/3058b96f2560f1da04ada4f9d8ba8e5651794ff6/beacon_node/lighthouse_network/src/rpc/handler.rs#L555-L558
                 self.send_network_message(NetworkMessage::SendResponse {
                     peer_id,
-                    request_id,
+                    inbound_request_id,
                     response: into_response(resp),
-                    id: (connection_id, substream_id),
                 });
             }
             Err((error_code, reason)) => {
-                self.send_error_response(
-                    peer_id,
-                    error_code,
-                    reason,
-                    (connection_id, substream_id),
-                    request_id,
-                );
+                self.send_error_response(peer_id, error_code, reason, inbound_request_id);
             }
         }
     }
@@ -1287,27 +1165,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn terminate_response_stream<R, F: FnOnce(Option<R>) -> Response<T::EthSpec>>(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         result: Result<(), (RpcErrorResponse, &'static str)>,
         into_response: F,
     ) {
         match result {
             Ok(_) => self.send_network_message(NetworkMessage::SendResponse {
                 peer_id,
-                request_id,
+                inbound_request_id,
                 response: into_response(None),
-                id: (connection_id, substream_id),
             }),
             Err((error_code, reason)) => {
-                self.send_error_response(
-                    peer_id,
-                    error_code,
-                    reason.into(),
-                    (connection_id, substream_id),
-                    request_id,
-                );
+                self.send_error_response(peer_id, error_code, reason.into(), inbound_request_id);
             }
         }
     }

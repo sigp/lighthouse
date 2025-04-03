@@ -223,7 +223,7 @@ impl TestRig {
                         RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(
                             OldBlocksByRangeRequestV2 { start_slot, .. },
                         )),
-                    request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
+                    app_request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
                 } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                 _ => None,
             })
@@ -240,7 +240,7 @@ impl TestRig {
                         RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
                             start_slot, ..
                         }),
-                    request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
+                    app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
                 } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                 _ => None,
             }) {
@@ -256,7 +256,7 @@ impl TestRig {
                     NetworkMessage::SendRequest {
                         peer_id,
                         request: RequestType::BlobsByRange(BlobsByRangeRequest { start_slot, .. }),
-                        request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
+                        app_request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
                     } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                     _ => None,
                 })
@@ -283,7 +283,7 @@ impl TestRig {
             "Completing BlocksByRange request {blocks_req_id:?} with empty stream"
         ));
         self.send_sync_message(SyncMessage::RpcBlock {
-            request_id: SyncRequestId::BlocksByRange(blocks_req_id),
+            sync_request_id: SyncRequestId::BlocksByRange(blocks_req_id),
             peer_id: block_peer,
             beacon_block: None,
             seen_timestamp: D,
@@ -297,7 +297,7 @@ impl TestRig {
                     "Completing BlobsByRange request {id:?} with empty stream"
                 ));
                 self.send_sync_message(SyncMessage::RpcBlob {
-                    request_id: SyncRequestId::BlobsByRange(id),
+                    sync_request_id: SyncRequestId::BlobsByRange(id),
                     peer_id,
                     blob_sidecar: None,
                     seen_timestamp: D,
@@ -310,7 +310,7 @@ impl TestRig {
                         "Completing DataColumnsByRange request {id:?} with empty stream"
                     ));
                     self.send_sync_message(SyncMessage::RpcDataColumn {
-                        request_id: SyncRequestId::DataColumnsByRange(id),
+                        sync_request_id: SyncRequestId::DataColumnsByRange(id),
                         peer_id,
                         data_column: None,
                         seen_timestamp: D,
