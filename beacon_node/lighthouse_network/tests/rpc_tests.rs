@@ -124,7 +124,11 @@ fn test_tcp_status_rpc() {
                         if request_type == rpc_request {
                             // send the response
                             debug!("Receiver Received");
-                            receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                            receiver.send_response(
+                                peer_id,
+                                inbound_request_id,
+                                rpc_response.clone(),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -256,7 +260,11 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                                 } else {
                                     rpc_response_bellatrix_small.clone()
                                 };
-                                receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    inbound_request_id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
                             receiver.send_response(
@@ -371,7 +379,11 @@ fn test_blobs_by_range_chunked_rpc() {
                             for _ in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
                                 // second as altair and third as bellatrix.
-                                receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    inbound_request_id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
                             receiver.send_response(
@@ -470,7 +482,11 @@ fn test_tcp_blocks_by_range_over_limit() {
                             warn!("Receiver got request");
                             for _ in 0..messages_to_send {
                                 let rpc_response = rpc_response_bellatrix_large.clone();
-                                receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    inbound_request_id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
                             receiver.send_response(
@@ -717,7 +733,11 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                             warn!("Receiver got request");
 
                             for _ in 1..=messages_to_send {
-                                receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    inbound_request_id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
                             receiver.send_response(

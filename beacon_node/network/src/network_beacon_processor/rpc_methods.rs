@@ -38,8 +38,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.send_network_message(NetworkMessage::SendResponse {
             peer_id,
-            inbound_request_id
-,
+            inbound_request_id,
             response,
         })
     }
@@ -55,8 +54,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             peer_id,
             error,
             reason,
-            inbound_request_id
-,
+            inbound_request_id,
         })
     }
 
@@ -162,11 +160,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_stream(
             peer_id,
-            inbound_request_id
-,
+            inbound_request_id,
             self.clone()
-                .handle_blocks_by_root_request_inner(peer_id, inbound_request_id
-        , request)
+                .handle_blocks_by_root_request_inner(peer_id, inbound_request_id, request)
                 .await,
             Response::BlocksByRoot,
         );
@@ -206,8 +202,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Ok(Some(block)) => {
                     self.send_response(
                         peer_id,
-                        inbound_request_id
-            ,
+                        inbound_request_id,
                         Response::BlocksByRoot(Some(block.clone())),
                     );
                     send_block_count += 1;
@@ -255,10 +250,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_stream(
             peer_id,
-            inbound_request_id
-,
-            self.handle_blobs_by_root_request_inner(peer_id, inbound_request_id
-    , request),
+            inbound_request_id,
+            self.handle_blobs_by_root_request_inner(peer_id, inbound_request_id, request),
             Response::BlobsByRoot,
         );
     }
@@ -287,8 +280,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         for id in request.blob_ids.as_slice() {
             // First attempt to get the blobs from the RPC cache.
             if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
-                self.send_response(peer_id, inbound_request_id
-        , Response::BlobsByRoot(Some(blob)));
+                self.send_response(
+                    peer_id,
+                    inbound_request_id,
+                    Response::BlobsByRoot(Some(blob)),
+                );
                 send_blob_count += 1;
             } else {
                 let BlobIdentifier {
@@ -309,8 +305,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             if blob_sidecar.index == *index {
                                 self.send_response(
                                     peer_id,
-                                    inbound_request_id
-                        ,
+                                    inbound_request_id,
                                     Response::BlobsByRoot(Some(blob_sidecar.clone())),
                                 );
                                 send_blob_count += 1;
@@ -349,10 +344,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_stream(
             peer_id,
-            inbound_request_id
-,
-            self.handle_data_columns_by_root_request_inner(peer_id, inbound_request_id
-    , request),
+            inbound_request_id,
+            self.handle_data_columns_by_root_request_inner(peer_id, inbound_request_id, request),
             Response::DataColumnsByRoot,
         );
     }
@@ -375,8 +368,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     send_data_column_count += 1;
                     self.send_response(
                         peer_id,
-                        inbound_request_id
-            ,
+                        inbound_request_id,
                         Response::DataColumnsByRoot(Some(data_column)),
                     );
                 }
@@ -412,11 +404,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_stream(
             peer_id,
-            inbound_request_id
-,
+            inbound_request_id,
             self.clone()
-                .handle_light_client_updates_by_range_request_inner(peer_id, inbound_request_id
-        , request),
+                .handle_light_client_updates_by_range_request_inner(
+                    peer_id,
+                    inbound_request_id,
+                    request,
+                ),
             Response::LightClientUpdatesByRange,
         );
     }
@@ -464,8 +458,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.send_network_message(NetworkMessage::SendResponse {
                 peer_id,
                 response: Response::LightClientUpdatesByRange(Some(Arc::new(lc_update.clone()))),
-                inbound_request_id
-    ,
+                inbound_request_id,
             });
         }
 
@@ -502,8 +495,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_single_item(
             peer_id,
-            inbound_request_id
-,
+            inbound_request_id,
             match self.chain.get_light_client_bootstrap(&request.root) {
                 Ok(Some((bootstrap, _))) => Ok(Arc::new(bootstrap)),
                 Ok(None) => Err((
@@ -532,8 +524,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_single_item(
             peer_id,
-            inbound_request_id
-,
+            inbound_request_id,
             match self
                 .chain
                 .light_client_server_cache
@@ -557,8 +548,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_single_item(
             peer_id,
-            inbound_request_id
-,
+            inbound_request_id,
             match self
                 .chain
                 .light_client_server_cache
@@ -583,11 +573,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_stream(
             peer_id,
-            inbound_request_id
-,
+            inbound_request_id,
             self.clone()
-                .handle_blocks_by_range_request_inner(peer_id, inbound_request_id
-        , req)
+                .handle_blocks_by_range_request_inner(peer_id, inbound_request_id, req)
                 .await,
             Response::BlocksByRange,
         );
@@ -718,8 +706,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         blocks_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
-                            inbound_request_id
-                ,
+                            inbound_request_id,
                             response: Response::BlocksByRange(Some(block.clone())),
                         });
                     }
@@ -786,10 +773,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_stream(
             peer_id,
-            inbound_request_id
-,
-            self.handle_blobs_by_range_request_inner(peer_id, inbound_request_id
-    , req),
+            inbound_request_id,
+            self.handle_blobs_by_range_request_inner(peer_id, inbound_request_id, req),
             Response::BlobsByRange,
         );
     }
@@ -935,8 +920,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         blobs_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
-                            inbound_request_id
-                ,
+                            inbound_request_id,
                             response: Response::BlobsByRange(Some(blob_sidecar.clone())),
                         });
                     }
@@ -972,10 +956,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         self.terminate_response_stream(
             peer_id,
-            inbound_request_id
-,
-            self.handle_data_columns_by_range_request_inner(peer_id, inbound_request_id
-    , req),
+            inbound_request_id,
+            self.handle_data_columns_by_range_request_inner(peer_id, inbound_request_id, req),
             Response::DataColumnsByRange,
         );
     }
@@ -1114,8 +1096,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         data_columns_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
-                            inbound_request_id
-                ,
+                            inbound_request_id,
                             response: Response::DataColumnsByRange(Some(
                                 data_column_sidecar.clone(),
                             )),
@@ -1169,14 +1150,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(resp) => {
                 self.send_network_message(NetworkMessage::SendResponse {
                     peer_id,
-                    inbound_request_id
-        ,
+                    inbound_request_id,
                     response: into_response(resp),
                 });
             }
             Err((error_code, reason)) => {
-                self.send_error_response(peer_id, error_code, reason, inbound_request_id
-    );
+                self.send_error_response(peer_id, error_code, reason, inbound_request_id);
             }
         }
     }
@@ -1193,13 +1172,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match result {
             Ok(_) => self.send_network_message(NetworkMessage::SendResponse {
                 peer_id,
-                inbound_request_id
-    ,
+                inbound_request_id,
                 response: into_response(None),
             }),
             Err((error_code, reason)) => {
-                self.send_error_response(peer_id, error_code, reason.into(), inbound_request_id
-);
+                self.send_error_response(peer_id, error_code, reason.into(), inbound_request_id);
             }
         }
     }
