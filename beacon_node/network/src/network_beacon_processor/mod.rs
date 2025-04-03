@@ -646,13 +646,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_blocks_by_range_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId, // Use ResponseId here
+        inbound_request_id: InboundRequestId, // Use ResponseId here
         request: BlocksByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .handle_blocks_by_range_request(peer_id, response_id, request)
+                .handle_blocks_by_range_request(peer_id, inbound_request_id, request)
                 .await;
         };
 
@@ -666,13 +666,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_blocks_by_roots_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId, // Use ResponseId here
+        inbound_request_id: InboundRequestId, // Use ResponseId here
         request: BlocksByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .handle_blocks_by_root_request(peer_id, response_id, request)
+                .handle_blocks_by_root_request(peer_id, inbound_request_id, request)
                 .await;
         };
 
@@ -686,12 +686,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_blobs_by_range_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         request: BlobsByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn =
-            move || processor.handle_blobs_by_range_request(peer_id, response_id, request);
+            move || processor.handle_blobs_by_range_request(peer_id, inbound_request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -703,12 +703,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_blobs_by_roots_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn =
-            move || processor.handle_blobs_by_root_request(peer_id, response_id, request);
+            move || processor.handle_blobs_by_root_request(peer_id, inbound_request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -720,12 +720,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_data_columns_by_roots_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         request: DataColumnsByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn =
-            move || processor.handle_data_columns_by_root_request(peer_id, response_id, request);
+        let process_fn = move || {
+            processor.handle_data_columns_by_root_request(peer_id, inbound_request_id, request)
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -737,12 +738,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_data_columns_by_range_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         request: DataColumnsByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn =
-            move || processor.handle_data_columns_by_range_request(peer_id, response_id, request);
+        let process_fn = move || {
+            processor.handle_data_columns_by_range_request(peer_id, inbound_request_id, request)
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -754,12 +756,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_light_client_bootstrap_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         request: LightClientBootstrapRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn =
-            move || processor.handle_light_client_bootstrap(peer_id, response_id, request);
+            move || processor.handle_light_client_bootstrap(peer_id, inbound_request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -771,11 +773,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_light_client_optimistic_update_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn =
-            move || processor.handle_light_client_optimistic_update(peer_id, response_id);
+            move || processor.handle_light_client_optimistic_update(peer_id, inbound_request_id);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -787,11 +789,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_light_client_finality_update_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn =
-            move || processor.handle_light_client_finality_update(peer_id, response_id);
+            move || processor.handle_light_client_finality_update(peer_id, inbound_request_id);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -803,12 +805,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_light_client_updates_by_range_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        response_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         request: LightClientUpdatesByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn =
-            move || processor.handle_light_client_updates_by_range(peer_id, response_id, request);
+        let process_fn = move || {
+            processor.handle_light_client_updates_by_range(peer_id, inbound_request_id, request)
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,

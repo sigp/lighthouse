@@ -77,7 +77,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// The peer that sent the request.
         peer_id: PeerId,
         /// Identifier of the request. All responses to this request must use this id.
-        request_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         /// Request the peer sent.
         request_type: RequestType<E>,
     },
@@ -1128,11 +1128,11 @@ impl<E: EthSpec> Network<E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        request_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         response: Response<E>,
     ) {
         self.eth2_rpc_mut()
-            .send_response(peer_id, request_id, response.into())
+            .send_response(peer_id, inbound_request_id, response.into())
     }
 
     /// Inform the peer that their request produced an error.
@@ -1145,13 +1145,13 @@ impl<E: EthSpec> Network<E> {
     pub fn send_error_response(
         &mut self,
         peer_id: PeerId,
-        request_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         error: RpcErrorResponse,
         reason: String,
     ) {
         self.eth2_rpc_mut().send_response(
             peer_id,
-            request_id,
+            inbound_request_id,
             RpcResponse::Error(error, reason.into()),
         )
     }
@@ -1405,14 +1405,14 @@ impl<E: EthSpec> Network<E> {
     fn send_meta_data_response(
         &mut self,
         _req: MetadataRequest<E>,
-        request_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         peer_id: PeerId,
     ) {
         let metadata = self.network_globals.local_metadata.read().clone();
         // The encoder is responsible for sending the negotiated version of the metadata
         let event = RpcResponse::Success(RpcSuccessResponse::MetaData(Arc::new(metadata)));
         self.eth2_rpc_mut()
-            .send_response(peer_id, request_id, event);
+            .send_response(peer_id, inbound_request_id, event);
     }
 
     // RPC Propagation methods
@@ -1694,7 +1694,7 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            Ok(RPCReceived::Request(request_id, request_type)) => {
+            Ok(RPCReceived::Request(inbound_request_id, request_type)) => {
                 match request_type {
                     /* Behaviour managed protocols: Ping and Metadata */
                     RequestType::Ping(ping) => {
@@ -1704,7 +1704,7 @@ impl<E: EthSpec> Network<E> {
                     }
                     RequestType::MetaData(req) => {
                         // send the requested meta-data
-                        self.send_meta_data_response(req, request_id, peer_id);
+                        self.send_meta_data_response(req, inbound_request_id, peer_id);
                         None
                     }
                     RequestType::Goodbye(reason) => {
@@ -1729,7 +1729,7 @@ impl<E: EthSpec> Network<E> {
                         // propagate the STATUS message upwards
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1752,7 +1752,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1760,7 +1760,7 @@ impl<E: EthSpec> Network<E> {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1768,7 +1768,7 @@ impl<E: EthSpec> Network<E> {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1776,7 +1776,7 @@ impl<E: EthSpec> Network<E> {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1787,7 +1787,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1798,7 +1798,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1809,7 +1809,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1820,7 +1820,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1831,7 +1831,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }
@@ -1842,7 +1842,7 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             request_type,
                         })
                     }

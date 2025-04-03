@@ -67,13 +67,13 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        request_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         response: Response<E>,
     },
     /// Sends an error response to an RPC request.
     SendErrorResponse {
         peer_id: PeerId,
-        request_id: InboundRequestId,
+        inbound_request_id: InboundRequestId,
         error: RpcErrorResponse,
         reason: String,
     },
@@ -487,12 +487,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             NetworkEvent::RequestReceived {
                 peer_id,
-                request_id,
+                inbound_request_id,
                 request_type,
             } => {
                 self.send_to_router(RouterMessage::RPCRequestReceived {
                     peer_id,
-                    request_id,
+                    inbound_request_id,
                     request_type,
                 });
             }
@@ -618,19 +618,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             NetworkMessage::SendResponse {
                 peer_id,
-                request_id: response_id,
+                inbound_request_id,
                 response,
             } => {
-                self.libp2p.send_response(peer_id, response_id, response);
+                self.libp2p
+                    .send_response(peer_id, inbound_request_id, response);
             }
             NetworkMessage::SendErrorResponse {
                 peer_id,
                 error,
-                request_id: response_id,
+                inbound_request_id,
                 reason,
             } => {
                 self.libp2p
-                    .send_error_response(peer_id, response_id, error, reason);
+                    .send_error_response(peer_id, inbound_request_id, error, reason);
             }
             NetworkMessage::ValidationResult {
                 propagation_source,
