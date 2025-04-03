@@ -238,10 +238,14 @@ impl StateSummariesDAG {
         self.state_summaries_by_state_root
             .iter()
             .filter_map(|(state_root, summary)| {
-                if summary.previous_state_root == Hash256::ZERO {
-                    Some((*state_root, *summary))
-                } else {
+                if self
+                    .state_summaries_by_state_root
+                    .contains_key(&summary.previous_state_root)
+                {
+                    // Summaries with a known parent are not roots
                     None
+                } else {
+                    Some((*state_root, *summary))
                 }
             })
             .collect()
