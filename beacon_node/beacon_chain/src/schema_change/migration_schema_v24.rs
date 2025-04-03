@@ -286,7 +286,7 @@ pub fn downgrade_from_v24<T: BeaconChainTypes>(
                 .load_hot_state(&state_root)?
                 .ok_or(Error::MissingState(state_root))?;
 
-            // Immediatelly commit the state. Otherwise we will OOM and it's stored in a different
+            // Immediately commit the state. Otherwise we will OOM and it's stored in a different
             // column. So if the migration crashes we just get extra harmless junk in the DB.
             let mut state_write_ops = vec![];
             store_full_state_v22(&state_root, &state, &mut state_write_ops)?;
