@@ -51,6 +51,7 @@ members = [
     "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
+    "common/workspace_members",
 
     "consensus/fixed_bytes",
     "consensus/fork_choice",
@@ -120,6 +121,7 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
+cargo_metadata = "0.19"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
@@ -246,6 +248,7 @@ kzg = { path = "crypto/kzg" }
 metrics = { path = "common/metrics" }
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_version = { path = "common/lighthouse_version" }
+workspace_members = { path = "common/workspace_members" }
 lockfile = { path = "common/lockfile" }
 logging = { path = "common/logging" }
 lru_cache = { path = "common/lru_cache" }
