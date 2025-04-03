@@ -518,11 +518,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             .into());
         }
 
-        // TODO(hdiff): if we remove the check of `old_finalized_slot > new_finalized_slot` can we
-        // ensure that a single pruning operation is running at once? If a pruning run is triggered
-        // with an old finalized checkpoint it can derive a stale hdiff set of slots and delete
-        // future ones that are necessary breaking the DB.
-
         debug!(
             new_finalized_checkpoint = ?new_finalized_checkpoint,
             new_finalized_state_root = %new_finalized_state_root,
@@ -763,8 +758,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         debug!("Database pruning complete");
 
         Ok(PruningOutcome::Successful {
-            // TODO(hdiff): approximation of the previous finalized checkpoint. Only used in the
-            // compaction to compute time, can we use something else?
+            // Approximation of the previous finalized checkpoint. Only used in the compaction to
+            // compute time since last compaction.
             old_finalized_checkpoint_epoch: newly_finalized_states_min_slot
                 .epoch(E::slots_per_epoch()),
         })
