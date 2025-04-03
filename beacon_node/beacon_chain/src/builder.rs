@@ -31,6 +31,7 @@ use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+use rand::rngs::StdRng;
 use rand::RngCore;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
