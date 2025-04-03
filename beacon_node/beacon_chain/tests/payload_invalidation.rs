@@ -21,6 +21,7 @@ use task_executor::ShutdownReason;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
+const CGC: usize = 8;
 
 type E = MainnetEthSpec;
 
@@ -1050,7 +1051,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.clone().verify_block_for_gossip(block.clone()).await,
+        rig.harness.chain.clone().verify_block_for_gossip(block.clone(), CGC).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));

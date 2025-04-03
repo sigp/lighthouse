@@ -2983,6 +2983,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         let chain = self.clone();
         self.task_executor
@@ -2992,7 +2993,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
-                    match GossipVerifiedBlock::new(block, &chain) {
+                    match GossipVerifiedBlock::new(block, &chain, custody_columns_count) {
                         Ok(verified) => {
                             let commitments_formatted = verified.block.commitments_formatted();
                             debug!(
@@ -7099,10 +7100,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         block_data: AvailableBlockData<T::EthSpec>,
     ) -> Result<Option<StoreOp<T::EthSpec>>, String> {
-        // TODO(das) we currently store all subnet sampled columns. Tracking issue to exclude non
-        // custody columns: https://github.com/sigp/lighthouse/issues/6465
-        let _custody_columns_count = self.data_availability_checker.get_sampling_column_count();
-
         match block_data {
             AvailableBlockData::NoData => Ok(None),
             AvailableBlockData::Blobs(blobs) => {

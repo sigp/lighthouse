@@ -22,7 +22,7 @@ directory = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 itertools = { workspace = true }
-leveldb = { version = "0.8.6", optional = true }
+leveldb = { version = "0.8.6", optional = true, default-features = false }
 logging = { workspace = true }
 lru = { workspace = true }
 metrics = { workspace = true }
