@@ -38,7 +38,7 @@ rand_xorshift = "0.3.0"
 rayon = { workspace = true }
 regex = { workspace = true }
 rpds = { workspace = true }
-rusqlite = { workspace = true }
+rusqlite = { workspace = true, optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
@@ -64,7 +64,7 @@ tokio = { workspace = true }
 default = ["sqlite", "legacy-arith"]
 # Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
 legacy-arith = []
-sqlite = []
+sqlite = ["dep:rusqlite"]
 # The `arbitrary-fuzz` feature is a no-op provided for backwards compatibility.
 # For simplicity `Arbitrary` is now derived regardless of the feature's presence.
 arbitrary-fuzz = []

@@ -820,10 +820,30 @@ where
             ));
         }
 
-        let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&head_snapshot.beacon_state, store.clone())
-                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
-        })?;
+        let validator_pubkey_cache = self
+            .validator_pubkey_cache
+            .map(|mut validator_pubkey_cache| {
+                // If any validators weren't persisted to disk on previous runs, this will use the head state to
+                // "top-up" the in-memory validator cache and its on-disk representation with any missing validators.
+                let pubkey_store_ops = validator_pubkey_cache
+                    .import_new_pubkeys(&head_snapshot.beacon_state)
+                    .map_err(|e| format!("Unable to top-up persisted pubkey cache {:?}", e))?;
+                if !pubkey_store_ops.is_empty() {
+                    // Write any missed validators to disk
+                    debug!(
+                        missing_validators = pubkey_store_ops.len(),
+                        "Topping up validator pubkey cache"
+                    );
+                    store
+                        .do_atomically_with_block_and_blobs_cache(pubkey_store_ops)
+                        .map_err(|e| format!("Unable to write pubkeys to disk {:?}", e))?;
+                }
+                Ok(validator_pubkey_cache)
+            })
+            .unwrap_or_else(|| {
+                ValidatorPubkeyCache::new(&head_snapshot.beacon_state, store.clone())
+                    .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
+            })?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
         let store_migrator =
@@ -975,14 +995,8 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(
-                    slot_clock,
-                    self.kzg.clone(),
-                    store,
-                    self.import_all_data_columns,
-                    self.spec,
-                )
-                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, self.spec)
+                    .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
         };

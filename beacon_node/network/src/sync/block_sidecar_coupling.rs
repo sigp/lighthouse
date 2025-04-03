@@ -257,8 +257,14 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     ));
                 }
 
-                RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, spec)
-                    .map_err(|e| format!("{e:?}"))?
+                RpcBlock::new_with_custody_columns(
+                    Some(block_root),
+                    block,
+                    custody_columns,
+                    expects_custody_columns.len(),
+                    spec,
+                )
+                .map_err(|e| format!("{e:?}"))?
             } else {
                 RpcBlock::new_without_blobs(Some(block_root), block)
             });
