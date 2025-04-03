@@ -1492,7 +1492,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             ?state_root,
             slot = %state.slot(),
             storage_strategy = ?self.hot_storage_strategy(state.slot())?,
-            diff_base_state_root = %summary.diff_base_state_root,
+            diff_base_state_root = ?summary.diff_base_state_root,
             previous_state_root = ?summary.previous_state_root,
             "Storing hot state summary and diffs"
         );
