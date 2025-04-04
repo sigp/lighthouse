@@ -57,7 +57,10 @@ Current epoch: 29946, Exit epoch: 29951, Withdrawable epoch: 30207
 Please keep your validator running till exit epoch
 Exit epoch in approximately 1920 secs
 ```
+## Exit via the execution layer
 
+The voluntary exit above is via the consensus layer. With [Pectra](https://ethereum.org/en/history/#pectra) upgrade, validators with 0x01 and 0x02 withdrawal credentials can also exit their validators via the execution layer by sending a transaction using the withdrawal address. You can use [Siren](./ui.md) or the Staking launchpad to exit validators. 
+ 
 ## Full withdrawal of staked fund
 
 After the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>th</sup> April 2023, if a user initiates a voluntary exit, they will receive the full staked funds to the withdrawal address, provided that the validator has withdrawal credentials of type `0x01`. For more information on how fund withdrawal works, please visit [Ethereum.org](https://ethereum.org/en/staking/withdrawals/#how-do-withdrawals-work) website.
