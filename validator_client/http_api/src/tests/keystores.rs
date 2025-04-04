@@ -1136,7 +1136,7 @@ async fn generic_migration_test(
                 attestations_and_duties
                     .clone()
                     .into_iter()
-                    .map(|(a, b)| (a.clone(), b.duty.pubkey.clone()))
+                    .map(|(a, b)| (a.clone(), b.duty.pubkey))
                     .collect::<Vec<_>>(),
             )
             .unwrap();
@@ -1259,17 +1259,17 @@ async fn generic_migration_test(
                 attestation_and_duty
                     .clone()
                     .into_iter()
-                    .map(|(a, b)| (a.clone(), b.duty.pubkey.clone()))
+                    .map(|(a, b)| (a.clone(), b.duty.pubkey))
                     .collect::<Vec<_>>(),
             ) else {
                 panic!("Should succeed");
             };
 
-            if safe_attestation.len() > 0 && !should_succeed {
+            if !safe_attestation.is_empty() && !should_succeed {
                 panic!("should fail")
             }
 
-            if safe_attestation.len() == 0 && should_succeed {
+            if safe_attestation.is_empty() && should_succeed {
                 panic!("should succeed")
             }
         }

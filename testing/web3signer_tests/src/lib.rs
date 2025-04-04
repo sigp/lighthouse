@@ -849,13 +849,13 @@ mod tests {
                     .check_and_insert_attestations(vec![(attestation, pubkey)])
                     .unwrap();
 
-                if !slashable_message_should_sign && safe_attestations.len() > 0 {
+                if !slashable_message_should_sign && !safe_attestations.is_empty() {
                     // if slashability checks are disabled and we don't return any safe attestations
                     // we raise an error to indicate that thi test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
 
-                if slashable_message_should_sign && !safe_attestations.len() > 0 {
+                if slashable_message_should_sign && safe_attestations.is_empty() {
                     // if slashability checks are en    abled and we return safe attestations
                     // we raise an error to indicate that this test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
@@ -880,13 +880,13 @@ mod tests {
                     .check_and_insert_attestations(vec![(attestation, pubkey)])
                     .unwrap();
 
-                if !slashable_message_should_sign && safe_attestations.len() > 0 {
+                if !slashable_message_should_sign && !safe_attestations.is_empty() {
                     // if slashability checks are disabled and we don't return any safe attestations
                     // we raise an error to indicate that thi test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
 
-                if slashable_message_should_sign && !safe_attestations.len() > 0 {
+                if slashable_message_should_sign && safe_attestations.is_empty() {
                     // if slashability checks are eabled and we return safe attestations
                     // we raise an error to indicate that this test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
@@ -911,13 +911,13 @@ mod tests {
                     .check_and_insert_attestations(vec![(attestation, pubkey)])
                     .unwrap();
 
-                if !slashable_message_should_sign && safe_attestations.len() > 0 {
+                if !slashable_message_should_sign && !safe_attestations.is_empty() {
                     // if slashability checks are disabled and we don't return any safe attestations
                     // we raise an error to indicate that thi test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
 
-                if slashable_message_should_sign && !safe_attestations.len() > 0 {
+                if slashable_message_should_sign && safe_attestations.is_empty() {
                     // if slashability checks are eabled and we return safe attestations
                     // we raise an error to indicate that this test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
