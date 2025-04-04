@@ -20,6 +20,7 @@ use lighthouse_version::VERSION;
 use logging::{build_workspace_filter, crit, MetricsLayer};
 use malloc_utils::configure_memory_allocator;
 use std::backtrace::Backtrace;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
@@ -521,10 +522,15 @@ fn run<E: EthSpec>(
 
     let log_format = matches.get_one::<String>("log-format");
 
-    let log_color = matches
-        .get_one::<bool>("log-color")
-        .copied()
-        .unwrap_or(true);
+    let log_color = if std::io::stdin().is_terminal() {
+        matches
+            .get_one::<bool>("log-color")
+            .copied()
+            .unwrap_or(true)
+    } else {
+        // Disable color when in non-interactive mode.
+        false
+    };
 
     let logfile_color = matches.get_flag("logfile-color");
 

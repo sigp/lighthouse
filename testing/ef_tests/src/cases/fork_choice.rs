@@ -143,7 +143,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let description = path
             .iter()
-            .last()
+            .next_back()
             .expect("path must be non-empty")
             .to_str()
             .expect("path must be valid OsStr")

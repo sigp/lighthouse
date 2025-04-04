@@ -685,7 +685,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             if new_state.is_synced()
                 && !matches!(
                     old_state,
-                    SyncState::Synced { .. } | SyncState::BackFillSyncing { .. }
+                    SyncState::Synced | SyncState::BackFillSyncing { .. }
                 )
             {
                 self.network.subscribe_core_topics();
