@@ -359,12 +359,7 @@ pub fn reconstruct_blobs<E: EthSpec>(
                 .collect();
 
             let blob = Blob::<E>::new(blob_bytes).map_err(|e| format!("{e:?}"))?;
-            let kzg_commitment = first_data_column
-                .kzg_commitments
-                .get(row_index)
-                .ok_or(format!("Missing KZG commitment for blob {row_index}"))?;
-            let kzg_proof = compute_blob_kzg_proof::<E>(kzg, &blob, *kzg_commitment)
-                .map_err(|e| format!("{e:?}"))?;
+            let kzg_proof = KzgProof::empty();
 
             BlobSidecar::<E>::new_with_existing_proof(
                 row_index,
