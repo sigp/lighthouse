@@ -1682,7 +1682,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ///
     /// - `Some(true)` if the given `block_hash` is the terminal proof-of-work block.
     /// - `Some(false)` if the given `block_hash` is certainly *not* the terminal proof-of-work
-    ///     block.
+    ///   block.
     /// - `None` if the `block_hash` or its parent were not present on the execution engine.
     /// - `Err(_)` if there was an error connecting to the execution engine.
     ///
