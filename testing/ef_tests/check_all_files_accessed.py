@@ -50,6 +50,8 @@ excluded_paths = [
     # TODO(das): Fulu tests are ignored for now
     "tests/.*/fulu",
     "tests/.*/fulu/ssz_static/MatrixEntry",
+    "tests/.*/eip7441",
+    "tests/.*/eip7732",
 ]
 
 
