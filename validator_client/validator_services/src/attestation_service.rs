@@ -257,7 +257,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 // Have the validator sign the attestation.
                                 let handle =
                                     inner_self.inner.context.executor.spawn_blocking_handle(
-                                        async move || {
+                                        || async {
                                             this.sign_attestation(attestation_data, duty).await
                                         },
                                         "Sign attestation",
@@ -327,7 +327,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
                 match inner_self
                     .publish_attestations(
-                        &safe_attestations.iter().map(|(a, _)| a).collect::<Vec<_>>(),
+                        &safe_attestations
+                            .into_iter()
+                            .map(|(a, _)| a)
+                            .collect::<Vec<_>>(),
                         &validator_indices,
                         slot,
                         fork_name,
@@ -521,7 +524,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// attestations that were deemed "safe".
     pub async fn publish_attestations(
         &self,
-        attestations: &[&Attestation<E>],
+        attestations: &[Attestation<E>],
         validator_indices: &[u64],
         slot: Slot,
         fork_name: ForkName,
