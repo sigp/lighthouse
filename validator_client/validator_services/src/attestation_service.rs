@@ -255,15 +255,17 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 let this = inner_self.clone();
                                 let duty = validator_duty.clone();
                                 // Have the validator sign the attestation.
-                                let handle =
+                                let unaggregated_attestation_handle =
                                     inner_self.inner.context.executor.spawn_blocking_handle(
                                         || async {
                                             this.sign_attestation(attestation_data, duty).await
                                         },
                                         "Sign attestation",
                                     );
-                                if let Some(handle) = handle {
-                                    handles.push(handle);
+                                if let Some(unaggregated_attestation_handle) =
+                                    unaggregated_attestation_handle
+                                {
+                                    handles.push(unaggregated_attestation_handle);
                                 }
                             } else {
                                 crit!(
@@ -351,37 +353,53 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     &validator_metrics::ATTESTATION_SERVICE_TIMES,
                     &[validator_metrics::AGGREGATES],
                 );
+
+                let mut handles = vec![];
                 // Create and publish `SignedAggregateAndProof` for all aggregating validators.
-                for (committee_index, validator_duties) in duties_by_committee_index.iter() {
-                    // TODO(attn-slash) we could make this multi threaded
-                    if let Some(attestation_data) = attestation_data_service
-                        .get_data_by_committee_index(committee_index, &fork_name)
-                    {
-                        match inner_self
-                            .produce_and_publish_aggregates(
-                                &attestation_data,
-                                *committee_index,
-                                validator_duties,
-                            )
-                            .await
+                duties_by_committee_index
+                    .into_iter()
+                    .for_each(|(committee_index, validator_duties)| {
+                        if let Some(attestation_data) = attestation_data_service
+                            .get_data_by_committee_index(&committee_index, &fork_name)
                         {
-                            Ok(_) => (),
-                            Err(e) => {
-                                crit!(
-                                    %slot,
-                                    error = ?e,
-                                    "Failed to produce and publish attestation aggregates",
-                                );
+                            let this = inner_self.clone();
+                            let attn_data = attestation_data.clone();
+                            let handle = inner_self.inner.context.executor.spawn_blocking_handle(
+                            async move || {
+                                match this
+                                    .produce_and_publish_aggregates(
+                                        &attn_data,
+                                        committee_index,
+                                        &validator_duties,
+                                    )
+                                    .await
+                                {
+                                    Ok(_) => (),
+                                    Err(e) => {
+                                        crit!(
+                                            %slot,
+                                            error = ?e,
+                                            "Failed to produce and publish attestation aggregates",
+                                        );
+                                    }
+                                };
+                            },
+                            "Produce and publish aggregates",
+                        );
+
+                            if let Some(handle) = handle {
+                                handles.push(handle)
                             }
-                        };
-                    } else {
-                        crit!(
-                            committee_index,
-                            %slot,
-                            "Failed to fetch attestation data",
-                        )
-                    }
-                }
+                        } else {
+                            crit!(
+                                committee_index,
+                                %slot,
+                                "Failed to fetch attestation data",
+                            )
+                        }
+                    });
+
+                join_all(handles).await;
             },
             "Download and sign attestations",
         );
@@ -447,8 +465,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 validator = ?validator_duty.duty.pubkey,
                 duty_slot = %validator_duty.duty.slot,
                 attestation_slot = %attestation_data.slot,
-                duty_index = validator_duty.duty.committee_index,
-                attestation_index = attestation_data.index, // TODO(batch-attestation) index isnt in attestation anymore
+                committee_index = validator_duty.duty.committee_index,
+                attestation_index = attestation_data.index,
                 "Inconsistent validator duties during signing"
             );
         }

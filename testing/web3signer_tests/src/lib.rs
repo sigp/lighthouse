@@ -856,7 +856,7 @@ mod tests {
                 }
 
                 if slashable_message_should_sign && !safe_attestations.len() > 0 {
-                    // if slashability checks are eabled and we return safe attestations
+                    // if slashability checks are en    abled and we return safe attestations
                     // we raise an error to indicate that this test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
