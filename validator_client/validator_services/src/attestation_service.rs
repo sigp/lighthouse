@@ -356,9 +356,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
                 let mut handles = vec![];
                 // Create and publish `SignedAggregateAndProof` for all aggregating validators.
-                duties_by_committee_index
-                    .into_iter()
-                    .for_each(|(committee_index, validator_duties)| {
+                duties_by_committee_index.into_iter().for_each(
+                    |(committee_index, validator_duties)| {
                         if let Some(attestation_data) = attestation_data_service
                             .get_data_by_committee_index(&committee_index, &fork_name)
                         {
@@ -396,7 +395,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 "Failed to fetch attestation data",
                             )
                         }
-                    });
+                    },
+                );
 
                 join_all(handles).await;
             },
