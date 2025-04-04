@@ -2731,6 +2731,8 @@ dependencies = [
  "ssz_types",
  "test_random_derive",
  "tokio",
+ "tree_hash",
+ "tree_hash_derive",
  "types",
  "zeroize",
 ]

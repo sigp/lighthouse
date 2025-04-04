@@ -28,6 +28,8 @@ serde_json = { workspace = true }
 slashing_protection = { workspace = true }
 ssz_types = { workspace = true }
 test_random_derive = { path = "../../common/test_random_derive" }
+tree_hash = { workspace = true }
+tree_hash_derive = { workspace = true }
 types = { workspace = true }
 zeroize = { workspace = true }
 

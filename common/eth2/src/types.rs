@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use test_random_derive::TestRandom;
+use tree_hash_derive::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::test_utils::TestRandom;
 pub use types::*;
@@ -2073,7 +2074,9 @@ pub enum ContentType {
     Ssz,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
