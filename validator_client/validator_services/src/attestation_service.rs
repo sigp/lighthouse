@@ -363,12 +363,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             .get_data_by_committee_index(&committee_index, &fork_name)
                         {
                             let this = inner_self.clone();
-                            let attn_data = attestation_data.clone();
                             let handle = inner_self.inner.context.executor.spawn_blocking_handle(
-                            async move || {
+                              move || async move {
                                 match this
                                     .produce_and_publish_aggregates(
-                                        &attn_data,
+                                        &attestation_data,
                                         committee_index,
                                         &validator_duties,
                                     )
