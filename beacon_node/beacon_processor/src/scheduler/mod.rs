@@ -2,12 +2,13 @@ use std::task::Poll;
 
 use futures::stream::Stream;
 use futures::StreamExt;
-use slog::{crit, debug, trace, warn};
+use logging::crit;
 use std::pin::Pin;
 use std::task::Context;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::Sender;
+use tracing::{debug, trace, warn};
 use types::EthSpec;
 use work_reprocessing_queue::ReadyWork;
 
@@ -111,9 +112,8 @@ impl<E: EthSpec> InboundEvents<E> {
                         {
                             Err(e) => {
                                 warn!(
-                                    beacon_processor.log,
-                                    "Unable to queue backfill work event. Will try to process now.";
-                                    "error" => %e
+                                    error = ?e,
+                                    "Unable to queue backfill work event. Will try to process now."
                                 );
                                 match e {
                                     TrySendError::Full(reprocess_queue_message)
@@ -126,9 +126,8 @@ impl<E: EthSpec> InboundEvents<E> {
                                             }
                                             other => {
                                                 crit!(
-                                                    beacon_processor.log,
-                                                    "Unexpected queue message type";
-                                                    "message_type" => other.as_ref()
+                                                    message_type = other.as_ref(),
+                                                    "Unexpected queue message type"
                                                 );
                                                 // This is an unhandled exception, drop the message.
                                                 NextWorkEvent::Continue
@@ -150,11 +149,7 @@ impl<E: EthSpec> InboundEvents<E> {
                 NextWorkEvent::WorkEvent(Some(event))
             }
             None => {
-                debug!(
-                    beacon_processor.log,
-                    "Gossip processor stopped";
-                    "msg" => "stream ended"
-                );
+                debug!(msg = "stream ended", "Gossip processor stopped",);
                 NextWorkEvent::Break
             }
         }
@@ -184,7 +179,6 @@ pub fn spawn_worker<E: EthSpec>(
     let send_idle_on_drop = SendOnDrop {
         tx: idle_tx,
         _worker_timer: worker_timer,
-        log: beacon_processor.log.clone(),
     };
 
     let worker_id = beacon_processor.current_workers;
@@ -193,18 +187,15 @@ pub fn spawn_worker<E: EthSpec>(
     let executor = beacon_processor.executor.clone();
 
     trace!(
-        beacon_processor.log,
-        "Spawning beacon processor worker";
-        "work" => work_id,
-        "worker" => worker_id,
+        work = work_id,
+        worker = worker_id,
+        "Spawning beacon processor worker"
     );
 
     let task_spawner = TaskSpawner {
         executor,
         send_idle_on_drop,
     };
-
-    println!("spawing work {:?}", work);
 
     match work {
         Work::GossipAttestation {

@@ -1,8 +1,7 @@
-use std::collections::VecDeque;
-
 use crate::Work;
 use logging::TimeLatch;
-use slog::{error, Logger};
+use std::collections::VecDeque;
+use tracing::error;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
 /// Over-provision queues based on active validator count by some factor. The beacon chain has
@@ -33,14 +32,13 @@ impl<T> FifoQueue<T> {
     /// Add a new item to the queue.
     ///
     /// Drops `item` if the queue is full.
-    pub fn push(&mut self, item: T, item_desc: &str, log: &Logger) {
+    pub fn push(&mut self, item: T, item_desc: &str) {
         if self.queue.len() == self.max_length {
             error!(
-                log,
-                "Work queue is full";
-                "msg" => "the system has insufficient resources for load",
-                "queue_len" => self.max_length,
-                "queue" => item_desc,
+                queue = item_desc,
+                queue_len = self.max_length,
+                msg = "the system has insufficient resources for load",
+                "Work queue is full",
             )
         } else {
             self.queue.push_back(item);
@@ -157,9 +155,6 @@ impl BeaconProcessorQueueLengths {
         let active_validator_count =
             (ACTIVE_VALIDATOR_COUNT_OVERPROVISION_PERCENT * active_validator_count) / 100;
         let slots_per_epoch = E::slots_per_epoch() as usize;
-
-        println!("activate val count {}", active_validator_count);
-        println!("slots per epoch {}", slots_per_epoch);
 
         Ok(Self {
             aggregate_queue: 4096,

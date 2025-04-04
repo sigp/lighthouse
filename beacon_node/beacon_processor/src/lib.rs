@@ -43,7 +43,6 @@ use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use parking_lot::Mutex;
 use scheduler::interface::Scheduler;
 use serde::{Deserialize, Serialize};
-use slog::{warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp;
 use std::collections::HashSet;
@@ -57,9 +56,12 @@ use strum::IntoStaticStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use types::SingleAttestation;
-use types::{Attestation, BeaconState, ChainSpec, Hash256, SignedAggregateAndProof, SubnetId};
-use types::{EthSpec, Slot};
+
+use tracing::warn;
+use types::{
+    Attestation, BeaconState, ChainSpec, EthSpec, Hash256, SignedAggregateAndProof,
+    SingleAttestation, Slot, SubnetId,
+};
 mod metrics;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -608,7 +610,6 @@ pub struct BeaconProcessor<E: EthSpec> {
     pub executor: TaskExecutor,
     pub current_workers: usize,
     pub config: BeaconProcessorConfig,
-    pub log: Logger,
 }
 
 impl<E: EthSpec> BeaconProcessor<E> {
@@ -681,8 +682,8 @@ impl TaskSpawner {
     }
 }
 
-/// This struct will send a message on `self.tx` when it is dropped. An error will be logged on
-/// `self.log` if the send fails (this happens when the node is shutting down).
+/// This struct will send a message on `self.tx` when it is dropped. An error will be logged
+/// if the send fails (this happens when the node is shutting down).
 ///
 /// ## Purpose
 ///
@@ -695,17 +696,15 @@ pub struct SendOnDrop {
     tx: mpsc::Sender<()>,
     // The field is unused, but it's here to ensure the timer is dropped once the task has finished.
     _worker_timer: Option<metrics::HistogramTimer>,
-    log: Logger,
 }
 
 impl Drop for SendOnDrop {
     fn drop(&mut self) {
         if let Err(e) = self.tx.try_send(()) {
             warn!(
-                self.log,
-                "Unable to free worker";
-                "msg" => "did not free worker, shutdown may be underway",
-                "error" => %e
+                msg = "did not free worker, shutdown may be underway",
+                error = %e,
+                "Unable to free worker"
             )
         }
     }

@@ -7,11 +7,11 @@ mod work_queue;
 
 use crate::scheduler::work_reprocessing_queue::{spawn_reprocess_scheduler, ReadyWork};
 use crate::scheduler::InboundEvents;
-use slog::error;
-use slog::{crit, trace, warn};
+use logging::crit;
 use slot_clock::SlotClock;
 use std::{cmp, marker::PhantomData, sync::Arc, time::Duration};
 use tokio::sync::mpsc::{self, Sender};
+use tracing::{error, trace, warn};
 use types::{BeaconState, ChainSpec, EthSpec};
 use work_queue::{BeaconProcessorQueueLengths, WorkQueues};
 
@@ -80,7 +80,6 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             reprocess_work_rx,
             &self.beacon_processor.executor,
             Arc::new(slot_clock),
-            self.beacon_processor.log.clone(),
             maximum_gossip_clock_disparity,
         )?;
 
@@ -124,9 +123,8 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     // I cannot see any good reason why this would happen.
                     None => {
                         warn!(
-                            self.beacon_processor.log,
-                            "Unexpected gossip processor condition";
-                            "msg" => "no new work and cannot spawn worker"
+                            msg = "no new work and cannot spawn worker",
+                            "Unexpected gossip processor condition",
                         );
                         None
                     }
@@ -146,10 +144,9 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                             &[work_id],
                         );
                         trace!(
-                            self.beacon_processor.log,
-                            "Gossip processor skipping work";
-                            "msg" => "chain is syncing",
-                            "work_id" => work_id
+                            work_id,
+                            msg = "chain is syncing",
+                            "Gossip processor skipping work",
                         );
                         None
                     }
@@ -247,10 +244,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                                     }
                                 }
                                 _ => {
-                                    error!(
-                                        self.beacon_processor.log,
-                                        "Invalid item in aggregate queue"
-                                    );
+                                    error!("Invalid item in aggregate queue");
                                 }
                             }
                         }
@@ -268,7 +262,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                         // Since we only form batches when multiple
                         // work items exist, we should always have a
                         // work closure at this point.
-                        crit!(self.beacon_processor.log, "Missing aggregate work");
+                        crit!("Missing aggregate work");
                         None
                     }
                 }
@@ -307,10 +301,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                                         process_batch_opt = Some(process_batch);
                                     }
                                 }
-                                _ => error!(
-                                    self.beacon_processor.log,
-                                    "Invalid item in attestation queue"
-                                ),
+                                _ => error!("Invalid item in attestation queue"),
                             }
                         }
                     }
@@ -327,7 +318,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                         // Since we only form batches when multiple
                         // work items exist, we should always have a
                         // work closure at this point.
-                        crit!(self.beacon_processor.log, "Missing attestations work");
+                        crit!("Missing attestations work");
                         None
                     }
                 }
@@ -424,9 +415,8 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             Work::Reprocess(work_event) => {
                 if let Err(e) = reprocess_work_tx.try_send(work_event) {
                     error!(
-                        self.beacon_processor.log,
-                        "Failed to reprocess work event";
-                        "error" => %e
+                        error = ?e,
+                        "Failed to reprocess work event"
                     )
                 }
             }
@@ -437,137 +427,87 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             }
             // Attestation batches are formed internally within the
             // `BeaconProcessor`, they are not sent from external services.
-            Work::GossipAttestationBatch { .. } => crit!(
-                    self.beacon_processor.log,
-                    "Unsupported inbound event";
-                    "type" => "GossipAttestationBatch"
-            ),
+            work_type @ Work::GossipAttestationBatch { .. } => {
+                crit!(?work_type, "Unsupported inbound event")
+            }
             Work::GossipAggregate { .. } => self.work_queues.aggregate_queue.push(work),
             // Aggregate batches are formed internally within the `BeaconProcessor`,
             // they are not sent from external services.
-            Work::GossipAggregateBatch { .. } => crit!(
-                    self.beacon_processor.log,
-                    "Unsupported inbound event";
-                    "type" => "GossipAggregateBatch"
-            ),
-            Work::GossipBlock { .. } | Work::GossipCanonicalBlock { .. } => self
-                .work_queues
-                .gossip_block_queue
-                .push(work, work_id, &self.beacon_processor.log),
+            work_type @ Work::GossipAggregateBatch { .. } => {
+                crit!(?work_type, "Unsupported inbound event")
+            }
+            Work::GossipBlock { .. } | Work::GossipCanonicalBlock { .. } => {
+                self.work_queues.gossip_block_queue.push(work, work_id)
+            }
             Work::GossipBlobSidecar { .. } => {
-                self.work_queues
-                    .gossip_blob_queue
-                    .push(work, work_id, &self.beacon_processor.log)
+                self.work_queues.gossip_blob_queue.push(work, work_id)
             }
-            Work::GossipDataColumnSidecar { .. } => self.work_queues.gossip_data_column_queue.push(
-                work,
-                work_id,
-                &self.beacon_processor.log,
-            ),
+            Work::GossipDataColumnSidecar { .. } => self
+                .work_queues
+                .gossip_data_column_queue
+                .push(work, work_id),
             Work::DelayedImportBlock { .. } => {
-                self.work_queues
-                    .delayed_block_queue
-                    .push(work, work_id, &self.beacon_processor.log)
+                self.work_queues.delayed_block_queue.push(work, work_id)
             }
-            Work::GossipVoluntaryExit { .. } => self.work_queues.gossip_voluntary_exit_queue.push(
-                work,
-                work_id,
-                &self.beacon_processor.log,
-            ),
+            Work::GossipVoluntaryExit { .. } => self
+                .work_queues
+                .gossip_voluntary_exit_queue
+                .push(work, work_id),
             Work::GossipProposerSlashing { .. } => self
                 .work_queues
                 .gossip_proposer_slashing_queue
-                .push(work, work_id, &self.beacon_processor.log),
+                .push(work, work_id),
             Work::GossipAttesterSlashing { .. } => self
                 .work_queues
                 .gossip_attester_slashing_queue
-                .push(work, work_id, &self.beacon_processor.log),
+                .push(work, work_id),
             Work::GossipSyncSignature { .. } => self.work_queues.sync_message_queue.push(work),
             Work::GossipSyncContribution { .. } => {
                 self.work_queues.sync_contribution_queue.push(work)
             }
-            Work::GossipLightClientFinalityUpdate { .. } => self
-                .work_queues
-                .finality_update_queue
-                .push(work, work_id, &self.beacon_processor.log),
-            Work::GossipLightClientOptimisticUpdate { .. } => self
-                .work_queues
-                .optimistic_update_queue
-                .push(work, work_id, &self.beacon_processor.log),
+            Work::GossipLightClientFinalityUpdate { .. } => {
+                self.work_queues.finality_update_queue.push(work, work_id)
+            }
+            Work::GossipLightClientOptimisticUpdate { .. } => {
+                self.work_queues.optimistic_update_queue.push(work, work_id)
+            }
             Work::RpcBlock { .. }
             | Work::IgnoredRpcBlock { .. }
             | Work::RpcCanonicalBlock { .. } => {
-                self.work_queues
-                    .rpc_block_queue
-                    .push(work, work_id, &self.beacon_processor.log)
+                self.work_queues.rpc_block_queue.push(work, work_id)
             }
-            Work::RpcBlobs { .. } => {
-                self.work_queues
-                    .rpc_blob_queue
-                    .push(work, work_id, &self.beacon_processor.log)
+            Work::RpcBlobs { .. } => self.work_queues.rpc_blob_queue.push(work, work_id),
+            Work::RpcCustodyColumn { .. } => self
+                .work_queues
+                .rpc_custody_column_queue
+                .push(work, work_id),
+            Work::RpcVerifyDataColumn(_) => self
+                .work_queues
+                .rpc_verify_data_column_queue
+                .push(work, work_id),
+            Work::SamplingResult(_) => self.work_queues.sampling_result_queue.push(work, work_id),
+            Work::ChainSegment { .. } => self.work_queues.chain_segment_queue.push(work, work_id),
+            Work::ChainSegmentBackfill { .. } => {
+                self.work_queues.backfill_chain_segment.push(work, work_id)
             }
-            Work::RpcCustodyColumn { .. } => self.work_queues.rpc_custody_column_queue.push(
-                work,
-                work_id,
-                &self.beacon_processor.log,
-            ),
-            Work::RpcVerifyDataColumn(_) => self.work_queues.rpc_verify_data_column_queue.push(
-                work,
-                work_id,
-                &self.beacon_processor.log,
-            ),
-            Work::SamplingResult(_) => self.work_queues.sampling_result_queue.push(
-                work,
-                work_id,
-                &self.beacon_processor.log,
-            ),
-            Work::ChainSegment { .. } => {
-                self.work_queues
-                    .chain_segment_queue
-                    .push(work, work_id, &self.beacon_processor.log)
-            }
-            Work::ChainSegmentBackfill { .. } => self.work_queues.backfill_chain_segment.push(
-                work,
-                work_id,
-                &self.beacon_processor.log,
-            ),
-            Work::Status { .. } => {
-                self.work_queues
-                    .status_queue
-                    .push(work, work_id, &self.beacon_processor.log)
-            }
-            Work::BlocksByRangeRequest { .. } => {
-                self.work_queues
-                    .bbrange_queue
-                    .push(work, work_id, &self.beacon_processor.log)
-            }
-            Work::BlocksByRootsRequest { .. } => {
-                self.work_queues
-                    .bbroots_queue
-                    .push(work, work_id, &self.beacon_processor.log)
-            }
-            Work::BlobsByRangeRequest { .. } => {
-                self.work_queues
-                    .blbrange_queue
-                    .push(work, work_id, &self.beacon_processor.log)
-            }
+            Work::Status { .. } => self.work_queues.status_queue.push(work, work_id),
+            Work::BlocksByRangeRequest { .. } => self.work_queues.bbrange_queue.push(work, work_id),
+            Work::BlocksByRootsRequest { .. } => self.work_queues.bbroots_queue.push(work, work_id),
+            Work::BlobsByRangeRequest { .. } => self.work_queues.blbrange_queue.push(work, work_id),
             Work::LightClientBootstrapRequest { .. } => {
-                self.work_queues
-                    .lc_bootstrap_queue
-                    .push(work, work_id, &self.beacon_processor.log)
+                self.work_queues.lc_bootstrap_queue.push(work, work_id)
             }
             Work::LightClientOptimisticUpdateRequest { .. } => self
                 .work_queues
                 .lc_optimistic_update_queue
-                .push(work, work_id, &self.beacon_processor.log),
+                .push(work, work_id),
             Work::LightClientFinalityUpdateRequest { .. } => self
                 .work_queues
                 .lc_finality_update_queue
-                .push(work, work_id, &self.beacon_processor.log),
-            Work::LightClientUpdatesByRangeRequest { .. } => self
-                .work_queues
-                .lc_update_range_queue
-                .push(work, work_id, &self.beacon_processor.log),
+                .push(work, work_id),
+            Work::LightClientUpdatesByRangeRequest { .. } => {
+                self.work_queues.lc_update_range_queue.push(work, work_id)
+            }
             Work::UnknownBlockAttestation { .. } => {
                 self.work_queues.unknown_block_attestation_queue.push(work)
             }
@@ -577,40 +517,24 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             Work::GossipBlsToExecutionChange { .. } => self
                 .work_queues
                 .gossip_bls_to_execution_change_queue
-                .push(work, work_id, &self.beacon_processor.log),
-            Work::BlobsByRootsRequest { .. } => {
-                self.work_queues
-                    .blbroots_queue
-                    .push(work, work_id, &self.beacon_processor.log)
-            }
+                .push(work, work_id),
+            Work::BlobsByRootsRequest { .. } => self.work_queues.blbroots_queue.push(work, work_id),
             Work::DataColumnsByRootsRequest { .. } => {
-                self.work_queues
-                    .dcbroots_queue
-                    .push(work, work_id, &self.beacon_processor.log)
+                self.work_queues.dcbroots_queue.push(work, work_id)
             }
             Work::DataColumnsByRangeRequest { .. } => {
-                self.work_queues
-                    .dcbrange_queue
-                    .push(work, work_id, &self.beacon_processor.log)
+                self.work_queues.dcbrange_queue.push(work, work_id)
             }
             Work::UnknownLightClientOptimisticUpdate { .. } => self
                 .work_queues
                 .unknown_light_client_update_queue
-                .push(work, work_id, &self.beacon_processor.log),
+                .push(work, work_id),
             Work::UnknownBlockSamplingRequest { .. } => self
                 .work_queues
                 .unknown_block_sampling_request_queue
-                .push(work, work_id, &self.beacon_processor.log),
-            Work::ApiRequestP0 { .. } => self.work_queues.api_request_p0_queue.push(
-                work,
-                work_id,
-                &self.beacon_processor.log,
-            ),
-            Work::ApiRequestP1 { .. } => self.work_queues.api_request_p1_queue.push(
-                work,
-                work_id,
-                &self.beacon_processor.log,
-            ),
+                .push(work, work_id),
+            Work::ApiRequestP0 { .. } => self.work_queues.api_request_p0_queue.push(work, work_id),
+            Work::ApiRequestP1 { .. } => self.work_queues.api_request_p1_queue.push(work, work_id),
         }
         Some(work_type)
     }
@@ -711,10 +635,9 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             && self.work_queues.aggregate_debounce.elapsed()
         {
             error!(
-                self.beacon_processor.log,
-                "Aggregate attestation queue full";
-                "msg" => "the system has insufficient resources for load",
-                "queue_len" => self.work_queues.aggregate_queue.max_length,
+                msg = "the system has insufficient resources for load",
+                queue_len = self.work_queues.aggregate_queue.max_length,
+                "Aggregate attestation queue full",
             )
         }
 
@@ -722,10 +645,9 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             && self.work_queues.attestation_debounce.elapsed()
         {
             error!(
-                self.beacon_processor.log,
-                "Attestation queue full";
-                "msg" => "the system has insufficient resources for load",
-                "queue_len" => self.work_queues.attestation_queue.max_length,
+                msg = "the system has insufficient resources for load",
+                queue_len = self.work_queues.attestation_queue.max_length,
+                "Attestation queue full",
             )
         }
     }

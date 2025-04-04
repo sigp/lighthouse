@@ -13,6 +13,7 @@ directory = { workspace = true }
 dirs = { workspace = true }
 discv5 = { workspace = true }
 either = { workspace = true }
+eth2 = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 fnv = { workspace = true }
@@ -23,6 +24,7 @@ itertools = { workspace = true }
 libp2p-mplex = "0.43"
 lighthouse_version = { workspace = true }
 local-ip-address = "0.6"
+logging = { workspace = true }
 lru = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
@@ -32,7 +34,6 @@ rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
-slog = { workspace = true }
 smallvec = { workspace = true }
 snap = { workspace = true }
 ssz_types = { workspace = true }
@@ -43,12 +44,11 @@ tiny-keccak = "2"
 tokio = { workspace = true }
 tokio-io-timeout = "1"
 tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
 unused_port = { workspace = true }
-
-# Local dependencies
-void = "1.0.2"
 
 [dependencies.libp2p]
 version = "0.55"
@@ -60,8 +60,6 @@ async-channel = { workspace = true }
 logging = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
-slog-async = { workspace = true }
-slog-term = { workspace = true }
 tempfile = { workspace = true }
 
 [features]

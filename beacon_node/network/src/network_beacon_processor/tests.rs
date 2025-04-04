@@ -16,7 +16,7 @@ use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::*;
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};
-use lighthouse_network::rpc::{RequestId, SubstreamId};
+use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::{
     discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
@@ -189,8 +189,6 @@ impl TestRig {
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
 
-        let log = harness.logger().clone();
-
         let beacon_processor_config = BeaconProcessorConfig {
             enable_backfill_rate_limiting,
             ..Default::default()
@@ -226,7 +224,6 @@ impl TestRig {
             meta_data,
             vec![],
             false,
-            &log,
             network_config,
             spec,
         ));
@@ -245,7 +242,6 @@ impl TestRig {
             network_globals: network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor: executor.clone(),
-            log: log.clone(),
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
@@ -256,7 +252,6 @@ impl TestRig {
             executor,
             current_workers: 0,
             config: beacon_processor_config,
-            log: log.clone(),
         }
         .spawn_manager(
             beacon_state,
@@ -371,9 +366,7 @@ impl TestRig {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
-                ConnectionId::new_unchecked(42),
-                SubstreamId::new(24),
-                RequestId::new_unchecked(0),
+                InboundRequestId::new_unchecked(42, 24),
                 BlobsByRangeRequest {
                     start_slot: 0,
                     count,
@@ -1154,8 +1147,7 @@ async fn test_blobs_by_range() {
         if let NetworkMessage::SendResponse {
             peer_id: _,
             response: Response::BlobsByRange(blob),
-            id: _,
-            request_id: _,
+            inbound_request_id: _,
         } = next
         {
             if blob.is_some() {

@@ -9,33 +9,28 @@ use beacon_chain::fetch_blobs::{
 };
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
-    builder::Witness, eth1_chain::CachingEth1Backend, AvailabilityProcessingStatus, BeaconChain,
-    BeaconChainTypes, BlockError, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
 };
 use beacon_processor::{
-    BeaconProcessorChannels, BeaconProcessorSend, DuplicateCache, GossipAggregatePackage,
-    GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
+    BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
+    WorkEvent as BeaconWorkEvent,
 };
-use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
     LightClientUpdatesByRangeRequest,
 };
-use lighthouse_network::rpc::{RequestId, SubstreamId};
+use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
 };
 use rand::prelude::SliceRandom;
-use slog::{debug, error, trace, warn, Logger};
-use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use store::MemoryStore;
 use task_executor::TaskExecutor;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::{self, error::TrySendError};
+use tracing::{debug, error, trace, warn, Instrument};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -69,7 +64,6 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
     pub executor: TaskExecutor,
-    pub log: Logger,
 }
 
 // Publish blobs in batches of exponentially increasing size.
@@ -587,10 +581,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
         let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
-        debug!(self.log, "Batch sending for process";
-            "blocks" => blocks.len(),
-            "id" => ?process_id,
-        );
+        debug!(blocks = blocks.len(), id = ?process_id, "Batch sending for process");
 
         let processor = self.clone();
         let process_fn = async move {
@@ -643,21 +634,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_blocks_by_range_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId, // Use ResponseId here
         request: BlocksByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .handle_blocks_by_range_request(
-                    peer_id,
-                    connection_id,
-                    substream_id,
-                    request_id,
-                    request,
-                )
+                .handle_blocks_by_range_request(peer_id, inbound_request_id, request)
                 .await;
         };
 
@@ -671,21 +654,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_blocks_by_roots_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId, // Use ResponseId here
         request: BlocksByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .handle_blocks_by_root_request(
-                    peer_id,
-                    connection_id,
-                    substream_id,
-                    request_id,
-                    request,
-                )
+                .handle_blocks_by_root_request(peer_id, inbound_request_id, request)
                 .await;
         };
 
@@ -699,21 +674,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_blobs_by_range_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlobsByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move || {
-            processor.handle_blobs_by_range_request(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            )
-        };
+        let process_fn =
+            move || processor.handle_blobs_by_range_request(peer_id, inbound_request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -725,21 +691,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_blobs_by_roots_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move || {
-            processor.handle_blobs_by_root_request(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            )
-        };
+        let process_fn =
+            move || processor.handle_blobs_by_root_request(peer_id, inbound_request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
@@ -751,20 +708,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_data_columns_by_roots_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: DataColumnsByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
-            processor.handle_data_columns_by_root_request(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            )
+            processor.handle_data_columns_by_root_request(peer_id, inbound_request_id, request)
         };
 
         self.try_send(BeaconWorkEvent {
@@ -777,20 +726,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_data_columns_by_range_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: DataColumnsByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
-            processor.handle_data_columns_by_range_request(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            )
+            processor.handle_data_columns_by_range_request(peer_id, inbound_request_id, request)
         };
 
         self.try_send(BeaconWorkEvent {
@@ -803,21 +744,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_light_client_bootstrap_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: LightClientBootstrapRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move || {
-            processor.handle_light_client_bootstrap(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            )
-        };
+        let process_fn =
+            move || processor.handle_light_client_bootstrap(peer_id, inbound_request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -829,19 +761,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_light_client_optimistic_update_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move || {
-            processor.handle_light_client_optimistic_update(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-            )
-        };
+        let process_fn =
+            move || processor.handle_light_client_optimistic_update(peer_id, inbound_request_id);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -853,19 +777,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_light_client_finality_update_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move || {
-            processor.handle_light_client_finality_update(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-            )
-        };
+        let process_fn =
+            move || processor.handle_light_client_finality_update(peer_id, inbound_request_id);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -877,20 +793,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_light_client_updates_by_range_request(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: LightClientUpdatesByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
-            processor.handle_light_client_updates_by_range(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            )
+            processor.handle_light_client_updates_by_range(peer_id, inbound_request_id, request)
         };
 
         self.try_send(BeaconWorkEvent {
@@ -903,10 +811,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Creates a log if there is an internal error.
     pub(crate) fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
-        self.sync_tx.send(message).unwrap_or_else(|e| {
-            debug!(self.log, "Could not send message to the sync service";
-                   "error" => %e)
-        });
+        self.sync_tx
+            .send(message)
+            .unwrap_or_else(|e| debug!(error = %e, "Could not send message to the sync service"));
     }
 
     /// Send a message to `network_tx`.
@@ -914,8 +821,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Creates a log if there is an internal error.
     fn send_network_message(&self, message: NetworkMessage<T::EthSpec>) {
         self.network_tx.send(message).unwrap_or_else(|e| {
-            debug!(self.log, "Could not send message to the network service. Likely shutdown";
-                "error" => %e)
+            debug!(error = %e, "Could not send message to the network service. Likely shutdown")
         });
     }
 
@@ -925,9 +831,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         publish_blobs: bool,
     ) {
+        let is_supernode = self.network_globals.is_supernode();
+
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
-            if publish_blobs {
+            // At the moment non supernodes are not required to publish any columns.
+            // TODO(das): we could experiment with having full nodes publish their custodied
+            // columns here.
+            if publish_blobs && is_supernode {
                 match blobs_or_data_column {
                     BlobsOrDataColumns::Blobs(blobs) => {
                         self_cloned.publish_blobs_gradually(blobs, block_root);
@@ -945,48 +856,48 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             block.clone(),
             publish_fn,
         )
+        .instrument(tracing::info_span!(
+            "",
+            service = "fetch_engine_blobs",
+            block_root = format!("{:?}", block_root)
+        ))
         .await
         {
             Ok(Some(availability)) => match availability {
                 AvailabilityProcessingStatus::Imported(_) => {
                     debug!(
-                        self.log,
-                        "Block components retrieved from EL";
-                        "result" => "imported block and custody columns",
-                        "block_root" => %block_root,
+                        result = "imported block and custody columns",
+                        %block_root,
+                        "Block components retrieved from EL"
                     );
                     self.chain.recompute_head_at_current_slot().await;
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
                     debug!(
-                        self.log,
-                        "Still missing blobs after engine blobs processed successfully";
-                        "block_root" => %block_root,
+                        %block_root,
+                        "Still missing blobs after engine blobs processed successfully"
                     );
                 }
             },
             Ok(None) => {
                 debug!(
-                    self.log,
-                    "Fetch blobs completed without import";
-                    "block_root" => %block_root,
+                    %block_root,
+                    "Fetch blobs completed without import"
                 );
             }
             Err(FetchEngineBlobError::BlobProcessingError(BlockError::DuplicateFullyImported(
                 ..,
             ))) => {
                 debug!(
-                    self.log,
-                    "Fetch blobs duplicate import";
-                    "block_root" => %block_root,
+                    %block_root,
+                    "Fetch blobs duplicate import"
                 );
             }
             Err(e) => {
                 error!(
-                    self.log,
-                    "Error fetching or processing blobs from EL";
-                    "error" => ?e,
-                    "block_root" => %block_root,
+                    error = ?e,
+                    %block_root,
+                    "Error fetching or processing blobs from EL"
                 );
             }
         }
@@ -1002,6 +913,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block_root: Hash256,
     ) -> Option<AvailabilityProcessingStatus> {
+        // Only supernodes attempt reconstruction
+        if !self.network_globals.is_supernode() {
+            return None;
+        }
+
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
@@ -1009,19 +925,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 match &availability_processing_status {
                     AvailabilityProcessingStatus::Imported(hash) => {
                         debug!(
-                            self.log,
-                            "Block components available via reconstruction";
-                            "result" => "imported block and custody columns",
-                            "block_hash" => %hash,
+                            result = "imported block and custody columns",
+                            block_hash = %hash,
+                            "Block components available via reconstruction"
                         );
                         self.chain.recompute_head_at_current_slot().await;
                     }
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
-                            self.log,
-                            "Block components still missing block after reconstruction";
-                            "result" => "imported all custody columns",
-                            "block_hash" => %block_root,
+                            result = "imported all custody columns",
+                            block_hash = %block_root,
+                            "Block components still missing block after reconstruction"
                         );
                     }
                 }
@@ -1031,18 +945,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(None) => {
                 // reason is tracked via the `KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL` metric
                 trace!(
-                    self.log,
-                    "Reconstruction not required for block";
-                    "block_hash" => %block_root,
+                    block_hash = %block_root,
+                    "Reconstruction not required for block"
                 );
                 None
             }
             Err(e) => {
                 error!(
-                    self.log,
-                    "Error during data column reconstruction";
-                    "block_root" => %block_root,
-                    "error" => ?e
+                    %block_root,
+                    error = ?e,
+                    "Error during data column reconstruction"
                 );
                 None
             }
@@ -1065,7 +977,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.executor.spawn(
             async move {
                 let chain = self_clone.chain.clone();
-                let log = self_clone.chain.logger();
                 let publish_fn = |blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>| {
                     self_clone.send_network_message(NetworkMessage::Publish {
                         messages: blobs
@@ -1094,9 +1005,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             Err(GossipBlobError::RepeatBlob { .. }) => None,
                             Err(e) => {
                                 warn!(
-                                    log,
-                                    "Previously verified blob is invalid";
-                                    "error" => ?e
+                                    error = ?e,
+                                    "Previously verified blob is invalid"
                                 );
                                 None
                             }
@@ -1105,10 +1015,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                     if !publishable.is_empty() {
                         debug!(
-                            log,
-                            "Publishing blob batch";
-                            "publish_count" => publishable.len(),
-                            "block_root" => ?block_root,
+                            publish_count = publishable.len(),
+                            ?block_root,
+                            "Publishing blob batch"
                         );
                         publish_count += publishable.len();
                         publish_fn(publishable);
@@ -1119,12 +1028,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
 
                 debug!(
-                    log,
-                    "Batch blob publication complete";
-                    "batch_interval" => blob_publication_batch_interval.as_millis(),
-                    "blob_count" => blob_count,
-                    "published_count" => publish_count,
-                    "block_root" => ?block_root,
+                    batch_interval = blob_publication_batch_interval.as_millis(),
+                    blob_count,
+                    publish_count,
+                    ?block_root,
+                    "Batch blob publication complete"
                 )
             },
             "gradual_blob_publication",
@@ -1147,7 +1055,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.executor.spawn(
             async move {
                 let chain = self_clone.chain.clone();
-                let log = self_clone.chain.logger();
                 let publish_fn = |columns: DataColumnSidecarList<T::EthSpec>| {
                     self_clone.send_network_message(NetworkMessage::Publish {
                         messages: columns
@@ -1180,9 +1087,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             Err(GossipDataColumnError::PriorKnown { .. }) => None,
                             Err(e) => {
                                 warn!(
-                                    log,
-                                    "Previously verified data column is invalid";
-                                    "error" => ?e
+                                    error = ?e,
+                                    "Previously verified data column is invalid"
                                 );
                                 None
                             }
@@ -1191,10 +1097,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                     if !publishable.is_empty() {
                         debug!(
-                            log,
-                            "Publishing data column batch";
-                            "publish_count" => publishable.len(),
-                            "block_root" => ?block_root,
+                            publish_count = publishable.len(),
+                            ?block_root,
+                            "Publishing data column batch"
                         );
                         publish_count += publishable.len();
                         publish_fn(publishable);
@@ -1204,13 +1109,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
 
                 debug!(
-                    log,
-                    "Batch data column publishing complete";
-                    "batch_size" => batch_size,
-                    "batch_interval" => blob_publication_batch_interval.as_millis(),
-                    "data_columns_to_publish_count" => data_columns_to_publish.len(),
-                    "published_count" => publish_count,
-                    "block_root" => ?block_root,
+                    batch_size,
+                    batch_interval = blob_publication_batch_interval.as_millis(),
+                    data_columns_to_publish_count = data_columns_to_publish.len(),
+                    publish_count,
+                    ?block_root,
+                    "Batch data column publishing complete"
                 )
             },
             "gradual_data_column_publication",
@@ -1218,9 +1122,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
+#[cfg(test)]
+use {
+    beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend},
+    beacon_processor::BeaconProcessorChannels,
+    slot_clock::ManualSlotClock,
+    store::MemoryStore,
+    tokio::sync::mpsc::UnboundedSender,
+};
+
+#[cfg(test)]
 type TestBeaconChainType<E> =
     Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
+#[cfg(test)]
 impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     // Instantiates a mostly non-functional version of `Self` and returns the
     // event receiver that would normally go to the beacon processor. This is
@@ -1231,7 +1146,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         sync_tx: UnboundedSender<SyncMessage<E>>,
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
         executor: TaskExecutor,
-        log: Logger,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
@@ -1249,7 +1163,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor,
-            log,
         };
 
         (network_beacon_processor, beacon_processor_rx)

@@ -2,9 +2,9 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{scheduler::InboundEvents, ReprocessQueueMessage};
 use earliest_deadline_queue::{QueueItem, WorkQueue};
-use slog::{error, trace, warn};
 use slot_clock::SlotClock;
 use tokio::sync::mpsc::{self, Sender};
+use tracing::{error, trace, warn};
 use types::EthSpec;
 
 use crate::{
@@ -65,7 +65,6 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             reprocess_work_rx,
             &self.beacon_processor.executor,
             Arc::new(slot_clock.clone()),
-            self.beacon_processor.log.clone(),
             maximum_gossip_clock_disparity,
         )?;
 
@@ -116,9 +115,8 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     // I cannot see any good reason why this would happen.
                     None => {
                         warn!(
-                            self.beacon_processor.log,
-                            "Unexpected gossip processor condition";
-                            "msg" => "no new work and cannot spawn worker"
+                            msg = "no new work and cannot spawn worker",
+                            "Unexpected gossip processor condition"
                         );
                         None
                     }
@@ -138,10 +136,9 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                             &[work_id],
                         );
                         trace!(
-                            self.beacon_processor.log,
-                            "Gossip processor skipping work";
-                            "msg" => "chain is syncing",
-                            "work_id" => work_id
+                            msg = "chain is syncing",
+                            work_id,
+                            "Gossip processor skipping work",
                         );
                         None
                     }
@@ -202,9 +199,8 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             Work::Reprocess(work_event) => {
                 if let Err(e) = reprocess_work_tx.try_send(work_event) {
                     error!(
-                        self.beacon_processor.log,
-                        "Failed to reprocess work event";
-                        "error" => %e
+                        error = %e,
+                        "Failed to reprocess work event",
                     )
                 }
             }

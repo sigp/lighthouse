@@ -12,7 +12,6 @@ use execution_layer::{
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
-use logging::test_logger;
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -22,6 +21,7 @@ use task_executor::ShutdownReason;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
+const CGC: usize = 8;
 
 type E = MainnetEthSpec;
 
@@ -56,7 +56,6 @@ impl InvalidPayloadRig {
                 reconstruct_historic_states: true,
                 ..ChainConfig::default()
             })
-            .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .mock_execution_layer()
             .fresh_ephemeral_store()
@@ -1052,7 +1051,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.clone().verify_block_for_gossip(block.clone()).await,
+        rig.harness.chain.clone().verify_block_for_gossip(block.clone(), CGC).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -1283,7 +1282,7 @@ impl InvalidHeadSetup {
     ///
     /// 1. A chain where the only viable head block has an invalid execution payload.
     /// 2. A block (`fork_block`) which will become the head of the chain when
-    ///     it is imported.
+    ///    it is imported.
     async fn new() -> InvalidHeadSetup {
         let slots_per_epoch = E::slots_per_epoch();
         let mut rig = InvalidPayloadRig::new().enable_attestations();

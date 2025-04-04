@@ -17,10 +17,8 @@ use lighthouse_network::{
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
 };
-use logging::test_logger;
 use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
-use slog::Logger;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -73,7 +71,6 @@ impl<E: EthSpec> InteractiveTester<E> {
     ) -> Self {
         let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec.map(Arc::new))
-            .logger(test_logger())
             .mock_execution_layer();
 
         harness_builder = if let Some(initializer) = initializer {
@@ -100,13 +97,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             listening_socket,
             network_rx,
             ..
-        } = create_api_server_with_config(
-            harness.chain.clone(),
-            config,
-            &harness.runtime,
-            harness.logger().clone(),
-        )
-        .await;
+        } = create_api_server_with_config(harness.chain.clone(), config, &harness.runtime).await;
 
         tokio::spawn(server);
 
@@ -132,16 +123,14 @@ impl<E: EthSpec> InteractiveTester<E> {
 pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     test_runtime: &TestRuntime,
-    log: Logger,
 ) -> ApiServer<T, impl Future<Output = ()>> {
-    create_api_server_with_config(chain, Config::default(), test_runtime, log).await
+    create_api_server_with_config(chain, Config::default(), test_runtime).await
 }
 
 pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     http_config: Config,
     test_runtime: &TestRuntime,
-    log: Logger,
 ) -> ApiServer<T, impl Future<Output = ()>> {
     // Use port 0 to allocate a new unused port.
     let port = 0;
@@ -172,14 +161,13 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         meta_data,
         vec![],
         false,
-        &log,
         network_config,
         chain.spec.clone(),
     ));
 
     // Only a peer manager can add peers, so we create a dummy manager.
     let config = lighthouse_network::peer_manager::config::Config::default();
-    let mut pm = PeerManager::new(config, network_globals.clone(), &log).unwrap();
+    let mut pm = PeerManager::new(config, network_globals.clone()).unwrap();
 
     // add a peer
     let peer_id = PeerId::random();
@@ -198,8 +186,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     }));
     *network_globals.sync_state.write() = SyncState::Synced;
 
-    let eth1_service =
-        eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
+    let eth1_service = eth1::Service::new(eth1::Config::default(), chain.spec.clone()).unwrap();
 
     let beacon_processor_config = BeaconProcessorConfig {
         // The number of workers must be greater than one. Tests which use the
@@ -226,7 +213,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         executor: test_runtime.task_executor.clone(),
         current_workers: 0,
         config: beacon_processor_config,
-        log: log.clone(),
     }
     .spawn_manager(
         beacon_state,
@@ -252,7 +238,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         beacon_processor_send: Some(beacon_processor_send),
         eth1_service: Some(eth1_service),
         sse_logging_components: None,
-        log,
     });
 
     let (listening_socket, server) =

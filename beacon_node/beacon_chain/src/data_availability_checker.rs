@@ -7,7 +7,6 @@ use crate::data_availability_checker::overflow_lru_cache::{
 };
 use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
-use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -16,6 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::oneshot;
+use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
@@ -75,7 +75,6 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
     spec: Arc<ChainSpec>,
-    log: Logger,
 }
 
 pub type AvailabilityAndReconstructedColumns<E> = (Availability<E>, DataColumnSidecarList<E>);
@@ -112,37 +111,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
-        import_all_data_columns: bool,
         spec: Arc<ChainSpec>,
-        log: Logger,
     ) -> Result<Self, AvailabilityCheckError> {
-        let custody_group_count = spec.custody_group_count(import_all_data_columns);
-        // This should only panic if the chain spec contains invalid values.
-        let sampling_size = spec
-            .sampling_size(custody_group_count)
-            .expect("should compute node sampling size from valid chain spec");
-
-        let inner = DataAvailabilityCheckerInner::new(
-            OVERFLOW_LRU_CAPACITY,
-            store,
-            sampling_size as usize,
-            spec.clone(),
-        )?;
+        let inner = DataAvailabilityCheckerInner::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
         Ok(Self {
             availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
             spec,
-            log,
         })
-    }
-
-    pub fn get_sampling_column_count(&self) -> usize {
-        self.availability_cache.sampling_column_count()
-    }
-
-    pub(crate) fn is_supernode(&self) -> bool {
-        self.get_sampling_column_count() == self.spec.number_of_columns as usize
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -218,7 +195,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         .map_err(AvailabilityCheckError::InvalidBlobs)?;
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs, &self.log)
+            .put_kzg_verified_blobs(block_root, verified_blobs)
     }
 
     /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
@@ -238,11 +215,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(KzgVerifiedCustodyDataColumn::from_asserted_custody)
             .collect::<Vec<_>>();
 
-        self.availability_cache.put_kzg_verified_data_columns(
-            block_root,
-            verified_custody_columns,
-            &self.log,
-        )
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, verified_custody_columns)
     }
 
     /// Put a list of blobs received from the EL pool into the availability cache.
@@ -262,7 +236,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 block_root,
                 block_epoch,
                 data_columns_recv,
-                &self.log,
             )
         } else {
             let seen_timestamp = self
@@ -272,7 +245,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             self.availability_cache.put_kzg_verified_blobs(
                 block_root,
                 KzgVerifiedBlobList::from_verified(blobs.iter().flatten().cloned(), seen_timestamp),
-                &self.log,
             )
         }
     }
@@ -286,11 +258,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache.put_kzg_verified_blobs(
-            gossip_blob.block_root(),
-            vec![gossip_blob.into_inner()],
-            &self.log,
-        )
+        self.availability_cache
+            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
     }
 
     /// Check if we've cached other data columns for this block. If it satisfies the custody requirement and we also
@@ -309,11 +278,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 
-        self.availability_cache.put_kzg_verified_data_columns(
-            block_root,
-            custody_columns,
-            &self.log,
-        )
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -323,7 +289,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
-            .put_pending_executed_block(executed_block, &self.log)
+            .put_pending_executed_block(executed_block)
     }
 
     pub fn remove_pending_components(&self, block_root: Hash256) {
@@ -340,6 +306,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
+        let custody_columns_count = block.custody_columns_count();
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs {
@@ -353,7 +320,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     spec: self.spec.clone(),
                 }))
             } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                Ok(MaybeAvailableBlock::AvailabilityPending {
+                    block_root,
+                    block,
+                    custody_columns_count,
+                })
             };
         }
         if self.data_columns_required_for_block(&block) {
@@ -378,7 +349,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     spec: self.spec.clone(),
                 }))
             } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+                Ok(MaybeAvailableBlock::AvailabilityPending {
+                    block_root,
+                    block,
+                    custody_columns_count,
+                })
             };
         }
 
@@ -435,6 +410,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         for block in blocks {
+            let custody_columns_count = block.custody_columns_count();
             let (block_root, block, blobs, data_columns) = block.deconstruct();
 
             let maybe_available_block = if self.blobs_required_for_block(&block) {
@@ -447,7 +423,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         spec: self.spec.clone(),
                     })
                 } else {
-                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
+                    MaybeAvailableBlock::AvailabilityPending {
+                        block_root,
+                        block,
+                        custody_columns_count,
+                    }
                 }
             } else if self.data_columns_required_for_block(&block) {
                 if let Some(data_columns) = data_columns {
@@ -461,7 +441,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         spec: self.spec.clone(),
                     })
                 } else {
-                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
+                    MaybeAvailableBlock::AvailabilityPending {
+                        block_root,
+                        block,
+                        custody_columns_count,
+                    }
                 }
             } else {
                 MaybeAvailableBlock::Available(AvailableBlock {
@@ -563,10 +547,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         )
         .map_err(|e| {
             error!(
-                self.log,
-                "Error reconstructing data columns";
-                "block_root" => ?block_root,
-                "error" => ?e
+                ?block_root,
+                error = ?e,
+                "Error reconstructing data columns"
             );
             self.availability_cache
                 .handle_reconstruction_failure(block_root);
@@ -601,14 +584,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             data_columns_to_publish.len() as u64,
         );
 
-        debug!(self.log, "Reconstructed columns";
-            "count" => data_columns_to_publish.len(),
-            "block_root" => ?block_root,
-            "slot" => slot,
+        debug!(
+            count = data_columns_to_publish.len(),
+            ?block_root,
+            %slot,
+            "Reconstructed columns"
         );
 
         self.availability_cache
-            .put_kzg_verified_data_columns(*block_root, data_columns_to_publish.clone(), &self.log)
+            .put_kzg_verified_data_columns(*block_root, data_columns_to_publish.clone())
             .map(|availability| {
                 DataColumnReconstructionResult::Success((
                     availability,
@@ -635,14 +619,18 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
         executor.spawn(
-            async move { availability_cache_maintenance_service(chain, overflow_cache).await },
+            async move {
+                availability_cache_maintenance_service(chain, overflow_cache)
+                    .instrument(info_span!(
+                        "DataAvailabilityChecker",
+                        service = "data_availability_checker"
+                    ))
+                    .await
+            },
             "availability_cache_service",
         );
     } else {
-        debug!(
-            chain.log,
-            "Deneb fork not configured, not starting availability cache maintenance service"
-        );
+        debug!("Deneb fork not configured, not starting availability cache maintenance service");
     }
 }
 
@@ -666,10 +654,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                     break;
                 };
 
-                debug!(
-                    chain.log,
-                    "Availability cache maintenance service firing";
-                );
+                debug!("Availability cache maintenance service firing");
                 let Some(current_epoch) = chain
                     .slot_clock
                     .now()
@@ -699,11 +684,11 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 );
 
                 if let Err(e) = overflow_cache.do_maintenance(cutoff_epoch) {
-                    error!(chain.log, "Failed to maintain availability cache"; "error" => ?e);
+                    error!(error = ?e,"Failed to maintain availability cache");
                 }
             }
             None => {
-                error!(chain.log, "Failed to read slot clock");
+                error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
                 tokio::time::sleep(chain.slot_clock.slot_duration()).await;
             }
@@ -817,6 +802,7 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
     AvailabilityPending {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
+        custody_columns_count: usize,
     },
 }
 

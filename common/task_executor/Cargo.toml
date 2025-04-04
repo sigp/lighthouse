@@ -4,17 +4,9 @@ version = "0.1.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
-[features]
-default = ["slog"]
-slog = ["dep:slog", "dep:sloggers", "dep:logging"]
-tracing = ["dep:tracing"]
-
 [dependencies]
 async-channel = { workspace = true }
 futures = { workspace = true }
-logging = { workspace = true, optional = true }
 metrics = { workspace = true }
-slog = { workspace = true, optional = true }
-sloggers = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-tracing = { workspace = true, optional = true }
+tracing = { workspace = true }

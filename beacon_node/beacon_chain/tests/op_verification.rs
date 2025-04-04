@@ -9,7 +9,6 @@ use beacon_chain::{
     },
     BeaconChainError,
 };
-use sloggers::{null::NullLoggerBuilder, Build};
 use state_processing::per_block_processing::errors::{
     AttesterSlashingInvalid, BlockOperationError, ExitInvalid, ProposerSlashingInvalid,
 };
@@ -35,7 +34,6 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
     let cold_path = db_path.path().join("cold_db");
     let blobs_path = db_path.path().join("blobs_db");
     let config = StoreConfig::default();
-    let log = NullLoggerBuilder.build().expect("logger should build");
     HotColdDB::open(
         &hot_path,
         &cold_path,
@@ -43,7 +41,6 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
         |_, _, _| Ok(()),
         config,
         spec,
-        log,
     )
     .expect("disk store should initialize")
 }

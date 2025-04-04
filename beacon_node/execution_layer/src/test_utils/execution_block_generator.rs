@@ -84,14 +84,14 @@ impl<E: EthSpec> Block<E> {
                 block_hash: block.block_hash,
                 block_number: block.block_number,
                 parent_hash: block.parent_hash,
-                total_difficulty: block.total_difficulty,
+                total_difficulty: Some(block.total_difficulty),
                 timestamp: block.timestamp,
             },
             Block::PoS(payload) => ExecutionBlock {
                 block_hash: payload.block_hash(),
                 block_number: payload.block_number(),
                 parent_hash: payload.parent_hash(),
-                total_difficulty,
+                total_difficulty: Some(total_difficulty),
                 timestamp: payload.timestamp(),
             },
         }
