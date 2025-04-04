@@ -11,7 +11,7 @@
 //! may lead to programming errors which are not detected by the compiler.
 
 use crate::test_utils::TestRandom;
-use crate::{ChainSpec, SignedRoot};
+use crate::ChainSpec;
 
 use rand::RngCore;
 use safe_arith::{ArithError, SafeArith};

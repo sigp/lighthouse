@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{SignedRoot, Slot};
+use crate::Slot;
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -24,8 +24,6 @@ pub struct SyncAggregatorSelectionData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub subcommittee_index: u64,
 }
-
-impl SignedRoot for SyncAggregatorSelectionData {}
 
 #[cfg(test)]
 mod tests {

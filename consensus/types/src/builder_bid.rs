@@ -98,8 +98,6 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
     }
 }
 
-impl<E: EthSpec> SignedRoot for BuilderBid<E> {}
-
 /// Validator registration, for use in interacting with servers implementing the builder API.
 #[derive(PartialEq, Debug, Encode, Serialize, Deserialize, Clone)]
 #[serde(bound = "E: EthSpec")]

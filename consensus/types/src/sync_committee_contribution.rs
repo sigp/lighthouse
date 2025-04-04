@@ -1,4 +1,4 @@
-use super::{AggregateSignature, EthSpec, SignedRoot};
+use super::{AggregateSignature, EthSpec};
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeMessage};
 use serde::{Deserialize, Serialize};
@@ -74,8 +74,6 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
         self.signature.add_assign_aggregate(&other.signature);
     }
 }
-
-impl SignedRoot for Hash256 {}
 
 /// This is not in the spec, but useful for determining uniqueness of sync committee contributions
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]

@@ -21,8 +21,6 @@ pub struct ValidatorRegistrationData {
     pub pubkey: PublicKeyBytes,
 }
 
-impl SignedRoot for ValidatorRegistrationData {}
-
 impl SignedValidatorRegistrationData {
     pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
         self.message

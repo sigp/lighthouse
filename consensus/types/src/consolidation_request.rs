@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, Address, PublicKeyBytes, SignedRoot};
+use crate::{test_utils::TestRandom, Address, PublicKeyBytes};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -36,8 +36,6 @@ impl ConsolidationRequest {
         .len()
     }
 }
-
-impl SignedRoot for ConsolidationRequest {}
 
 #[cfg(test)]
 mod tests {

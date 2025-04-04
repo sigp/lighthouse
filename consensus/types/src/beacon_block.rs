@@ -81,9 +81,6 @@ pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BeaconBlock<E, Payload> {}
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BeaconBlockRef<'_, E, Payload> {}
-
 /// Empty block trait for each block variant to implement.
 pub trait EmptyBlock {
     /// Returns an empty block to be used during genesis.

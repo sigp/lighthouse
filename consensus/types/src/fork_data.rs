@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Hash256, SignedRoot};
+use crate::Hash256;
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -27,8 +27,6 @@ pub struct ForkData {
     pub current_version: [u8; 4],
     pub genesis_validators_root: Hash256,
 }
-
-impl SignedRoot for ForkData {}
 
 #[cfg(test)]
 mod tests {

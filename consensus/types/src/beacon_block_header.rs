@@ -33,8 +33,6 @@ pub struct BeaconBlockHeader {
     pub body_root: Hash256,
 }
 
-impl SignedRoot for BeaconBlockHeader {}
-
 impl BeaconBlockHeader {
     /// Returns the `tree_hash_root` of the header.
     ///

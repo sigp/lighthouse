@@ -1,5 +1,5 @@
 use super::{
-    ChainSpec, EthSpec, Fork, Hash256, SecretKey, Signature, SignedRoot, SyncCommitteeContribution,
+    ChainSpec, EthSpec, Fork, Hash256, SecretKey, Signature, SyncCommitteeContribution,
     SyncSelectionProof,
 };
 use crate::test_utils::TestRandom;
@@ -68,5 +68,3 @@ impl<E: EthSpec> ContributionAndProof<E> {
         }
     }
 }
-
-impl<E: EthSpec> SignedRoot for ContributionAndProof<E> {}

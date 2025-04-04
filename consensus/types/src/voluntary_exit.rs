@@ -31,8 +31,6 @@ pub struct VoluntaryExit {
     pub validator_index: u64,
 }
 
-impl SignedRoot for VoluntaryExit {}
-
 impl VoluntaryExit {
     pub fn sign(
         self,

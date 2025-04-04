@@ -27,8 +27,6 @@ pub struct BlsToExecutionChange {
     pub to_execution_address: Address,
 }
 
-impl SignedRoot for BlsToExecutionChange {}
-
 impl BlsToExecutionChange {
     pub fn sign(
         self,

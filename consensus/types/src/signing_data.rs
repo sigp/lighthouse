@@ -33,3 +33,5 @@ pub trait SignedRoot: TreeHash {
         .tree_hash_root()
     }
 }
+
+impl<T: TreeHash> SignedRoot for T {}

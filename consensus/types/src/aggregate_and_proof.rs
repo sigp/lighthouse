@@ -144,6 +144,3 @@ impl<E: EthSpec> AggregateAndProof<E> {
         self.selection_proof().verify(validator_pubkey, message)
     }
 }
-
-impl<E: EthSpec> SignedRoot for AggregateAndProof<E> {}
-impl<E: EthSpec> SignedRoot for AggregateAndProofRef<'_, E> {}

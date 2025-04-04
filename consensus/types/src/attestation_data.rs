@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Checkpoint, Hash256, SignedRoot, Slot};
+use crate::{Checkpoint, Hash256, Slot};
 
 use crate::slot_data::SlotData;
 use serde::{Deserialize, Serialize};
@@ -37,8 +37,6 @@ pub struct AttestationData {
     pub source: Checkpoint,
     pub target: Checkpoint,
 }
-
-impl SignedRoot for AttestationData {}
 
 impl SlotData for AttestationData {
     fn get_slot(&self) -> Slot {
