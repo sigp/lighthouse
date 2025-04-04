@@ -112,3 +112,9 @@ impl fmt::Display for ExecutionBlockHash {
         write!(f, "{}", self.0)
     }
 }
+
+impl From<Hash256> for ExecutionBlockHash {
+    fn from(hash: Hash256) -> Self {
+        Self(hash)
+    }
+}
