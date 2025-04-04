@@ -738,7 +738,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// - `slot` always increases by `1`.
     /// - Skipped slots contain the root of the closest prior
-    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`).
+    ///   non-skipped slot (identical to the way they are stored in `state.block_roots`).
     /// - Iterator returns `(Hash256, Slot)`.
     ///
     /// Will return a `BlockOutOfRange` error if the requested start slot is before the period of
@@ -802,7 +802,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// - `slot` always decreases by `1`.
     /// - Skipped slots contain the root of the closest prior
-    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`) .
+    ///   non-skipped slot (identical to the way they are stored in `state.block_roots`) .
     /// - Iterator returns `(Hash256, Slot)`.
     /// - The provided `block_root` is included as the first item in the iterator.
     pub fn rev_iter_block_roots_from(
@@ -831,7 +831,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - `slot` always decreases by `1`.
     /// - Iterator returns `(Hash256, Slot)`.
     /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
-    ///     returned may be earlier than the wall-clock slot.
+    ///   returned may be earlier than the wall-clock slot.
     pub fn rev_iter_state_roots_from<'a>(
         &'a self,
         state_root: Hash256,
@@ -3031,6 +3031,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         let chain = self.clone();
         self.task_executor
@@ -3040,7 +3041,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
-                    match GossipVerifiedBlock::new(block, &chain) {
+                    match GossipVerifiedBlock::new(block, &chain, custody_columns_count) {
                         Ok(verified) => {
                             let commitments_formatted = verified.block.commitments_formatted();
                             debug!(
@@ -7185,10 +7186,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         block_data: AvailableBlockData<T::EthSpec>,
     ) -> Result<Option<StoreOp<T::EthSpec>>, String> {
-        // TODO(das) we currently store all subnet sampled columns. Tracking issue to exclude non
-        // custody columns: https://github.com/sigp/lighthouse/issues/6465
-        let _custody_columns_count = self.data_availability_checker.get_sampling_column_count();
-
         match block_data {
             AvailableBlockData::NoData => Ok(None),
             AvailableBlockData::Blobs(blobs) => {
