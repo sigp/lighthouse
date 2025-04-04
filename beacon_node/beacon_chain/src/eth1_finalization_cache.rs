@@ -469,7 +469,7 @@ pub mod tests {
                     let last_finalized_eth1 = eth1s_by_count
                         .range(0..(finalized_deposits + 1))
                         .map(|(_, eth1)| eth1)
-                        .last()
+                        .next_back()
                         .cloned();
                     assert_eq!(
                         eth1cache.finalize(finalized_checkpoint),
