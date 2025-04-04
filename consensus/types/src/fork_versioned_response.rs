@@ -30,6 +30,20 @@ pub struct ForkVersionedResponse<T, M = EmptyMetadata> {
     pub data: T,
 }
 
+impl<T, M> ForkVersionedResponse<T, M> {
+    pub fn new(version: Option<ForkName>, metadata: M, data: T) -> Self {
+        Self {
+            version,
+            metadata,
+            data,
+        }
+    }
+
+    pub fn new_no_metadata(version: Option<ForkName>, data: T) -> ForkVersionedResponse<T> {
+        ForkVersionedResponse::new(version, EmptyMetadata {}, data)
+    }
+}
+
 /// Metadata type similar to unit (i.e. `()`) but deserializes from a map (`serde_json::Value`).
 ///
 /// Unfortunately the braces are semantically significant, i.e. `struct EmptyMetadata;` does not
