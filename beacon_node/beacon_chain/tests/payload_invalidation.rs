@@ -12,7 +12,6 @@ use execution_layer::{
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
-use logging::test_logger;
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -22,6 +21,7 @@ use task_executor::ShutdownReason;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
+const CGC: usize = 8;
 
 type E = MainnetEthSpec;
 
@@ -56,7 +56,6 @@ impl InvalidPayloadRig {
                 reconstruct_historic_states: true,
                 ..ChainConfig::default()
             })
-            .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .mock_execution_layer()
             .fresh_ephemeral_store()
@@ -413,7 +412,7 @@ async fn invalid_payload_invalidates_parent() {
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
-    let roots = vec![
+    let roots = [
         rig.import_block(Payload::Syncing).await,
         rig.import_block(Payload::Syncing).await,
         rig.import_block(Payload::Syncing).await,
@@ -986,10 +985,13 @@ async fn payload_preparation() {
     // Provide preparation data to the EL for `proposer`.
     el.update_proposer_preparation(
         Epoch::new(1),
-        &[ProposerPreparationData {
-            validator_index: proposer as u64,
-            fee_recipient,
-        }],
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer as u64,
+                fee_recipient,
+            },
+            &None,
+        )],
     )
     .await;
 
@@ -1049,7 +1051,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.clone().verify_block_for_gossip(block.clone().into()).await,
+        rig.harness.chain.clone().verify_block_for_gossip(block.clone(), CGC).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -1119,10 +1121,13 @@ async fn payload_preparation_before_transition_block() {
     // Provide preparation data to the EL for `proposer`.
     el.update_proposer_preparation(
         Epoch::new(0),
-        &[ProposerPreparationData {
-            validator_index: proposer as u64,
-            fee_recipient,
-        }],
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer as u64,
+                fee_recipient,
+            },
+            &None,
+        )],
     )
     .await;
 

@@ -5,7 +5,6 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
-use crate::error;
 use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::status_message;
@@ -15,21 +14,19 @@ use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
 };
 use futures::prelude::*;
-use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
-    rpc,
     service::api_types::{AppRequestId, SyncRequestId},
-    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Response,
+    MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
 };
+use logging::crit;
 use logging::TimeLatch;
-use slog::{crit, debug, o, trace};
-use slog::{error, warn};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
+use tracing::{debug, error, info_span, trace, warn, Instrument};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -43,8 +40,6 @@ pub struct Router<T: BeaconChainTypes> {
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
-    /// The `Router` logger.
-    log: slog::Logger,
     /// Provides de-bounce functionality for logging.
     logger_debounce: TimeLatch,
 }
@@ -57,19 +52,19 @@ pub enum RouterMessage<E: EthSpec> {
     /// An RPC request has been received.
     RPCRequestReceived {
         peer_id: PeerId,
-        id: PeerRequestId,
-        request: rpc::Request<E>,
+        inbound_request_id: InboundRequestId,
+        request_type: RequestType<E>,
     },
     /// An RPC response has been received.
     RPCResponseReceived {
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         response: Response<E>,
     },
     /// An RPC request failed
     RPCFailed {
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         error: RPCError,
     },
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
@@ -91,14 +86,12 @@ impl<T: BeaconChainTypes> Router<T> {
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
-        log: slog::Logger,
-    ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
-        let message_handler_log = log.new(o!("service"=> "router"));
-        trace!(message_handler_log, "Service starting");
+        fork_context: Arc<ForkContext>,
+    ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
+        trace!("Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
-        let sync_logger = log.new(o!("service"=> "sync"));
         // generate the message channel
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
@@ -112,7 +105,6 @@ impl<T: BeaconChainTypes> Router<T> {
             network_globals: network_globals.clone(),
             invalid_block_storage,
             executor: executor.clone(),
-            log: log.clone(),
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
@@ -123,7 +115,7 @@ impl<T: BeaconChainTypes> Router<T> {
             network_send.clone(),
             network_beacon_processor.clone(),
             sync_recv,
-            sync_logger,
+            fork_context,
         );
 
         // generate the Message handler
@@ -131,18 +123,18 @@ impl<T: BeaconChainTypes> Router<T> {
             network_globals,
             chain: beacon_chain,
             sync_send,
-            network: HandlerNetworkContext::new(network_send, log.clone()),
+            network: HandlerNetworkContext::new(network_send),
             network_beacon_processor,
-            log: message_handler_log,
             logger_debounce: TimeLatch::default(),
         };
 
         // spawn handler task and move the message handler instance into the spawned thread
         executor.spawn(
             async move {
-                debug!(log, "Network message router started");
+                debug!("Network message router started");
                 UnboundedReceiverStream::new(handler_recv)
                     .for_each(move |msg| future::ready(handler.handle_message(msg)))
+                    .instrument(info_span!("", service = "router"))
                     .await;
             },
             "router",
@@ -165,24 +157,24 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             RouterMessage::RPCRequestReceived {
                 peer_id,
-                id,
-                request,
+                inbound_request_id,
+                request_type,
             } => {
-                self.handle_rpc_request(peer_id, id, request);
+                self.handle_rpc_request(peer_id, inbound_request_id, request_type);
             }
             RouterMessage::RPCResponseReceived {
                 peer_id,
-                request_id,
+                app_request_id,
                 response,
             } => {
-                self.handle_rpc_response(peer_id, request_id, response);
+                self.handle_rpc_response(peer_id, app_request_id, response);
             }
             RouterMessage::RPCFailed {
                 peer_id,
-                request_id,
+                app_request_id,
                 error,
             } => {
-                self.on_rpc_error(peer_id, request_id, error);
+                self.on_rpc_error(peer_id, app_request_id, error);
             }
             RouterMessage::PubsubMessage(id, peer_id, gossip, should_process) => {
                 self.handle_gossip(id, peer_id, gossip, should_process);
@@ -196,23 +188,18 @@ impl<T: BeaconChainTypes> Router<T> {
     fn handle_rpc_request<E: EthSpec>(
         &mut self,
         peer_id: PeerId,
-        request_id: PeerRequestId,
-        rpc_request: rpc::Request<E>,
+        inbound_request_id: InboundRequestId, // Use ResponseId here
+        request_type: RequestType<E>,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
-            debug!(self.log, "Dropping request of disconnected peer"; "peer_id" => %peer_id, "request" => ?rpc_request);
+            debug!(%peer_id, request = ?request_type, "Dropping request of disconnected peer");
             return;
         }
-        match rpc_request.r#type {
-            RequestType::Status(status_message) => self.on_status_request(
-                peer_id,
-                request_id.0,
-                request_id.1,
-                rpc_request.id,
-                status_message,
-            ),
+        match request_type {
+            RequestType::Status(status_message) => {
+                self.on_status_request(peer_id, inbound_request_id, status_message)
+            }
             RequestType::BlocksByRange(request) => {
-                // return just one block in case the step parameter is used. https://github.com/ethereum/consensus-specs/pull/2856
                 let mut count = *request.count();
                 if *request.step() > 1 {
                     count = 1;
@@ -229,9 +216,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_blocks_by_range_request(
                         peer_id,
-                        request_id.0,
-                        request_id.1,
-                        rpc_request.id,
+                        inbound_request_id,
                         blocks_request,
                     ),
                 )
@@ -239,86 +224,50 @@ impl<T: BeaconChainTypes> Router<T> {
             RequestType::BlocksByRoot(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_blocks_by_roots_request(
                     peer_id,
-                    request_id.0,
-                    request_id.1,
-                    rpc_request.id,
+                    inbound_request_id,
                     request,
                 ),
             ),
             RequestType::BlobsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_blobs_by_range_request(
                     peer_id,
-                    request_id.0,
-                    request_id.1,
-                    rpc_request.id,
+                    inbound_request_id,
                     request,
                 ),
             ),
             RequestType::BlobsByRoot(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_blobs_by_roots_request(
                     peer_id,
-                    request_id.0,
-                    request_id.1,
-                    rpc_request.id,
+                    inbound_request_id,
                     request,
                 ),
             ),
             RequestType::DataColumnsByRoot(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_data_columns_by_roots_request(
-                        peer_id,
-                        request_id.0,
-                        request_id.1,
-                        rpc_request.id,
-                        request,
-                    ),
+                    .send_data_columns_by_roots_request(peer_id, inbound_request_id, request),
             ),
             RequestType::DataColumnsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_data_columns_by_range_request(
-                        peer_id,
-                        request_id.0,
-                        request_id.1,
-                        rpc_request.id,
-                        request,
-                    ),
+                    .send_data_columns_by_range_request(peer_id, inbound_request_id, request),
             ),
             RequestType::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_light_client_bootstrap_request(
-                        peer_id,
-                        request_id.0,
-                        request_id.1,
-                        rpc_request.id,
-                        request,
-                    ),
+                    .send_light_client_bootstrap_request(peer_id, inbound_request_id, request),
             ),
             RequestType::LightClientOptimisticUpdate => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_light_client_optimistic_update_request(
-                        peer_id,
-                        request_id.0,
-                        request_id.1,
-                        rpc_request.id,
-                    ),
+                    .send_light_client_optimistic_update_request(peer_id, inbound_request_id),
             ),
             RequestType::LightClientFinalityUpdate => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_light_client_finality_update_request(
-                        peer_id,
-                        request_id.0,
-                        request_id.1,
-                        rpc_request.id,
-                    ),
+                    .send_light_client_finality_update_request(peer_id, inbound_request_id),
             ),
             RequestType::LightClientUpdatesByRange(request) => self
                 .handle_beacon_processor_send_result(
                     self.network_beacon_processor
                         .send_light_client_updates_by_range_request(
                             peer_id,
-                            request_id.0,
-                            request_id.1,
-                            rpc_request.id,
+                            inbound_request_id,
                             request,
                         ),
                 ),
@@ -330,34 +279,34 @@ impl<T: BeaconChainTypes> Router<T> {
     fn handle_rpc_response(
         &mut self,
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         response: Response<T::EthSpec>,
     ) {
         match response {
             Response::Status(status_message) => {
-                debug!(self.log, "Received Status Response"; "peer_id" => %peer_id, &status_message);
+                debug!(%peer_id, ?status_message,"Received Status Response");
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor
                         .send_status_message(peer_id, status_message),
                 )
             }
             Response::BlocksByRange(beacon_block) => {
-                self.on_blocks_by_range_response(peer_id, request_id, beacon_block);
+                self.on_blocks_by_range_response(peer_id, app_request_id, beacon_block);
             }
             Response::BlocksByRoot(beacon_block) => {
-                self.on_blocks_by_root_response(peer_id, request_id, beacon_block);
+                self.on_blocks_by_root_response(peer_id, app_request_id, beacon_block);
             }
             Response::BlobsByRange(blob) => {
-                self.on_blobs_by_range_response(peer_id, request_id, blob);
+                self.on_blobs_by_range_response(peer_id, app_request_id, blob);
             }
             Response::BlobsByRoot(blob) => {
-                self.on_blobs_by_root_response(peer_id, request_id, blob);
+                self.on_blobs_by_root_response(peer_id, app_request_id, blob);
             }
             Response::DataColumnsByRoot(data_column) => {
-                self.on_data_columns_by_root_response(peer_id, request_id, data_column);
+                self.on_data_columns_by_root_response(peer_id, app_request_id, data_column);
             }
             Response::DataColumnsByRange(data_column) => {
-                self.on_data_columns_by_range_response(peer_id, request_id, data_column);
+                self.on_data_columns_by_range_response(peer_id, app_request_id, data_column);
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
@@ -391,6 +340,17 @@ impl<T: BeaconChainTypes> Router<T> {
             PubsubMessage::Attestation(subnet_attestation) => self
                 .handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_unaggregated_attestation(
+                        message_id,
+                        peer_id,
+                        subnet_attestation.1,
+                        subnet_attestation.0,
+                        should_process,
+                        timestamp_now(),
+                    ),
+                ),
+            PubsubMessage::SingleAttestation(subnet_attestation) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_single_attestation(
                         message_id,
                         peer_id,
                         subnet_attestation.1,
@@ -436,7 +396,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 )
             }
             PubsubMessage::VoluntaryExit(exit) => {
-                debug!(self.log, "Received a voluntary exit"; "peer_id" => %peer_id);
+                debug!(%peer_id, "Received a voluntary exit");
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor
                         .send_gossip_voluntary_exit(message_id, peer_id, exit),
@@ -444,9 +404,8 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             PubsubMessage::ProposerSlashing(proposer_slashing) => {
                 debug!(
-                    self.log,
-                    "Received a proposer slashing";
-                    "peer_id" => %peer_id
+                    %peer_id,
+                    "Received a proposer slashing"
                 );
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_gossip_proposer_slashing(
@@ -458,9 +417,8 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             PubsubMessage::AttesterSlashing(attester_slashing) => {
                 debug!(
-                    self.log,
-                    "Received a attester slashing";
-                    "peer_id" => %peer_id
+                    %peer_id,
+                    "Received a attester slashing"
                 );
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_gossip_attester_slashing(
@@ -472,9 +430,8 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             PubsubMessage::SignedContributionAndProof(contribution_and_proof) => {
                 trace!(
-                    self.log,
-                    "Received sync committee aggregate";
-                    "peer_id" => %peer_id
+                    %peer_id,
+                    "Received sync committee aggregate"
                 );
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_gossip_sync_contribution(
@@ -487,9 +444,8 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             PubsubMessage::SyncCommitteeMessage(sync_committtee_msg) => {
                 trace!(
-                    self.log,
-                    "Received sync committee signature";
-                    "peer_id" => %peer_id
+                    %peer_id,
+                    "Received sync committee signature"
                 );
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_gossip_sync_signature(
@@ -503,9 +459,8 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             PubsubMessage::LightClientFinalityUpdate(light_client_finality_update) => {
                 trace!(
-                    self.log,
-                    "Received light client finality update";
-                    "peer_id" => %peer_id
+                    %peer_id,
+                    "Received light client finality update"
                 );
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor
@@ -519,9 +474,9 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             PubsubMessage::LightClientOptimisticUpdate(light_client_optimistic_update) => {
                 trace!(
-                    self.log,
-                    "Received light client optimistic update";
-                    "peer_id" => %peer_id
+                    %peer_id,
+                    "Received light client optimistic update"
+
                 );
                 self.handle_beacon_processor_send_result(
                     self.network_beacon_processor
@@ -547,7 +502,7 @@ impl<T: BeaconChainTypes> Router<T> {
 
     fn send_status(&mut self, peer_id: PeerId) {
         let status_message = status_message(&self.chain);
-        debug!(self.log, "Sending Status Request"; "peer" => %peer_id, &status_message);
+        debug!(%peer_id, ?status_message, "Sending Status Request");
         self.network
             .send_processor_request(peer_id, RequestType::Status(status_message));
     }
@@ -555,21 +510,20 @@ impl<T: BeaconChainTypes> Router<T> {
     fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
         self.sync_send.send(message).unwrap_or_else(|e| {
             warn!(
-                self.log,
-                "Could not send message to the sync service";
-                "error" => %e,
+                error = %e,
+                "Could not send message to the sync service"
             )
         });
     }
 
     /// An error occurred during an RPC request. The state is maintained by the sync manager, so
     /// this function notifies the sync manager of the error.
-    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: AppRequestId, error: RPCError) {
+    pub fn on_rpc_error(&mut self, peer_id: PeerId, app_request_id: AppRequestId, error: RPCError) {
         // Check if the failed RPC belongs to sync
-        if let AppRequestId::Sync(request_id) = request_id {
+        if let AppRequestId::Sync(sync_request_id) = app_request_id {
             self.send_to_sync(SyncMessage::RpcError {
                 peer_id,
-                request_id,
+                sync_request_id,
                 error,
             });
         }
@@ -581,19 +535,16 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId, // Use ResponseId here
         status: StatusMessage,
     ) {
-        debug!(self.log, "Received Status Request"; "peer_id" => %peer_id, &status);
+        debug!(%peer_id, ?status, "Received Status Request");
 
         // Say status back.
         self.network.send_response(
             peer_id,
+            inbound_request_id,
             Response::Status(status_message(&self.chain)),
-            (connection_id, substream_id),
-            request_id,
         );
 
         self.handle_beacon_processor_send_result(
@@ -607,32 +558,33 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_blocks_by_range_response(
         &mut self,
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        let request_id = match request_id {
-            AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::RangeBlockAndBlobs { .. } => id,
+        let sync_request_id = match app_request_id {
+            AppRequestId::Sync(sync_request_id) => match sync_request_id {
+                id @ SyncRequestId::BlocksByRange { .. } => id,
                 other => {
-                    crit!(self.log, "BlocksByRange response on incorrect request"; "request" => ?other);
+                    crit!(request = ?other, "BlocksByRange response on incorrect request");
                     return;
                 }
             },
             AppRequestId::Router => {
-                crit!(self.log, "All BBRange requests belong to sync"; "peer_id" => %peer_id);
+                crit!(%peer_id, "All BBRange requests belong to sync");
                 return;
             }
+            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
         trace!(
-            self.log,
-            "Received BlocksByRange Response";
-            "peer" => %peer_id,
+            %peer_id,
+            "Received BlocksByRange Response"
+
         );
 
         self.send_to_sync(SyncMessage::RpcBlock {
             peer_id,
-            request_id,
+            sync_request_id,
             beacon_block,
             seen_timestamp: timestamp_now(),
         });
@@ -641,27 +593,23 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_blobs_by_range_response(
         &mut self,
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         trace!(
-            self.log,
-            "Received BlobsByRange Response";
-            "peer" => %peer_id,
+            %peer_id,
+            "Received BlobsByRange Response"
         );
 
-        if let AppRequestId::Sync(id) = request_id {
+        if let AppRequestId::Sync(sync_request_id) = app_request_id {
             self.send_to_sync(SyncMessage::RpcBlob {
                 peer_id,
-                request_id: id,
+                sync_request_id,
                 blob_sidecar,
                 seen_timestamp: timestamp_now(),
             });
         } else {
-            crit!(
-                self.log,
-                "All blobs by range responses should belong to sync"
-            );
+            crit!("All blobs by range responses should belong to sync");
         }
     }
 
@@ -669,31 +617,31 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        let request_id = match request_id {
+        let sync_request_id = match app_request_id {
             AppRequestId::Sync(sync_id) => match sync_id {
                 id @ SyncRequestId::SingleBlock { .. } => id,
                 other => {
-                    crit!(self.log, "BlocksByRoot response on incorrect request"; "request" => ?other);
+                    crit!(request = ?other, "BlocksByRoot response on incorrect request");
                     return;
                 }
             },
             AppRequestId::Router => {
-                crit!(self.log, "All BBRoot requests belong to sync"; "peer_id" => %peer_id);
+                crit!(%peer_id, "All BBRoot requests belong to sync");
                 return;
             }
+            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
         trace!(
-            self.log,
-            "Received BlocksByRoot Response";
-            "peer" => %peer_id,
+            %peer_id,
+            "Received BlocksByRoot Response"
         );
         self.send_to_sync(SyncMessage::RpcBlock {
             peer_id,
-            request_id,
+            sync_request_id,
             beacon_block,
             seen_timestamp: timestamp_now(),
         });
@@ -703,30 +651,30 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_blobs_by_root_response(
         &mut self,
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
-        let request_id = match request_id {
+        let sync_request_id = match app_request_id {
             AppRequestId::Sync(sync_id) => match sync_id {
                 id @ SyncRequestId::SingleBlob { .. } => id,
                 other => {
-                    crit!(self.log, "BlobsByRoot response on incorrect request"; "request" => ?other);
+                    crit!(request = ?other, "BlobsByRoot response on incorrect request");
                     return;
                 }
             },
             AppRequestId::Router => {
-                crit!(self.log, "All BlobsByRoot requests belong to sync"; "peer_id" => %peer_id);
+                crit!(%peer_id, "All BlobsByRoot requests belong to sync");
                 return;
             }
+            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
         trace!(
-            self.log,
-            "Received BlobsByRoot Response";
-            "peer" => %peer_id,
+            %peer_id,
+            "Received BlobsByRoot Response"
         );
         self.send_to_sync(SyncMessage::RpcBlob {
-            request_id,
+            sync_request_id,
             peer_id,
             blob_sidecar,
             seen_timestamp: timestamp_now(),
@@ -737,30 +685,30 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_data_columns_by_root_response(
         &mut self,
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        let request_id = match request_id {
+        let sync_request_id = match app_request_id {
             AppRequestId::Sync(sync_id) => match sync_id {
                 id @ SyncRequestId::DataColumnsByRoot { .. } => id,
                 other => {
-                    crit!(self.log, "DataColumnsByRoot response on incorrect request"; "request" => ?other);
+                    crit!(request = ?other, "DataColumnsByRoot response on incorrect request");
                     return;
                 }
             },
             AppRequestId::Router => {
-                crit!(self.log, "All DataColumnsByRoot requests belong to sync"; "peer_id" => %peer_id);
+                crit!(%peer_id, "All DataColumnsByRoot requests belong to sync");
                 return;
             }
+            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
         trace!(
-            self.log,
-            "Received DataColumnsByRoot Response";
-            "peer" => %peer_id,
+            %peer_id,
+            "Received DataColumnsByRoot Response"
         );
         self.send_to_sync(SyncMessage::RpcDataColumn {
-            request_id,
+            sync_request_id,
             peer_id,
             data_column,
             seen_timestamp: timestamp_now(),
@@ -770,27 +718,23 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_data_columns_by_range_response(
         &mut self,
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
         trace!(
-            self.log,
-            "Received DataColumnsByRange Response";
-            "peer" => %peer_id,
+            %peer_id,
+            "Received DataColumnsByRange Response"
         );
 
-        if let AppRequestId::Sync(id) = request_id {
+        if let AppRequestId::Sync(sync_request_id) = app_request_id {
             self.send_to_sync(SyncMessage::RpcDataColumn {
                 peer_id,
-                request_id: id,
+                sync_request_id,
                 data_column,
                 seen_timestamp: timestamp_now(),
             });
         } else {
-            crit!(
-                self.log,
-                "All data columns by range responses should belong to sync"
-            );
+            crit!("All data columns by range responses should belong to sync");
         }
     }
 
@@ -806,8 +750,7 @@ impl<T: BeaconChainTypes> Router<T> {
             };
 
             if self.logger_debounce.elapsed() {
-                error!(&self.log, "Unable to send message to the beacon processor";
-                    "error" => %e, "type" => work_type)
+                error!(error = %e, work_type, "Unable to send message to the beacon processor")
             }
         }
     }
@@ -819,27 +762,25 @@ impl<T: BeaconChainTypes> Router<T> {
 pub struct HandlerNetworkContext<E: EthSpec> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
-    /// Logger for the `NetworkContext`.
-    log: slog::Logger,
 }
 
 impl<E: EthSpec> HandlerNetworkContext<E> {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<E>>, log: slog::Logger) -> Self {
-        Self { network_send, log }
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<E>>) -> Self {
+        Self { network_send }
     }
 
     /// Sends a message to the network task.
     fn inform_network(&mut self, msg: NetworkMessage<E>) {
-        self.network_send.send(msg).unwrap_or_else(
-            |e| warn!(self.log, "Could not send message to the network service"; "error" => %e),
-        )
+        self.network_send
+            .send(msg)
+            .unwrap_or_else(|e| warn!(error = %e,"Could not send message to the network service"))
     }
 
     /// Sends a request to the network task.
     pub fn send_processor_request(&mut self, peer_id: PeerId, request: RequestType<E>) {
         self.inform_network(NetworkMessage::SendRequest {
             peer_id,
-            request_id: AppRequestId::Router,
+            app_request_id: AppRequestId::Router,
             request,
         })
     }
@@ -848,14 +789,12 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
         response: Response<E>,
-        id: PeerRequestId,
-        request_id: RequestId,
     ) {
         self.inform_network(NetworkMessage::SendResponse {
-            request_id,
             peer_id,
-            id,
+            inbound_request_id,
             response,
         })
     }

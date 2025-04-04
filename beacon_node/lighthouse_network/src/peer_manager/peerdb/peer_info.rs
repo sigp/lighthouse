@@ -4,6 +4,7 @@ use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
+use eth2::types::{PeerDirection, PeerState};
 use libp2p::core::multiaddr::{Multiaddr, Protocol};
 use serde::{
     ser::{SerializeStruct, Serializer},
@@ -21,7 +22,7 @@ use PeerConnectionStatus::*;
 #[serde(bound = "E: EthSpec")]
 pub struct PeerInfo<E: EthSpec> {
     /// The peers reputation
-    score: Score,
+    pub(crate) score: Score,
     /// Client managing this peer
     client: Client,
     /// Connection status of this peer
@@ -50,7 +51,7 @@ pub struct PeerInfo<E: EthSpec> {
     #[serde(skip)]
     min_ttl: Option<Instant>,
     /// Is the peer a trusted peer.
-    is_trusted: bool,
+    pub(crate) is_trusted: bool,
     /// Direction of the first connection of the last (or current) connected session with this peer.
     /// None if this peer was never connected.
     connection_direction: Option<ConnectionDirection>,
@@ -89,7 +90,7 @@ impl<E: EthSpec> PeerInfo<E> {
     }
 
     /// Returns if the peer is subscribed to a given `Subnet` from the metadata attnets/syncnets field.
-    /// Also returns true if the peer is assigned to custody a given data column `Subnet` computed from the metadata `custody_column_count` field or ENR `csc` field.
+    /// Also returns true if the peer is assigned to custody a given data column `Subnet` computed from the metadata `custody_group_count` field or ENR `cgc` field.
     pub fn on_subnet_metadata(&self, subnet: &Subnet) -> bool {
         if let Some(meta_data) = &self.meta_data {
             match subnet {
@@ -99,9 +100,11 @@ impl<E: EthSpec> PeerInfo<E> {
                 Subnet::SyncCommittee(id) => {
                     return meta_data
                         .syncnets()
-                        .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
+                        .is_ok_and(|s| s.get(**id as usize).unwrap_or(false))
                 }
-                Subnet::DataColumn(column) => return self.custody_subnets.contains(column),
+                Subnet::DataColumn(subnet_id) => {
+                    return self.is_assigned_to_custody_subnet(subnet_id)
+                }
             }
         }
         false
@@ -120,6 +123,24 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Returns the connection direction for the peer.
     pub fn connection_direction(&self) -> Option<&ConnectionDirection> {
         self.connection_direction.as_ref()
+    }
+
+    /// Returns true if this is an incoming ipv4 connection.
+    pub fn is_incoming_ipv4_connection(&self) -> bool {
+        self.seen_multiaddrs.iter().any(|multiaddr| {
+            multiaddr
+                .iter()
+                .any(|protocol| matches!(protocol, libp2p::core::multiaddr::Protocol::Ip4(_)))
+        })
+    }
+
+    /// Returns true if this is an incoming ipv6 connection.
+    pub fn is_incoming_ipv6_connection(&self) -> bool {
+        self.seen_multiaddrs.iter().any(|multiaddr| {
+            multiaddr
+                .iter()
+                .any(|protocol| matches!(protocol, libp2p::core::multiaddr::Protocol::Ip6(_)))
+        })
     }
 
     /// Returns the sync status of the peer.
@@ -214,6 +235,11 @@ impl<E: EthSpec> PeerInfo<E> {
         self.custody_subnets.contains(subnet)
     }
 
+    /// Returns an iterator on this peer's custody subnets
+    pub fn custody_subnets_iter(&self) -> impl Iterator<Item = &DataColumnSubnetId> {
+        self.custody_subnets.iter()
+    }
+
     /// Returns true if the peer is connected to a long-lived subnet.
     pub fn has_long_lived_subnet(&self) -> bool {
         // Check the meta_data
@@ -264,7 +290,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Reports if this peer has some future validator duty in which case it is valuable to keep it.
     pub fn has_future_duty(&self) -> bool {
-        self.min_ttl.map_or(false, |i| i >= Instant::now())
+        self.min_ttl.is_some_and(|i| i >= Instant::now())
     }
 
     /// Returns score of the peer.
@@ -497,13 +523,22 @@ impl<E: EthSpec> PeerInfo<E> {
 }
 
 /// Connection Direction of connection.
-#[derive(Debug, Clone, Serialize, AsRefStr)]
+#[derive(Debug, Clone, Copy, Serialize, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ConnectionDirection {
     /// The connection was established by a peer dialing us.
     Incoming,
     /// The connection was established by us dialing a peer.
     Outgoing,
+}
+
+impl From<ConnectionDirection> for PeerDirection {
+    fn from(direction: ConnectionDirection) -> Self {
+        match direction {
+            ConnectionDirection::Incoming => PeerDirection::Inbound,
+            ConnectionDirection::Outgoing => PeerDirection::Outbound,
+        }
+    }
 }
 
 /// Connection Status of the peer.
@@ -596,6 +631,17 @@ impl Serialize for PeerConnectionStatus {
                 s.serialize_field("last_seen", &0)?;
                 s.end()
             }
+        }
+    }
+}
+
+impl From<PeerConnectionStatus> for PeerState {
+    fn from(status: PeerConnectionStatus) -> Self {
+        match status {
+            Connected { .. } => PeerState::Connected,
+            Dialing { .. } => PeerState::Connecting,
+            Disconnecting { .. } => PeerState::Disconnecting,
+            Disconnected { .. } | Banned { .. } | Unknown => PeerState::Disconnected,
         }
     }
 }

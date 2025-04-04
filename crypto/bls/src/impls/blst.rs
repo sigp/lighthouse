@@ -5,7 +5,7 @@ use crate::{
         GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
     },
     generic_secret_key::TSecretKey,
-    generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
+    generic_signature::{TSignature, SIGNATURE_BYTES_LEN, SIGNATURE_UNCOMPRESSED_BYTES_LEN},
     BlstError, Error, Hash256, ZeroizeHash, INFINITY_SIGNATURE,
 };
 pub use blst::min_pk as blst_core;
@@ -189,8 +189,16 @@ impl TSignature<blst_core::PublicKey> for blst_core::Signature {
         self.to_bytes()
     }
 
+    fn serialize_uncompressed(&self) -> [u8; SIGNATURE_UNCOMPRESSED_BYTES_LEN] {
+        self.serialize()
+    }
+
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         Self::from_bytes(bytes).map_err(Into::into)
+    }
+
+    fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
+        Self::deserialize(bytes).map_err(Into::into)
     }
 
     fn verify(&self, pubkey: &blst_core::PublicKey, msg: Hash256) -> bool {

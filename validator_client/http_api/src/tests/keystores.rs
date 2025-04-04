@@ -16,8 +16,9 @@ use tokio::runtime::Handle;
 use types::{attestation::AttestationBase, Address};
 use validator_services::duties_service::DutyAndProof;
 use validator_store::DEFAULT_GAS_LIMIT;
+use zeroize::Zeroizing;
 
-fn new_keystore(password: ZeroizeString) -> Keystore {
+fn new_keystore(password: Zeroizing<String>) -> Keystore {
     let keypair = Keypair::random();
     Keystore(
         KeystoreBuilder::new(&keypair, password.as_ref(), String::new())
@@ -131,7 +132,7 @@ fn check_keystore_get_response<'a>(
     for (ks1, ks2) in response.data.iter().zip_eq(expected_keystores) {
         assert_eq!(ks1.validating_pubkey, keystore_pubkey(ks2));
         assert_eq!(ks1.derivation_path, ks2.path());
-        assert!(ks1.readonly == None || ks1.readonly == Some(false));
+        assert!(ks1.readonly.is_none() || ks1.readonly == Some(false));
     }
 }
 
@@ -148,7 +149,7 @@ fn check_keystore_import_response(
     }
 }
 
-fn check_keystore_delete_response<'a>(
+fn check_keystore_delete_response(
     response: &DeleteKeystoresResponse,
     expected_statuses: impl IntoIterator<Item = DeleteKeystoreStatus>,
 ) {
@@ -635,7 +636,7 @@ async fn check_get_set_fee_recipient() {
             assert_eq!(
                 get_res,
                 GetFeeRecipientResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     ethaddress: TEST_DEFAULT_FEE_RECIPIENT,
                 }
             );
@@ -655,7 +656,7 @@ async fn check_get_set_fee_recipient() {
             .post_fee_recipient(
                 &all_pubkeys[1],
                 &UpdateFeeRecipientRequest {
-                    ethaddress: fee_recipient_public_key_1.clone(),
+                    ethaddress: fee_recipient_public_key_1,
                 },
             )
             .await
@@ -668,14 +669,14 @@ async fn check_get_set_fee_recipient() {
                 .await
                 .expect("should get fee recipient");
             let expected = if i == 1 {
-                fee_recipient_public_key_1.clone()
+                fee_recipient_public_key_1
             } else {
                 TEST_DEFAULT_FEE_RECIPIENT
             };
             assert_eq!(
                 get_res,
                 GetFeeRecipientResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     ethaddress: expected,
                 }
             );
@@ -687,7 +688,7 @@ async fn check_get_set_fee_recipient() {
             .post_fee_recipient(
                 &all_pubkeys[2],
                 &UpdateFeeRecipientRequest {
-                    ethaddress: fee_recipient_public_key_2.clone(),
+                    ethaddress: fee_recipient_public_key_2,
                 },
             )
             .await
@@ -700,16 +701,16 @@ async fn check_get_set_fee_recipient() {
                 .await
                 .expect("should get fee recipient");
             let expected = if i == 1 {
-                fee_recipient_public_key_1.clone()
+                fee_recipient_public_key_1
             } else if i == 2 {
-                fee_recipient_public_key_2.clone()
+                fee_recipient_public_key_2
             } else {
                 TEST_DEFAULT_FEE_RECIPIENT
             };
             assert_eq!(
                 get_res,
                 GetFeeRecipientResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     ethaddress: expected,
                 }
             );
@@ -721,7 +722,7 @@ async fn check_get_set_fee_recipient() {
             .post_fee_recipient(
                 &all_pubkeys[1],
                 &UpdateFeeRecipientRequest {
-                    ethaddress: fee_recipient_override.clone(),
+                    ethaddress: fee_recipient_override,
                 },
             )
             .await
@@ -733,16 +734,16 @@ async fn check_get_set_fee_recipient() {
                 .await
                 .expect("should get fee recipient");
             let expected = if i == 1 {
-                fee_recipient_override.clone()
+                fee_recipient_override
             } else if i == 2 {
-                fee_recipient_public_key_2.clone()
+                fee_recipient_public_key_2
             } else {
                 TEST_DEFAULT_FEE_RECIPIENT
             };
             assert_eq!(
                 get_res,
                 GetFeeRecipientResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     ethaddress: expected,
                 }
             );
@@ -762,14 +763,14 @@ async fn check_get_set_fee_recipient() {
                 .await
                 .expect("should get fee recipient");
             let expected = if i == 2 {
-                fee_recipient_public_key_2.clone()
+                fee_recipient_public_key_2
             } else {
                 TEST_DEFAULT_FEE_RECIPIENT
             };
             assert_eq!(
                 get_res,
                 GetFeeRecipientResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     ethaddress: expected,
                 }
             );
@@ -815,7 +816,7 @@ async fn check_get_set_gas_limit() {
             assert_eq!(
                 get_res,
                 GetGasLimitResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     gas_limit: DEFAULT_GAS_LIMIT,
                 }
             );
@@ -844,14 +845,14 @@ async fn check_get_set_gas_limit() {
                 .await
                 .expect("should get gas limit");
             let expected = if i == 1 {
-                gas_limit_public_key_1.clone()
+                gas_limit_public_key_1
             } else {
                 DEFAULT_GAS_LIMIT
             };
             assert_eq!(
                 get_res,
                 GetGasLimitResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     gas_limit: expected,
                 }
             );
@@ -885,7 +886,7 @@ async fn check_get_set_gas_limit() {
             assert_eq!(
                 get_res,
                 GetGasLimitResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     gas_limit: expected,
                 }
             );
@@ -918,7 +919,7 @@ async fn check_get_set_gas_limit() {
             assert_eq!(
                 get_res,
                 GetGasLimitResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     gas_limit: expected,
                 }
             );
@@ -945,7 +946,7 @@ async fn check_get_set_gas_limit() {
             assert_eq!(
                 get_res,
                 GetGasLimitResponse {
-                    pubkey: pubkey.clone(),
+                    pubkey: *pubkey,
                     gas_limit: expected,
                 }
             );
@@ -1396,7 +1397,7 @@ async fn delete_concurrent_with_signing() {
         let handle = handle.spawn(async move {
             for j in 0..num_attestations {
                 let mut att = make_attestation(j, j + 1);
-                for (_validator_id, public_key) in thread_pubkeys.iter().enumerate() {
+                for public_key in thread_pubkeys.iter() {
                     let _ = validator_store
                         .sign_attestation(*public_key, 0, &mut att, Epoch::new(j + 1))
                         .await;
@@ -2175,7 +2176,7 @@ async fn import_remotekey_web3signer_disabled() {
         web3signer_req.enable = false;
 
         // Import web3signers.
-        let _ = tester
+        tester
             .client
             .post_lighthouse_validators_web3signer(&vec![web3signer_req])
             .await
@@ -2239,8 +2240,11 @@ async fn import_remotekey_web3signer_enabled() {
         // 1 validator imported.
         assert_eq!(tester.vals_total(), 1);
         assert_eq!(tester.vals_enabled(), 1);
-        let vals = tester.initialized_validators.read();
-        let web3_vals = vals.validator_definitions();
+        let web3_vals = tester
+            .initialized_validators
+            .read()
+            .validator_definitions()
+            .to_vec();
 
         // Import remotekeys.
         let import_res = tester
@@ -2257,11 +2261,13 @@ async fn import_remotekey_web3signer_enabled() {
 
         assert_eq!(tester.vals_total(), 1);
         assert_eq!(tester.vals_enabled(), 1);
-        let vals = tester.initialized_validators.read();
-        let remote_vals = vals.validator_definitions();
+        {
+            let vals = tester.initialized_validators.read();
+            let remote_vals = vals.validator_definitions();
 
-        // Web3signer should not be overwritten since it is enabled.
-        assert!(web3_vals == remote_vals);
+            // Web3signer should not be overwritten since it is enabled.
+            assert!(web3_vals == remote_vals);
+        }
 
         // Remotekey should not be imported.
         let expected_responses = vec![SingleListRemotekeysResponse {

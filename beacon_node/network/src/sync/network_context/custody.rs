@@ -1,16 +1,18 @@
 use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
-
+use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use lighthouse_network::PeerId;
 use lru_cache::LRUTimeCache;
+use parking_lot::RwLock;
 use rand::Rng;
-use slog::{debug, warn};
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
+use tracing::{debug, warn};
 use types::EthSpec;
 use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
 
@@ -32,8 +34,9 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     /// Peers that have recently failed to successfully respond to a columns by root request.
     /// Having a LRUTimeCache allows this request to not have to track disconnecting peers.
     failed_peers: LRUTimeCache<PeerId>,
-    /// Logger for the `SyncNetworkContext`.
-    pub log: slog::Logger,
+    /// Set of peers that claim to have imported this block and their custody columns
+    lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
+
     _phantom: PhantomData<T>,
 }
 
@@ -57,14 +60,15 @@ struct ActiveBatchColumnsRequest {
     indices: Vec<ColumnIndex>,
 }
 
-pub type CustodyRequestResult<E> = Result<Option<(DataColumnSidecarList<E>, PeerGroup)>, Error>;
+pub type CustodyRequestResult<E> =
+    Result<Option<(DataColumnSidecarList<E>, PeerGroup, Duration)>, Error>;
 
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
         block_root: Hash256,
         custody_id: CustodyId,
         column_indices: &[ColumnIndex],
-        log: slog::Logger,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Self {
         Self {
             block_root,
@@ -76,7 +80,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             ),
             active_batch_columns_requests: <_>::default(),
             failed_peers: LRUTimeCache::new(Duration::from_secs(FAILED_PEERS_CACHE_EXPIRY_SECONDS)),
-            log,
+            lookup_peers,
             _phantom: PhantomData,
         }
     }
@@ -96,27 +100,25 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
-        // TODO(das): Should downscore peers for verify errors here
-
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
-            warn!(self.log,
-                "Received custody column response for unrequested index";
-                "id" => ?self.custody_id,
-                "block_root" => ?self.block_root,
-                "req_id" => %req_id,
+            warn!(
+                id = ?self.custody_id,
+                block_root = ?self.block_root,
+                %req_id,
+                "Received custody column response for unrequested index"
             );
             return Ok(None);
         };
 
         match resp {
-            Ok((data_columns, _seen_timestamp)) => {
-                debug!(self.log,
-                    "Custody column download success";
-                    "id" => ?self.custody_id,
-                    "block_root" => ?self.block_root,
-                    "req_id" => %req_id,
-                    "peer" => %peer_id,
-                    "count" => data_columns.len()
+            Ok((data_columns, seen_timestamp)) => {
+                debug!(
+                    id = ?self.custody_id,
+                    block_root = ?self.block_root,
+                    %req_id,
+                    %peer_id,
+                    count = data_columns.len(),
+                    "Custody column download success"
                 );
 
                 // Map columns by index as an optimization to not loop the returned list on each
@@ -135,7 +137,12 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         .ok_or(Error::BadState("unknown column_index".to_owned()))?;
 
                     if let Some(data_column) = data_columns.remove(column_index) {
-                        column_request.on_download_success(req_id, peer_id, data_column)?;
+                        column_request.on_download_success(
+                            req_id,
+                            peer_id,
+                            data_column,
+                            seen_timestamp,
+                        )?;
                     } else {
                         // Peer does not have the requested data.
                         // TODO(das) do not consider this case a success. We know for sure the block has
@@ -153,27 +160,27 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
                 if !missing_column_indexes.is_empty() {
                     // Note: Batch logging that columns are missing to not spam logger
-                    debug!(self.log,
-                        "Custody column peer claims to not have some data";
-                        "id" => ?self.custody_id,
-                        "block_root" => ?self.block_root,
-                        "req_id" => %req_id,
-                        "peer" => %peer_id,
+                    debug!(
+                        id = ?self.custody_id,
+                        block_root = ?self.block_root,
+                        %req_id,
+                        %peer_id,
                         // TODO(das): this property can become very noisy, being the full range 0..128
-                        "missing_column_indexes" => ?missing_column_indexes
+                        ?missing_column_indexes,
+                        "Custody column peer claims to not have some data"
                     );
 
                     self.failed_peers.insert(peer_id);
                 }
             }
             Err(err) => {
-                debug!(self.log,
-                    "Custody column download error";
-                    "id" => ?self.custody_id,
-                    "block_root" => ?self.block_root,
-                    "req_id" => %req_id,
-                    "peer" => %peer_id,
-                    "error" => ?err
+                debug!(
+                    id = ?self.custody_id,
+                    block_root = ?self.block_root,
+                    %req_id,
+                   %peer_id,
+                   error = ?err,
+                    "Custody column download error"
                 );
 
                 // TODO(das): Should mark peer as failed and try from another peer
@@ -198,23 +205,27 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         if self.column_requests.values().all(|r| r.is_downloaded()) {
             // All requests have completed successfully.
             let mut peers = HashMap::<PeerId, Vec<usize>>::new();
+            let mut seen_timestamps = vec![];
             let columns = std::mem::take(&mut self.column_requests)
                 .into_values()
                 .map(|request| {
-                    let (peer, data_column) = request.complete()?;
+                    let (peer, data_column, seen_timestamp) = request.complete()?;
                     peers
                         .entry(peer)
                         .or_default()
                         .push(data_column.index as usize);
+                    seen_timestamps.push(seen_timestamp);
                     Ok(data_column)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
             let peer_group = PeerGroup::from_set(peers);
-            return Ok(Some((columns, peer_group)));
+            let max_seen_timestamp = seen_timestamps.into_iter().max().unwrap_or(timestamp_now());
+            return Ok(Some((columns, peer_group, max_seen_timestamp)));
         }
 
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+        let lookup_peers = self.lookup_peers.read();
 
         // Need to:
         // - track how many active requests a peer has for load balancing
@@ -244,6 +255,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     .iter()
                     .map(|peer| {
                         (
+                            // Prioritize peers that claim to know have imported this block
+                            if lookup_peers.contains(peer) { 0 } else { 1 },
                             // De-prioritize peers that have failed to successfully respond to
                             // requests recently
                             self.failed_peers.contains(peer),
@@ -257,7 +270,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     .collect::<Vec<_>>();
                 priorized_peers.sort_unstable();
 
-                if let Some((_, _, _, peer_id)) = priorized_peers.first() {
+                if let Some((_, _, _, _, peer_id)) = priorized_peers.first() {
                     columns_to_request_by_peer
                         .entry(*peer_id)
                         .or_default()
@@ -283,10 +296,11 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         block_root: self.block_root,
                         indices: indices.clone(),
                     },
-                    // true = enforce max_requests are returned data_columns_by_root. We only issue requests
-                    // for blocks after we know the block has data, and only request peers after they claim to
-                    // have imported the block+columns and claim to be custodians
-                    true,
+                    // If peer is in the lookup peer set, it claims to have imported the block and
+                    // must have its columns in custody. In that case, set `true = enforce max_requests`
+                    // and downscore if data_columns_by_root does not returned the expected custody
+                    // columns. For the rest of peers, don't downscore if columns are missing.
+                    lookup_peers.contains(&peer_id),
                 )
                 .map_err(Error::SendFailed)?;
 
@@ -325,7 +339,7 @@ struct ColumnRequest<E: EthSpec> {
 enum Status<E: EthSpec> {
     NotStarted(Instant),
     Downloading(DataColumnsByRootRequestId),
-    Downloaded(PeerId, Arc<DataColumnSidecar<E>>),
+    Downloaded(PeerId, Arc<DataColumnSidecar<E>>, Duration),
 }
 
 impl<E: EthSpec> ColumnRequest<E> {
@@ -394,6 +408,7 @@ impl<E: EthSpec> ColumnRequest<E> {
         req_id: DataColumnsByRootRequestId,
         peer_id: PeerId,
         data_column: Arc<DataColumnSidecar<E>>,
+        seen_timestamp: Duration,
     ) -> Result<(), Error> {
         match &self.status {
             Status::Downloading(expected_req_id) => {
@@ -403,7 +418,7 @@ impl<E: EthSpec> ColumnRequest<E> {
                         req_id,
                     });
                 }
-                self.status = Status::Downloaded(peer_id, data_column);
+                self.status = Status::Downloaded(peer_id, data_column, seen_timestamp);
                 Ok(())
             }
             other => Err(Error::BadState(format!(
@@ -412,9 +427,11 @@ impl<E: EthSpec> ColumnRequest<E> {
         }
     }
 
-    fn complete(self) -> Result<(PeerId, Arc<DataColumnSidecar<E>>), Error> {
+    fn complete(self) -> Result<(PeerId, Arc<DataColumnSidecar<E>>, Duration), Error> {
         match self.status {
-            Status::Downloaded(peer_id, data_column) => Ok((peer_id, data_column)),
+            Status::Downloaded(peer_id, data_column, seen_timestamp) => {
+                Ok((peer_id, data_column, seen_timestamp))
+            }
             other => Err(Error::BadState(format!(
                 "bad state complete expected Downloaded got {other:?}"
             ))),

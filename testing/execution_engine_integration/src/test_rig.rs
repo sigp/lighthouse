@@ -3,9 +3,10 @@ use crate::execution_engine::{
 };
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
+use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
-    PayloadStatus,
+    PayloadParameters, PayloadStatus,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
@@ -104,7 +105,6 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
 
 impl<Engine: GenericExecutionEngine> TestRig<Engine> {
     pub fn new(generic_engine: Engine) -> Self {
-        let log = logging::test_logger();
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -113,7 +113,12 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         );
         let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+        let executor = TaskExecutor::new(
+            Arc::downgrade(&runtime),
+            exit,
+            shutdown_tx,
+            "test".to_string(),
+        );
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
         spec.terminal_total_difficulty = Uint256::ZERO;
 
@@ -130,8 +135,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
-            let execution_layer =
-                ExecutionLayer::from_config(config, executor.clone(), log.clone()).unwrap();
+            let execution_layer = ExecutionLayer::from_config(config, executor.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -149,8 +153,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
-            let execution_layer =
-                ExecutionLayer::from_config(config, executor, log.clone()).unwrap();
+            let execution_layer = ExecutionLayer::from_config(config, executor).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -251,6 +254,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
          */
 
         let parent_hash = terminal_pow_block_hash;
+        let parent_gas_limit = DEFAULT_GAS_LIMIT;
         let timestamp = timestamp_now();
         let prev_randao = Hash256::zero();
         let head_root = Hash256::zero();
@@ -324,15 +328,22 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
         );
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: TEST_FORK,
+        };
+
         let block_proposal_content_type = self
             .ee_a
             .execution_layer
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                TEST_FORK,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,
@@ -476,15 +487,22 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
         );
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: TEST_FORK,
+        };
+
         let block_proposal_content_type = self
             .ee_a
             .execution_layer
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                TEST_FORK,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,

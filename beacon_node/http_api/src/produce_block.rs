@@ -147,13 +147,13 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti.map(Into::into),
+            query.graffiti,
             randao_verification,
             None,
             BlockProductionVersion::BlindedV2,
         )
         .await
-        .map_err(warp_utils::reject::block_production_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     build_response_v2(chain, block_response_type, endpoint_version, accept_header)
 }
@@ -178,13 +178,13 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti.map(Into::into),
+            query.graffiti,
             randao_verification,
             None,
             BlockProductionVersion::FullV2,
         )
         .await
-        .map_err(warp_utils::reject::block_production_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     build_response_v2(chain, block_response_type, endpoint_version, accept_header)
 }

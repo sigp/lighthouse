@@ -18,16 +18,16 @@ Options:
           certificate path.
       --broadcast <API_TOPICS>
           Comma-separated list of beacon API topics to broadcast to all beacon
-          nodes. Possible values are: none, attestations, blocks, subscriptions,
-          sync-committee. Default (when flag is omitted) is to broadcast
-          subscriptions only.
+          nodes. Default (when flag is omitted) is to broadcast subscriptions
+          only. [possible values: none, attestations, blocks, subscriptions,
+          sync-committee]
       --builder-boost-factor <UINT64>
           Defines the boost factor, a percentage multiplier to apply to the
           builder's payload value when choosing between a builder payload header
           and payload from the local execution node.
-      --builder-registration-timestamp-override <builder-registration-timestamp-override>
+      --builder-registration-timestamp-override <UNIX-TIMESTAMP>
           This flag takes a unix timestamp value that will be used to override
-          the timestamp used in the builder api registration
+          the timestamp used in the builder api registration.
   -d, --datadir <DIR>
           Used to specify a custom root data directory for lighthouse keys and
           databases. Defaults to $HOME/.lighthouse/{network} where network is
@@ -35,13 +35,12 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --gas-limit <INTEGER>
           The gas limit to be used in all builder proposals for all validators
           managed by this validator client. Note this will not necessarily be
           used if the gas limit set here moves too far from the previous block's
-          gas limit. [default: 30,000,000]
+          gas limit. [default: 30000000]
       --genesis-state-url <URL>
           A URL of a beacon-API compatible server from which to download the
           genesis state. Checkpoint sync server URLs can generally be used with
@@ -50,7 +49,7 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks.
       --graffiti-file <GRAFFITI-FILE>
@@ -68,19 +67,20 @@ Options:
           is supplied, the CORS allowed origin is set to the listen address of
           this server (e.g., http://localhost:5062).
       --http-port <PORT>
-          Set the listen TCP port for the RESTful HTTP API server.
+          Set the listen TCP port for the RESTful HTTP API server. [default:
+          5062]
+      --http-token-path <HTTP_TOKEN_PATH>
+          Path to file containing the HTTP API token for validator client
+          authentication. If not specified, defaults to
+          {validators-dir}/api-token.txt.
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
-      --logfile <FILE>
-          File path where the log file will be stored. Once it grows to the
-          value specified in `--logfile-max-size` a new log file is generated
-          where future logs are stored. Once the number of log files exceeds the
-          value specified in `--logfile-max-number` the oldest log file will be
-          overwritten.
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
+      --logfile-dir <DIR>
+          Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
           [possible values: DEFAULT, JSON]
@@ -92,6 +92,7 @@ Options:
           set to 0, background file logging is disabled. [default: 200]
       --metrics-address <ADDRESS>
           Set the listen address for the Prometheus metrics HTTP server.
+          [default: 127.0.0.1]
       --metrics-allow-origin <ORIGIN>
           Set the value of the Access-Control-Allow-Origin response HTTP header.
           Use * to allow any origin (not recommended in production). If no value
@@ -99,6 +100,7 @@ Options:
           this server (e.g., http://localhost:5064).
       --metrics-port <PORT>
           Set the listen TCP port for the Prometheus metrics HTTP server.
+          [default: 5064]
       --monitoring-endpoint <ADDRESS>
           Enables the monitoring service for sending system metrics to a remote
           endpoint. This can be used to monitor your setup on certain services
@@ -109,10 +111,10 @@ Options:
           provide an untrusted URL.
       --monitoring-endpoint-period <SECONDS>
           Defines how many seconds to wait between each message sent to the
-          monitoring-endpoint. Default: 60s
+          monitoring-endpoint. [default: 60]
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky, hoodi]
       --proposer-nodes <NETWORK_ADDRESSES>
           Comma-separated addresses to one or more beacon node HTTP APIs. These
           specify nodes that are used to send beacon block proposals. A failure
@@ -141,8 +143,8 @@ Options:
           each validator along with the common slashing protection database and
           the validator_definitions.yml
       --web3-signer-keep-alive-timeout <MILLIS>
-          Keep-alive timeout for each web3signer connection. Set to 'null' to
-          never timeout [default: 20000]
+          Keep-alive timeout for each web3signer connection. Set to '0' to never
+          timeout. [default: 20000]
       --web3-signer-max-idle-connections <COUNT>
           Maximum number of idle connections to maintain per web3signer host.
           Default is unlimited.
@@ -168,6 +170,10 @@ Flags:
           If this flag is set, Lighthouse will query the Beacon Node for only
           block headers during proposals and will sign over headers. Useful for
           outsourcing execution payload construction during proposals.
+      --disable-attesting
+          Disable the performance of attestation duties (and sync committee
+          duties). This flag should only be used in emergencies to prioritise
+          block proposal duties.
       --disable-auto-discover
           If present, do not attempt to discover new validators in the
           validators-dir. Validators will need to be manually added to the
@@ -229,8 +235,13 @@ Flags:
           database will have been initialized when you imported your validator
           keys. If you misplace your database and then run with this flag you
           risk being slashed.
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
+      --log-extra-info
+          If present, show module,file,line in logs
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.
@@ -240,6 +251,13 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
+      --long-timeouts-multiplier <LONG_TIMEOUTS_MULTIPLIER>
+          If present, the validator client will use a multiplier for the timeout
+          when making requests to the beacon node. This only takes effect when
+          the `--use-long-timeouts` flag is present. The timeouts will be the
+          slot duration multiplied by this value. This flag is generally not
+          recommended, longer timeouts can cause missed duties when fallbacks
+          are used. [default: 1]
       --metrics
           Enable the Prometheus metrics HTTP server. Disabled by default.
       --prefer-builder-proposals

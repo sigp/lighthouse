@@ -7,7 +7,7 @@ pub struct BeaconCommittee<'a> {
     pub committee: &'a [usize],
 }
 
-impl<'a> BeaconCommittee<'a> {
+impl BeaconCommittee<'_> {
     pub fn into_owned(self) -> OwnedBeaconCommittee {
         OwnedBeaconCommittee {
             slot: self.slot,

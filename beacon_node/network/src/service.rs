@@ -1,33 +1,31 @@
+use crate::metrics;
 use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
-use crate::subnet_service::SyncCommitteeService;
-use crate::{error, metrics};
-use crate::{
-    subnet_service::{AttestationService, SubnetServiceMessage},
-    NetworkConfig,
-};
+use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
+use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
-use futures::StreamExt;
-use lighthouse_network::rpc::{RequestId, RequestType};
+use lighthouse_network::rpc::InboundRequestId;
+use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
+use lighthouse_network::Enr;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RpcErrorResponse},
-    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Response, Subnet,
+    Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
 };
 use lighthouse_network::{
     service::api_types::AppRequestId,
     types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
-use slog::{crit, debug, error, info, o, trace, warn};
+use logging::crit;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -35,9 +33,10 @@ use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
+use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use types::{
-    ChainSpec, DataColumnSubnetId, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, Unsigned, ValidatorSubscription,
+    ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
+    Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -63,22 +62,20 @@ pub enum NetworkMessage<E: EthSpec> {
     SendRequest {
         peer_id: PeerId,
         request: RequestType<E>,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
     },
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         response: Response<E>,
-        id: PeerRequestId,
     },
     /// Sends an error response to an RPC request.
     SendErrorResponse {
         peer_id: PeerId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         error: RpcErrorResponse,
         reason: String,
-        id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<E>> },
@@ -104,6 +101,10 @@ pub enum NetworkMessage<E: EthSpec> {
         reason: GoodbyeReason,
         source: ReportSource,
     },
+    /// Connect to a trusted peer and try to maintain the connection.
+    ConnectTrustedPeer(Enr),
+    /// Disconnect from a trusted peer and remove it from the `trusted_peers` mapping.
+    DisconnectTrustedPeer(Enr),
 }
 
 /// Messages triggered by validators that may trigger a subscription to a subnet.
@@ -165,10 +166,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     beacon_chain: Arc<BeaconChain<T>>,
     /// The underlying libp2p service that drives all the network interactions.
     libp2p: Network<T::EthSpec>,
-    /// An attestation and subnet manager service.
-    attestation_service: AttestationService<T>,
-    /// A sync committeee subnet manager service.
-    sync_committee_service: SyncCommitteeService<T>,
+    /// An attestation and sync committee subnet manager service.
+    subnet_service: SubnetService<T>,
     /// The receiver channel for lighthouse to communicate with the network service.
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
     /// The receiver channel for lighthouse to send validator subscription requests.
@@ -186,10 +185,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     next_fork_subscriptions: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to unsubscribe from old fork topics.
     next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
-    /// Subscribe to all the data column subnets.
-    subscribe_all_data_column_subnets: bool,
-    /// Subscribe to all the subnets once synced.
-    subscribe_all_subnets: bool,
     /// Shutdown beacon node after sync is complete.
     shutdown_after_sync: bool,
     /// Whether metrics are enabled or not.
@@ -198,11 +193,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     metrics_update: tokio::time::Interval,
     /// gossipsub_parameter_update timer
     gossipsub_parameter_update: tokio::time::Interval,
-    /// enable_light_client_server indicator
-    enable_light_client_server: bool,
-    /// The logger for the network service.
+    /// Provides fork specific info.
     fork_context: Arc<ForkContext>,
-    log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
@@ -213,35 +205,31 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
-    ) -> error::Result<(
-        NetworkService<T>,
-        Arc<NetworkGlobals<T::EthSpec>>,
-        NetworkSenders<T::EthSpec>,
-    )> {
-        let network_log = executor.log().clone();
+    ) -> Result<
+        (
+            NetworkService<T>,
+            Arc<NetworkGlobals<T::EthSpec>>,
+            NetworkSenders<T::EthSpec>,
+        ),
+        String,
+    > {
         // build the channels for external comms
         let (network_senders, network_receivers) = NetworkSenders::new();
 
         #[cfg(feature = "disable-backfill")]
-        warn!(
-            network_log,
-            "Backfill is disabled. DO NOT RUN IN PRODUCTION"
-        );
+        warn!("Backfill is disabled. DO NOT RUN IN PRODUCTION");
 
         if let (true, false, Some(v4)) = (
             config.upnp_enabled,
             config.disable_discovery,
             config.listen_addrs().v4(),
         ) {
-            let nw = network_log.clone();
             let v4 = v4.clone();
             executor.spawn(
                 async move {
-                    info!(nw, "UPnP Attempting to initialise routes");
-                    if let Err(e) =
-                        nat::construct_upnp_mappings(v4.addr, v4.disc_port, nw.clone()).await
-                    {
-                        info!(nw, "Could not UPnP map Discovery port"; "error" => %e);
+                    info!("UPnP Attempting to initialise routes");
+                    if let Err(e) = nat::construct_upnp_mappings(v4.addr, v4.disc_port).await {
+                        info!(error = %e, "Could not UPnP map Discovery port");
                     }
                 },
                 "UPnP",
@@ -270,7 +258,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             &beacon_chain.spec,
         ));
 
-        debug!(network_log, "Current fork"; "fork_name" => ?fork_context.current_fork());
+        debug!(fork_name = ?fork_context.current_fork(), "Current fork");
 
         // construct the libp2p service context
         let service_context = Context {
@@ -282,15 +270,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         };
 
         // launch libp2p service
-        let (mut libp2p, network_globals) =
-            Network::new(executor.clone(), service_context, &network_log).await?;
+        let (mut libp2p, network_globals) = Network::new(executor.clone(), service_context).await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {
             let enrs_to_load = load_dht::<T::EthSpec, T::HotStore, T::ColdStore>(store.clone());
             debug!(
-                network_log,
-                "Loading peers into the routing table"; "peers" => enrs_to_load.len()
+                peers = enrs_to_load.len(),
+                "Loading peers into the routing table"
             );
             for enr in enrs_to_load {
                 libp2p.add_enr(enr.clone());
@@ -314,19 +301,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             invalid_block_storage,
             beacon_processor_send,
             beacon_processor_reprocess_tx,
-            network_log.clone(),
+            fork_context.clone(),
         )?;
 
-        // attestation subnet service
-        let attestation_service = AttestationService::new(
+        // attestation and sync committee subnet service
+        let subnet_service = SubnetService::new(
             beacon_chain.clone(),
             network_globals.local_enr().node_id(),
             &config,
-            &network_log,
         );
-        // sync committee subnet service
-        let sync_committee_service =
-            SyncCommitteeService::new(beacon_chain.clone(), &config, &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -340,12 +323,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         } = network_receivers;
 
         // create the network service and spawn the task
-        let network_log = network_log.new(o!("service" => "network"));
         let network_service = NetworkService {
             beacon_chain,
             libp2p,
-            attestation_service,
-            sync_committee_service,
+            subnet_service,
             network_recv,
             validator_subscription_recv,
             router_send,
@@ -354,15 +335,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             next_fork_update,
             next_fork_subscriptions,
             next_unsubscribe,
-            subscribe_all_data_column_subnets: config.subscribe_all_data_column_subnets,
-            subscribe_all_subnets: config.subscribe_all_subnets,
             shutdown_after_sync: config.shutdown_after_sync,
             metrics_enabled: config.metrics_enabled,
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
-            log: network_log,
-            enable_light_client_server: config.enable_light_client_server,
         };
 
         Ok((network_service, network_globals, network_senders))
@@ -376,7 +353,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
-    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
+    ) -> Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>), String> {
         let (network_service, network_globals, network_senders) = Self::build(
             beacon_chain,
             config,
@@ -431,7 +408,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn send_to_router(&mut self, msg: RouterMessage<T::EthSpec>) {
         if let Err(mpsc::error::SendError(msg)) = self.router_send.send(msg) {
-            debug!(self.log, "Failed to send msg to router"; "msg" => ?msg);
+            debug!(?msg, "Failed to send msg to router");
         }
     }
 
@@ -460,11 +437,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     // handle a message from a validator requesting a subscription to a subnet
                     Some(msg) = self.validator_subscription_recv.recv() => self.on_validator_subscription_msg(msg).await,
 
-                    // process any attestation service events
-                    Some(msg) = self.attestation_service.next() => self.on_attestation_service_msg(msg),
-
-                    // process any sync committee service events
-                    Some(msg) = self.sync_committee_service.next() => self.on_sync_committee_service_message(msg),
+                    // process any subnet service events
+                    Some(msg) = self.subnet_service.next() => self.on_subnet_service_msg(msg),
 
                     event = self.libp2p.next_event() => self.on_libp2p_event(event, &mut shutdown_sender).await,
 
@@ -473,7 +447,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(_) = &mut self.next_unsubscribe => {
                         let new_enr_fork_id = self.beacon_chain.enr_fork_id();
                         self.libp2p.unsubscribe_from_fork_topics_except(new_enr_fork_id.fork_digest);
-                        info!(self.log, "Unsubscribed from old fork topics");
+                        info!("Unsubscribed from old fork topics");
                         self.next_unsubscribe = Box::pin(None.into());
                     }
 
@@ -481,17 +455,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         if let Some((fork_name, _)) = self.beacon_chain.duration_to_next_fork() {
                             let fork_version = self.beacon_chain.spec.fork_version_for_name(fork_name);
                             let fork_digest = ChainSpec::compute_fork_digest(fork_version, self.beacon_chain.genesis_validators_root);
-                            info!(self.log, "Subscribing to new fork topics");
+                            info!("Subscribing to new fork topics");
                             self.libp2p.subscribe_new_fork_topics(fork_name, fork_digest);
                             self.next_fork_subscriptions = Box::pin(None.into());
                         }
                         else {
-                            error!(self.log, "Fork subscription scheduled but no fork scheduled");
+                            error!( "Fork subscription scheduled but no fork scheduled");
                         }
                     }
                 }
             }
-        };
+        }.instrument(info_span!("", service = "network"));
         executor.spawn(service_fut, "network");
     }
 
@@ -513,30 +487,34 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             NetworkEvent::RequestReceived {
                 peer_id,
-                id,
-                request,
+                inbound_request_id,
+                request_type,
             } => {
                 self.send_to_router(RouterMessage::RPCRequestReceived {
                     peer_id,
-                    id,
-                    request,
+                    inbound_request_id,
+                    request_type,
                 });
             }
             NetworkEvent::ResponseReceived {
                 peer_id,
-                id,
+                app_request_id,
                 response,
             } => {
                 self.send_to_router(RouterMessage::RPCResponseReceived {
                     peer_id,
-                    request_id: id,
+                    app_request_id,
                     response,
                 });
             }
-            NetworkEvent::RPCFailed { id, peer_id, error } => {
+            NetworkEvent::RPCFailed {
+                app_request_id,
+                peer_id,
+                error,
+            } => {
                 self.send_to_router(RouterMessage::RPCFailed {
                     peer_id,
-                    request_id: id,
+                    app_request_id,
                     error,
                 });
             }
@@ -552,13 +530,30 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 match message {
                     // attestation information gets processed in the attestation service
                     PubsubMessage::Attestation(ref subnet_and_attestation) => {
-                        let subnet = subnet_and_attestation.0;
+                        let subnet_id = subnet_and_attestation.0;
                         let attestation = &subnet_and_attestation.1;
                         // checks if we have an aggregator for the slot. If so, we should process
                         // the attestation, else we just just propagate the Attestation.
-                        let should_process = self
-                            .attestation_service
-                            .should_process_attestation(subnet, attestation);
+                        let should_process = self.subnet_service.should_process_attestation(
+                            Subnet::Attestation(subnet_id),
+                            attestation.data(),
+                        );
+                        self.send_to_router(RouterMessage::PubsubMessage(
+                            id,
+                            source,
+                            message,
+                            should_process,
+                        ));
+                    }
+                    PubsubMessage::SingleAttestation(ref subnet_and_attestation) => {
+                        let subnet_id = subnet_and_attestation.0;
+                        let single_attestation = &subnet_and_attestation.1;
+                        // checks if we have an aggregator for the slot. If so, we should process
+                        // the attestation, else we just just propagate the Attestation.
+                        let should_process = self.subnet_service.should_process_attestation(
+                            Subnet::Attestation(subnet_id),
+                            &single_attestation.data,
+                        );
                         self.send_to_router(RouterMessage::PubsubMessage(
                             id,
                             source,
@@ -588,9 +583,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     .await
                     .map_err(|e| {
                         warn!(
-                            self.log,
-                            "failed to send a shutdown signal";
-                            "error" => %e
+                            error = %e,
+                            "failed to send a shutdown signal"
                         )
                     });
             }
@@ -610,45 +604,43 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::SendRequest {
                 peer_id,
                 request,
-                request_id,
+                app_request_id,
             } => {
-                if let Err((request_id, error)) =
-                    self.libp2p.send_request(peer_id, request_id, request)
+                if let Err((app_request_id, error)) =
+                    self.libp2p.send_request(peer_id, app_request_id, request)
                 {
                     self.send_to_router(RouterMessage::RPCFailed {
                         peer_id,
-                        request_id,
+                        app_request_id,
                         error,
                     });
                 }
             }
             NetworkMessage::SendResponse {
                 peer_id,
+                inbound_request_id,
                 response,
-                id,
-                request_id,
             } => {
-                self.libp2p.send_response(peer_id, id, request_id, response);
+                self.libp2p
+                    .send_response(peer_id, inbound_request_id, response);
             }
             NetworkMessage::SendErrorResponse {
                 peer_id,
                 error,
-                id,
-                request_id,
+                inbound_request_id,
                 reason,
             } => {
                 self.libp2p
-                    .send_error_response(peer_id, id, request_id, error, reason);
+                    .send_error_response(peer_id, inbound_request_id, error, reason);
             }
             NetworkMessage::ValidationResult {
                 propagation_source,
                 message_id,
                 validation_result,
             } => {
-                trace!(self.log, "Propagating gossipsub message";
-                    "propagation_peer" => ?propagation_source,
-                    "message_id" => %message_id,
-                    "validation_result" => ?validation_result
+                trace!(                    propagation_peer = ?propagation_source,
+                    %message_id,
+                    ?validation_result, "Propagating gossipsub message"
                 );
                 self.libp2p.report_message_validation_result(
                     &propagation_source,
@@ -664,10 +656,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
                 debug!(
-                    self.log,
-                    "Sending pubsub messages";
-                    "count" => messages.len(),
-                    "topics" => ?topic_kinds
+                    count = messages.len(),
+                    topics = ?topic_kinds,
+                    "Sending pubsub messages"
                 );
                 self.libp2p.publish(messages);
             }
@@ -682,6 +673,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 reason,
                 source,
             } => self.libp2p.goodbye_peer(&peer_id, reason, source),
+            NetworkMessage::ConnectTrustedPeer(enr) => {
+                self.libp2p.dial_trusted_peer(enr);
+            }
+            NetworkMessage::DisconnectTrustedPeer(enr) => {
+                self.libp2p.remove_trusted_peer(enr);
+            }
             NetworkMessage::SubscribeCoreTopics => {
                 if self.subscribed_core_topics() {
                     return;
@@ -696,9 +693,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         .await
                     {
                         warn!(
-                            self.log,
-                            "failed to send a shutdown signal";
-                            "error" => %e
+                            error = %e,
+                            "failed to send a shutdown signal"
                         )
                     }
                     return;
@@ -707,6 +703,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
                 for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
                     self.fork_context.current_fork(),
+                    &self.network_globals.as_topic_config(),
                     &self.fork_context.spec,
                 ) {
                     for fork_digest in self.required_gossip_fork_digests() {
@@ -718,111 +715,31 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         if self.libp2p.subscribe(topic.clone()) {
                             subscribed_topics.push(topic);
                         } else {
-                            warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                            warn!(%topic, "Could not subscribe to topic");
                         }
                     }
-                }
-
-                if self.enable_light_client_server {
-                    for light_client_topic_kind in
-                        lighthouse_network::types::LIGHT_CLIENT_GOSSIP_TOPICS.iter()
-                    {
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let light_client_topic = GossipTopic::new(
-                                light_client_topic_kind.clone(),
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(light_client_topic.clone()) {
-                                subscribed_topics.push(light_client_topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %light_client_topic);
-                            }
-                        }
-                    }
-                }
-
-                // TODO(das): This is added here for the purpose of testing, *without* having to
-                // activate Electra. This should happen as part of the Electra upgrade and we should
-                // move the subscription logic once it's ready to rebase PeerDAS on Electra, or if
-                // we decide to activate via the soft fork route:
-                // https://github.com/sigp/lighthouse/pull/5899
-                if self.fork_context.spec.is_peer_das_scheduled() {
-                    self.subscribe_to_peer_das_topics(&mut subscribed_topics);
                 }
 
                 // If we are to subscribe to all subnets we do it here
-                if self.subscribe_all_subnets {
+                if self.network_globals.config.subscribe_all_subnets {
                     for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
                         let subnet = Subnet::Attestation(SubnetId::new(subnet_id));
                         // Update the ENR bitfield
                         self.libp2p.update_enr_subnet(subnet, true);
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let topic = GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
-                        }
                     }
                     let subnet_max = <<T as BeaconChainTypes>::EthSpec as EthSpec>::SyncCommitteeSubnetCount::to_u64();
                     for subnet_id in 0..subnet_max {
                         let subnet = Subnet::SyncCommittee(SyncSubnetId::new(subnet_id));
                         // Update the ENR bitfield
                         self.libp2p.update_enr_subnet(subnet, true);
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let topic = GossipTopic::new(
-                                subnet.into(),
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
-                        }
                     }
                 }
 
                 if !subscribed_topics.is_empty() {
                     info!(
-                        self.log,
-                        "Subscribed to topics";
-                        "topics" => ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>()
+                        topics = ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>(),
+                        "Subscribed to topics"
                     );
-                }
-            }
-        }
-    }
-
-    fn subscribe_to_peer_das_topics(&mut self, subscribed_topics: &mut Vec<GossipTopic>) {
-        if self.subscribe_all_data_column_subnets {
-            for column_subnet in 0..self.fork_context.spec.data_column_sidecar_subnet_count {
-                for fork_digest in self.required_gossip_fork_digests() {
-                    let gossip_kind =
-                        Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
-                    let topic =
-                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
-                    if self.libp2p.subscribe(topic.clone()) {
-                        subscribed_topics.push(topic);
-                    } else {
-                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                    }
-                }
-            }
-        } else {
-            for column_subnet in &self.network_globals.sampling_subnets {
-                for fork_digest in self.required_gossip_fork_digests() {
-                    let gossip_kind = Subnet::DataColumn(*column_subnet).into();
-                    let topic =
-                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
-                    if self.libp2p.subscribe(topic.clone()) {
-                        subscribed_topics.push(topic);
-                    } else {
-                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                    }
                 }
             }
         }
@@ -832,20 +749,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     async fn on_validator_subscription_msg(&mut self, msg: ValidatorSubscriptionMessage) {
         match msg {
             ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions } => {
-                if let Err(e) = self
-                    .attestation_service
-                    .validator_subscriptions(subscriptions.into_iter())
-                {
-                    warn!(self.log, "Attestation validator subscription failed"; "error" => e);
-                }
+                let subscriptions = subscriptions.into_iter().map(Subscription::Attestation);
+                self.subnet_service.validator_subscriptions(subscriptions)
             }
             ValidatorSubscriptionMessage::SyncCommitteeSubscribe { subscriptions } => {
-                if let Err(e) = self
-                    .sync_committee_service
-                    .validator_subscriptions(subscriptions)
-                {
-                    warn!(self.log, "Sync committee calidator subscription failed"; "error" => e);
-                }
+                let subscriptions = subscriptions.into_iter().map(Subscription::SyncCommittee);
+                self.subnet_service.validator_subscriptions(subscriptions)
             }
         }
     }
@@ -863,25 +772,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     .update_gossipsub_parameters(active_validators, slot)
                     .is_err()
                 {
-                    error!(
-                        self.log,
-                        "Failed to update gossipsub parameters";
-                        "active_validators" => active_validators
-                    );
+                    error!(active_validators, "Failed to update gossipsub parameters");
                 }
             } else {
                 // This scenario will only happen if the caches on the cached canonical head aren't
                 // built. That should never be the case.
                 error!(
-                    self.log,
-                    "Active validator count unavailable";
-                    "info" => "please report this bug"
+                    info = "please report this bug",
+                    "Active validator count unavailable"
                 );
             }
         }
     }
 
-    fn on_attestation_service_msg(&mut self, msg: SubnetServiceMessage) {
+    fn on_subnet_service_msg(&mut self, msg: SubnetServiceMessage) {
         match msg {
             SubnetServiceMessage::Subscribe(subnet) => {
                 for fork_digest in self.required_gossip_fork_digests() {
@@ -900,36 +804,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             SubnetServiceMessage::EnrAdd(subnet) => {
                 self.libp2p.update_enr_subnet(subnet, true);
             }
-            SubnetServiceMessage::EnrRemove(subnet) => {
-                self.libp2p.update_enr_subnet(subnet, false);
-            }
-            SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
-                self.libp2p.discover_subnet_peers(subnets_to_discover);
-            }
-        }
-    }
-
-    fn on_sync_committee_service_message(&mut self, msg: SubnetServiceMessage) {
-        match msg {
-            SubnetServiceMessage::Subscribe(subnet) => {
-                for fork_digest in self.required_gossip_fork_digests() {
-                    let topic =
-                        GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
-                    self.libp2p.subscribe(topic);
-                }
-            }
-            SubnetServiceMessage::Unsubscribe(subnet) => {
-                for fork_digest in self.required_gossip_fork_digests() {
-                    let topic =
-                        GossipTopic::new(subnet.into(), GossipEncoding::default(), fork_digest);
-                    self.libp2p.unsubscribe(topic);
-                }
-            }
-            SubnetServiceMessage::EnrAdd(subnet) => {
-                self.libp2p.update_enr_subnet(subnet, true);
-            }
-            SubnetServiceMessage::EnrRemove(subnet) => {
-                self.libp2p.update_enr_subnet(subnet, false);
+            SubnetServiceMessage::EnrRemove(sync_subnet_id) => {
+                self.libp2p
+                    .update_enr_subnet(Subnet::SyncCommittee(sync_subnet_id), false);
             }
             SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
                 self.libp2p.discover_subnet_peers(subnets_to_discover);
@@ -944,10 +821,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let fork_context = &self.fork_context;
         if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
             info!(
-                self.log,
-                "Transitioned to new fork";
-                "old_fork" => ?fork_context.current_fork(),
-                "new_fork" => ?new_fork_name,
+                old_fork = ?fork_context.current_fork(),
+                new_fork = ?new_fork_name,
+                "Transitioned to new fork"
             );
             fork_context.update_current_fork(*new_fork_name);
 
@@ -964,19 +840,23 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             self.next_fork_subscriptions =
                 Box::pin(next_fork_subscriptions_delay(&self.beacon_chain).into());
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
-            info!(self.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
+            info!(
+                remaining_epochs = UNSUBSCRIBE_DELAY_EPOCHS,
+                "Network will unsubscribe from old fork gossip topics in a few epochs"
+            );
 
             // Remove topic weight from old fork topics to prevent peers that left on the mesh on
             // old topics from being penalized for not sending us messages.
             self.libp2p.remove_topic_weight_except(new_fork_digest);
         } else {
-            crit!(self.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
+            crit!(new_fork_id = ?new_enr_fork_id, "Unknown new enr fork id");
         }
     }
 
     fn subscribed_core_topics(&self) -> bool {
         let core_topics = core_topics_to_subscribe::<T::EthSpec>(
             self.fork_context.current_fork(),
+            &self.network_globals.as_topic_config(),
             &self.fork_context.spec,
         );
         let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
@@ -1018,26 +898,18 @@ impl<T: BeaconChainTypes> Drop for NetworkService<T> {
     fn drop(&mut self) {
         // network thread is terminating
         let enrs = self.libp2p.enr_entries();
-        debug!(
-            self.log,
-            "Persisting DHT to store";
-            "Number of peers" => enrs.len(),
-        );
+        debug!(number_of_peers = enrs.len(), "Persisting DHT to store");
         if let Err(e) = clear_dht::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone()) {
-            error!(self.log, "Failed to clear old DHT entries"; "error" => ?e);
+            error!(error = ?e, "Failed to clear old DHT entries");
         }
         // Still try to update new entries
         match persist_dht::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone(), enrs) {
             Err(e) => error!(
-                self.log,
-                "Failed to persist DHT on drop";
-                "error" => ?e
+                error = ?e,
+                "Failed to persist DHT on drop"
             ),
-            Ok(_) => info!(
-                self.log,
-                "Saved DHT state";
-            ),
+            Ok(_) => info!("Saved DHT state"),
         }
-        info!(self.log, "Network service shutdown");
+        info!("Network service shutdown");
     }
 }

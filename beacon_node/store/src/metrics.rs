@@ -33,10 +33,24 @@ pub static DISK_DB_READ_BYTES: LazyLock<Result<IntCounterVec>> = LazyLock::new(|
         &["col"],
     )
 });
+pub static DISK_DB_KEY_READ_BYTES: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "store_disk_db_key_read_bytes_total",
+        "Number of key bytes read from the hot on-disk DB",
+        &["col"],
+    )
+});
 pub static DISK_DB_READ_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "store_disk_db_read_count_total",
         "Total number of reads to the hot on-disk DB",
+        &["col"],
+    )
+});
+pub static DISK_DB_KEY_READ_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "store_disk_db_read_count_total",
+        "Total number of key reads to the hot on-disk DB",
         &["col"],
     )
 });
@@ -66,11 +80,30 @@ pub static DISK_DB_EXISTS_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new
         &["col"],
     )
 });
+pub static DISK_DB_DELETE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_disk_db_delete_seconds",
+        "Time taken to delete bytes from the store.",
+    )
+});
 pub static DISK_DB_DELETE_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "store_disk_db_delete_count_total",
         "Total number of deletions from the hot on-disk DB",
         &["col"],
+    )
+});
+pub static DISK_DB_COMPACT_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_disk_db_compact_seconds",
+        "Time taken to run compaction on the DB.",
+    )
+});
+pub static DISK_DB_TYPE: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "store_disk_db_type",
+        "The on-disk database type being used",
+        &["db_type"],
     )
 });
 /*
@@ -167,6 +200,13 @@ pub static BEACON_HDIFF_BUFFER_CLONE_TIMES: LazyLock<Result<Histogram>> = LazyLo
     try_create_histogram(
         "store_hdiff_buffer_clone_seconds",
         "Time required to clone hierarchical diff buffer bytes",
+    )
+});
+pub static BEACON_HDIFF_BUFFER_APPLY_RESIZES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "store_hdiff_buffer_apply_resizes",
+        "Number of times during diff application that the output buffer had to be resized before decoding succeeded",
+        Ok(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
     )
 });
 /*

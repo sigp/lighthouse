@@ -27,7 +27,7 @@ impl<'a, E: EthSpec> BlockRootsIter<'a, E> {
     }
 }
 
-impl<'a, E: EthSpec> Iterator for BlockRootsIter<'a, E> {
+impl<E: EthSpec> Iterator for BlockRootsIter<'_, E> {
     type Item = Result<(Slot, Hash256), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {

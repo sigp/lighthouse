@@ -21,6 +21,9 @@ pub type E = MainnetEthSpec;
 
 pub const VALIDATOR_COUNT: usize = 256;
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
@@ -73,7 +76,7 @@ fn get_valid_sync_committee_message_for_block(
     let head_state = harness.chain.head_beacon_state_cloned();
     let (signature, _) = harness
         .make_sync_committee_messages(&head_state, block_root, slot, relative_sync_committee)
-        .get(0)
+        .first()
         .expect("sync messages should exist")
         .get(message_index)
         .expect("first sync message should exist")
@@ -104,7 +107,7 @@ fn get_valid_sync_contribution(
     );
 
     let (_, contribution_opt) = sync_contributions
-        .get(0)
+        .first()
         .expect("sync contributions should exist");
     let contribution = contribution_opt
         .as_ref()
@@ -755,7 +758,10 @@ async fn unaggregated_gossip_verification() {
 
         // Load the block and state for the given root.
         let block = chain.get_block(&root).await.unwrap().unwrap();
-        let mut state = chain.get_state(&block.state_root(), None).unwrap().unwrap();
+        let mut state = chain
+            .get_state(&block.state_root(), None, CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .unwrap();
 
         // Advance the state to simulate a pre-state for block production.
         let slot = valid_sync_committee_message.slot + 1;

@@ -72,8 +72,6 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use eth2_network_config::Eth2NetworkConfig;
-use log::{debug, info};
-use sloggers::{null::NullLoggerBuilder, Build};
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
@@ -87,6 +85,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::HotColdDB;
+use tracing::{debug, info};
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -196,14 +195,8 @@ pub fn run<E: EthSpec>(
      * Create a `BeaconStore` and `ValidatorPubkeyCache` for block signature verification.
      */
 
-    let store = HotColdDB::open_ephemeral(
-        <_>::default(),
-        spec.clone(),
-        NullLoggerBuilder
-            .build()
-            .map_err(|e| format!("Error on NullLoggerBuilder: {:?}", e))?,
-    )
-    .map_err(|e| format!("Failed to create ephemeral store: {:?}", e))?;
+    let store = HotColdDB::open_ephemeral(<_>::default(), spec.clone())
+        .map_err(|e| format!("Failed to create ephemeral store: {:?}", e))?;
     let store = Arc::new(store);
 
     debug!("Building pubkey cache (might take some time)");
@@ -223,7 +216,7 @@ pub fn run<E: EthSpec>(
             .update_tree_hash_cache()
             .map_err(|e| format!("Unable to build THC: {:?}", e))?;
 
-        if state_root_opt.map_or(false, |expected| expected != state_root) {
+        if state_root_opt.is_some_and(|expected| expected != state_root) {
             return Err(format!(
                 "State root mismatch! Expected {}, computed {}",
                 state_root_opt.unwrap(),
@@ -331,7 +324,7 @@ fn do_transition<E: EthSpec>(
             .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
         debug!("Initial tree hash: {:?}", t.elapsed());
 
-        if state_root_opt.map_or(false, |expected| expected != state_root) {
+        if state_root_opt.is_some_and(|expected| expected != state_root) {
             return Err(format!(
                 "State root mismatch! Expected {}, computed {}",
                 state_root_opt.unwrap(),
