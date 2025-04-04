@@ -368,10 +368,12 @@ fn build_log_text<'a, S>(
         }
     }
 
+    let pad = if plain_level_str.len() < 5 { " " } else { "" };
+
     let level_str = if use_color {
-        color_level_str
+        format!("{}{}", color_level_str, pad)
     } else {
-        plain_level_str
+        format!("{}{}", plain_level_str, pad)
     };
 
     let fixed_message_width = 44;
