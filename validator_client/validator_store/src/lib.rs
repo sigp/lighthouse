@@ -55,9 +55,9 @@ pub trait ValidatorStore: Send + Sync {
     /// are two primary functions used here:
     ///
     /// - `DoppelgangerStatus::only_safe`: only returns pubkeys which have passed doppelganger
-    ///     protection and are safe-enough to sign messages.
+    ///   protection and are safe-enough to sign messages.
     /// - `DoppelgangerStatus::ignored`: returns all the pubkeys from `only_safe` *plus* those still
-    ///     undergoing protection. This is useful for collecting duties or other non-signing tasks.
+    ///   undergoing protection. This is useful for collecting duties or other non-signing tasks.
     fn voting_pubkeys<I, F>(&self, filter_func: F) -> I
     where
         I: FromIterator<PublicKeyBytes>,

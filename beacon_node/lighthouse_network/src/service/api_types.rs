@@ -1,17 +1,10 @@
-use crate::rpc::{
-    methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage},
-    SubstreamId,
-};
-use libp2p::swarm::ConnectionId;
+use crate::rpc::methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage};
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
-
-/// Identifier of requests sent by a peer.
-pub type PeerRequestId = (ConnectionId, SubstreamId);
 
 pub type Id = u32;
 
@@ -130,12 +123,6 @@ pub struct CustodyRequester(pub SingleLookupReqId);
 pub enum AppRequestId {
     Sync(SyncRequestId),
     Router,
-}
-
-/// Global identifier of a request.
-#[derive(Debug, Clone, Copy)]
-pub enum RequestId {
-    Application(AppRequestId),
     Internal,
 }
 
