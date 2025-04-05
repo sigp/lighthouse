@@ -120,78 +120,7 @@ fn test_removing_topic_weight_on_old_topics() {
             Arc::downgrade(&runtime),
             exit,
             shutdown_tx,
-            "test-removing-topic-weight-on-old-topics".to_string(),
-        );
-
-        let mut config = NetworkConfig::default();
-        config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21214, 21214, 21215);
-        config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
-        config.upnp_enabled = false;
-        let config = Arc::new(config);
-
-        let BeaconProcessorChannels {
-            beacon_processor_tx,
-            beacon_processor_rx: _beacon_processor_rx,
-        } = <_>::default();
-
-        let _network_service = NetworkService::start(
-            beacon_chain.clone(),
-            config,
-            executor,
-            None,
-            beacon_processor_tx,
-        )
-        .await
-        .unwrap();
-        drop(signal);
-    });
-
-    let raw_runtime = Arc::try_unwrap(runtime).unwrap();
-    raw_runtime.shutdown_timeout(tokio::time::Duration::from_secs(300));
-
-    // Load the persisted dht from the store
-    let persisted_enrs = load_dht(store);
-    assert!(
-        persisted_enrs.contains(&enrs[0]),
-        "should have persisted the first ENR to store"
-    );
-    assert!(
-        persisted_enrs.contains(&enrs[1]),
-        "should have persisted the second ENR to store"
-    );
-}
-
-// Test removing topic weight on old topics when a fork happens.
-#[test]
-fn test_removing_topic_weight_on_old_topics() {
-    let runtime = Arc::new(Runtime::new().unwrap());
-
-    // Capella spec
-    let mut spec = MinimalEthSpec::default_spec();
-    spec.altair_fork_epoch = Some(Epoch::new(0));
-    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-    spec.capella_fork_epoch = Some(Epoch::new(1));
-
-    // Build beacon chain.
-    let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
-        .spec(spec.clone().into())
-        .deterministic_keypairs(8)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build()
-        .chain;
-    let (next_fork_name, _) = beacon_chain.duration_to_next_fork().expect("next fork");
-    assert_eq!(next_fork_name, ForkName::Capella);
-
-    // Build network service.
-    let (mut network_service, network_globals, _network_senders) = runtime.block_on(async {
-        let (_, exit) = async_channel::bounded(1);
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = task_executor::TaskExecutor::new(
-            Arc::downgrade(&runtime),
-            exit,
-            get_logger(false),
-            shutdown_tx,
+            "test-removing-topic-weight-on-old-topics"
         );
 
         let mut config = NetworkConfig::default();
