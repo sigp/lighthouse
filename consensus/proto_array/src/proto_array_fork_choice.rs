@@ -1121,7 +1121,7 @@ mod test_compute_deltas {
     ///
     /// - `A` (slot 31) is the common descendant.
     /// - `B` (slot 33) descends from `A`, but there is a single skip slot
-    ///     between it and `A`.
+    ///   between it and `A`.
     /// - `C` (slot 32) descends from `A` and conflicts with `B`.
     ///
     /// Imagine that the `B` chain is finalized at epoch 1. This means that the

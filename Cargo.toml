@@ -51,6 +51,7 @@ members = [
     "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
+    "common/workspace_members",
 
     "consensus/fixed_bytes",
     "consensus/fork_choice",
@@ -120,6 +121,7 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
+cargo_metadata = "0.19"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
@@ -144,6 +146,7 @@ fnv = "1"
 fs2 = "0.4"
 futures = "0.3"
 graffiti_file = { path = "validator_client/graffiti_file" }
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "7a36e4c" }
 hex = "0.4"
 hashlink = "0.9.0"
 hyper = "1"
@@ -158,7 +161,7 @@ mockito = "1.5.0"
 num_cpus = "1"
 parking_lot = "0.12"
 paste = "1"
-prometheus = "0.13"
+prometheus = { version = "0.13", default-features = false }
 quickcheck = "1"
 quickcheck_macros = "1"
 quote = "1"
@@ -173,7 +176,7 @@ reqwest = { version = "0.11", default-features = false, features = [
     "rustls-tls",
     "native-tls-vendored",
 ] }
-ring = "0.16"
+ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
@@ -245,6 +248,7 @@ kzg = { path = "crypto/kzg" }
 metrics = { path = "common/metrics" }
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_version = { path = "common/lighthouse_version" }
+workspace_members = { path = "common/workspace_members" }
 lockfile = { path = "common/lockfile" }
 logging = { path = "common/logging" }
 lru_cache = { path = "common/lru_cache" }
@@ -277,7 +281,7 @@ validator_metrics = { path = "validator_client/validator_metrics" }
 validator_store = { path = "validator_client/validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
 warp_utils = { path = "common/warp_utils" }
-xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "50d63cdf1878e5cf3538e9aae5eed34a22c64e4a" }
+xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9febb584ba93b9d16bb2ae3825a" }
 zstd = "0.13"
 
 [profile.maxperf]

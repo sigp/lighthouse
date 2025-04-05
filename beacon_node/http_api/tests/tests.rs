@@ -1187,6 +1187,60 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_beacon_states_pending_deposits(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = self
+                .client
+                .get_beacon_states_pending_deposits(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let expected = state.pending_deposits().unwrap();
+
+            assert_eq!(result.unwrap(), expected.to_vec());
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_pending_partial_withdrawals(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = self
+                .client
+                .get_beacon_states_pending_partial_withdrawals(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let expected = state.pending_partial_withdrawals().unwrap();
+
+            assert_eq!(result.unwrap(), expected.to_vec());
+        }
+
+        self
+    }
+
     pub async fn test_beacon_headers_all_slots(self) -> Self {
         for slot in 0..CHAIN_LENGTH {
             let slot = Slot::from(slot);
@@ -5686,19 +5740,6 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_lighthouse_database_info(self) -> Self {
-        let info = self.client.get_lighthouse_database_info().await.unwrap();
-
-        assert_eq!(info.anchor, self.chain.store.get_anchor_info());
-        assert_eq!(info.split, self.chain.store.get_split_info());
-        assert_eq!(
-            info.schema_version,
-            store::metadata::CURRENT_SCHEMA_VERSION.as_u64()
-        );
-
-        self
-    }
-
     pub async fn test_post_lighthouse_database_reconstruct(self) -> Self {
         let response = self
             .client
@@ -5706,6 +5747,27 @@ impl ApiTester {
             .await
             .unwrap();
         assert_eq!(response, "success");
+        self
+    }
+
+    pub async fn test_post_lighthouse_add_remove_peer(self) -> Self {
+        let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
+        // Check that there aren't any trusted peers on startup
+        assert!(trusted_peers.is_empty());
+        let enr = AdminPeer {enr: "enr:-QESuEDpVVjo8dmDuneRhLnXdIGY3e9NQiaG4sJR3GS-VMQCQDsmBYoQhJRaPeZzPlTsZj2F8v-iV4lKJEYIRIyztqexHodhdHRuZXRziAwAAAAAAAAAhmNsaWVudNiKTGlnaHRob3VzZYw3LjAuMC1iZXRhLjSEZXRoMpDS8Zl_YAAJEAAIAAAAAAAAgmlkgnY0gmlwhIe11XmDaXA2kCoBBPkAOitZAAAAAAAAAAKEcXVpY4IjKYVxdWljNoIjg4lzZWNwMjU2azGhA43ihEr9BUVVnIHIfFqBR3Izs4YRHHPsTqIbUgEb3Hc8iHN5bmNuZXRzD4N0Y3CCIyiEdGNwNoIjgoN1ZHCCIyiEdWRwNoIjgg".to_string()};
+        self.client
+            .post_lighthouse_add_peer(enr.clone())
+            .await
+            .unwrap();
+        let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
+        // Should have 1 trusted peer
+        assert_eq!(trusted_peers.len(), 1);
+
+        self.client.post_lighthouse_remove_peer(enr).await.unwrap();
+        let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
+        // Should be empty after removing
+        assert!(trusted_peers.is_empty());
+
         self
     }
 
@@ -6308,6 +6370,22 @@ async fn beacon_get_state_info() {
         .test_beacon_states_validator_id()
         .await
         .test_beacon_states_randao()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_get_state_info_electra() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_states_pending_deposits()
+        .await
+        .test_beacon_states_pending_partial_withdrawals()
         .await;
 }
 
@@ -7254,11 +7332,11 @@ async fn lighthouse_endpoints() {
         .await
         .test_get_lighthouse_staking()
         .await
-        .test_get_lighthouse_database_info()
-        .await
         .test_post_lighthouse_database_reconstruct()
         .await
         .test_post_lighthouse_liveness()
+        .await
+        .test_post_lighthouse_add_remove_peer()
         .await;
 }
 
