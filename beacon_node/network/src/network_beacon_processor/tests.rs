@@ -14,7 +14,6 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::*;
-use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::{
