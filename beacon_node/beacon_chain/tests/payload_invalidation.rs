@@ -1282,7 +1282,7 @@ impl InvalidHeadSetup {
     ///
     /// 1. A chain where the only viable head block has an invalid execution payload.
     /// 2. A block (`fork_block`) which will become the head of the chain when
-    ///     it is imported.
+    ///    it is imported.
     async fn new() -> InvalidHeadSetup {
         let slots_per_epoch = E::slots_per_epoch();
         let mut rig = InvalidPayloadRig::new().enable_attestations();

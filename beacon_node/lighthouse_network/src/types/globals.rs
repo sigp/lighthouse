@@ -172,6 +172,18 @@ impl<E: EthSpec> NetworkGlobals<E> {
             .unwrap_or_default()
     }
 
+    pub fn add_trusted_peer(&self, enr: Enr) {
+        self.peers.write().set_trusted_peer(enr);
+    }
+
+    pub fn remove_trusted_peer(&self, enr: Enr) {
+        self.peers.write().unset_trusted_peer(enr);
+    }
+
+    pub fn trusted_peers(&self) -> Vec<PeerId> {
+        self.peers.read().trusted_peers()
+    }
+
     /// Updates the syncing state of the node.
     ///
     /// The old state is returned
