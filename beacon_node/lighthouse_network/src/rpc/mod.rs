@@ -215,7 +215,8 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         request_id: InboundRequestId,
         response: RpcResponse<E>,
     ) {
-        let Some((_peer_id, request_type)) = self.active_inbound_requests.remove(&request_id) else {
+        let Some((_peer_id, request_type)) = self.active_inbound_requests.remove(&request_id)
+        else {
             error!(%peer_id, ?request_id, %response, "Request not found in active_inbound_requests. Response not sent");
             return;
         };
@@ -229,12 +230,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
                 .insert(request_id, (peer_id, request_type.clone()));
         }
 
-        self.send_response_inner(
-            peer_id,
-            request_type.protocol(),
-            request_id,
-            response,
-        );
+        self.send_response_inner(peer_id, request_type.protocol(), request_id, response);
     }
 
     fn send_response_inner(
@@ -431,8 +427,9 @@ where
                 self.events.push(error_msg);
             }
 
-            self.active_inbound_requests
-                .retain(|_inbound_request_id, (request_peer_id, _request_type)| *request_peer_id != peer_id);
+            self.active_inbound_requests.retain(
+                |_inbound_request_id, (request_peer_id, _request_type)| *request_peer_id != peer_id,
+            );
 
             if let Some(limiter) = self.response_limiter.as_mut() {
                 limiter.peer_disconnected(peer_id);
@@ -472,10 +469,12 @@ where
                 let is_concurrent_request_limit_exceeded = self
                     .active_inbound_requests
                     .iter()
-                    .filter(|(_inbound_request_id, (request_peer_id, active_request_type))| {
-                        *request_peer_id == peer_id
-                            && active_request_type.protocol() == request_type.protocol()
-                    })
+                    .filter(
+                        |(_inbound_request_id, (request_peer_id, active_request_type))| {
+                            *request_peer_id == peer_id
+                                && active_request_type.protocol() == request_type.protocol()
+                        },
+                    )
                     .count()
                     >= MAX_CONCURRENT_REQUESTS;
 
@@ -497,7 +496,8 @@ where
                 }
 
                 // Requests that are below the limit on the number of simultaneous requests are added to the active inbound requests.
-                self.active_inbound_requests.insert(request_id, (peer_id, request_type.clone()));
+                self.active_inbound_requests
+                    .insert(request_id, (peer_id, request_type.clone()));
 
                 // If we received a Ping, we queue a Pong response.
                 if let RequestType::Ping(_) = request_type {
