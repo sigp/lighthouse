@@ -1,9 +1,9 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName,
-    ForkVersionDecode, ForkVersionDeserialize, SignedRoot, Uint256,
+    test_utils::TestRandom, ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix,
+    ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
+    ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+    ExecutionRequests, ForkName, ForkVersionDecode, ForkVersionDeserialize, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -11,6 +11,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
+use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
@@ -24,7 +25,8 @@ use tree_hash_derive::TreeHash;
             Deserialize,
             TreeHash,
             Decode,
-            Clone
+            Clone,
+            TestRandom
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields)
     ),
