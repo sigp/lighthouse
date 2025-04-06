@@ -1211,7 +1211,7 @@ fn test_delayed_rpc_response() {
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id,
-                        id: _,
+                        app_request_id: _,
                         response,
                     } => {
                         debug!(%request_id, "Sender received");
@@ -1247,7 +1247,7 @@ fn test_delayed_rpc_response() {
                         request_sent_at = Instant::now();
                     }
                     NetworkEvent::RPCFailed {
-                        id: _,
+                        app_request_id: _,
                         peer_id: _,
                         error,
                     } => {
@@ -1264,13 +1264,13 @@ fn test_delayed_rpc_response() {
             loop {
                 if let NetworkEvent::RequestReceived {
                     peer_id,
-                    id,
-                    request,
+                    inbound_request_id,
+                    request_type,
                 } = receiver.next_event().await
                 {
-                    assert_eq!(request.r#type, rpc_request);
+                    assert_eq!(request_type, rpc_request);
                     debug!("Receiver received request");
-                    receiver.send_response(peer_id, id, request.id, rpc_response.clone());
+                    receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
                 }
             }
         };
@@ -1346,7 +1346,7 @@ fn test_active_requests() {
                         }
                     }
                     NetworkEvent::RPCFailed {
-                        id: _,
+                        app_request_id: _,
                         peer_id: _,
                         error,
                     } => panic!("RPC failed: {:?}", error),
@@ -1365,17 +1365,17 @@ fn test_active_requests() {
             loop {
                 tokio::select! {
                     event = receiver.next_event() => {
-                       if let NetworkEvent::RequestReceived { peer_id, id, request } = event {
-                            debug!(?request, "Receiver received request");
-                            if matches!(request.r#type, RequestType::Status(_)) {
-                                received_requests.push((peer_id, id, request.id));
+                       if let NetworkEvent::RequestReceived { peer_id, inbound_request_id, request_type } = event {
+                            debug!(?request_type, "Receiver received request");
+                            if matches!(request_type, RequestType::Status(_)) {
+                                received_requests.push((peer_id, inbound_request_id));
                             }
                         }
                     }
                     // Introduce a delay in sending responses to trigger request queueing on the sender side.
                     _ = sleep(Duration::from_secs(3)) => {
-                        for (peer_id, id, request_id) in received_requests.drain(..) {
-                            receiver.send_response(peer_id, id, request_id, rpc_response.clone());
+                        for (peer_id, inbound_request_id) in received_requests.drain(..) {
+                            receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
                         }
                     }
                 }
