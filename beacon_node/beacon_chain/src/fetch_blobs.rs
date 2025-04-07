@@ -7,23 +7,27 @@
 //! on P2P gossip to the network. From PeerDAS onwards, together with the increase in blob count,
 //! broadcasting blobs requires a much higher bandwidth, and is only done by high capacity
 //! supernodes.
+
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_data_sidecars::DoNotObserve;
-use crate::{metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
+use crate::{
+    metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BlockError,
+};
 use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use execution_layer::Error as ExecutionLayerError;
 use metrics::{inc_counter, inc_counter_by, TryExt};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
+use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::oneshot;
-use tracing::{debug, error};
+use tracing::debug;
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
+use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconStateError, Blob, BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
-    EthSpec, FullPayload, Hash256, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader,
-    VersionedHash,
+    BeaconStateError, Blob, BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec,
+    FullPayload, Hash256, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
 };
 
 pub enum BlobsOrDataColumns<T: BeaconChainTypes> {
@@ -33,14 +37,16 @@ pub enum BlobsOrDataColumns<T: BeaconChainTypes> {
 
 pub enum EngineGetBlobsOutput<E: EthSpec> {
     Blobs(FixedBlobSidecarList<E>),
-    DataColumnReceiver(oneshot::Receiver<DataColumnSidecarList<E>>),
+    DataColumns(DataColumnSidecarList<E>),
 }
 
 #[derive(Debug)]
 pub enum FetchEngineBlobError {
     BeaconStateError(BeaconStateError),
+    BeaconChainError(BeaconChainError),
     BlobProcessingError(BlockError),
     BlobSidecarError(BlobSidecarError),
+    DataColumnSidecarError(DataColumnSidecarError),
     ExecutionLayerMissing,
     InternalError(String),
     GossipBlob(GossipBlobError),
@@ -54,6 +60,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+    custody_columns: HashSet<ColumnIndex>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let versioned_hashes = if let Some(kzg_commitments) = block
@@ -78,7 +85,15 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     );
 
     if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-        fetch_and_process_blobs_v2(chain, block_root, block, versioned_hashes, publish_fn).await
+        fetch_and_process_blobs_v2(
+            chain,
+            block_root,
+            block,
+            versioned_hashes,
+            custody_columns,
+            publish_fn,
+        )
+        .await
     } else {
         fetch_and_process_blobs_v1(chain, block_root, block, versioned_hashes, publish_fn).await
     }
@@ -178,6 +193,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     versioned_hashes: Vec<VersionedHash>,
+    custody_columns_indices: HashSet<ColumnIndex>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let num_expected_blobs = versioned_hashes.len();
@@ -255,15 +271,15 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         return Ok(None);
     }
 
-    // TODO: we could get rid of the receiver and just await on the blocking task, given the
-    // compute cell operation is very cheap.
-    let data_columns_receiver = spawn_compute_and_publish_data_columns_task(
+    let custody_columns = spawn_compute_and_publish_data_columns_task(
         &chain,
         block.clone(),
         blobs,
         proofs,
+        custody_columns_indices,
         publish_fn,
-    );
+    )
+    .await?;
 
     debug!(num_fetched_blobs, "Processing engine blobs");
 
@@ -271,7 +287,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         .process_engine_blobs(
             block.slot(),
             block_root,
-            EngineGetBlobsOutput::DataColumnReceiver(data_columns_receiver),
+            EngineGetBlobsOutput::DataColumns(custody_columns),
         )
         .await
         .map_err(FetchEngineBlobError::BlobProcessingError)?;
@@ -279,68 +295,51 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     Ok(Some(availability_processing_status))
 }
 
-/// Spawn a blocking task here for long computation tasks, so it doesn't block processing, and it
-/// allows blobs / data columns to propagate without waiting for processing.
-///
-/// An `mpsc::Sender` is then used to send the produced data columns to the `beacon_chain` for it
-/// to be persisted, **after** the block is made attestable.
-///
-/// The reason for doing this is to make the block available and attestable as soon as possible,
-/// while maintaining the invariant that block and data columns are persisted atomically.
-fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
+/// Offload the data column computation to a blocking task to avoid holding up the async runtime.
+async fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: Vec<Blob<T::EthSpec>>,
     proofs: Vec<KzgProofs<T::EthSpec>>,
+    custody_columns_indices: HashSet<ColumnIndex>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
-) -> oneshot::Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
+) -> Result<DataColumnSidecarList<T::EthSpec>, FetchEngineBlobError> {
     let chain_cloned = chain.clone();
-    let (data_columns_sender, data_columns_receiver) = oneshot::channel();
+    chain
+        .spawn_blocking_handle(
+            move || {
+                let mut timer = metrics::start_timer_vec(
+                    &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
+                    &[&blobs.len().to_string()],
+                );
 
-    chain.task_executor.spawn_blocking(
-        move || {
-            let mut timer = metrics::start_timer_vec(
-                &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
-                &[&blobs.len().to_string()],
-            );
+                let blob_refs = blobs.iter().collect::<Vec<_>>();
+                let cell_proofs = proofs.into_iter().flatten().collect();
+                let data_columns_result = blobs_to_data_column_sidecars(
+                    &blob_refs,
+                    cell_proofs,
+                    &block,
+                    &chain_cloned.kzg,
+                    &chain_cloned.spec,
+                )
+                .discard_timer_on_break(&mut timer);
+                drop(timer);
 
-            let blob_refs = blobs.iter().collect::<Vec<_>>();
-            let cell_proofs = proofs.into_iter().flatten().collect();
-            let data_columns_result = blobs_to_data_column_sidecars(
-                &blob_refs,
-                cell_proofs,
-                &block,
-                &chain_cloned.kzg,
-                &chain_cloned.spec,
-            )
-            .discard_timer_on_break(&mut timer);
-            drop(timer);
+                let custody_columns = data_columns_result
+                    .map(|mut data_columns| {
+                        data_columns.retain(|col| custody_columns_indices.contains(&col.index));
+                        data_columns
+                    })
+                    .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
-            let all_data_columns = match data_columns_result {
-                Ok(d) => d,
-                Err(e) => {
-                    error!(
-                        error = ?e,
-                        "Failed to build data column sidecars from blobs"
-                    );
-                    return;
-                }
-            };
-
-            if data_columns_sender.send(all_data_columns.clone()).is_err() {
-                // Data column receiver have been dropped - block may have already been imported.
-                // This race condition exists because gossip columns may arrive and trigger block
-                // import during the computation. Here we just drop the computed columns.
-                debug!("Failed to send computed data columns");
-                return;
-            };
-
-            publish_fn(BlobsOrDataColumns::DataColumns(all_data_columns));
-        },
-        "compute_and_publish_data_columns",
-    );
-
-    data_columns_receiver
+                publish_fn(BlobsOrDataColumns::DataColumns(custody_columns.clone()));
+                Ok(custody_columns)
+            },
+            "compute_and_publish_data_columns",
+        )
+        .await
+        .map_err(FetchEngineBlobError::BeaconChainError)
+        .and_then(|r| r)
 }
 
 fn build_blob_sidecars<E: EthSpec>(

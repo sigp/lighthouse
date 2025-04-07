@@ -3185,10 +3185,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Process blobs retrieved from the EL and returns the `AvailabilityProcessingStatus`.
-    ///
-    /// `data_column_recv`: An optional receiver for `DataColumnSidecarList`.
-    /// If PeerDAS is enabled, this receiver will be provided and used to send
-    /// the `DataColumnSidecar`s once they have been successfully computed.
     pub async fn process_engine_blobs(
         self: &Arc<Self>,
         slot: Slot,
@@ -3674,14 +3670,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.data_availability_checker
                     .put_engine_blobs(block_root, blobs)?
             }
-            EngineGetBlobsOutput::DataColumnReceiver(data_column_receiver) => {
-                // TODO: need to get rid of receiver
-                // self.check_columns_for_slashability(block_root, data_columns)
-                self.data_availability_checker.put_data_column_receiver(
-                    block_root,
-                    slot.epoch(T::EthSpec::slots_per_epoch()),
-                    data_column_receiver,
-                )?
+            EngineGetBlobsOutput::DataColumns(data_columns) => {
+                self.check_columns_for_slashability(block_root, &data_columns)?;
+                self.data_availability_checker
+                    .put_engine_data_columns(block_root, data_columns)?
             }
         };
 
@@ -7203,27 +7195,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Writing data columns to store"
                 );
                 Ok(Some(StoreOp::PutDataColumns(block_root, data_columns)))
-            }
-            AvailableBlockData::DataColumnsRecv(data_column_recv) => {
-                // Blobs were available from the EL, in this case we wait for the data columns to be computed (blocking).
-                let _column_recv_timer =
-                    metrics::start_timer(&metrics::BLOCK_PROCESSING_DATA_COLUMNS_WAIT);
-                // Unable to receive data columns from sender, sender is either dropped or
-                // failed to compute data columns from blobs. We restore fork choice here and
-                // return to avoid inconsistency in database.
-                let computed_data_columns = data_column_recv
-                    .blocking_recv()
-                    .map_err(|e| format!("Did not receive data columns from sender: {e:?}"))?;
-                debug!(
-                    %block_root,
-                    count = computed_data_columns.len(),
-                    "Writing data columns to store"
-                );
-                // TODO(das): Store only this node's custody columns
-                Ok(Some(StoreOp::PutDataColumns(
-                    block_root,
-                    computed_data_columns,
-                )))
             }
         }
     }

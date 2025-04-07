@@ -198,8 +198,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // derived from kzg commitments from the block, without having to wait for all blobs
                 // to be sent from the peers if we already have them.
                 let publish_blobs = false;
-                self.fetch_engine_blobs_and_publish(signed_beacon_block, block_root, publish_blobs)
-                    .await
+                // TODO(das): derive this from block CGC when implementing validator custody.
+                let custody_columns = self.network_globals.sampling_columns.clone();
+                self.fetch_engine_blobs_and_publish(
+                    signed_beacon_block,
+                    block_root,
+                    publish_blobs,
+                    custody_columns,
+                )
+                .await
             }
             _ => {}
         }

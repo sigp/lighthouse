@@ -240,6 +240,14 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         verify_kzg_for_data_column(data_column, kzg)
     }
 
+    /// Create a `KzgVerifiedDataColumn` from `data_column` that are already KZG verified.
+    ///
+    /// This should be used with caution, as used incorrectly it could result in KZG verification
+    /// being skipped and invalid data_columns being deemed valid.
+    pub fn from_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
+        Self { data: data_column }
+    }
+
     pub fn from_batch(
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,

@@ -25,6 +25,7 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
 };
 use rand::prelude::SliceRandom;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -842,6 +843,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
         block_root: Hash256,
         publish_blobs: bool,
+        custody_columns: HashSet<ColumnIndex>,
     ) {
         let is_supernode = self.network_globals.is_supernode();
 
@@ -866,6 +868,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.chain.clone(),
             block_root,
             block.clone(),
+            custody_columns,
             publish_fn,
         )
         .instrument(tracing::info_span!(
