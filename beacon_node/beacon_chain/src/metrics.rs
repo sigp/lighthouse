@@ -1662,28 +1662,37 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
 pub static BLOBS_FROM_EL_HIT_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_blobs_from_el_hit_total",
-        "Number of blob batches fetched from the execution layer",
+        "Number of non-empty blob batches fetched from the execution layer",
     )
 });
 
 pub static BLOBS_FROM_EL_MISS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_blobs_from_el_miss_total",
-        "Number of blob batches failed to fetch from the execution layer",
+        "Number of empty blob responses from the execution layer",
     )
 });
 
-pub static BLOBS_FROM_EL_EXPECTED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+pub static BLOBS_FROM_EL_ERROR_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
-        "beacon_blobs_from_el_expected_total",
+        "beacon_blobs_from_el_error_total",
+        "Number of failed blob fetches from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_EXPECTED: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_blobs_from_el_expected",
         "Number of blobs expected from the execution layer",
+        Ok(vec![0.0, 3.0, 6.0, 9.0, 12.0, 18.0, 24.0, 30.0]),
     )
 });
 
-pub static BLOBS_FROM_EL_RECEIVED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
-    try_create_int_counter(
+pub static BLOBS_FROM_EL_RECEIVED: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
         "beacon_blobs_from_el_received_total",
         "Number of blobs fetched from the execution layer",
+        linear_buckets(0.0, 4.0, 20),
     )
 });
 

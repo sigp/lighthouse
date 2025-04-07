@@ -10,8 +10,9 @@ use crate::peer_manager::{
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
-    self, GoodbyeReason, HandlerErr, NetworkParams, Protocol, RPCError, RPCMessage, RPCReceived,
-    RequestType, ResponseTermination, RpcErrorResponse, RpcResponse, RpcSuccessResponse, RPC,
+    GoodbyeReason, HandlerErr, InboundRequestId, NetworkParams, Protocol, RPCError, RPCMessage,
+    RPCReceived, RequestType, ResponseTermination, RpcErrorResponse, RpcResponse,
+    RpcSuccessResponse, RPC,
 };
 use crate::types::{
     all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
@@ -20,7 +21,7 @@ use crate::types::{
 use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use api_types::{AppRequestId, PeerRequestId, RequestId, Response};
+use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
     IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
@@ -66,7 +67,7 @@ pub enum NetworkEvent<E: EthSpec> {
     /// An RPC Request that was sent failed.
     RPCFailed {
         /// The id of the failed request.
-        id: AppRequestId,
+        app_request_id: AppRequestId,
         /// The peer to which this request was sent.
         peer_id: PeerId,
         /// The error of the failed request.
@@ -76,15 +77,15 @@ pub enum NetworkEvent<E: EthSpec> {
         /// The peer that sent the request.
         peer_id: PeerId,
         /// Identifier of the request. All responses to this request must use this id.
-        id: PeerRequestId,
+        inbound_request_id: InboundRequestId,
         /// Request the peer sent.
-        request: rpc::Request<E>,
+        request_type: RequestType<E>,
     },
     ResponseReceived {
         /// Peer that sent the response.
         peer_id: PeerId,
         /// Id of the request to which the peer is responding.
-        id: AppRequestId,
+        app_request_id: AppRequestId,
         /// Response the peer sent.
         response: Response<E>,
     },
@@ -126,7 +127,7 @@ where
     /// The peer manager that keeps track of peer's reputation and status.
     pub peer_manager: PeerManager<E>,
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub eth2_rpc: RPC<RequestId, E>,
+    pub eth2_rpc: RPC<AppRequestId, E>,
     /// Discv5 Discovery protocol.
     pub discovery: Discovery<E>,
     /// Keep regular connection to peers and disconnect if absent.
@@ -669,7 +670,7 @@ impl<E: EthSpec> Network<E> {
         name = "libp2p",
         skip_all
     )]
-    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<RequestId, E> {
+    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<AppRequestId, E> {
         &mut self.swarm.behaviour_mut().eth2_rpc
     }
     /// Discv5 Discovery protocol.
@@ -720,7 +721,7 @@ impl<E: EthSpec> Network<E> {
         name = "libp2p",
         skip_all
     )]
-    pub fn eth2_rpc(&self) -> &RPC<RequestId, E> {
+    pub fn eth2_rpc(&self) -> &RPC<AppRequestId, E> {
         &self.swarm.behaviour().eth2_rpc
     }
     /// Discv5 Discovery protocol.
@@ -1104,16 +1105,16 @@ impl<E: EthSpec> Network<E> {
     pub fn send_request(
         &mut self,
         peer_id: PeerId,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
         request: RequestType<E>,
     ) -> Result<(), (AppRequestId, RPCError)> {
         // Check if the peer is connected before sending an RPC request
         if !self.swarm.is_connected(&peer_id) {
-            return Err((request_id, RPCError::Disconnected));
+            return Err((app_request_id, RPCError::Disconnected));
         }
 
         self.eth2_rpc_mut()
-            .send_request(peer_id, RequestId::Application(request_id), request);
+            .send_request(peer_id, app_request_id, request);
         Ok(())
     }
 
@@ -1127,12 +1128,11 @@ impl<E: EthSpec> Network<E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        id: PeerRequestId,
-        request_id: rpc::RequestId,
+        inbound_request_id: InboundRequestId,
         response: Response<E>,
     ) {
         self.eth2_rpc_mut()
-            .send_response(peer_id, id, request_id, response.into())
+            .send_response(peer_id, inbound_request_id, response.into())
     }
 
     /// Inform the peer that their request produced an error.
@@ -1145,15 +1145,13 @@ impl<E: EthSpec> Network<E> {
     pub fn send_error_response(
         &mut self,
         peer_id: PeerId,
-        id: PeerRequestId,
-        request_id: rpc::RequestId,
+        inbound_request_id: InboundRequestId,
         error: RpcErrorResponse,
         reason: String,
     ) {
         self.eth2_rpc_mut().send_response(
             peer_id,
-            id,
-            request_id,
+            inbound_request_id,
             RpcResponse::Error(error, reason.into()),
         )
     }
@@ -1374,7 +1372,7 @@ impl<E: EthSpec> Network<E> {
         skip_all
     )]
     fn ping(&mut self, peer_id: PeerId) {
-        self.eth2_rpc_mut().ping(peer_id, RequestId::Internal);
+        self.eth2_rpc_mut().ping(peer_id, AppRequestId::Internal);
     }
 
     /// Sends a METADATA request to a peer.
@@ -1394,7 +1392,7 @@ impl<E: EthSpec> Network<E> {
             RequestType::MetaData(MetadataRequest::new_v2())
         };
         self.eth2_rpc_mut()
-            .send_request(peer_id, RequestId::Internal, event);
+            .send_request(peer_id, AppRequestId::Internal, event);
     }
 
     /// Sends a METADATA response to a peer.
@@ -1407,15 +1405,14 @@ impl<E: EthSpec> Network<E> {
     fn send_meta_data_response(
         &mut self,
         _req: MetadataRequest<E>,
-        id: PeerRequestId,
-        request_id: rpc::RequestId,
+        inbound_request_id: InboundRequestId,
         peer_id: PeerId,
     ) {
         let metadata = self.network_globals.local_metadata.read().clone();
         // The encoder is responsible for sending the negotiated version of the metadata
         let event = RpcResponse::Success(RpcSuccessResponse::MetaData(Arc::new(metadata)));
         self.eth2_rpc_mut()
-            .send_response(peer_id, id, request_id, event);
+            .send_response(peer_id, inbound_request_id, event);
     }
 
     // RPC Propagation methods
@@ -1429,17 +1426,17 @@ impl<E: EthSpec> Network<E> {
     )]
     fn build_response(
         &mut self,
-        id: RequestId,
+        app_request_id: AppRequestId,
         peer_id: PeerId,
         response: Response<E>,
     ) -> Option<NetworkEvent<E>> {
-        match id {
-            RequestId::Application(id) => Some(NetworkEvent::ResponseReceived {
+        match app_request_id {
+            AppRequestId::Internal => None,
+            _ => Some(NetworkEvent::ResponseReceived {
                 peer_id,
-                id,
+                app_request_id,
                 response,
             }),
-            RequestId::Internal => None,
         }
     }
 
@@ -1643,7 +1640,7 @@ impl<E: EthSpec> Network<E> {
         name = "libp2p",
         skip_all
     )]
-    fn inject_rpc_event(&mut self, event: RPCMessage<RequestId, E>) -> Option<NetworkEvent<E>> {
+    fn inject_rpc_event(&mut self, event: RPCMessage<AppRequestId, E>) -> Option<NetworkEvent<E>> {
         let peer_id = event.peer_id;
 
         // Do not permit Inbound events from peers that are being disconnected or RPC requests,
@@ -1656,7 +1653,6 @@ impl<E: EthSpec> Network<E> {
             return None;
         }
 
-        let connection_id = event.conn_id;
         // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match event.message {
             Err(handler_err) => {
@@ -1686,16 +1682,20 @@ impl<E: EthSpec> Network<E> {
                             ConnectionDirection::Outgoing,
                         );
                         // inform failures of requests coming outside the behaviour
-                        if let RequestId::Application(id) = id {
-                            Some(NetworkEvent::RPCFailed { peer_id, id, error })
-                        } else {
+                        if let AppRequestId::Internal = id {
                             None
+                        } else {
+                            Some(NetworkEvent::RPCFailed {
+                                peer_id,
+                                app_request_id: id,
+                                error,
+                            })
                         }
                     }
                 }
             }
-            Ok(RPCReceived::Request(request)) => {
-                match request.r#type {
+            Ok(RPCReceived::Request(inbound_request_id, request_type)) => {
+                match request_type {
                     /* Behaviour managed protocols: Ping and Metadata */
                     RequestType::Ping(ping) => {
                         // inform the peer manager and send the response
@@ -1704,12 +1704,7 @@ impl<E: EthSpec> Network<E> {
                     }
                     RequestType::MetaData(req) => {
                         // send the requested meta-data
-                        self.send_meta_data_response(
-                            req,
-                            (connection_id, request.substream_id),
-                            request.id,
-                            peer_id,
-                        );
+                        self.send_meta_data_response(req, inbound_request_id, peer_id);
                         None
                     }
                     RequestType::Goodbye(reason) => {
@@ -1734,8 +1729,8 @@ impl<E: EthSpec> Network<E> {
                         // propagate the STATUS message upwards
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::BlocksByRange(ref req) => {
@@ -1757,32 +1752,32 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::BlocksByRoot(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::BlobsByRange(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::BlobsByRoot(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::DataColumnsByRoot(_) => {
@@ -1792,8 +1787,8 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::DataColumnsByRange(_) => {
@@ -1803,8 +1798,8 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::LightClientBootstrap(_) => {
@@ -1814,8 +1809,8 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::LightClientOptimisticUpdate => {
@@ -1825,8 +1820,8 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::LightClientFinalityUpdate => {
@@ -1836,8 +1831,8 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                     RequestType::LightClientUpdatesByRange(_) => {
@@ -1847,8 +1842,8 @@ impl<E: EthSpec> Network<E> {
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: (connection_id, request.substream_id),
-                            request,
+                            inbound_request_id,
+                            request_type,
                         })
                     }
                 }
@@ -2010,7 +2005,7 @@ impl<E: EthSpec> Network<E> {
                 debug!(%peer_id, %reason, "Peer Manager disconnecting peer");
                 // send one goodbye
                 self.eth2_rpc_mut()
-                    .shutdown(peer_id, RequestId::Internal, reason);
+                    .shutdown(peer_id, AppRequestId::Internal, reason);
                 None
             }
         }

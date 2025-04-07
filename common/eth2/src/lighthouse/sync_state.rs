@@ -104,8 +104,8 @@ impl std::fmt::Display for SyncState {
         match self {
             SyncState::SyncingFinalized { .. } => write!(f, "Syncing Finalized Chain"),
             SyncState::SyncingHead { .. } => write!(f, "Syncing Head Chain"),
-            SyncState::Synced { .. } => write!(f, "Synced"),
-            SyncState::Stalled { .. } => write!(f, "Stalled"),
+            SyncState::Synced => write!(f, "Synced"),
+            SyncState::Stalled => write!(f, "Stalled"),
             SyncState::SyncTransition => write!(f, "Evaluating known peers"),
             SyncState::BackFillSyncing { .. } => write!(f, "Syncing Historical Blocks"),
         }
