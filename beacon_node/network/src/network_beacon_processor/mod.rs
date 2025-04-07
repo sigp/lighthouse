@@ -852,16 +852,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     BlobsOrDataColumns::Blobs(blobs) => {
                         self_cloned.publish_blobs_gradually(blobs, block_root);
                     }
-                    BlobsOrDataColumns::DataColumns(columns) => {
-                        let columns_to_publish = if is_supernode {
-                            columns
-                        } else {
-                            columns
-                                .into_iter()
-                                .filter(|c| custody_columns.contains(&c.index))
-                                .collect()
-                        };
-                        self_cloned.publish_data_columns_gradually(columns_to_publish, block_root);
+                    BlobsOrDataColumns::DataColumns(mut columns) => {
+                        if !is_supernode {
+                            columns.retain(|col| custody_columns.contains(&col.index));
+                        }
+                        self_cloned.publish_data_columns_gradually(columns, block_root);
                     }
                 };
             }
