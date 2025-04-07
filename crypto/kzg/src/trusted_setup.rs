@@ -1,9 +1,13 @@
 use crate::PeerDASTrustedSetup;
-use c_kzg::{BYTES_PER_G1_POINT, BYTES_PER_G2_POINT};
 use serde::{
     de::{self, Deserializer, Visitor},
     Deserialize, Serialize,
 };
+
+// Number of bytes per G1 point.
+const BYTES_PER_G1_POINT: usize = 48;
+// Number of bytes per G2 point.
+const BYTES_PER_G2_POINT: usize = 96;
 
 pub const TRUSTED_SETUP_BYTES: &[u8] = include_bytes!("../trusted_setup.json");
 
@@ -23,7 +27,7 @@ struct G2Point([u8; BYTES_PER_G2_POINT]);
 /// `c_kzg::KzgSettings` object.
 ///
 /// The serialize/deserialize implementations are written according to
-/// the format specified in the the ethereum consensus specs trusted setup files.
+/// the format specified in the ethereum consensus specs trusted setup files.
 ///
 /// See https://github.com/ethereum/consensus-specs/blob/dev/presets/mainnet/trusted_setups/trusted_setup_4096.json
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,6 +41,10 @@ pub struct TrustedSetup {
 }
 
 impl TrustedSetup {
+    pub fn g1_monomial_points(&self) -> Vec<[u8; BYTES_PER_G1_POINT]> {
+        self.g1_monomial_points.iter().map(|p| p.0).collect()
+    }
+
     pub fn g1_points(&self) -> Vec<[u8; BYTES_PER_G1_POINT]> {
         self.g1_points.iter().map(|p| p.0).collect()
     }
