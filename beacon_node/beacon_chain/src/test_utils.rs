@@ -893,6 +893,28 @@ where
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
     }
 
+    pub fn knows_head(&self, block_hash: &SignedBeaconBlockHash) -> bool {
+        self.chain
+            .heads()
+            .iter()
+            .any(|(head, _)| *head == Hash256::from(*block_hash))
+    }
+
+    pub fn assert_knows_head(&self, head_block_root: Hash256) {
+        let heads = self.chain.heads();
+        if !heads.iter().any(|(head, _)| *head == head_block_root) {
+            let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+            if heads.is_empty() {
+                let nodes = &fork_choice.proto_array().core_proto_array().nodes;
+                panic!("Expected to know head block root {head_block_root:?}, but heads is empty. Nodes: {nodes:#?}");
+            } else {
+                panic!(
+                    "Expected to know head block root {head_block_root:?}, known heads {heads:#?}"
+                );
+            }
+        }
+    }
+
     pub async fn make_blinded_block(
         &self,
         state: BeaconState<E>,

@@ -8,7 +8,6 @@ use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::head_tracker::HeadTracker;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
@@ -93,7 +92,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
     light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
-    head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: Arc<ChainSpec>,
     chain_config: ChainConfig,
@@ -136,7 +134,6 @@ where
             slot_clock: None,
             shutdown_sender: None,
             light_client_server_tx: None,
-            head_tracker: None,
             validator_pubkey_cache: None,
             spec: Arc::new(E::default_spec()),
             chain_config: ChainConfig::default(),
@@ -314,10 +311,6 @@ where
 
         self.genesis_block_root = Some(chain.genesis_block_root);
         self.genesis_state_root = Some(genesis_block.state_root());
-        self.head_tracker = Some(
-            HeadTracker::from_ssz_container(&chain.ssz_head_tracker)
-                .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
-        );
         self.validator_pubkey_cache = Some(pubkey_cache);
         self.fork_choice = Some(fork_choice);
 
@@ -729,7 +722,6 @@ where
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
-        let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
         let mut validator_monitor =
@@ -769,8 +761,6 @@ where
                         &self.spec,
                     )?;
 
-                    // Update head tracker.
-                    head_tracker.register_block(block_root, block.parent_root(), block.slot());
                     (block_root, block, true)
                 }
                 Err(e) => return Err(descriptive_db_error("head block", &e)),
@@ -846,8 +836,7 @@ where
             })?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
-        let store_migrator =
-            BackgroundMigrator::new(store.clone(), migrator_config, genesis_block_root);
+        let store_migrator = BackgroundMigrator::new(store.clone(), migrator_config);
 
         if let Some(slot) = slot_clock.now() {
             validator_monitor.process_valid_state(
@@ -872,11 +861,10 @@ where
         //
         // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
-        let head_tracker_reader = head_tracker.0.read();
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
-            genesis_block_root, &head_tracker_reader
+            genesis_block_root
         ));
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
@@ -887,7 +875,6 @@ where
             .hot_db
             .do_atomically(self.pending_io_batch)
             .map_err(|e| format!("Error writing chain & metadata to disk: {:?}", e))?;
-        drop(head_tracker_reader);
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
@@ -968,7 +955,6 @@ where
             fork_choice_signal_tx,
             fork_choice_signal_rx,
             event_handler: self.event_handler,
-            head_tracker,
             shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,

@@ -358,7 +358,6 @@ pub struct BlockImportData<E: EthSpec> {
     pub state: BeaconState<E>,
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     pub parent_eth1_finalization_data: Eth1FinalizationData,
-    pub confirmed_state_roots: Vec<Hash256>,
     pub consensus_context: ConsensusContext<E>,
 }
 
@@ -376,7 +375,6 @@ impl<E: EthSpec> BlockImportData<E> {
                 eth1_data: <_>::default(),
                 eth1_deposit_index: 0,
             },
-            confirmed_state_roots: vec![],
             consensus_context: ConsensusContext::new(Slot::new(0)),
         }
     }

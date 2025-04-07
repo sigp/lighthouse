@@ -1419,8 +1419,8 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
 
     let slot_clock = rig.harness.chain.slot_clock.clone();
 
-    // Forcefully persist the head and fork choice.
-    rig.harness.chain.persist_head_and_fork_choice().unwrap();
+    // Forcefully persist fork choice.
+    rig.harness.chain.persist_fork_choice().unwrap();
 
     let resumed = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
