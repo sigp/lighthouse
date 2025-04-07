@@ -32,29 +32,26 @@ struct G2Point([u8; BYTES_PER_G2_POINT]);
 /// See https://github.com/ethereum/consensus-specs/blob/dev/presets/mainnet/trusted_setups/trusted_setup_4096.json
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrustedSetup {
-    #[serde(rename = "g1_monomial")]
-    g1_monomial_points: Vec<G1Point>,
-    #[serde(rename = "g1_lagrange")]
-    g1_points: Vec<G1Point>,
-    #[serde(rename = "g2_monomial")]
-    g2_points: Vec<G2Point>,
+    g1_monomial: Vec<G1Point>,
+    g1_lagrange: Vec<G1Point>,
+    g2_monomial: Vec<G2Point>,
 }
 
 impl TrustedSetup {
-    pub fn g1_monomial_points(&self) -> Vec<[u8; BYTES_PER_G1_POINT]> {
-        self.g1_monomial_points.iter().map(|p| p.0).collect()
+    pub fn g1_monomial(&self) -> Vec<u8> {
+        self.g1_monomial.iter().flat_map(|p| p.0).collect()
     }
 
-    pub fn g1_points(&self) -> Vec<[u8; BYTES_PER_G1_POINT]> {
-        self.g1_points.iter().map(|p| p.0).collect()
+    pub fn g1_lagrange(&self) -> Vec<u8> {
+        self.g1_lagrange.iter().flat_map(|p| p.0).collect()
     }
 
-    pub fn g2_points(&self) -> Vec<[u8; BYTES_PER_G2_POINT]> {
-        self.g2_points.iter().map(|p| p.0).collect()
+    pub fn g2_monomial(&self) -> Vec<u8> {
+        self.g2_monomial.iter().flat_map(|p| p.0).collect()
     }
 
     pub fn g1_len(&self) -> usize {
-        self.g1_points.len()
+        self.g1_lagrange.len()
     }
 }
 
@@ -62,17 +59,17 @@ impl From<&TrustedSetup> for PeerDASTrustedSetup {
     fn from(trusted_setup: &TrustedSetup) -> Self {
         Self {
             g1_monomial: trusted_setup
-                .g1_monomial_points
+                .g1_monomial
                 .iter()
                 .map(|g1_point| format!("0x{}", hex::encode(g1_point.0)))
                 .collect::<Vec<_>>(),
             g1_lagrange: trusted_setup
-                .g1_points
+                .g1_lagrange
                 .iter()
                 .map(|g1_point| format!("0x{}", hex::encode(g1_point.0)))
                 .collect::<Vec<_>>(),
             g2_monomial: trusted_setup
-                .g2_points
+                .g2_monomial
                 .iter()
                 .map(|g2_point| format!("0x{}", hex::encode(g2_point.0)))
                 .collect::<Vec<_>>(),

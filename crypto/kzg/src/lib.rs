@@ -72,27 +72,9 @@ impl Kzg {
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
-                trusted_setup
-                    .g1_monomial_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                trusted_setup
-                    .g1_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                trusted_setup
-                    .g2_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
+                &trusted_setup.g1_monomial(),
+                &trusted_setup.g1_lagrange(),
+                &trusted_setup.g2_monomial(),
                 NO_PRECOMPUTE,
             )?,
             context,
@@ -112,27 +94,9 @@ impl Kzg {
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
-                trusted_setup
-                    .g1_monomial_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                trusted_setup
-                    .g1_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                trusted_setup
-                    .g2_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
+                &trusted_setup.g1_monomial(),
+                &trusted_setup.g1_lagrange(),
+                &trusted_setup.g2_monomial(),
                 rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH as u64,
             )?,
             context,
@@ -158,27 +122,9 @@ impl Kzg {
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
-                trusted_setup
-                    .g1_monomial_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                trusted_setup
-                    .g1_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                trusted_setup
-                    .g2_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
+                &trusted_setup.g1_monomial(),
+                &trusted_setup.g1_lagrange(),
+                &trusted_setup.g2_monomial(),
                 rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH as u64,
             )?,
             context,

@@ -26,28 +26,10 @@ pub fn bench_init_context(c: &mut Criterion) {
                     .map_err(|e| format!("Unable to read trusted setup file: {}", e))
                     .expect("should have trusted setup");
             KzgSettings::load_trusted_setup(
-                trusted_setup
-                    .g1_monomial_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                trusted_setup
-                    .g1_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                trusted_setup
-                    .g2_points()
-                    .iter()
-                    .flatten()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-                0,
+                &trusted_setup.g1_monomial(),
+                &trusted_setup.g1_lagrange(),
+                &trusted_setup.g2_monomial(),
+                rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH as u64,
             )
             .unwrap()
         })
