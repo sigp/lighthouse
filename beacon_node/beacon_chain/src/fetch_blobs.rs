@@ -22,7 +22,7 @@ use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, instrument};
+use tracing::debug;
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
@@ -56,15 +56,6 @@ pub enum FetchEngineBlobError {
 
 /// Fetches blobs from the EL mempool and processes them. It also broadcasts unseen blobs or
 /// data columns (PeerDAS onwards) to the network, using the supplied `publish_fn`.
-#[instrument(
-    level = "info",
-    name = "fetch_engine_blobs",
-    fields(
-        service = "fetch_engine_blobs",
-        block_root = ?block_root
-    ),
-    skip_all
-)]
 pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,

@@ -434,7 +434,7 @@ mod test {
     use kzg::{trusted_setup::get_trusted_setup, Kzg, KzgCommitment, TrustedSetup};
     use types::{
         beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec,
-        EmptyBlock, EthSpec, FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
+        EmptyBlock, EthSpec, ForkName, FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
     };
 
     type E = MainnetEthSpec;
@@ -443,7 +443,7 @@ mod test {
     // only load it once.
     #[test]
     fn test_build_data_columns_sidecars() {
-        let spec = E::default_spec();
+        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
         let kzg = get_kzg();
         test_build_data_columns_empty(&kzg, &spec);
         test_build_data_columns(&kzg, &spec);

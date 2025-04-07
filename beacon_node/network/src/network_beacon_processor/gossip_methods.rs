@@ -825,7 +825,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::InvalidKzgProof { .. }
                     | GossipDataColumnError::UnexpectedDataColumn
                     | GossipDataColumnError::InvalidColumnIndex(_)
-                    | GossipDataColumnError::InconsistentCommitmentsOrProofLength
+                    | GossipDataColumnError::InconsistentCommitmentsOrProofLength { .. }
                     | GossipDataColumnError::NotFinalizedDescendant { .. } => {
                         debug!(
                             error = ?err,

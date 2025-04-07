@@ -147,7 +147,11 @@ pub enum GossipDataColumnError {
     /// ## Peer scoring
     ///
     /// The column sidecar is invalid and the peer is faulty
-    InconsistentCommitmentsOrProofLength,
+    InconsistentCommitmentsOrProofLength {
+        cells_len: usize,
+        commitments_len: usize,
+        proofs_len: usize,
+    },
 }
 
 impl From<BeaconChainError> for GossipDataColumnError {
@@ -481,10 +485,17 @@ fn verify_data_column_sidecar<E: EthSpec>(
     if data_column.kzg_commitments.is_empty() {
         return Err(GossipDataColumnError::UnexpectedDataColumn);
     }
-    if data_column.column.len() != data_column.kzg_commitments.len()
-        || data_column.column.len() != data_column.kzg_proofs.len()
-    {
-        return Err(GossipDataColumnError::InconsistentCommitmentsOrProofLength);
+    let cells_len = data_column.column.len();
+    let commitments_len = data_column.kzg_commitments.len();
+    let proofs_len = data_column.kzg_proofs.len();
+    if cells_len != commitments_len || cells_len != proofs_len {
+        return Err(
+            GossipDataColumnError::InconsistentCommitmentsOrProofLength {
+                cells_len,
+                commitments_len,
+                proofs_len,
+            },
+        );
     }
 
     Ok(())
