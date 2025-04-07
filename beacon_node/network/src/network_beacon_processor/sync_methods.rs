@@ -740,6 +740,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(self.log, "Finalized or earlier block processed";);
                 Ok(())
             }
+            BlockError::NotFinalizedDescendant { block_parent_root } => {
+                debug!(
+                    self.log,
+                    "Not syncing to a chain that conflicts with the canonical or manual finalized checkpoint"
+                );
+                Err(ChainSegmentFailed {
+                    message: format!(
+                        "Block with parent_root {} conflicts with our checkpoint state",
+                        block_parent_root
+                    ),
+                    peer_action: Some(PeerAction::Fatal),
+                })
+            }
             BlockError::GenesisBlock => {
                 debug!(self.log, "Genesis block was processed");
                 Ok(())
@@ -798,6 +811,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // of a faulty EL it will usually require manual intervention to fix anyway, so
                     // it's not too bad if we drop most of our peers.
                     peer_action: Some(PeerAction::LowToleranceError),
+                })
+            }
+            // Penalise peers for sending us banned blocks.
+            BlockError::KnownInvalidExecutionPayload(block_root) => {
+                warn!(
+                    self.log,
+                    "Received block known to be invalid";
+                    "block_root" => ?block_root,
+                );
+                Err(ChainSegmentFailed {
+                    message: format!("Banned block: {block_root:?}"),
+                    peer_action: Some(PeerAction::Fatal),
                 })
             }
             other => {

@@ -9,7 +9,8 @@ mod sync_committee_rewards;
 
 use crate::{
     types::{
-        DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock, GenericResponse, ValidatorId,
+        AdminPeer, DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock, GenericResponse,
+        ValidatorId,
     },
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot,
 };
@@ -404,6 +405,30 @@ impl BeaconNodeHttpClient {
             .push("reconstruct");
 
         self.post_with_response(path, &()).await
+    }
+
+    /// `POST lighthouse/add_peer`
+    pub async fn post_lighthouse_add_peer(&self, req: AdminPeer) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("add_peer");
+
+        self.post_with_response(path, &req).await
+    }
+
+    /// `POST lighthouse/remove_peer`
+    pub async fn post_lighthouse_remove_peer(&self, req: AdminPeer) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("remove_peer");
+
+        self.post_with_response(path, &req).await
     }
 
     /*

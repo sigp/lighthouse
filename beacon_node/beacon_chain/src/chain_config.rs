@@ -1,7 +1,8 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use types::{Checkpoint, Epoch};
+use std::str::FromStr;
+use std::{collections::HashSet, sync::LazyLock, time::Duration};
+use types::{Checkpoint, Epoch, Hash256};
 
 pub const DEFAULT_RE_ORG_HEAD_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
 pub const DEFAULT_RE_ORG_PARENT_THRESHOLD: ReOrgThreshold = ReOrgThreshold(160);
@@ -18,6 +19,12 @@ pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
 /// Default sync tolerance epochs.
 pub const DEFAULT_SYNC_TOLERANCE_EPOCHS: u64 = 2;
+
+/// Invalid block root to be banned from processing and importing on Holesky network by default.
+pub static INVALID_HOLESKY_BLOCK_ROOT: LazyLock<Hash256> = LazyLock::new(|| {
+    Hash256::from_str("2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359")
+        .expect("valid block root")
+});
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
@@ -100,6 +107,11 @@ pub struct ChainConfig {
     /// The max distance between the head block and the current slot at which Lighthouse will
     /// consider itself synced and still serve validator-related requests.
     pub sync_tolerance_epochs: u64,
+    /// Block roots of "banned" blocks which Lighthouse will refuse to import.
+    ///
+    /// On Holesky there is a block which is added to this set by default but which can be removed
+    /// by using `--invalid-block-roots ""`.
+    pub invalid_block_roots: HashSet<Hash256>,
 }
 
 impl Default for ChainConfig {
@@ -136,6 +148,7 @@ impl Default for ChainConfig {
             blob_publication_batches: 4,
             blob_publication_batch_interval: Duration::from_millis(300),
             sync_tolerance_epochs: DEFAULT_SYNC_TOLERANCE_EPOCHS,
+            invalid_block_roots: HashSet::new(),
         }
     }
 }

@@ -760,7 +760,7 @@ impl ProtoArray {
     ///
     /// - The child is already the best child but it's now invalid due to a FFG change and should be removed.
     /// - The child is already the best child and the parent is updated with the new
-    ///     best-descendant.
+    ///   best-descendant.
     /// - The child is not the best child but becomes the best child.
     /// - The child is not the best child and does not become the best child.
     fn maybe_update_best_child_and_descendant<E: EthSpec>(
