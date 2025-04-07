@@ -741,7 +741,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// - `slot` always increases by `1`.
     /// - Skipped slots contain the root of the closest prior
-    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`).
+    ///   non-skipped slot (identical to the way they are stored in `state.block_roots`).
     /// - Iterator returns `(Hash256, Slot)`.
     ///
     /// Will return a `BlockOutOfRange` error if the requested start slot is before the period of
@@ -805,7 +805,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// - `slot` always decreases by `1`.
     /// - Skipped slots contain the root of the closest prior
-    ///     non-skipped slot (identical to the way they are stored in `state.block_roots`) .
+    ///   non-skipped slot (identical to the way they are stored in `state.block_roots`) .
     /// - Iterator returns `(Hash256, Slot)`.
     /// - The provided `block_root` is included as the first item in the iterator.
     pub fn rev_iter_block_roots_from(
@@ -834,7 +834,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - `slot` always decreases by `1`.
     /// - Iterator returns `(Hash256, Slot)`.
     /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
-    ///     returned may be earlier than the wall-clock slot.
+    ///   returned may be earlier than the wall-clock slot.
     pub fn rev_iter_state_roots_from<'a>(
         &'a self,
         state_root: Hash256,
