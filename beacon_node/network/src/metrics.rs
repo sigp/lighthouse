@@ -87,6 +87,15 @@ pub static BEACON_PROCESSOR_IMPORT_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVe
             &["source", "component", "type"],
         )
     });
+pub static BEACON_PROCESSOR_GET_BLOCK_ROOTS_TIME: LazyLock<Result<HistogramVec>> =
+    LazyLock::new(|| {
+        try_create_histogram_vec_with_buckets(
+            "beacon_processor_get_block_roots_time_seconds",
+            "Time to complete get_block_roots when serving by_range requests",
+            decimal_buckets(-3, -1),
+            &["source"],
+        )
+    });
 
 /*
  * Gossip processor
