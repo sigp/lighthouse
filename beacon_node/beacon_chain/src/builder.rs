@@ -31,7 +31,6 @@ use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
-use rand::rngs::StdRng;
 use rand::RngCore;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -1156,6 +1155,7 @@ mod test {
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };
+    use rand::rngs::StdRng;
     use ssz::Encode;
     use std::time::Duration;
     use store::config::StoreConfig;
