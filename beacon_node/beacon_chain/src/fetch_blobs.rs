@@ -17,7 +17,7 @@ use crate::{
 };
 use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use execution_layer::Error as ExecutionLayerError;
-use metrics::{inc_counter, inc_counter_by, TryExt};
+use metrics::{inc_counter, TryExt};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::collections::HashSet;
@@ -112,12 +112,20 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
 
+    metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
+    debug!(num_expected_blobs, "Fetching blobs from the EL");
     let response = execution_layer
         .get_blobs_v1(versioned_hashes)
         .await
+        .inspect_err(|_| {
+            inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
+        })
         .map_err(FetchEngineBlobError::RequestFailed)?;
 
-    if response.is_empty() || response.iter().all(|opt| opt.is_none()) {
+    let num_fetched_blobs = response.iter().filter(|opt| opt.is_some()).count();
+    metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
+
+    if num_fetched_blobs == 0 {
         debug!(num_expected_blobs, "No blobs fetched from the EL");
         inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
         return Ok(None);
@@ -136,20 +144,6 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         &kzg_commitments_proof,
         &chain.spec,
     )?;
-
-    let num_fetched_blobs = fixed_blob_sidecar_list
-        .iter()
-        .filter(|b| b.is_some())
-        .count();
-
-    inc_counter_by(
-        &metrics::BLOBS_FROM_EL_EXPECTED_TOTAL,
-        num_expected_blobs as u64,
-    );
-    inc_counter_by(
-        &metrics::BLOBS_FROM_EL_RECEIVED_TOTAL,
-        num_fetched_blobs as u64,
-    );
 
     // Gossip verify blobs before publishing. This prevents blobs with invalid KZG proofs from
     // the EL making it into the data availability checker. We do not immediately add these
@@ -202,9 +196,14 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
 
+    metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
+    debug!(num_expected_blobs, "Fetching blobs from the EL");
     let response = execution_layer
         .get_blobs_v2(versioned_hashes)
         .await
+        .inspect_err(|_| {
+            inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
+        })
         .map_err(FetchEngineBlobError::RequestFailed)?;
 
     let (blobs, proofs): (Vec<_>, Vec<_>) = response
@@ -217,7 +216,10 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         })
         .unzip();
 
-    if blobs.is_empty() {
+    let num_fetched_blobs = blobs.len();
+    metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
+
+    if num_fetched_blobs == 0 {
         debug!(num_expected_blobs, "No blobs fetched from the EL");
         inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
         return Ok(None);
@@ -225,35 +227,11 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
     }
 
-    let num_fetched_blobs = blobs.len();
-
-    inc_counter_by(
-        &metrics::BLOBS_FROM_EL_EXPECTED_TOTAL,
-        num_expected_blobs as u64,
-    );
-    inc_counter_by(
-        &metrics::BLOBS_FROM_EL_RECEIVED_TOTAL,
-        num_fetched_blobs as u64,
-    );
-
     // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
     if num_fetched_blobs != num_expected_blobs {
         debug!(
             info = "Unable to compute data columns",
             num_fetched_blobs, num_expected_blobs, "Not all blobs fetched from the EL"
-        );
-        return Ok(None);
-    }
-
-    if chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .contains_block(&block_root)
-    {
-        // Avoid computing columns if block has already been imported.
-        debug!(
-            info = "block has already been imported",
-            "Ignoring EL blobs response"
         );
         return Ok(None);
     }
