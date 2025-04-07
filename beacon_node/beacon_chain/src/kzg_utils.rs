@@ -3,13 +3,13 @@ use kzg::{
     Error as KzgError, Kzg,
 };
 use rayon::prelude::*;
-use ssz_types::FixedVector;
+use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
 use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnSidecarList, EthSpec, Hash256, KzgCommitment, KzgProof, KzgProofs, SignedBeaconBlock,
+    DataColumnSidecarList, EthSpec, Hash256, KzgCommitment, KzgProof, SignedBeaconBlock,
     SignedBeaconBlockHeader, SignedBlindedBeaconBlock,
 };
 
@@ -295,7 +295,7 @@ pub(crate) fn build_data_column_sidecars<E: EthSpec>(
                 index: index as u64,
                 column: DataColumn::<E>::from(col),
                 kzg_commitments: kzg_commitments.clone(),
-                kzg_proofs: KzgProofs::<E>::from(proofs),
+                kzg_proofs: VariableList::from(proofs),
                 signed_block_header: signed_block_header.clone(),
                 kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
             })
