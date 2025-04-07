@@ -928,6 +928,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         publish_blobs: bool,
     ) {
         let custody_columns = self.network_globals.sampling_columns.clone();
+        let is_supernode = self.network_globals.is_supernode();
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {
@@ -936,10 +937,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         self_cloned.publish_blobs_gradually(blobs, block_root);
                     }
                     BlobsOrDataColumns::DataColumns(columns) => {
-                        let columns_to_publish = columns
-                            .into_iter()
-                            .filter(|c| custody_columns.contains(&c.index))
-                            .collect();
+                        let columns_to_publish = if is_supernode {
+                            columns
+                        } else {
+                            columns
+                                .into_iter()
+                                .filter(|c| custody_columns.contains(&c.index))
+                                .collect()
+                        };
                         self_cloned.publish_data_columns_gradually(columns_to_publish, block_root);
                     }
                 };
