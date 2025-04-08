@@ -110,7 +110,6 @@ impl<E: EthSpec> RpcBlock<E> {
         Self {
             block_root,
             block: RpcBlockInner::Block(block),
-            // Block has zero columns
             custody_columns_count,
         }
     }
