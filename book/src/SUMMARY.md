@@ -61,6 +61,7 @@
   * [Development Environment](./contributing_setup.md)
 * [FAQs](./faq.md)
 * [Protocol Developers](./developers.md)
+  * [Lighthouse Architecture](./developers_architecture.md)
 * [Security Researchers](./security.md)
 * [Archived](./archived.md)
   * [Merge Migration](./archived_merge_migration.md)
