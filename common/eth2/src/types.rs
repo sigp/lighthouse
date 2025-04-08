@@ -16,7 +16,9 @@ use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use test_random_derive::TestRandom;
 use types::beacon_block_body::KzgCommitments;
+use types::test_utils::TestRandom;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -2091,7 +2093,7 @@ pub enum ContentType {
     Ssz,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
@@ -2102,6 +2104,10 @@ pub struct BlobsBundle<E: EthSpec> {
 
 #[cfg(test)]
 mod test {
+    use std::fmt::Debug;
+
+    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+
     use super::*;
 
     #[test]
@@ -2114,5 +2120,79 @@ mod test {
         let pubkey_str = "\"0xb824b5ede33a7b05a378a84b183b4bc7e7db894ce48b659f150c97d359edca2f503081d6678d1200f582ec7cafa9caf2\"";
         let y: ValidatorId = serde_json::from_str(pubkey_str).unwrap();
         assert_eq!(serde_json::to_string(&y).unwrap(), pubkey_str);
+    }
+
+    #[test]
+    fn test_execution_payload_execution_payload_deserialize_by_fork() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+
+        let payload =
+            ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng));
+        let payload_str = serde_json::to_string(&payload).unwrap();
+        let mut de = serde_json::Deserializer::from_str(&payload_str);
+        generic_deserialize_by_fork(&mut de, payload, ForkName::Fulu);
+
+        let payload = ExecutionPayload::Deneb(
+            ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
+        );
+        let payload_str = serde_json::to_string(&payload).unwrap();
+        let mut de = serde_json::Deserializer::from_str(&payload_str);
+        generic_deserialize_by_fork(&mut de, payload, ForkName::Deneb);
+
+        let payload = ExecutionPayload::Capella(
+            ExecutionPayloadCapella::<MainnetEthSpec>::random_for_test(rng),
+        );
+        let payload_str = serde_json::to_string(&payload).unwrap();
+        let mut de = serde_json::Deserializer::from_str(&payload_str);
+        generic_deserialize_by_fork(&mut de, payload, ForkName::Capella);
+
+        let payload = ExecutionPayload::Bellatrix(
+            ExecutionPayloadBellatrix::<MainnetEthSpec>::random_for_test(rng),
+        );
+        let payload_str = serde_json::to_string(&payload).unwrap();
+        let mut de = serde_json::Deserializer::from_str(&payload_str);
+        generic_deserialize_by_fork(&mut de, payload, ForkName::Bellatrix);
+    }
+
+    #[test]
+    fn test_execution_payload_and_blobs_deserialize_by_fork() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+
+        let execution_payload =
+            ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng));
+        let blobs_bundle = BlobsBundle::random_for_test(rng);
+        let payload_and_blobs = ExecutionPayloadAndBlobs {
+            execution_payload,
+            blobs_bundle,
+        };
+        let payload_and_blobs_str = serde_json::to_string(&payload_and_blobs).unwrap();
+        let mut de = serde_json::Deserializer::from_str(&payload_and_blobs_str);
+        generic_deserialize_by_fork(&mut de, payload_and_blobs, ForkName::Fulu);
+
+        let execution_payload = ExecutionPayload::Deneb(
+            ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
+        );
+        let blobs_bundle = BlobsBundle::random_for_test(rng);
+        let payload_and_blobs = ExecutionPayloadAndBlobs {
+            execution_payload,
+            blobs_bundle,
+        };
+        let payload_and_blobs_str = serde_json::to_string(&payload_and_blobs).unwrap();
+        let mut de = serde_json::Deserializer::from_str(&payload_and_blobs_str);
+        generic_deserialize_by_fork(&mut de, payload_and_blobs, ForkName::Deneb);
+    }
+
+    fn generic_deserialize_by_fork<
+        'de,
+        D: Deserializer<'de>,
+        O: ForkVersionDeserialize + PartialEq + Debug,
+    >(
+        deserializer: D,
+        original: O,
+        fork_name: ForkName,
+    ) {
+        let val = Value::deserialize(deserializer).unwrap();
+        let roundtrip = O::deserialize_by_fork::<'de, D>(val, fork_name).unwrap();
+        assert_eq!(original, roundtrip);
     }
 }
