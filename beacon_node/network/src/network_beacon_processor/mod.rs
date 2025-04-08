@@ -843,9 +843,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
         block_root: Hash256,
         publish_blobs: bool,
-        custody_columns: HashSet<ColumnIndex>,
     ) {
         let is_supernode = self.network_globals.is_supernode();
+        let custody_columns = self.network_globals.sampling_columns.clone();
 
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {

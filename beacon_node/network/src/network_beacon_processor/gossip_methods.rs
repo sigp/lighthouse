@@ -1556,17 +1556,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let publish_blobs = true;
         let self_clone = self.clone();
         let block_clone = block.clone();
-        // TODO(das): derive this from block CGC when implementing validator custody.
-        let custody_columns = self.network_globals.sampling_columns.clone();
         self.executor.spawn(
             async move {
                 self_clone
-                    .fetch_engine_blobs_and_publish(
-                        block_clone,
-                        block_root,
-                        publish_blobs,
-                        custody_columns,
-                    )
+                    .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
                     .await
             },
             "fetch_blobs_gossip",

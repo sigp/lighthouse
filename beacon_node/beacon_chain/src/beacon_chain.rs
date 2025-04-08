@@ -3622,7 +3622,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.data_availability_checker
                     .put_engine_blobs(block_root, blobs)?
             }
-            EngineGetBlobsOutput::DataColumns(data_columns) => {
+            EngineGetBlobsOutput::CustodyColumns(data_columns) => {
                 self.check_columns_for_slashability(block_root, &data_columns)?;
                 self.data_availability_checker
                     .put_engine_data_columns(block_root, data_columns)?

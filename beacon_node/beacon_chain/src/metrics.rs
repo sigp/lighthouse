@@ -1663,7 +1663,7 @@ pub static BLOBS_FROM_EL_HIT_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new
 pub static BLOBS_FROM_EL_MISS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_blobs_from_el_miss_total",
-        "Number of empty blob responses from the execution layer",
+        "Number of empty or incomplete blob responses from the execution layer",
     )
 });
 

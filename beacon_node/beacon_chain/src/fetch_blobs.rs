@@ -30,14 +30,20 @@ use types::{
     FullPayload, Hash256, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
 };
 
+/// Blobs or data column to be published to the gossip network.
 pub enum BlobsOrDataColumns<T: BeaconChainTypes> {
     Blobs(Vec<GossipVerifiedBlob<T, DoNotObserve>>),
     DataColumns(DataColumnSidecarList<T::EthSpec>),
 }
 
+/// Result from engine get blobs to be passed onto `DataAvailabilityChecker`.
+///
+/// The blobs are retrieved from a trusted EL and columns are computed locally, therefore they are
+/// considered valid without requiring extra validation.
 pub enum EngineGetBlobsOutput<E: EthSpec> {
     Blobs(FixedBlobSidecarList<E>),
-    DataColumns(DataColumnSidecarList<E>),
+    /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
+    CustodyColumns(DataColumnSidecarList<E>),
 }
 
 #[derive(Debug)]
@@ -219,21 +225,16 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     let num_fetched_blobs = blobs.len();
     metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
 
-    if num_fetched_blobs == 0 {
-        debug!(num_expected_blobs, "No blobs fetched from the EL");
-        inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
-        return Ok(None);
-    } else {
-        inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
-    }
-
     // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
     if num_fetched_blobs != num_expected_blobs {
         debug!(
             info = "Unable to compute data columns",
             num_fetched_blobs, num_expected_blobs, "Not all blobs fetched from the EL"
         );
+        inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
         return Ok(None);
+    } else {
+        inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
     }
 
     if chain
@@ -265,7 +266,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         .process_engine_blobs(
             block.slot(),
             block_root,
-            EngineGetBlobsOutput::DataColumns(custody_columns),
+            EngineGetBlobsOutput::CustodyColumns(custody_columns),
         )
         .await
         .map_err(FetchEngineBlobError::BlobProcessingError)?;
@@ -303,6 +304,9 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
                 .discard_timer_on_break(&mut timer);
                 drop(timer);
 
+                // This filtering ensures we only import and publish the custody columns.
+                // `DataAvailabilityChecker` requires a strict match on custody columns count to
+                // consider a block available.
                 let custody_columns = data_columns_result
                     .map(|mut data_columns| {
                         data_columns.retain(|col| custody_columns_indices.contains(&col.index));
