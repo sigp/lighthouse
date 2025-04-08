@@ -16,14 +16,9 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
-| v7.0.0             | April 2025   | v22            | no                   |
+| v7.0.0             | Apr 2025   | v22            | no                   |
 | v6.0.1             | Dec 2024     | v22            | yes before Electra using <= 7.0.0                   |
 | v6.0.0             | Nov 2024     | v22            | yes before Electra using <= 7.0.0                    |
-| v5.3.0             | Aug 2024     | v21            | yes                  |
-| v5.2.0             | Jun 2024     | v19            | no                   |
-| v5.1.0             | Mar 2024     | v19            | no                   |
-| v5.0.0             | Feb 2024     | v19            | no                   |
-| v4.6.0             | Dec 2023     | v19            | no                   |
 
 > **Note**: All point releases (e.g. v4.4.1) are schema-compatible with the prior minor release
 > (e.g. v4.4.0).
@@ -211,7 +206,6 @@ Here are the steps to prune historic states:
 
 | Lighthouse version | Release date | Schema version | Downgrade available?                |
 |--------------------|--------------|----------------|-------------------------------------|
-| v6.0.0             | Nov 2024     | v22            | no                                  |
 | v5.3.0             | Aug 2024     | v21            | yes                                 |
 | v5.2.0             | Jun 2024     | v19            | yes before Deneb using <= v5.2.1    |
 | v5.1.0             | Mar 2024     | v19            | yes before Deneb using <= v5.2.1    |

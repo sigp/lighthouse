@@ -1,6 +1,6 @@
 # Archived FAQ
 
-Note: The following FAQ is valid for mainnet before Electra. After Electra, [EIP6110 Supply validator deposits on chain](Supply validator deposits on chain) is implemented and the time taken to activate a validator can be as fast as 13 minutes.
+Note: The following FAQ is valid for mainnet before Electra. After Electra, [EIP6110 Supply validator deposits on chain](https://ethereum.org/en/roadmap/pectra/#6110) is implemented and the time taken to activate a validator can be as fast as 13 minutes.
 
 ## Why does it take so long for a validator to be activated?
 

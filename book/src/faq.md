@@ -150,8 +150,6 @@ This is a normal behaviour. Since [v4.1.0](https://github.com/sigp/lighthouse/re
 
 ### <a name="bn-http"></a> My beacon node logs `WARN Error processing HTTP API request`, what should I do?
 
-
-
 An example of the log is shown below
 
 ```text
@@ -159,7 +157,6 @@ WARN Error processing HTTP API request       method: GET, path: /eth/v1/validato
 ```
 
 This warning usually happens when the validator client sends a request to the beacon node, but the beacon node is unable to fulfil the request. This can be due to the execution client is not synced/is syncing and/or the beacon node is syncing. The error show go away when the node is synced.
-
 
 ### <a name="bn-fork-choice"></a> My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?
 
@@ -181,6 +178,7 @@ ERRO Attestation delay queue is full         msg: check system clock, queue_size
 ```
 
 This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. Some common reasons are:
+
 - when the beacon node is downloading historical blocks
 - the execution client is syncing
 - disk IO is being overwhelmed
