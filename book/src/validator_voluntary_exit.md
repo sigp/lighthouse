@@ -45,7 +45,7 @@ WARNING: WARNING: THIS IS AN IRREVERSIBLE OPERATION
 
 
 
-PLEASE VISIT https://lighthouse-book.sigmaprime.io/voluntary-exit.html
+PLEASE VISIT https://lighthouse-book.sigmaprime.io/validator_voluntary_exit.html
 TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.
 
 Enter the exit phrase from the above URL to confirm the voluntary exit:
