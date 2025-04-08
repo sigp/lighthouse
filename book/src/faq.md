@@ -189,13 +189,20 @@ This suggests that the computer resources are being overwhelmed. It could be due
 
 ### <a name="bn-queue-full"></a> My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?
 
-An example of the full log is shown below:
+Some examplex of the full log is shown below:
 
 ```text
 ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
+ERRO Attestation delay queue is full         msg: check system clock, queue_size: 16384, service: bproc
 ```
 
-This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear when the resources used return to normal or when the node is synced.
+This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. Some common reasons are:
+- when the beacon node is downloading historical blocks
+- the execution client is syncing
+- disk IO is being overwhelmed
+- parallel API queries to the beacon node
+
+If the node is syncing or downloading historical blocks, the error should disappear when the resources used return to normal or when the node is synced.
 
 ### <a name="bn-deposit-cache"></a> My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?
 
@@ -227,7 +234,7 @@ Another cause for missing attestations is the block arriving late, or there are 
 An example of the log: (debug logs can be found under `$datadir/beacon/logs`):
 
 ```text
-Delayed head block, set_as_head_time_ms: 27, imported_time_ms: 168, attestable_delay_ms: 4209, available_delay_ms: 4186, execution_time_ms: 201, blob_delay_ms: 3815, observed_delay_ms: 3984, total_delay_ms: 4381, slot: 1886014, proposer_index: 733, block_root: 0xa7390baac88d50f1cbb5ad81691915f6402385a12521a670bbbd4cd5f8bf3934, service: beacon, module: beacon_chain::canonical_head:1441
+Delayed head block, set_as_head_time_ms: 27, imported_time_ms: 168, attestable_delay_ms: 4209, available_delay_ms: 4186, execution_time_ms: 201, consensus_time: 211 ms, blob_delay_ms: 3815, observed_delay_ms: 3984, total_delay_ms: 4591, slot: 1886014, proposer_index: 733, block_root: 0xa7390baac88d50f1cbb5ad81691915f6402385a12521a670bbbd4cd5f8bf3934, service: beacon, module: beacon_chain::canonical_head:1441
 ```
 
 The field to look for is `attestable_delay`, which defines the time when a block is ready for the validator to attest. If the `attestable_delay` is greater than 4s which has past the window of attestation, the attestation will fail. In the above example, the delay is mostly caused by late block observed by the node, as shown in  `observed_delay`. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). Ideally,  `observed_delay` should be less than 3 seconds. In this example, the validator failed to attest the block due to the block arriving late.
