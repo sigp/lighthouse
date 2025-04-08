@@ -234,15 +234,16 @@ Another cause for missing attestations is the block arriving late, or there are 
 An example of the log: (debug logs can be found under `$datadir/beacon/logs`):
 
 ```text
-Delayed head block, set_as_head_time_ms: 27, imported_time_ms: 168, attestable_delay_ms: 4209, available_delay_ms: 4186, execution_time_ms: 201, consensus_time: 211 ms, blob_delay_ms: 3815, observed_delay_ms: 3984, total_delay_ms: 4591, slot: 1886014, proposer_index: 733, block_root: 0xa7390baac88d50f1cbb5ad81691915f6402385a12521a670bbbd4cd5f8bf3934, service: beacon, module: beacon_chain::canonical_head:1441
+DEBG Delayed head block, set_as_head_time_ms: 37, imported_time_ms: 1824, attestable_delay_ms: 3660, available_delay_ms: 3491, execution_time_ms: 78, consensus_time_ms: 161, blob_delay_ms: 3291, observed_delay_ms: 3250, total_delay_ms: 5352, slot: 11429888, proposer_index: 778696, block_root: 0x34cc0675ad5fd052699af2ff37b858c3eb8186c5b29fdadb1dabd246caf79e43, service: beacon, module: beacon_chain::canonical_head:1440
 ```
 
-The field to look for is `attestable_delay`, which defines the time when a block is ready for the validator to attest. If the `attestable_delay` is greater than 4s which has past the window of attestation, the attestation will fail. In the above example, the delay is mostly caused by late block observed by the node, as shown in  `observed_delay`. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). Ideally,  `observed_delay` should be less than 3 seconds. In this example, the validator failed to attest the block due to the block arriving late.
+The field to look for is `attestable_delay`, which defines the time when a block is ready for the validator to attest. If the `attestable_delay` is greater than 4s which has past the window of attestation, the attestation will fail. In the above example, the delay is mostly caused by late block observed by the node, as shown in `observed_delay`. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). Ideally, `observed_delay` should be less than 3 seconds. In this example, the validator failed to attest the block due to the block arriving late.
 
 Another example of log:
 
 ```
-DEBG Delayed head block, set_as_head_time_ms: 22, imported_time_ms: 312, attestable_delay_ms: 7052, available_delay_ms: 6874, execution_time_ms: 4694, blob_delay_ms: 2159, observed_delay_ms: 2179, total_delay_ms: 7209, slot: 1885922, proposer_index: 606896, block_root: 0x9966df24d24e722d7133068186f0caa098428696e9f441ac416d0aca70cc0a23, service: beacon, module: beacon_chain::canonical_head:1441
+DEBG Delayed head block, set_as_head_time_ms: 22, imported_time_ms: 312, attestable_delay_ms: 7052, available_delay_ms: 6874, execution_time_ms: 4694,
+consensus_time_ms: 232, blob_delay_ms: 2159, observed_delay_ms: 2179, total_delay_ms: 7209, slot: 1885922, proposer_index: 606896, block_root: 0x9966df24d24e722d7133068186f0caa098428696e9f441ac416d0aca70cc0a23, service: beacon, module: beacon_chain::canonical_head:1441
 /159.69.68.247/tcp/9000, service: libp2p, module: lighthouse_network::service:1811
 ```
 
