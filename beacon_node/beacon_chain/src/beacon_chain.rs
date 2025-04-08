@@ -31,6 +31,7 @@ use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
+use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::graffiti_calculator::GraffitiCalculator;
 use crate::kzg_utils::reconstruct_blobs;
@@ -122,7 +123,6 @@ use store::{
     KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
-use tokio::sync::oneshot;
 use tokio_stream::Stream;
 use tracing::{debug, error, info, trace, warn};
 use tree_hash::TreeHash;
@@ -3140,16 +3140,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Process blobs retrieved from the EL and returns the `AvailabilityProcessingStatus`.
-    ///
-    /// `data_column_recv`: An optional receiver for `DataColumnSidecarList`.
-    /// If PeerDAS is enabled, this receiver will be provided and used to send
-    /// the `DataColumnSidecar`s once they have been successfully computed.
     pub async fn process_engine_blobs(
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
+        engine_get_blobs_output: EngineGetBlobsOutput<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its blobs again.
@@ -3163,15 +3158,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // process_engine_blobs is called for both pre and post PeerDAS. However, post PeerDAS
         // consumers don't expect the blobs event to fire erratically.
-        if !self
-            .spec
-            .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
-        {
+        if let EngineGetBlobsOutput::Blobs(blobs) = &engine_get_blobs_output {
             self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
         }
 
         let r = self
-            .check_engine_blob_availability_and_import(slot, block_root, blobs, data_column_recv)
+            .check_engine_blobs_availability_and_import(slot, block_root, engine_get_blobs_output)
             .await;
         self.remove_notified(&block_root, r)
     }
@@ -3621,20 +3613,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
-    async fn check_engine_blob_availability_and_import(
+    async fn check_engine_blobs_availability_and_import(
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
+        engine_get_blobs_output: EngineGetBlobsOutput<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        self.check_blobs_for_slashability(block_root, &blobs)?;
-        let availability = self.data_availability_checker.put_engine_blobs(
-            block_root,
-            slot.epoch(T::EthSpec::slots_per_epoch()),
-            blobs,
-            data_column_recv,
-        )?;
+        let availability = match engine_get_blobs_output {
+            EngineGetBlobsOutput::Blobs(blobs) => {
+                self.check_blobs_for_slashability(block_root, &blobs)?;
+                self.data_availability_checker
+                    .put_engine_blobs(block_root, blobs)?
+            }
+            EngineGetBlobsOutput::CustodyColumns(data_columns) => {
+                self.check_columns_for_slashability(block_root, &data_columns)?;
+                self.data_availability_checker
+                    .put_engine_data_columns(block_root, data_columns)?
+            }
+        };
 
         self.process_availability(slot, availability, || Ok(()))
             .await
@@ -3648,27 +3644,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        // Need to scope this to ensure the lock is dropped before calling `process_availability`
-        // Even an explicit drop is not enough to convince the borrow checker.
-        {
-            let mut slashable_cache = self.observed_slashable.write();
-            // Assumes all items in custody_columns are for the same block_root
-            if let Some(column) = custody_columns.first() {
-                let header = &column.signed_block_header;
-                if verify_header_signature::<T, BlockError>(self, header).is_ok() {
-                    slashable_cache
-                        .observe_slashable(
-                            header.message.slot,
-                            header.message.proposer_index,
-                            block_root,
-                        )
-                        .map_err(|e| BlockError::BeaconChainError(e.into()))?;
-                    if let Some(slasher) = self.slasher.as_ref() {
-                        slasher.accept_block_header(header.clone());
-                    }
-                }
-            }
-        }
+        self.check_columns_for_slashability(block_root, &custody_columns)?;
 
         // This slot value is purely informative for the consumers of
         // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
@@ -3678,6 +3654,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.process_availability(slot, availability, || Ok(()))
             .await
+    }
+
+    fn check_columns_for_slashability(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        custody_columns: &DataColumnSidecarList<T::EthSpec>,
+    ) -> Result<(), BlockError> {
+        let mut slashable_cache = self.observed_slashable.write();
+        // Assumes all items in custody_columns are for the same block_root
+        if let Some(column) = custody_columns.first() {
+            let header = &column.signed_block_header;
+            if verify_header_signature::<T, BlockError>(self, header).is_ok() {
+                slashable_cache
+                    .observe_slashable(
+                        header.message.slot,
+                        header.message.proposer_index,
+                        block_root,
+                    )
+                    .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                if let Some(slasher) = self.slasher.as_ref() {
+                    slasher.accept_block_header(header.clone());
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Imports a fully available block. Otherwise, returns `AvailabilityProcessingStatus::MissingComponents`
@@ -5801,15 +5802,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let kzg_proofs = Vec::from(proofs);
 
                 let kzg = self.kzg.as_ref();
-
-                // TODO(fulu): we no longer need blob proofs from PeerDAS and could avoid computing.
-                kzg_utils::validate_blobs::<T::EthSpec>(
-                    kzg,
-                    expected_kzg_commitments,
-                    blobs.iter().collect(),
-                    &kzg_proofs,
-                )
-                .map_err(BlockProductionError::KzgError)?;
+                if self
+                    .spec
+                    .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
+                {
+                    kzg_utils::validate_blobs_and_cell_proofs::<T::EthSpec>(
+                        kzg,
+                        blobs.iter().collect(),
+                        &kzg_proofs,
+                        expected_kzg_commitments,
+                    )
+                    .map_err(BlockProductionError::KzgError)?;
+                } else {
+                    kzg_utils::validate_blobs::<T::EthSpec>(
+                        kzg,
+                        expected_kzg_commitments,
+                        blobs.iter().collect(),
+                        &kzg_proofs,
+                    )
+                    .map_err(BlockProductionError::KzgError)?;
+                }
 
                 Some((kzg_proofs.into(), blobs))
             }
@@ -7120,27 +7132,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Writing data columns to store"
                 );
                 Ok(Some(StoreOp::PutDataColumns(block_root, data_columns)))
-            }
-            AvailableBlockData::DataColumnsRecv(data_column_recv) => {
-                // Blobs were available from the EL, in this case we wait for the data columns to be computed (blocking).
-                let _column_recv_timer =
-                    metrics::start_timer(&metrics::BLOCK_PROCESSING_DATA_COLUMNS_WAIT);
-                // Unable to receive data columns from sender, sender is either dropped or
-                // failed to compute data columns from blobs. We restore fork choice here and
-                // return to avoid inconsistency in database.
-                let computed_data_columns = data_column_recv
-                    .blocking_recv()
-                    .map_err(|e| format!("Did not receive data columns from sender: {e:?}"))?;
-                debug!(
-                    %block_root,
-                    count = computed_data_columns.len(),
-                    "Writing data columns to store"
-                );
-                // TODO(das): Store only this node's custody columns
-                Ok(Some(StoreOp::PutDataColumns(
-                    block_root,
-                    computed_data_columns,
-                )))
             }
         }
     }

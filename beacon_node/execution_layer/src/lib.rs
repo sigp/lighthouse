@@ -4,7 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::BlobAndProofV1;
+use crate::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{strip_prefix, Auth, JwtKey};
@@ -16,8 +16,8 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
-use eth2::types::FullPayloadContents;
-use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
+use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use eth2::types::{BlobsBundle, FullPayloadContents};
 use ethers_core::types::Transaction as EthersTransaction;
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
@@ -596,13 +596,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let (payload_ref, maybe_json_blobs_bundle) = payload_and_blobs;
 
         let payload = payload_ref.clone_from_ref();
-        let maybe_blobs_bundle = maybe_json_blobs_bundle
-            .cloned()
-            .map(|blobs_bundle| BlobsBundle {
-                commitments: blobs_bundle.commitments,
-                proofs: blobs_bundle.proofs,
-                blobs: blobs_bundle.blobs,
-            });
+        let maybe_blobs_bundle = maybe_json_blobs_bundle.cloned();
 
         self.inner
             .payload_cache
@@ -1846,7 +1840,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
-    pub async fn get_blobs(
+    pub async fn get_blobs_v1(
         &self,
         query: Vec<Hash256>,
     ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
@@ -1854,7 +1848,24 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         if capabilities.get_blobs_v1 {
             self.engine()
-                .request(|engine| async move { engine.api.get_blobs(query).await })
+                .request(|engine| async move { engine.api.get_blobs_v1(query).await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn get_blobs_v2(
+        &self,
+        query: Vec<Hash256>,
+    ) -> Result<Vec<Option<BlobAndProofV2<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_blobs_v2 {
+            self.engine()
+                .request(|engine| async move { engine.api.get_blobs_v2(query).await })
                 .await
                 .map_err(Box::new)
                 .map_err(Error::EngineError)

@@ -3194,7 +3194,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
 
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
@@ -3214,7 +3214,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
@@ -3233,7 +3233,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();

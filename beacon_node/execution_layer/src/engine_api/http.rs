@@ -61,6 +61,7 @@ pub const ENGINE_GET_CLIENT_VERSION_V1: &str = "engine_getClientVersionV1";
 pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_BLOBS_V1: &str = "engine_getBlobsV1";
+pub const ENGINE_GET_BLOBS_V2: &str = "engine_getBlobsV2";
 pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// This error is returned during a `chainId` call by Geth.
@@ -87,6 +88,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_BLOBS_V1,
+    ENGINE_GET_BLOBS_V2,
 ];
 
 /// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
@@ -708,7 +710,7 @@ impl HttpJsonRpc {
         }
     }
 
-    pub async fn get_blobs<E: EthSpec>(
+    pub async fn get_blobs_v1<E: EthSpec>(
         &self,
         versioned_hashes: Vec<Hash256>,
     ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
@@ -716,6 +718,20 @@ impl HttpJsonRpc {
 
         self.rpc_request(
             ENGINE_GET_BLOBS_V1,
+            params,
+            ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
+    }
+
+    pub async fn get_blobs_v2<E: EthSpec>(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+    ) -> Result<Vec<Option<BlobAndProofV2<E>>>, Error> {
+        let params = json!([versioned_hashes]);
+
+        self.rpc_request(
+            ENGINE_GET_BLOBS_V2,
             params,
             ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
         )
@@ -963,19 +979,6 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
-            // TODO(fulu): remove when v5 method is ready.
-            ForkName::Fulu => {
-                let response: JsonGetPayloadResponseV5<E> = self
-                    .rpc_request(
-                        ENGINE_GET_PAYLOAD_V4,
-                        params,
-                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-                    )
-                    .await?;
-                JsonGetPayloadResponse::V5(response)
-                    .try_into()
-                    .map_err(Error::BadResponse)
-            }
             _ => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v4 with {}",
                 fork_name
@@ -1148,6 +1151,7 @@ impl HttpJsonRpc {
             get_payload_v5: capabilities.contains(ENGINE_GET_PAYLOAD_V5),
             get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
             get_blobs_v1: capabilities.contains(ENGINE_GET_BLOBS_V1),
+            get_blobs_v2: capabilities.contains(ENGINE_GET_BLOBS_V2),
         })
     }
 
@@ -1320,9 +1324,8 @@ impl HttpJsonRpc {
                 }
             }
             ForkName::Fulu => {
-                // TODO(fulu): switch to v5 when the EL is ready
-                if engine_capabilities.get_payload_v4 {
-                    self.get_payload_v4(fork_name, payload_id).await
+                if engine_capabilities.get_payload_v5 {
+                    self.get_payload_v5(fork_name, payload_id).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
                 }

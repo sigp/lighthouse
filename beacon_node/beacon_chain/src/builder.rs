@@ -8,7 +8,7 @@ use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::kzg_utils::blobs_to_data_column_sidecars;
+use crate::kzg_utils::build_data_column_sidecars;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -31,6 +31,7 @@ use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use rand::RngCore;
+use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{per_slot_processing, AllCaches};
@@ -41,8 +42,8 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, DataColumnSidecarList, Epoch,
+    EthSpec, FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -549,15 +550,8 @@ where
             {
                 // After PeerDAS recompute columns from blobs to not force the checkpointz server
                 // into exposing another route.
-                let blobs = blobs
-                    .iter()
-                    .map(|blob_sidecar| &blob_sidecar.blob)
-                    .collect::<Vec<_>>();
                 let data_columns =
-                    blobs_to_data_column_sidecars(&blobs, &weak_subj_block, &self.kzg, &self.spec)
-                        .map_err(|e| {
-                            format!("Failed to compute weak subjectivity data_columns: {e:?}")
-                        })?;
+                    build_data_columns_from_blobs(&weak_subj_block, &blobs, &self.kzg, &self.spec)?;
                 // TODO(das): only persist the columns under custody
                 store
                     .put_data_columns(&weak_subj_block_root, data_columns)
@@ -1149,6 +1143,49 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
         "DB error when reading {}: {:?}. {}",
         item, error, additional_info
     )
+}
+
+/// Build data columns and proofs from blobs.
+fn build_data_columns_from_blobs<E: EthSpec>(
+    block: &SignedBeaconBlock<E>,
+    blobs: &BlobSidecarList<E>,
+    kzg: &Kzg,
+    spec: &ChainSpec,
+) -> Result<DataColumnSidecarList<E>, String> {
+    let blob_cells_and_proofs_vec = blobs
+        .into_par_iter()
+        .map(|blob_sidecar| {
+            let kzg_blob_ref = blob_sidecar
+                .blob
+                .as_ref()
+                .try_into()
+                .map_err(|e| format!("Failed to convert blob to kzg blob: {e:?}"))?;
+            let cells_and_proofs = kzg
+                .compute_cells_and_proofs(kzg_blob_ref)
+                .map_err(|e| format!("Failed to compute cell kzg proofs: {e:?}"))?;
+            Ok(cells_and_proofs)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let data_columns = {
+        let beacon_block_body = block.message().body();
+        let kzg_commitments = beacon_block_body
+            .blob_kzg_commitments()
+            .cloned()
+            .map_err(|e| format!("Unexpected pre Deneb block: {e:?}"))?;
+        let kzg_commitments_inclusion_proof = beacon_block_body
+            .kzg_commitments_merkle_proof()
+            .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
+        build_data_column_sidecars(
+            kzg_commitments,
+            kzg_commitments_inclusion_proof,
+            block.signed_block_header(),
+            blob_cells_and_proofs_vec,
+            spec,
+        )
+        .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+    };
+    Ok(data_columns)
 }
 
 #[cfg(not(debug_assertions))]
