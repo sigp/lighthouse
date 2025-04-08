@@ -385,6 +385,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             network_beacon_processor: _,
             chain: _,
             fork_context: _,
+            // Don't use a fallback match. We want to be sure that all requests are considered when
+            // adding new ones
         } = self;
 
         let mut active_request_count_by_peer = HashMap::<PeerId, usize>::new();
@@ -517,7 +519,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         active_request_count_by_peer: HashMap<PeerId, usize>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<HashMap<PeerId, Vec<ColumnIndex>>, RpcRequestSendError> {
-        let mut peer_id_to_request_map = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+        let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
 
         for column_index in custody_indexes {
             // Strictly consider peers that are custodials of this column AND are part of this
@@ -535,11 +537,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         peers_to_deprioritize.contains(peer),
                         // Prefer peers with less overall requests
                         // Also account for requests that are not yet issued tracked in peer_id_to_request_map
+                        // We batch requests to the same peer, so count existance in the
+                        // `columns_to_request_by_peer` as a single 1 request.
                         active_request_count_by_peer.get(peer).copied().unwrap_or(0)
-                            + peer_id_to_request_map
-                                .get(peer)
-                                .map(|columns| columns.len())
-                                .unwrap_or(0),
+                            + columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
                         // Random factor to break ties, otherwise the PeerID breaks ties
                         rand::random::<u32>(),
                         peer,
@@ -557,13 +558,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 )));
             };
 
-            peer_id_to_request_map
+            columns_to_request_by_peer
                 .entry(custody_peer)
                 .or_default()
                 .push(*column_index);
         }
 
-        Ok(peer_id_to_request_map)
+        Ok(columns_to_request_by_peer)
     }
 
     /// Received a blocks by range or blobs by range response for a request that couples blocks '

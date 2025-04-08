@@ -256,12 +256,11 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                             // De-prioritize peers that have failed to successfully respond to
                             // requests recently
                             self.failed_peers.contains(peer),
-                            // Prefer peers with less requests to load balance across peers
+                            // Prefer peers with less requests to load balance across peers. We
+                            // We batch requests to the same peer, so count existance in the
+                            // `columns_to_request_by_peer` as a single 1 request.
                             active_request_count_by_peer.get(peer).copied().unwrap_or(0)
-                                + columns_to_request_by_peer
-                                    .get(peer)
-                                    .map(|columns| columns.len())
-                                    .unwrap_or(0),
+                                + columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
                             // Random factor to break ties, otherwise the PeerID breaks ties
                             rand::thread_rng().gen::<u32>(),
                             *peer,

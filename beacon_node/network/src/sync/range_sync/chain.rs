@@ -255,7 +255,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // A stream termination has been sent. This batch has ended. Process a completed batch.
         // Remove the request from the peer's active batches
 
-        // TODO(das): should use peer group here
+        // TODO(das): should use peer group here https://github.com/sigp/lighthouse/issues/6258
         let received = batch.download_completed(blocks, *peer_id)?;
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
@@ -827,7 +827,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         peer_id: PeerId,
     ) -> ProcessingResult {
         self.peers.insert(peer_id);
-        // Attempt to request more batches regardless of peer status
         self.request_batches(network)
     }
 
