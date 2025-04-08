@@ -147,7 +147,7 @@ fn build_rpc_block(
             RpcBlock::new_with_custody_columns(None, block, columns.clone(), columns.len(), spec)
                 .unwrap()
         }
-        None => RpcBlock::new_without_blobs(None, block),
+        None => RpcBlock::new_without_blobs(None, block, 0),
     }
 }
 
@@ -367,7 +367,7 @@ async fn chain_segment_non_linear_parent_roots() {
 
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
-    blocks[3] = RpcBlock::new_without_blobs(
+    blocks[3] = harness.build_rpc_block_from_store_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
     );
@@ -404,7 +404,7 @@ async fn chain_segment_non_linear_slots() {
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
-    blocks[3] = RpcBlock::new_without_blobs(
+    blocks[3] = harness.build_rpc_block_from_store_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
     );
@@ -431,7 +431,7 @@ async fn chain_segment_non_linear_slots() {
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
-    blocks[3] = RpcBlock::new_without_blobs(
+    blocks[3] = harness.build_rpc_block_from_store_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
     );
@@ -575,11 +575,12 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
+        let rpc_block = harness.build_rpc_block_from_store_blobs(None, Arc::new(signed_block));
         let process_res = harness
             .chain
             .process_block(
-                signed_block.canonical_root(),
-                Arc::new(signed_block),
+                rpc_block.block_root(),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1541,12 +1542,13 @@ async fn add_base_block_to_altair_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    let base_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(base_block.clone()), 0);
     assert!(matches!(
         harness
             .chain
             .process_block(
-                base_block.canonical_root(),
-                Arc::new(base_block.clone()),
+                base_rpc_block.block_root(),
+                base_rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1564,7 +1566,7 @@ async fn add_base_block_to_altair_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![RpcBlock::new_without_blobs(None, Arc::new(base_block))],
+                vec![RpcBlock::new_without_blobs(None, Arc::new(base_block), 0)],
                 NotifyExecutionLayer::Yes,
             )
             .await,
@@ -1677,12 +1679,13 @@ async fn add_altair_block_to_base_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    let altair_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(altair_block.clone()), 0);
     assert!(matches!(
         harness
             .chain
             .process_block(
-                altair_block.canonical_root(),
-                Arc::new(altair_block.clone()),
+                altair_rpc_block.block_root(),
+                altair_rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1700,7 +1703,7 @@ async fn add_altair_block_to_base_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![RpcBlock::new_without_blobs(None, Arc::new(altair_block))],
+                vec![RpcBlock::new_without_blobs(None, Arc::new(altair_block), 0)],
                 NotifyExecutionLayer::Yes
             )
             .await,
@@ -1761,11 +1764,12 @@ async fn import_duplicate_block_unrealized_justification() {
     // Create two verified variants of the block, representing the same block being processed in
     // parallel.
     let notify_execution_layer = NotifyExecutionLayer::Yes;
-    let verified_block1 = block
+    let rpc_block = harness.build_rpc_block_from_store_blobs(Some(block_root), block.clone());
+    let verified_block1 = rpc_block
         .clone()
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
-    let verified_block2 = block
+    let verified_block2 = rpc_block
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
 

@@ -323,12 +323,22 @@ impl TestRig {
         }
     }
 
+    pub fn custody_columns_count(&self) -> usize {
+        self.network_beacon_processor
+            .network_globals
+            .custody_columns_count() as usize
+    }
+
     pub fn enqueue_rpc_block(&self) {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
+                RpcBlock::new_without_blobs(
+                    Some(block_root),
+                    self.next_block.clone(),
+                    self.custody_columns_count(),
+                ),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
@@ -340,7 +350,11 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
+                RpcBlock::new_without_blobs(
+                    Some(block_root),
+                    self.next_block.clone(),
+                    self.custody_columns_count(),
+                ),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
