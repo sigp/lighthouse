@@ -68,3 +68,4 @@
   * [Merge Migration](./archived_merge_migration.md)
   * [Raspberry Pi 4](./archived_pi.md)
   * [Key Management](./archived_key_management.md)
+  * [FAQ](./archived_faq.md)
