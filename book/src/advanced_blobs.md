@@ -27,7 +27,7 @@ In the Deneb network upgrade, one of the changes is the implementation of EIP-48
    Use the flag `--prune-blobs false` in the beacon node. The storage requirement will be:
 
    ```text
-   2**17 bytes * 3 blobs / block * 7200 blocks / day * 30 days = 79GB / month or 948GB / year
+   2**17 bytes * 6 blobs / block * 7200 blocks / day * 30 days = 158GB / month or 1896GB / year
    ```
 
    To keep blobs for a custom period, you may use the flag `--blob-prune-margin-epochs <EPOCHS>` which keeps blobs for 4096+EPOCHS specified in the flag.
