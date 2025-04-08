@@ -7,7 +7,7 @@ After the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>
 
 ## Partial withdrawals via the execution layer
 
-With [Pectra](https://ethereum.org/en/history/#pectra) upgrade, validators with 0x02 withdrawal credentials can partially withdraw the staked fund via the execution layer by sending a transaction using the withdrawal address. You can withdraw up until the validator balance is 32 ETH. For example, if the validator balance is 40 ETH, you can withdraw up to 8 ETH.
+With [Pectra](https://ethereum.org/en/history/#pectra) upgrade, validators with 0x02 withdrawal credentials can partially withdraw the staked fund via the execution layer by sending a transaction using the withdrawal address. You can withdraw up until the validator balance is 32 ETH. For example, if the validator balance is 40 ETH, you can withdraw up to 8 ETH. You can use [Siren](./ui.md) or the [staking launchpad](https://launchpad.ethereum.org/en/) to execute partial withdrawals.
 
 ## FAQ
 

@@ -18,7 +18,7 @@ validator client or the slasher**.
 |--------------------|--------------|----------------|----------------------|
 | v7.0.0             | Apr 2025   | v22            | no                   |
 | v6.0.1             | Dec 2024     | v22            | yes before Electra using <= 7.0.0                   |
-| v6.0.0             | Nov 2024     | v22            | yes before Electra using <= 7.0.0                    |
+| v6.0.0             | Nov 2024     | v22            | yes before Electra using <= 7.0.0                   |
 
 > **Note**: All point releases (e.g. v4.4.1) are schema-compatible with the prior minor release
 > (e.g. v4.4.0).

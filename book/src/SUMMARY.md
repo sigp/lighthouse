@@ -22,6 +22,7 @@
   * [Doppelganger Protection](./validator_doppelganger.md)
   * [Suggested Fee Recipient](./validator_fee_recipient.md)
   * [Validator Graffiti](./validator_graffiti.md)
+  * [Consolidation](./validator_consolidation.md)
 * [APIs](./api.md)
   * [Beacon Node API](./api_bn.md)
     * [Lighthouse API](./api_lighthouse.md)
