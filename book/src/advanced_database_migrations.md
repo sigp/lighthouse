@@ -16,7 +16,9 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
-| v6.0.0             | Nov 2024     | v22            | no                   |
+| v7.0.0             | April 2025   | v22            | no                   |
+| v6.0.1             | Dec 2024     | v22            | yes before Electra using <= 7.0.0                   |
+| v6.0.0             | Nov 2024     | v22            | yes before Electra using <= 7.0.0                    |
 | v5.3.0             | Aug 2024     | v21            | yes                  |
 | v5.2.0             | Jun 2024     | v19            | no                   |
 | v5.1.0             | Mar 2024     | v19            | no                   |
