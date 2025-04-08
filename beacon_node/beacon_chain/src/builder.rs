@@ -8,7 +8,6 @@ use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::head_tracker::HeadTracker;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
@@ -94,7 +93,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
     light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
-    head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: Arc<ChainSpec>,
     chain_config: ChainConfig,
@@ -138,7 +136,6 @@ where
             slot_clock: None,
             shutdown_sender: None,
             light_client_server_tx: None,
-            head_tracker: None,
             validator_pubkey_cache: None,
             spec: Arc::new(E::default_spec()),
             chain_config: ChainConfig::default(),
@@ -285,8 +282,13 @@ where
             .get_blinded_block(&chain.genesis_block_root)
             .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
+        // We're resuming from some state in the db so it makes sense to cache it.
         let genesis_state = store
-            .get_state(&genesis_block.state_root(), Some(genesis_block.slot()))
+            .get_state(
+                &genesis_block.state_root(),
+                Some(genesis_block.slot()),
+                true,
+            )
             .map_err(|e| descriptive_db_error("genesis state", &e))?
             .ok_or("Genesis state not found in store")?;
 
@@ -312,10 +314,6 @@ where
 
         self.genesis_block_root = Some(chain.genesis_block_root);
         self.genesis_state_root = Some(genesis_block.state_root());
-        self.head_tracker = Some(
-            HeadTracker::from_ssz_container(&chain.ssz_head_tracker)
-                .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
-        );
         self.validator_pubkey_cache = Some(pubkey_cache);
         self.fork_choice = Some(fork_choice);
 
@@ -776,8 +774,6 @@ where
                         &self.spec,
                     )?;
 
-                    // Update head tracker.
-                    head_tracker.register_block(block_root, block.parent_root(), block.slot());
                     (block_root, block, true)
                 }
                 Err(e) => return Err(descriptive_db_error("head block", &e)),
@@ -827,14 +823,33 @@ where
             ));
         }
 
-        let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&head_snapshot.beacon_state, store.clone())
-                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
-        })?;
+        let validator_pubkey_cache = self
+            .validator_pubkey_cache
+            .map(|mut validator_pubkey_cache| {
+                // If any validators weren't persisted to disk on previous runs, this will use the head state to
+                // "top-up" the in-memory validator cache and its on-disk representation with any missing validators.
+                let pubkey_store_ops = validator_pubkey_cache
+                    .import_new_pubkeys(&head_snapshot.beacon_state)
+                    .map_err(|e| format!("Unable to top-up persisted pubkey cache {:?}", e))?;
+                if !pubkey_store_ops.is_empty() {
+                    // Write any missed validators to disk
+                    debug!(
+                        missing_validators = pubkey_store_ops.len(),
+                        "Topping up validator pubkey cache"
+                    );
+                    store
+                        .do_atomically_with_block_and_blobs_cache(pubkey_store_ops)
+                        .map_err(|e| format!("Unable to write pubkeys to disk {:?}", e))?;
+                }
+                Ok(validator_pubkey_cache)
+            })
+            .unwrap_or_else(|| {
+                ValidatorPubkeyCache::new(&head_snapshot.beacon_state, store.clone())
+                    .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
+            })?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
-        let store_migrator =
-            BackgroundMigrator::new(store.clone(), migrator_config, genesis_block_root);
+        let store_migrator = BackgroundMigrator::new(store.clone(), migrator_config);
 
         if let Some(slot) = slot_clock.now() {
             validator_monitor.process_valid_state(
@@ -859,11 +874,10 @@ where
         //
         // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
-        let head_tracker_reader = head_tracker.0.read();
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
-            genesis_block_root, &head_tracker_reader
+            genesis_block_root
         ));
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
@@ -874,7 +888,6 @@ where
             .hot_db
             .do_atomically(self.pending_io_batch)
             .map_err(|e| format!("Error writing chain & metadata to disk: {:?}", e))?;
-        drop(head_tracker_reader);
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
@@ -955,7 +968,6 @@ where
             fork_choice_signal_tx,
             fork_choice_signal_rx,
             event_handler: self.event_handler,
-            head_tracker,
             shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
@@ -982,14 +994,8 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(
-                    slot_clock,
-                    self.kzg.clone(),
-                    store,
-                    self.import_all_data_columns,
-                    self.spec,
-                )
-                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, self.spec)
+                    .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),

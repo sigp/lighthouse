@@ -885,6 +885,11 @@ impl ProtoArrayForkChoice {
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
         &mut self.proto_array
     }
+
+    /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
+    pub fn heads_descended_from_finalization<E: EthSpec>(&self) -> Vec<&ProtoNode> {
+        self.proto_array.heads_descended_from_finalization::<E>()
+    }
 }
 
 /// Returns a list of `deltas`, where there is one delta for each of the indices in
@@ -1121,7 +1126,7 @@ mod test_compute_deltas {
     ///
     /// - `A` (slot 31) is the common descendant.
     /// - `B` (slot 33) descends from `A`, but there is a single skip slot
-    ///     between it and `A`.
+    ///   between it and `A`.
     /// - `C` (slot 32) descends from `A` and conflicts with `B`.
     ///
     /// Imagine that the `B` chain is finalized at epoch 1. This means that the

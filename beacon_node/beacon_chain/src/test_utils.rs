@@ -615,6 +615,12 @@ where
 
         let chain = builder.build().expect("should build");
 
+        let sampling_column_count = if self.import_all_data_columns {
+            chain.spec.number_of_custody_groups as usize
+        } else {
+            chain.spec.custody_requirement as usize
+        };
+
         BeaconChainHarness {
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
@@ -625,6 +631,7 @@ where
             mock_execution_layer: self.mock_execution_layer,
             mock_builder: None,
             rng: make_rng(),
+            sampling_column_count,
         }
     }
 }
@@ -681,6 +688,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
+    pub sampling_column_count: usize,
 
     pub rng: Mutex<StdRng>,
 }
@@ -782,6 +790,10 @@ where
         (0..self.validator_keypairs.len()).collect()
     }
 
+    pub fn get_sampling_column_count(&self) -> usize {
+        self.sampling_column_count
+    }
+
     pub fn slots_per_epoch(&self) -> u64 {
         E::slots_per_epoch()
     }
@@ -857,7 +869,7 @@ where
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain
             .store
-            .load_hot_state(&state_hash.into())
+            .load_hot_state(&state_hash.into(), true)
             .unwrap()
             .map(|(state, _)| state)
     }
@@ -879,6 +891,28 @@ where
 
     pub fn is_skipped_slot(&self, state: &BeaconState<E>, slot: Slot) -> bool {
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
+    }
+
+    pub fn knows_head(&self, block_hash: &SignedBeaconBlockHash) -> bool {
+        self.chain
+            .heads()
+            .iter()
+            .any(|(head, _)| *head == Hash256::from(*block_hash))
+    }
+
+    pub fn assert_knows_head(&self, head_block_root: Hash256) {
+        let heads = self.chain.heads();
+        if !heads.iter().any(|(head, _)| *head == head_block_root) {
+            let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+            if heads.is_empty() {
+                let nodes = &fork_choice.proto_array().core_proto_array().nodes;
+                panic!("Expected to know head block root {head_block_root:?}, but heads is empty. Nodes: {nodes:#?}");
+            } else {
+                panic!(
+                    "Expected to know head block root {head_block_root:?}, known heads {heads:#?}"
+                );
+            }
+        }
     }
 
     pub async fn make_blinded_block(
@@ -2342,8 +2376,14 @@ where
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
-                .unwrap()
+            RpcBlock::new_with_custody_columns(
+                Some(block_root),
+                block,
+                custody_columns,
+                self.get_sampling_column_count(),
+                &self.spec,
+            )
+            .unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             RpcBlock::new(Some(block_root), block, blobs).unwrap()
@@ -2358,10 +2398,7 @@ where
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RpcBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let sampling_column_count = self
-                .chain
-                .data_availability_checker
-                .get_sampling_column_count();
+            let sampling_column_count = self.get_sampling_column_count();
 
             if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
@@ -2372,7 +2409,13 @@ where
                     .take(sampling_column_count)
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+                RpcBlock::new_with_custody_columns(
+                    Some(block_root),
+                    block,
+                    columns,
+                    sampling_column_count,
+                    &self.spec,
+                )?
             } else {
                 RpcBlock::new_without_blobs(Some(block_root), block)
             }
@@ -3071,10 +3114,7 @@ where
         let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
         if is_peerdas_enabled {
             let custody_columns = custody_columns_opt.unwrap_or_else(|| {
-                let sampling_column_count = self
-                    .chain
-                    .data_availability_checker
-                    .get_sampling_column_count() as u64;
+                let sampling_column_count = self.get_sampling_column_count() as u64;
                 (0..sampling_column_count).collect()
             });
 

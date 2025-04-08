@@ -102,7 +102,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     ) -> CustodyRequestResult<T::EthSpec> {
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
             warn!(
-                id = ?self.custody_id,
                 block_root = ?self.block_root,
                 %req_id,
                 "Received custody column response for unrequested index"
@@ -113,7 +112,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         match resp {
             Ok((data_columns, seen_timestamp)) => {
                 debug!(
-                    id = ?self.custody_id,
                     block_root = ?self.block_root,
                     %req_id,
                     %peer_id,
@@ -161,7 +159,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 if !missing_column_indexes.is_empty() {
                     // Note: Batch logging that columns are missing to not spam logger
                     debug!(
-                        id = ?self.custody_id,
                         block_root = ?self.block_root,
                         %req_id,
                         %peer_id,
@@ -175,7 +172,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             }
             Err(err) => {
                 debug!(
-                    id = ?self.custody_id,
                     block_root = ?self.block_root,
                     %req_id,
                    %peer_id,

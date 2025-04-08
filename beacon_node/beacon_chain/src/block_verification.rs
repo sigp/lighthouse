@@ -5,7 +5,7 @@
 //! - Verification for gossip blocks (i.e., should we gossip some block from the network).
 //! - Verification for normal blocks (e.g., some block received on the RPC during a parent lookup).
 //! - Verification for chain segments (e.g., some chain of blocks received on the RPC during a
-//!    sync).
+//!   sync).
 //!
 //! The primary source of complexity here is that we wish to avoid doing duplicate work as a block
 //! moves through the verification process. For example, if some block is verified for gossip, we
@@ -282,6 +282,9 @@ pub enum BlockError {
     /// problems to worry about than losing peers, and we're doing the network a favour by
     /// disconnecting.
     ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    /// This is a known invalid block that was listed in Lighthouses configuration.
+    /// At the moment this error is only relevant as part of the Holesky network recovery efforts.
+    KnownInvalidExecutionPayload(Hash256),
     /// The block is a slashable equivocation from the proposer.
     ///
     /// ## Peer scoring
@@ -680,6 +683,7 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block_root: Hash256,
     parent: Option<PreProcessingSnapshot<T::EthSpec>>,
     consensus_context: ConsensusContext<T::EthSpec>,
+    custody_columns_count: usize,
 }
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit
@@ -715,6 +719,7 @@ pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
+        custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError>;
     fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
 }
@@ -723,6 +728,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> 
     fn into_gossip_verified_block(
         self,
         _chain: &BeaconChain<T>,
+        _custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         Ok(self)
     }
@@ -735,8 +741,9 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
+        custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
-        GossipVerifiedBlock::new(self, chain)
+        GossipVerifiedBlock::new(self, chain, custody_columns_count)
     }
 
     fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
@@ -805,6 +812,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
+        custody_columns_count: usize,
     ) -> Result<Self, BlockError> {
         // If the block is valid for gossip we don't supply it to the slasher here because
         // we assume it will be transformed into a fully verified block. We *do* need to supply
@@ -814,12 +822,14 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // The `SignedBeaconBlock` and `SignedBeaconBlockHeader` have the same canonical root,
         // but it's way quicker to calculate root of the header since the hash of the tree rooted
         // at `BeaconBlockBody` is already computed in the header.
-        Self::new_without_slasher_checks(block, &header, chain).map_err(|e| {
-            process_block_slash_info::<_, BlockError>(
-                chain,
-                BlockSlashInfo::from_early_error_block(header, e),
-            )
-        })
+        Self::new_without_slasher_checks(block, &header, chain, custody_columns_count).map_err(
+            |e| {
+                process_block_slash_info::<_, BlockError>(
+                    chain,
+                    BlockSlashInfo::from_early_error_block(header, e),
+                )
+            },
+        )
     }
 
     /// As for new, but doesn't pass the block to the slasher.
@@ -827,6 +837,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_header: &SignedBeaconBlockHeader,
         chain: &BeaconChain<T>,
+        custody_columns_count: usize,
     ) -> Result<Self, BlockError> {
         // Ensure the block is the correct structure for the fork at `block.slot()`.
         block
@@ -861,6 +872,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         if fork_choice_read_lock.contains_block(&block_root) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
+
+        // Do not process a block that is known to be invalid.
+        chain.check_invalid_block_roots(block_root)?;
 
         // Do not process a block that doesn't descend from the finalized root.
         //
@@ -1030,6 +1044,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             block_root,
             parent,
             consensus_context,
+            custody_columns_count,
         })
     }
 
@@ -1079,6 +1094,9 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             .as_block()
             .fork_name(&chain.spec)
             .map_err(BlockError::InconsistentFork)?;
+
+        // Check whether the block is a banned block prior to loading the parent.
+        chain.check_invalid_block_roots(block_root)?;
 
         let (mut parent, block) = load_parent(block, chain)?;
 
@@ -1174,6 +1192,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 block: MaybeAvailableBlock::AvailabilityPending {
                     block_root: from.block_root,
                     block,
+                    custody_columns_count: from.custody_columns_count,
                 },
                 block_root: from.block_root,
                 parent: Some(parent),
@@ -1434,21 +1453,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
-        // Stage a batch of operations to be completed atomically if this block is imported
-        // successfully. If there is a skipped slot, we include the state root of the pre-state,
-        // which may be an advanced state that was stored in the DB with a `temporary` flag.
         let mut state = parent.pre_state;
-
-        let mut confirmed_state_roots =
-            if block.slot() > state.slot() && state.slot() > parent.beacon_block.slot() {
-                // Advanced pre-state. Delete its temporary flag.
-                let pre_state_root = state.update_tree_hash_cache()?;
-                vec![pre_state_root]
-            } else {
-                // Pre state is either unadvanced, or should not be stored long-term because there
-                // is no skipped slot between `parent` and `block`.
-                vec![]
-            };
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_block.slot() {
@@ -1496,37 +1501,28 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // processing, but we get early access to it.
                 let state_root = state.update_tree_hash_cache()?;
 
-                // Store the state immediately, marking it as temporary, and staging the deletion
-                // of its temporary status as part of the larger atomic operation.
+                // Store the state immediately.
                 let txn_lock = chain.store.hot_db.begin_rw_transaction();
                 let state_already_exists =
                     chain.store.load_hot_state_summary(&state_root)?.is_some();
 
                 let state_batch = if state_already_exists {
-                    // If the state exists, it could be temporary or permanent, but in neither case
-                    // should we rewrite it or store a new temporary flag for it. We *will* stage
-                    // the temporary flag for deletion because it's OK to double-delete the flag,
-                    // and we don't mind if another thread gets there first.
+                    // If the state exists, we do not need to re-write it.
                     vec![]
                 } else {
-                    vec![
-                        if state.slot() % T::EthSpec::slots_per_epoch() == 0 {
-                            StoreOp::PutState(state_root, &state)
-                        } else {
-                            StoreOp::PutStateSummary(
-                                state_root,
-                                HotStateSummary::new(&state_root, &state)?,
-                            )
-                        },
-                        StoreOp::PutStateTemporaryFlag(state_root),
-                    ]
+                    vec![if state.slot() % T::EthSpec::slots_per_epoch() == 0 {
+                        StoreOp::PutState(state_root, &state)
+                    } else {
+                        StoreOp::PutStateSummary(
+                            state_root,
+                            HotStateSummary::new(&state_root, &state)?,
+                        )
+                    }]
                 };
                 chain
                     .store
                     .do_atomically_with_block_and_blobs_cache(state_batch)?;
                 drop(txn_lock);
-
-                confirmed_state_roots.push(state_root);
 
                 state_root
             };
@@ -1694,7 +1690,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 state,
                 parent_block: parent.beacon_block,
                 parent_eth1_finalization_data,
-                confirmed_state_roots,
                 consensus_context,
             },
             payload_verification_handle,
@@ -1746,7 +1741,22 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
     fork_choice: &BeaconForkChoice<T>,
     block: B,
 ) -> Result<B, BlockError> {
-    if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root()) {
+    // If we have a split block newer than finalization then we also ban blocks which are not
+    // descended from that split block. It's important not to try checking `is_descendant` if
+    // finality is ahead of the split and the split block has been pruned, as `is_descendant` will
+    // return `false` in this case.
+    let finalized_slot = fork_choice
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(T::EthSpec::slots_per_epoch());
+    let split = chain.store.get_split_info();
+    let is_descendant_from_split_block = split.slot == 0
+        || split.slot <= finalized_slot
+        || fork_choice.is_descendant(split.block_root, block.parent_root());
+
+    if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root())
+        && is_descendant_from_split_block
+    {
         Ok(block)
     } else {
         // If fork choice does *not* consider the parent to be a descendant of the finalized block,
