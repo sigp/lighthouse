@@ -249,7 +249,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         return Ok(None);
     }
 
-    let custody_columns = spawn_compute_and_publish_data_columns_task(
+    let custody_columns = compute_and_publish_data_columns(
         &chain,
         block.clone(),
         blobs,
@@ -274,7 +274,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
 }
 
 /// Offload the data column computation to a blocking task to avoid holding up the async runtime.
-async fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
+async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: Vec<Blob<T::EthSpec>>,
