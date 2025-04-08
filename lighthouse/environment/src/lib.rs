@@ -197,6 +197,13 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    /// Initialize the Lighthouse-specific tracing logging components from
+    /// the provided config.
+    ///
+    /// This consists of 3 tracing `Layers`:
+    /// - A `Layer` which logs to `stdout`
+    /// - An `Option<Layer>` which logs to a log file
+    /// - An `Option<Layer>` which emits logs to an SSE stream
     pub fn init_tracing(
         mut self,
         config: LoggerConfig,
@@ -204,7 +211,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     ) -> (
         Self,
         LoggingLayer,
-        LoggingLayer,
+        Option<LoggingLayer>,
         Option<SSELoggingComponents>,
     ) {
         let filename_prefix = match logfile_prefix {
@@ -216,72 +223,48 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         #[cfg(target_family = "unix")]
         let file_mode = if config.is_restricted { 0o600 } else { 0o644 };
 
-        let file_logging_layer = {
-            if let Some(path) = config.path {
-                let mut appender = LogRollerBuilder::new(
-                    path.clone(),
-                    PathBuf::from(format!("{}.log", filename_prefix)),
-                )
-                .rotation(Rotation::SizeBased(RotationSize::MB(config.max_log_size)))
-                .max_keep_files(config.max_log_number.try_into().unwrap_or_else(|e| {
-                    eprintln!("Failed to convert max_log_number to u64: {}", e);
-                    10
-                }));
+        let file_logging_layer = match config.path {
+            None => {
+                eprintln!("No logfile path provided, logging to file is disabled");
+                None
+            }
+            Some(_) if config.max_log_number == 0 || config.max_log_size == 0 => {
+                // User has explicitly disabled logging to file, so don't emit a message.
+                None
+            }
+            Some(path) => {
+                let log_filename = PathBuf::from(format!("{}.log", filename_prefix));
+                let mut appender = LogRollerBuilder::new(path.clone(), log_filename)
+                    .rotation(Rotation::SizeBased(RotationSize::MB(config.max_log_size)))
+                    .max_keep_files(config.max_log_number.try_into().unwrap_or_else(|e| {
+                        eprintln!("Failed to convert max_log_number to u64: {}", e);
+                        10
+                    }));
 
                 if config.compression {
                     appender = appender.compression(Compression::Gzip);
                 }
+
                 match appender.build() {
                     Ok(file_appender) => {
                         #[cfg(target_family = "unix")]
                         set_logfile_permissions(&path, filename_prefix, file_mode);
 
-                        let (file_non_blocking_writer, file_guard) =
-                            tracing_appender::non_blocking(file_appender);
-
-                        LoggingLayer::new(
-                            file_non_blocking_writer,
-                            file_guard,
+                        let (writer, guard) = tracing_appender::non_blocking(file_appender);
+                        Some(LoggingLayer::new(
+                            writer,
+                            guard,
                             config.disable_log_timestamp,
-                            false,
                             config.logfile_color,
-                            config.log_format.clone(),
                             config.logfile_format.clone(),
                             config.extra_info,
-                            false,
-                        )
+                        ))
                     }
                     Err(e) => {
                         eprintln!("Failed to initialize rolling file appender: {}", e);
-                        let (sink_writer, sink_guard) =
-                            tracing_appender::non_blocking(std::io::sink());
-                        LoggingLayer::new(
-                            sink_writer,
-                            sink_guard,
-                            config.disable_log_timestamp,
-                            false,
-                            config.logfile_color,
-                            config.log_format.clone(),
-                            config.logfile_format.clone(),
-                            config.extra_info,
-                            false,
-                        )
+                        None
                     }
                 }
-            } else {
-                eprintln!("No path provided. File logging is disabled.");
-                let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-                LoggingLayer::new(
-                    sink_writer,
-                    sink_guard,
-                    config.disable_log_timestamp,
-                    false,
-                    true,
-                    config.log_format.clone(),
-                    config.logfile_format.clone(),
-                    config.extra_info,
-                    false,
-                )
             }
         };
 
@@ -293,11 +276,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             stdout_guard,
             config.disable_log_timestamp,
             config.log_color,
-            true,
             config.log_format,
-            config.logfile_format,
             config.extra_info,
-            false,
         );
 
         let sse_logging_layer_opt = if config.sse_logging {
@@ -310,8 +290,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
         (
             self,
-            file_logging_layer,
             stdout_logging_layer,
+            file_logging_layer,
             sse_logging_layer_opt,
         )
     }

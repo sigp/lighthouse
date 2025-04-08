@@ -2758,7 +2758,7 @@ fn genesis_state_url_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.genesis_state_url, None);
-            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(180));
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(300));
         });
 }
 
