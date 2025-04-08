@@ -1,6 +1,6 @@
 # Consolidation
 
-With [Pectra](https://ethereum.org/en/history/#pectra) upgrade, a validator can hold a stake of up to 2048 ETH. This is done by updating the validator withdrawal credential to type 0x02. With 0x02 withdrawal credential, it is possible to consolidate two or more validators into a single validator with a higher stake. 
+With [Pectra](https://ethereum.org/en/history/#pectra) upgrade, a validator can hold a stake of up to 2048 ETH. This is done by updating the validator withdrawal credential to type 0x02. With 0x02 withdrawal credential, it is possible to consolidate two or more validators into a single validator with a higher stake.
 
 Let's take a look at an example: Initially, validators A and B are both with 0x01 withdrawal credentials with 32 ETH. Let's say we want to consolidate the balance of validator B to validator A, so that the balance of validator A becomes 64 ETH. These are the steps:
 
