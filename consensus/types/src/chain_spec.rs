@@ -879,7 +879,7 @@ impl ChainSpec {
              * Electra hard fork params
              */
             electra_fork_version: [0x05, 00, 00, 00],
-            electra_fork_epoch: None,
+            electra_fork_epoch: Some(Epoch::new(364032)),
             unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
