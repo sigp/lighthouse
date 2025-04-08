@@ -21,6 +21,13 @@ pub use rust_eth_kzg::{
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
 
+// Recommend precompute value to enable fixed-base multi-scalar multiplication optimization
+// when computing cell KZG proofs using `compute_cells_and_kzg_proofs` and
+// `recover_cells_and_kzg_proofs`.
+//
+// See: <https://github.com/ethereum/c-kzg-4844/pull/545/files>
+const PRECOMPUTE: u64 = 8;
+
 // Disables the fixed-base multi-scalar multiplication optimization for computing
 // cell KZG proofs, as recommended when `compute_cells_and_kzg_proofs` and
 // `recover_cells_and_kzg_proofs` are not used.
@@ -97,7 +104,7 @@ impl Kzg {
                 &trusted_setup.g1_monomial(),
                 &trusted_setup.g1_lagrange(),
                 &trusted_setup.g2_monomial(),
-                rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH as u64,
+                PRECOMPUTE,
             )?,
             context,
         })
@@ -125,7 +132,7 @@ impl Kzg {
                 &trusted_setup.g1_monomial(),
                 &trusted_setup.g1_lagrange(),
                 &trusted_setup.g2_monomial(),
-                rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH as u64,
+                PRECOMPUTE,
             )?,
             context,
         })
