@@ -141,17 +141,23 @@ pub enum GossipDataColumnError {
     ///
     /// The column sidecar is invalid and the peer is faulty
     UnexpectedDataColumn,
-    /// The data column length must be equal to the number of commitments/proofs, otherwise the
+    /// The data column length must be equal to the number of commitments, otherwise the
     /// sidecar is invalid.
     ///
     /// ## Peer scoring
     ///
     /// The column sidecar is invalid and the peer is faulty
-    InconsistentCommitmentsOrProofLength {
+    InconsistentCommitmentsLength {
         cells_len: usize,
         commitments_len: usize,
-        proofs_len: usize,
     },
+    /// The data column length must be equal to the number of proofs, otherwise the
+    /// sidecar is invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column sidecar is invalid and the peer is faulty
+    InconsistentProofsLength { cells_len: usize, proofs_len: usize },
 }
 
 impl From<BeaconChainError> for GossipDataColumnError {
@@ -485,17 +491,23 @@ fn verify_data_column_sidecar<E: EthSpec>(
     if data_column.kzg_commitments.is_empty() {
         return Err(GossipDataColumnError::UnexpectedDataColumn);
     }
+
     let cells_len = data_column.column.len();
     let commitments_len = data_column.kzg_commitments.len();
     let proofs_len = data_column.kzg_proofs.len();
-    if cells_len != commitments_len || cells_len != proofs_len {
-        return Err(
-            GossipDataColumnError::InconsistentCommitmentsOrProofLength {
-                cells_len,
-                commitments_len,
-                proofs_len,
-            },
-        );
+
+    if cells_len != commitments_len {
+        return Err(GossipDataColumnError::InconsistentCommitmentsLength {
+            cells_len,
+            commitments_len,
+        });
+    }
+
+    if cells_len != proofs_len {
+        return Err(GossipDataColumnError::InconsistentProofsLength {
+            cells_len,
+            proofs_len,
+        });
     }
 
     Ok(())
