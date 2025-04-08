@@ -885,6 +885,11 @@ impl ProtoArrayForkChoice {
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
         &mut self.proto_array
     }
+
+    /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
+    pub fn heads_descended_from_finalization<E: EthSpec>(&self) -> Vec<&ProtoNode> {
+        self.proto_array.heads_descended_from_finalization::<E>()
+    }
 }
 
 /// Returns a list of `deltas`, where there is one delta for each of the indices in

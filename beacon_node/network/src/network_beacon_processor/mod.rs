@@ -843,19 +843,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         publish_blobs: bool,
     ) {
+        let custody_columns = self.network_globals.sampling_columns.clone();
         let is_supernode = self.network_globals.is_supernode();
-
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
-            // At the moment non supernodes are not required to publish any columns.
-            // TODO(das): we could experiment with having full nodes publish their custodied
-            // columns here.
-            if publish_blobs && is_supernode {
+            if publish_blobs {
                 match blobs_or_data_column {
                     BlobsOrDataColumns::Blobs(blobs) => {
                         self_cloned.publish_blobs_gradually(blobs, block_root);
                     }
-                    BlobsOrDataColumns::DataColumns(columns) => {
+                    BlobsOrDataColumns::DataColumns(mut columns) => {
+                        if !is_supernode {
+                            columns.retain(|col| custody_columns.contains(&col.index));
+                        }
                         self_cloned.publish_data_columns_gradually(columns, block_root);
                     }
                 };
@@ -1055,7 +1055,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// This is an optimisation to reduce outbound bandwidth and ensures each column is published
     /// by some nodes on the network as soon as possible. Our hope is that some columns arrive from
-    /// other supernodes in the meantime, obviating the need for us to publish them. If no other
+    /// other nodes in the meantime, obviating the need for us to publish them. If no other
     /// publisher exists for a column, it will eventually get published here.
     fn publish_data_columns_gradually(
         self: &Arc<Self>,
@@ -1080,9 +1080,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     });
                 };
 
-                // If this node is a super node, permute the columns and split them into batches.
+                // Permute the columns and split them into batches.
                 // The hope is that we won't need to publish some columns because we will receive them
-                // on gossip from other supernodes.
+                // on gossip from other nodes.
                 data_columns_to_publish.shuffle(&mut rand::thread_rng());
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
