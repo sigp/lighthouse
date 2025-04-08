@@ -1272,9 +1272,16 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
         // Perform an early check to prevent wasting time on irrelevant blocks.
         let block_root = check_block_relevancy(&self, block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
+        // TODO(das): This is wrong, as the block may have columns. However this codepath is
+        // currently un-used, and should be removed with https://github.com/sigp/lighthouse/pull/7008
+        let custody_column_count = 0;
         let maybe_available = chain
             .data_availability_checker
-            .verify_kzg_for_rpc_block(RpcBlock::new_without_blobs(Some(block_root), self.clone()))
+            .verify_kzg_for_rpc_block(RpcBlock::new_without_blobs(
+                Some(block_root),
+                self.clone(),
+                custody_column_count,
+            ))
             .map_err(|e| {
                 BlockSlashInfo::SignatureNotChecked(
                     self.signed_block_header(),
