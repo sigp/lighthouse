@@ -1,6 +1,6 @@
 use c_kzg::KzgSettings;
 use criterion::{criterion_group, criterion_main, Criterion};
-use kzg::{trusted_setup::get_trusted_setup, TrustedSetup};
+use kzg::{trusted_setup::get_trusted_setup, TrustedSetup, PRECOMPUTE};
 use rust_eth_kzg::{DASContext, TrustedSetup as PeerDASTrustedSetup};
 
 pub fn bench_init_context(c: &mut Criterion) {
@@ -29,7 +29,7 @@ pub fn bench_init_context(c: &mut Criterion) {
                 &trusted_setup.g1_monomial(),
                 &trusted_setup.g1_lagrange(),
                 &trusted_setup.g2_monomial(),
-                rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH as u64,
+                PRECOMPUTE,
             )
             .unwrap()
         })

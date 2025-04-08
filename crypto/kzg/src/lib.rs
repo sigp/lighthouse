@@ -21,19 +21,19 @@ pub use rust_eth_kzg::{
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
 
-// Recommend precompute value to enable fixed-base multi-scalar multiplication optimization
-// when computing cell KZG proofs using `compute_cells_and_kzg_proofs` and
-// `recover_cells_and_kzg_proofs`.
-//
-// See: <https://github.com/ethereum/c-kzg-4844/pull/545/files>
-const PRECOMPUTE: u64 = 8;
+/// Recommend precompute value to enable fixed-base multi-scalar multiplication optimization
+/// when computing cell KZG proofs using `compute_cells_and_kzg_proofs` and
+/// `recover_cells_and_kzg_proofs`.
+///
+/// See: <https://github.com/ethereum/c-kzg-4844/pull/545/files>
+pub const PRECOMPUTE: u64 = 8;
 
-// Disables the fixed-base multi-scalar multiplication optimization for computing
-// cell KZG proofs, as recommended when `compute_cells_and_kzg_proofs` and
-// `recover_cells_and_kzg_proofs` are not used.
-//
-// See: <https://github.com/ethereum/c-kzg-4844/pull/545/files>
-const NO_PRECOMPUTE: u64 = 0;
+/// Disables the fixed-base multi-scalar multiplication optimization for computing
+/// cell KZG proofs, as recommended when `compute_cells_and_kzg_proofs` and
+/// `recover_cells_and_kzg_proofs` are not used.
+///
+/// See: <https://github.com/ethereum/c-kzg-4844/pull/545/files>
+pub const NO_PRECOMPUTE: u64 = 0;
 
 // Note: `spec.number_of_columns` is a config and should match `CELLS_PER_EXT_BLOB` - however this
 // is a constant in the KZG library - be aware that overriding `number_of_columns` will break KZG
