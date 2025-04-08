@@ -157,7 +157,7 @@ After you have successfully run and synced the execution client, beacon node and
 
 > **Important note:** Double check that the deposit contract for mainnet is `0x00000000219ab540356cBB839Cbe05303d7705Fa` before you confirm the transaction.
 
-Once the deposit transaction is confirmed, it will take a minimum of ~16 hours to a few days/weeks for the beacon chain to process and activate your validator, depending on the queue. Refer to our [FAQ - Why does it take so long for a validator to be activated](./faq.md#why-does-it-take-so-long-for-a-validator-to-be-activated) for more info.
+Once the deposit transaction is confirmed, it will take a minimum of ~13 minutes to a few days to activate your validator, depending on the queue. 
 
 Once your validator is activated, the validator client will start to publish attestations each epoch:
 
