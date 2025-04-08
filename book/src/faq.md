@@ -111,10 +111,7 @@ After checkpoint forwards sync completes, the beacon node will start to download
 INFO Downloading historical blocks           est_time: --, distance: 4524545 slots (89 weeks 5 days), service: slot_notifier
 ```
 
-If the same log appears every minute and you do not see progress in downloading historical blocks, you can try one of the followings:
-
-- Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the ports 9000 TCP/UDP and 9001 UDP to increase peer count.
-- Restart the beacon node.
+If the same log appears every minute and you do not see progress in downloading historical blocks, check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the ports 9000 TCP/UDP and 9001 UDP to increase peer count.
 
 ### <a name="bn-duplicate"></a> I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?
 
@@ -153,29 +150,16 @@ This is a normal behaviour. Since [v4.1.0](https://github.com/sigp/lighthouse/re
 
 ### <a name="bn-http"></a> My beacon node logs `WARN Error processing HTTP API request`, what should I do?
 
-This warning usually comes with an http error code. Some examples are given below:
 
-1. The log shows:
 
-    ```text
-    WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
-    ```
+An example of the log is shown below
 
-    The error is `500 Internal Server Error`. This suggests that the execution client is not synced. Once the execution client is synced, the error will disappear.
+```text
+WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
+```
 
-1. The log shows:
+This warning usually happens when the validator client sends a request to the beacon node, but the beacon node is unable to fulfil the request. This can be due to the execution client is not synced/is syncing and/or the beacon node is syncing. The error show go away when the node is synced.
 
-    ```text
-    WARN Error processing HTTP API request       method: POST, path: /eth/v1/validator/duties/attester/199565, status: 503 Service Unavailable, elapsed: 96.787µs
-    ```
-
-    The error is `503 Service Unavailable`. This means that the beacon node is still syncing. When this happens, the validator client will log:
-
-    ```text
-    ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
-    ```
-
-    This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced.
 
 ### <a name="bn-fork-choice"></a> My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?
 
@@ -259,7 +243,7 @@ Another possible reason for missing the head vote is due to a chain "reorg". A r
 
 ### <a name="vc-exit"></a> Can I submit a voluntary exit message without running a beacon node?
 
-Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/docs/validator_voluntary_exit.md).
+Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/docs/validator_voluntary_exit.md).
 
 It is also noted that you can submit your BLS-to-execution-change message to update your withdrawal credentials from type `0x00` to `0x01` using the same link.
 
@@ -281,7 +265,7 @@ If you do not want to stop `lighthouse vc`, you can use the [key manager API](./
 
 ### <a name="vc-delete"></a> How can I delete my validator once it is imported?
 
-Lighthouse supports the [KeyManager API](https://ethereum.github.io/keymanager-APIs/#/Local%20Key%20Manager/deleteKeys) to delete validators and remove them from the `validator_definitions.yml` file. To do so, start the validator client with the flag `--http` and call the API.
+You can use the `lighthouse vm delete` command to delete validator keys, see [validator manager delete](./validator_manager_api.md#delete).
 
 If you are looking to delete the validators in one node and import it to another, you can use the [validator-manager](./validator_manager_move.md) to move the validators across nodes without the hassle of deleting and importing the keys.
 
