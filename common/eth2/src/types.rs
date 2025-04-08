@@ -2017,11 +2017,11 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         if fork_name.deneb_enabled() {
-            serde_json::from_value(value)
+            ExecutionPayloadAndBlobs::deserialize_by_fork::<'de, D>(value, fork_name)
                 .map(Self::PayloadAndBlobs)
                 .map_err(serde::de::Error::custom)
         } else if fork_name.bellatrix_enabled() {
-            serde_json::from_value(value)
+            ExecutionPayload::deserialize_by_fork::<'de, D>(value, fork_name)
                 .map(Self::Payload)
                 .map_err(serde::de::Error::custom)
         } else {
@@ -2037,6 +2037,28 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
 pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub execution_payload: ExecutionPayload<E>,
     pub blobs_bundle: BlobsBundle<E>,
+}
+
+impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayloadAndBlobs<E> {
+    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
+        value: Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(bound = "E: EthSpec")]
+        struct Helper<E: EthSpec> {
+            execution_payload: serde_json::Value,
+            blobs_bundle: BlobsBundle<E>,
+        }
+        let helper: Helper<E> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            execution_payload: ExecutionPayload::deserialize_by_fork::<'de, D>(
+                helper.execution_payload,
+                fork_name,
+            )?,
+            blobs_bundle: helper.blobs_bundle,
+        })
+    }
 }
 
 impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadAndBlobs<E> {
