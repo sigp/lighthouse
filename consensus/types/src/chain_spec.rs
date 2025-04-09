@@ -1236,7 +1236,7 @@ impl ChainSpec {
              * Electra hard fork params
              */
             electra_fork_version: [0x05, 0x00, 0x00, 0x64],
-            electra_fork_epoch: None,
+            electra_fork_epoch: Some(Epoch::new(1337856)),
             unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
@@ -1313,9 +1313,9 @@ impl ChainSpec {
             /*
              * Networking Electra specific
              */
-            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
-            blob_sidecar_subnet_count_electra: default_blob_sidecar_subnet_count_electra(),
-            max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
+            max_blobs_per_block_electra: 2,
+            blob_sidecar_subnet_count_electra: 2,
+            max_request_blob_sidecars_electra: 256,
 
             /*
              * Application specific
