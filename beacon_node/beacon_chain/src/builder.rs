@@ -1198,6 +1198,7 @@ mod test {
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use ssz::Encode;
     use std::time::Duration;
     use store::config::StoreConfig;
