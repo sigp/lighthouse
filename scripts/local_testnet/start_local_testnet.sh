@@ -20,6 +20,7 @@ while getopts "e:b:n:phck" flag; do
     e) ENCLAVE_NAME=${OPTARG};;
     b) BUILD_IMAGE=${OPTARG};;
     n) NETWORK_PARAMS_FILE=${OPTARG};;
+    v) VERBOSITY=${OPTARG};;
     p) BUILDER_PROPOSALS=true;;
     c) CI=true;;
     k) KEEP_ENCLAVE=true;;
