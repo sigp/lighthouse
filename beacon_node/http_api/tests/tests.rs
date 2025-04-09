@@ -2127,7 +2127,10 @@ impl ApiTester {
             .filter(|att| att.committee_index() == Some(1))
             .collect::<Vec<_>>();
 
-        assert_eq!(result_committee_index_filtered, expected_committee_index_filtered);
+        assert_eq!(
+            result_committee_index_filtered,
+            expected_committee_index_filtered
+        );
         assert_ne!(result_committee_index_filtered, expected);
 
         let result_committee_index_filtered = self
@@ -2143,7 +2146,10 @@ impl ApiTester {
             .filter(|att| att.committee_index() == Some(2))
             .collect::<Vec<_>>();
 
-        assert_eq!(result_committee_index_filtered, expected_committee_index_filtered);
+        assert_eq!(
+            result_committee_index_filtered,
+            expected_committee_index_filtered
+        );
         assert_ne!(result_committee_index_filtered, expected);
 
         self

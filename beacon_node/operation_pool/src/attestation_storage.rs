@@ -121,16 +121,13 @@ impl<E: EthSpec> CompactAttestationRef<'_, E> {
 
     pub fn committee_index(&self) -> Option<u64> {
         match self.indexed {
-            CompactIndexedAttestation::Base(_) => {
-                Some(self.data.index)
-            }
-            CompactIndexedAttestation::Electra(indexed_att) => {
-                indexed_att.committee_bits
-                    .iter()
-                    .enumerate()
-                    .find(|&(_, bit)| bit)
-                    .map(|(index, _)| index as u64)
-            }
+            CompactIndexedAttestation::Base(_) => Some(self.data.index),
+            CompactIndexedAttestation::Electra(indexed_att) => indexed_att
+                .committee_bits
+                .iter()
+                .enumerate()
+                .find(|&(_, bit)| bit)
+                .map(|(index, _)| index as u64),
         }
     }
 
