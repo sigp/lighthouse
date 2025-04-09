@@ -2111,7 +2111,40 @@ impl ApiTester {
             .await
             .unwrap()
             .data;
+
         assert_eq!(result, expected);
+
+        let result_committee_index_filtered = self
+            .client
+            .get_beacon_pool_attestations_v1(None, Some(1))
+            .await
+            .unwrap()
+            .data;
+
+        let expected_committee_index_filtered = expected
+            .clone()
+            .into_iter()
+            .filter(|att| att.committee_index() == Some(1))
+            .collect::<Vec<_>>();
+
+        assert_eq!(result_committee_index_filtered, expected_committee_index_filtered);
+        assert_ne!(result_committee_index_filtered, expected);
+
+        let result_committee_index_filtered = self
+            .client
+            .get_beacon_pool_attestations_v2(None, Some(2))
+            .await
+            .unwrap()
+            .data;
+
+        let expected_committee_index_filtered = expected
+            .clone()
+            .into_iter()
+            .filter(|att| att.committee_index() == Some(2))
+            .collect::<Vec<_>>();
+
+        assert_eq!(result_committee_index_filtered, expected_committee_index_filtered);
+        assert_ne!(result_committee_index_filtered, expected);
 
         self
     }

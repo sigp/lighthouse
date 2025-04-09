@@ -673,12 +673,12 @@ impl<E: EthSpec> OperationPool<E> {
     /// This method may return objects that are invalid for block inclusion.
     pub fn get_filtered_attestations<F>(&self, filter: F) -> Vec<Attestation<E>>
     where
-        F: Fn(&AttestationData) -> bool,
+        F: Fn(&AttestationData, Option<u64>) -> bool,
     {
         self.attestations
             .read()
             .iter()
-            .filter(|att| filter(&att.attestation_data()))
+            .filter(|att| filter(&att.attestation_data(), att.committee_index()))
             .map(|att| att.clone_as_attestation())
             .collect()
     }

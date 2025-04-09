@@ -119,6 +119,21 @@ impl<E: EthSpec> CompactAttestationRef<'_, E> {
         }
     }
 
+    pub fn committee_index(&self) -> Option<u64> {
+        match self.indexed {
+            CompactIndexedAttestation::Base(_) => {
+                Some(self.data.index)
+            }
+            CompactIndexedAttestation::Electra(indexed_att) => {
+                indexed_att.committee_bits
+                    .iter()
+                    .enumerate()
+                    .find(|&(_, bit)| bit)
+                    .map(|(index, _)| index as u64)
+            }
+        }
+    }
+
     pub fn clone_as_attestation(&self) -> Attestation<E> {
         match self.indexed {
             CompactIndexedAttestation::Base(indexed_att) => Attestation::Base(AttestationBase {
@@ -268,7 +283,11 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
     }
 
     pub fn committee_index(&self) -> Option<u64> {
-        self.get_committee_indices().first().copied()
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .find(|&(_, bit)| bit)
+            .map(|(index, _)| index as u64)
     }
 
     pub fn get_committee_indices(&self) -> Vec<u64> {

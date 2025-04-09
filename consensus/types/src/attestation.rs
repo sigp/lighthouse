@@ -292,7 +292,11 @@ impl<E: EthSpec> AttestationRef<'_, E> {
 
 impl<E: EthSpec> AttestationElectra<E> {
     pub fn committee_index(&self) -> Option<u64> {
-        self.get_committee_indices().first().cloned()
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .find(|&(_, bit)| bit)
+            .map(|(index, _)| index as u64)
     }
 
     pub fn get_aggregation_bits(&self) -> Vec<u64> {
