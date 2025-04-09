@@ -286,7 +286,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         // Finally return any queued events.
         if let Some((peer_id, event, queued_at)) = self.ready_requests.pop() {
             metrics::observe_duration(
-                &crate::metrics::SELF_LIMITER_REQUEST_IDLING,
+                &crate::metrics::OUTBOUND_REQUEST_IDLING,
                 timestamp_now().saturating_sub(queued_at),
             );
             return Poll::Ready(BehaviourAction::NotifyHandler {

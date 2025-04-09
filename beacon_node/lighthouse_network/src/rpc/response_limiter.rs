@@ -147,7 +147,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
                     ) {
                         Ok(()) => {
                             metrics::observe_duration(
-                                &crate::metrics::RESPONSE_LIMITER_RESPONSE_IDLING,
+                                &crate::metrics::RESPONSE_IDLING,
                                 timestamp_now().saturating_sub(response.queued_at),
                             );
                             responses.push(response)

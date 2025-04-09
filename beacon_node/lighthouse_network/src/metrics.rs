@@ -206,16 +206,16 @@ pub static REPORT_PEER_MSGS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| 
     )
 });
 
-pub static SELF_LIMITER_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+pub static OUTBOUND_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
-        "self_limiter_request_idling_seconds",
+        "outbound_request_idling_seconds",
         "The time our own request remained idle in the self-limiter",
     )
 });
 
-pub static RESPONSE_LIMITER_RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+pub static RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
-        "response_limiter_idling_seconds",
+        "response_idling_seconds",
         "The time our response remained idle in the response limiter",
     )
 });
