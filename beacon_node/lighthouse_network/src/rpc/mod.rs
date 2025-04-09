@@ -33,7 +33,7 @@ pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
     ResponseTermination, RpcErrorResponse, StatusMessage,
 };
-pub use protocol::{max_rpc_size, Protocol, RPCError};
+pub use protocol::{Protocol, RPCError};
 
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use self::protocol::RPCProtocol;
@@ -143,7 +143,7 @@ pub struct RPCMessage<Id, E: EthSpec> {
 type BehaviourAction<Id, E> = ToSwarm<RPCMessage<Id, E>, RPCSend<Id, E>>;
 
 pub struct NetworkParams {
-    pub max_chunk_size: usize,
+    pub max_payload_size: usize,
     pub ttfb_timeout: Duration,
     pub resp_timeout: Duration,
 }
@@ -284,7 +284,7 @@ where
         let protocol = SubstreamProtocol::new(
             RPCProtocol {
                 fork_context: self.fork_context.clone(),
-                max_rpc_size: max_rpc_size(&self.fork_context, self.network_params.max_chunk_size),
+                max_rpc_size: self.fork_context.spec.max_payload_size as usize,
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
                 ttfb_timeout: self.network_params.ttfb_timeout,
@@ -315,7 +315,7 @@ where
         let protocol = SubstreamProtocol::new(
             RPCProtocol {
                 fork_context: self.fork_context.clone(),
-                max_rpc_size: max_rpc_size(&self.fork_context, self.network_params.max_chunk_size),
+                max_rpc_size: self.fork_context.spec.max_payload_size as usize,
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
                 ttfb_timeout: self.network_params.ttfb_timeout,
