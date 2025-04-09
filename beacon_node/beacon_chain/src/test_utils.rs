@@ -2371,11 +2371,7 @@ where
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let columns = self
-                .chain
-                .get_data_columns(&block_root)
-                .unwrap()
-                .or_default();
+            let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
             let custody_columns = columns
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
@@ -2421,7 +2417,7 @@ where
                     &self.spec,
                 )?
             } else {
-                RpcBlock::new_without_blobs(Some(block_root), block, sampling_column_count)
+                RpcBlock::new_without_blobs(Some(block_root), block, 0)
             }
         } else {
             let blobs = blob_items

@@ -367,9 +367,10 @@ async fn chain_segment_non_linear_parent_roots() {
 
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
-    blocks[3] = harness.build_rpc_block_from_store_blobs(
+    blocks[3] = RpcBlock::new_without_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
+        harness.sampling_column_count,
     );
 
     assert!(
@@ -404,9 +405,10 @@ async fn chain_segment_non_linear_slots() {
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
-    blocks[3] = harness.build_rpc_block_from_store_blobs(
+    blocks[3] = RpcBlock::new_without_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
+        harness.sampling_column_count,
     );
 
     assert!(
@@ -431,9 +433,10 @@ async fn chain_segment_non_linear_slots() {
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
-    blocks[3] = harness.build_rpc_block_from_store_blobs(
+    blocks[3] = RpcBlock::new_without_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
+        harness.sampling_column_count,
     );
 
     assert!(
@@ -575,7 +578,11 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
-        let rpc_block = harness.build_rpc_block_from_store_blobs(None, Arc::new(signed_block));
+        let rpc_block = RpcBlock::new_without_blobs(
+            None,
+            Arc::new(signed_block),
+            harness.sampling_column_count,
+        );
         let process_res = harness
             .chain
             .process_block(
@@ -1764,7 +1771,11 @@ async fn import_duplicate_block_unrealized_justification() {
     // Create two verified variants of the block, representing the same block being processed in
     // parallel.
     let notify_execution_layer = NotifyExecutionLayer::Yes;
-    let rpc_block = harness.build_rpc_block_from_store_blobs(Some(block_root), block.clone());
+    let rpc_block = RpcBlock::new_without_blobs(
+        Some(block_root),
+        block.clone(),
+        harness.sampling_column_count,
+    );
     let verified_block1 = rpc_block
         .clone()
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
