@@ -39,6 +39,7 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 use types::{EthSpec, Hash256};
 use validator_http_api::ApiSecret;
+use validator_services::sync_committee_duties_tracker::SyncCommitteeDutiesTracker;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
     block_service::{BlockService, BlockServiceBuilder},
@@ -46,7 +47,6 @@ use validator_services::{
     preparation_service::{PreparationService, PreparationServiceBuilder},
     sync_committee_service::SyncCommitteeService,
 };
-use validator_services::sync_committee_duties_tracker::SyncCommitteeDutiesTracker;
 use validator_store::ValidatorStore as ValidatorStoreTrait;
 
 /// The interval between attempts to contact the beacon node during startup.

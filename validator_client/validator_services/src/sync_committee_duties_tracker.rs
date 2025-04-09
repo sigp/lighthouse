@@ -1,3 +1,7 @@
+use beacon_node_fallback::BeaconNodeFallback;
+use futures::future::join_all;
+use parking_lot::lock_api::RwLockReadGuard;
+use parking_lot::lock_api::RwLockWriteGuard;
 use parking_lot::{MappedRwLockReadGuard, RwLock};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
@@ -5,12 +9,10 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use types::{ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId};
+use types::{
+    ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId,
+};
 use validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
-use beacon_node_fallback::BeaconNodeFallback;
-use futures::future::join_all;
-use parking_lot::lock_api::RwLockReadGuard;
-use parking_lot::lock_api::RwLockWriteGuard;
 
 /// Top-level data-structure containing sync duty information.
 ///
@@ -336,11 +338,14 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
         validator_store: Arc<S>,
     ) {
         let tracker = self.clone();
-        
+
         self.executor.spawn(
             async move {
                 loop {
-                    if let Err(e) = tracker.poll_sync_committee_duties(validator_store.clone()).await {
+                    if let Err(e) = tracker
+                        .poll_sync_committee_duties(validator_store.clone())
+                        .await
+                    {
                         error!(
                             error = ?e,
                            "Failed to poll sync committee duties"
@@ -373,7 +378,8 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
 
     /// First slot of a sync committee period
     fn first_slot_of_period<S: EthSpec>(&self, sync_committee_period: u64) -> Slot {
-        (self.spec.epochs_per_sync_committee_period * sync_committee_period).start_slot(S::slots_per_epoch())
+        (self.spec.epochs_per_sync_committee_period * sync_committee_period)
+            .start_slot(S::slots_per_epoch())
     }
 
     /// Last slot of a sync committee period
@@ -387,13 +393,15 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
         self: &Arc<Self>,
         validator_store: Arc<S>,
     ) -> Result<(), crate::sync::Error<S::Error>> {
-        let current_slot = self.slot_clock
+        let current_slot = self
+            .slot_clock
             .now()
             .ok_or(crate::sync::Error::UnableToReadSlotClock)?;
         let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
 
         // If the Altair fork is yet to be activated, do not attempt to poll for duties.
-        if self.spec
+        if self
+            .spec
             .altair_fork_epoch
             .is_none_or(|altair_epoch| current_epoch < altair_epoch)
         {
@@ -401,8 +409,7 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
         }
 
         // Collect *all* pubkeys, even those undergoing doppelganger protection.
-        let local_pubkeys: HashSet<_> = validator_store
-            .voting_pubkeys(DoppelgangerStatus::ignored);
+        let local_pubkeys: HashSet<_> = validator_store.voting_pubkeys(DoppelgangerStatus::ignored);
 
         let local_indices = {
             let mut local_indices = Vec::with_capacity(local_pubkeys.len());
@@ -419,9 +426,11 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
         let next_sync_committee_period = current_sync_committee_period + 1;
 
         // If duties aren't known for the current period, poll for them.
-        if !self.sync_duties.all_duties_known(current_sync_committee_period, &local_indices) {
+        if !self
+            .sync_duties
+            .all_duties_known(current_sync_committee_period, &local_indices)
+        {
             self.poll_sync_committee_duties_for_period(
-                &validator_store,
                 &local_indices,
                 current_sync_committee_period,
             )
@@ -432,8 +441,8 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
         }
 
         // Pre-compute aggregator selection proofs for the current period.
-        let (current_pre_compute_slot, new_pre_compute_duties) = self.sync_duties
-            .prepare_for_aggregator_pre_compute::<S::E>(
+        let (current_pre_compute_slot, new_pre_compute_duties) =
+            self.sync_duties.prepare_for_aggregator_pre_compute::<S::E>(
                 current_sync_committee_period,
                 current_slot,
                 &self.spec,
@@ -444,14 +453,15 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
             let validator_store_clone = validator_store.clone();
             self.executor.spawn(
                 async move {
-                    tracker.fill_in_aggregation_proofs(
-                        validator_store_clone,
-                        &new_pre_compute_duties,
-                        current_sync_committee_period,
-                        current_slot,
-                        current_pre_compute_slot,
-                    )
-                    .await
+                    tracker
+                        .fill_in_aggregation_proofs(
+                            validator_store_clone,
+                            &new_pre_compute_duties,
+                            current_sync_committee_period,
+                            current_slot,
+                            current_pre_compute_slot,
+                        )
+                        .await
                 },
                 "sync_committee_tracker_selection_proofs",
             );
@@ -459,15 +469,14 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
 
         // If we're past the point in the current period where we should determine duties for the next
         // period and they are not yet known, then poll.
-        if current_epoch.as_u64() % self.spec.epochs_per_sync_committee_period.as_u64() >= self.epoch_offset()
-            && !self.sync_duties.all_duties_known(next_sync_committee_period, &local_indices)
+        if current_epoch.as_u64() % self.spec.epochs_per_sync_committee_period.as_u64()
+            >= self.epoch_offset()
+            && !self
+                .sync_duties
+                .all_duties_known(next_sync_committee_period, &local_indices)
         {
-            self.poll_sync_committee_duties_for_period(
-                &validator_store,
-                &local_indices,
-                next_sync_committee_period,
-            )
-            .await?;
+            self.poll_sync_committee_duties_for_period(&local_indices, next_sync_committee_period)
+                .await?;
 
             // Prune (this is the main code path for updating duties, so we should almost always hit
             // this prune).
@@ -475,14 +484,15 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
         }
 
         // Pre-compute aggregator selection proofs for the next period.
-        let aggregate_pre_compute_lookahead_slots = self.sync_duties.aggregation_pre_compute_slots::<S::E>();
+        let aggregate_pre_compute_lookahead_slots =
+            self.sync_duties.aggregation_pre_compute_slots::<S::E>();
         if (current_slot + aggregate_pre_compute_lookahead_slots)
             .epoch(S::E::slots_per_epoch())
             .sync_committee_period(&self.spec)?
             == next_sync_committee_period
         {
-            let (pre_compute_slot, new_pre_compute_duties) = self.sync_duties
-                .prepare_for_aggregator_pre_compute::<S::E>(
+            let (pre_compute_slot, new_pre_compute_duties) =
+                self.sync_duties.prepare_for_aggregator_pre_compute::<S::E>(
                     next_sync_committee_period,
                     current_slot,
                     &self.spec,
@@ -493,14 +503,15 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
                 let validator_store_clone = validator_store.clone();
                 self.executor.spawn(
                     async move {
-                        tracker.fill_in_aggregation_proofs(
-                            validator_store_clone,
-                            &new_pre_compute_duties,
-                            next_sync_committee_period,
-                            current_slot,
-                            pre_compute_slot,
-                        )
-                        .await
+                        tracker
+                            .fill_in_aggregation_proofs(
+                                validator_store_clone,
+                                &new_pre_compute_duties,
+                                next_sync_committee_period,
+                                current_slot,
+                                pre_compute_slot,
+                            )
+                            .await
                     },
                     "sync_committee_tracker_selection_proofs",
                 );
@@ -513,7 +524,6 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
     /// Poll for sync committee duties for a specific period
     async fn poll_sync_committee_duties_for_period<S: ValidatorStore + 'static>(
         &self,
-        validator_store: &Arc<S>,
         local_indices: &[u64],
         sync_committee_period: u64,
     ) -> Result<(), crate::sync::Error<S::Error>> {
@@ -534,7 +544,8 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
 
         let period_start_epoch = self.spec.epochs_per_sync_committee_period * sync_committee_period;
 
-        let duties_response = self.beacon_nodes
+        let duties_response = self
+            .beacon_nodes
             .first_success(|beacon_node| async move {
                 let _timer = validator_metrics::start_timer_vec(
                     &validator_metrics::DUTIES_SERVICE_TIMES,
@@ -561,7 +572,8 @@ impl<T: SlotClock + 'static> SyncCommitteeDutiesTracker<T> {
         debug!(count = duties.len(), "Fetched sync duties from BN");
 
         // Add duties to map.
-        let committee_duties = self.sync_duties
+        let committee_duties = self
+            .sync_duties
             .get_or_create_committee_duties(sync_committee_period, local_indices);
 
         let mut validator_writer = committee_duties.validators.write();

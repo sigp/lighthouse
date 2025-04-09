@@ -1,3 +1,4 @@
+use crate::sync_committee_duties_tracker::SyncCommitteeDutiesTracker;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use eth2::types::BlockId;
 use futures::future::join_all;
@@ -16,7 +17,6 @@ use types::{
     SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
 };
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
-use crate::sync_committee_duties_tracker::SyncCommitteeDutiesTracker;
 
 pub const SUBSCRIPTION_LOOKAHEAD_EPOCHS: u64 = 4;
 
@@ -107,7 +107,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         let executor = self.executor.clone();
 
         // Start the duties tracker service
-        self.duties_tracker.start_update_service(self.validator_store.clone());
+        self.duties_tracker
+            .start_update_service(self.validator_store.clone());
 
         let interval_fut = async move {
             loop {
