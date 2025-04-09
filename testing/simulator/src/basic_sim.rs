@@ -18,6 +18,7 @@ use environment::tracing_common;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use logging::build_workspace_filter;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
@@ -120,7 +121,11 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     );
 
     if let Err(e) = tracing_subscriber::registry()
-        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
+        .with(
+            stdout_logging_layer
+                .with_filter(logger_config.debug_level)
+                .with_filter(build_workspace_filter()?),
+        )
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging: {e}");
