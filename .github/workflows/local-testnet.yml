@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Force pull python image
-        run: docker pull docker.io/library/python@sha256:e044558c2f55d5f81f9fb7737c96b28c33db4f11616817f4ecb60b03c663ae24
+        run: docker pull docker.io/library/python:3.11-alpine
 
       - name: Install Kurtosis
         run: |
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Force pull python image
-        run: docker pull docker.io/library/python@sha256:e044558c2f55d5f81f9fb7737c96b28c33db4f11616817f4ecb60b03c663ae24
+        run: docker pull docker.io/library/python:3.11-alpine
 
       - name: Install Kurtosis
         run: |
@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Force pull python image
-        run: docker pull docker.io/library/python@sha256:e044558c2f55d5f81f9fb7737c96b28c33db4f11616817f4ecb60b03c663ae24
+        run: docker pull docker.io/library/python:3.11-alpine
 
       - name: Install Kurtosis
         run: |
