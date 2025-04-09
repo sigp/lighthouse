@@ -36,6 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Force pull python image
+        run: docker pull docker.io/library/python@sha256:e044558c2f55d5f81f9fb7737c96b28c33db4f11616817f4ecb60b03c663ae24
+
       - name: Install Kurtosis
         run: |
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
@@ -82,6 +85,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Force pull python image
+        run: docker pull docker.io/library/python@sha256:e044558c2f55d5f81f9fb7737c96b28c33db4f11616817f4ecb60b03c663ae24
+
       - name: Install Kurtosis
         run: |
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
@@ -116,6 +122,9 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Force pull python image
+        run: docker pull docker.io/library/python@sha256:e044558c2f55d5f81f9fb7737c96b28c33db4f11616817f4ecb60b03c663ae24
 
       - name: Install Kurtosis
         run: |
