@@ -185,10 +185,12 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
             .get_beacon_blocks::<E>(BlockId::Slot(Slot::new(slot)))
             .await
             .map(|resp| {
-                resp.expect(&format!(
-                    "Beacon block for slot {} not returned from Beacon API",
-                    slot
-                ))
+                resp.unwrap_or_else(|| {
+                    panic!(
+                        "Beacon block for slot {} not returned from Beacon API",
+                        slot
+                    )
+                })
                 .data
                 .message()
                 .body()
