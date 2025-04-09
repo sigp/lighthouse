@@ -8,7 +8,7 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 ENCLAVE_NAME=local-testnet
 NETWORK_PARAMS_FILE=$SCRIPT_DIR/network_params.yaml
 ETHEREUM_PKG_VERSION=main
-
+VERBOSITY=detailed
 BUILD_IMAGE=true
 BUILDER_PROPOSALS=false
 CI=false
@@ -32,6 +32,7 @@ while getopts "e:b:n:phck" flag; do
         echo "   -e: enclave name                                default: $ENCLAVE_NAME"
         echo "   -b: whether to build Lighthouse docker image    default: $BUILD_IMAGE"
         echo "   -n: kurtosis network params file path           default: $NETWORK_PARAMS_FILE"
+        echo "   -v: verbosity level                             default: $VERBOSITY"
         echo "   -p: enable builder proposals"
         echo "   -c: CI mode, run without other additional services like Grafana and Dora explorer"
         echo "   -k: keeping enclave to allow starting the testnet without destroying the existing one"
@@ -81,6 +82,6 @@ if [ "$KEEP_ENCLAVE" = false ]; then
   kurtosis enclave rm -f $ENCLAVE_NAME 2>/dev/null || true
 fi
 
-kurtosis run --enclave $ENCLAVE_NAME github.com/ethpandaops/ethereum-package@$ETHEREUM_PKG_VERSION --args-file $NETWORK_PARAMS_FILE --verbosity detailed
+kurtosis run --enclave $ENCLAVE_NAME github.com/ethpandaops/ethereum-package@$ETHEREUM_PKG_VERSION --args-file $NETWORK_PARAMS_FILE --verbosity $VERBOSITY
 
 echo "Started!"
