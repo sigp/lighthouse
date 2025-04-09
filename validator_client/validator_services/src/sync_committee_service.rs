@@ -1,4 +1,3 @@
-use crate::duties_service::DutiesService;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use eth2::types::BlockId;
 use futures::future::join_all;
@@ -17,6 +16,7 @@ use types::{
     SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
 };
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
+use crate::sync_committee_duties_tracker::SyncCommitteeDutiesTracker;
 
 pub const SUBSCRIPTION_LOOKAHEAD_EPOCHS: u64 = 4;
 
@@ -41,7 +41,6 @@ impl<S: ValidatorStore, T: SlotClock + 'static> Deref for SyncCommitteeService<S
 }
 
 pub struct Inner<S: ValidatorStore, T: SlotClock + 'static> {
-    duties_service: Arc<DutiesService<S, T>>,
     validator_store: Arc<S>,
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
@@ -50,11 +49,13 @@ pub struct Inner<S: ValidatorStore, T: SlotClock + 'static> {
     ///
     /// This acts as a latch that fires once upon start-up, and then never again.
     first_subscription_done: AtomicBool,
+    /// Tracks sync committee duties
+    pub duties_tracker: Arc<SyncCommitteeDutiesTracker<T>>,
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S, T> {
     pub fn new(
-        duties_service: Arc<DutiesService<S, T>>,
+        duties_tracker: Arc<SyncCommitteeDutiesTracker<T>>,
         validator_store: Arc<S>,
         slot_clock: T,
         beacon_nodes: Arc<BeaconNodeFallback<T>>,
@@ -62,12 +63,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
-                duties_service,
                 validator_store,
                 slot_clock,
                 beacon_nodes,
                 executor,
                 first_subscription_done: AtomicBool::new(false),
+                duties_tracker,
             }),
         }
     }
@@ -76,7 +77,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     ///
     /// Slot clock errors are mapped to `false`.
     fn altair_fork_activated(&self) -> bool {
-        self.duties_service
+        self.duties_tracker
             .spec
             .altair_fork_epoch
             .and_then(|fork_epoch| {
@@ -87,7 +88,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-        if self.duties_service.disable_attesting {
+        if self.duties_tracker.disable_attesting {
             info!("Sync committee service disabled");
             return Ok(());
         }
@@ -104,6 +105,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         );
 
         let executor = self.executor.clone();
+
+        // Start the duties tracker service
+        self.duties_tracker.start_update_service(self.validator_store.clone());
 
         let interval_fut = async move {
             loop {
@@ -154,9 +158,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                 .unwrap_or_else(|| Duration::from_secs(0));
 
         let Some(slot_duties) = self
-            .duties_service
-            .sync_duties
-            .get_duties_for_slot::<S::E>(slot, &self.duties_service.spec)
+            .duties_tracker
+            .sync_duties()
+            .get_duties_for_slot::<S::E>(slot, &self.duties_tracker.spec)
         else {
             debug!("No duties known for slot {}", slot);
             return Ok(());
@@ -454,7 +458,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
     }
 
     async fn publish_subscriptions(self) -> Result<(), String> {
-        let spec = &self.duties_service.spec;
+        let spec = &self.duties_tracker.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
 
         let mut duty_slots = vec![];
@@ -492,8 +496,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         for (duty_slot, sync_committee_period) in duty_slots {
             debug!(%duty_slot, %slot, "Fetching subscription duties");
             match self
-                .duties_service
-                .sync_duties
+                .duties_tracker
+                .sync_duties()
                 .get_duties_for_slot::<S::E>(duty_slot, spec)
             {
                 Some(duties) => subscriptions.extend(subscriptions_from_sync_duties(

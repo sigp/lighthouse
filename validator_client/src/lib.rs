@@ -46,6 +46,7 @@ use validator_services::{
     preparation_service::{PreparationService, PreparationServiceBuilder},
     sync_committee_service::SyncCommitteeService,
 };
+use validator_services::sync_committee_duties_tracker::SyncCommitteeDutiesTracker;
 use validator_store::ValidatorStore as ValidatorStoreTrait;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -494,8 +495,16 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .validator_registration_batch_size(config.validator_registration_batch_size)
             .build()?;
 
+        let sync_committee_duties_tracker = SyncCommitteeDutiesTracker::new(
+            beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+            slot_clock.clone(),
+            config.distributed,
+        );
+
         let sync_committee_service = SyncCommitteeService::new(
-            duties_service.clone(),
+            Arc::new(sync_committee_duties_tracker),
             validator_store.clone(),
             slot_clock.clone(),
             beacon_nodes.clone(),

@@ -7,8 +7,6 @@
 //! block production.
 
 use crate::block_service::BlockServiceNotification;
-use crate::sync::poll_sync_committee_duties;
-use crate::sync::SyncDutiesMap;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use eth2::types::{
     AttesterData, BeaconCommitteeSubscription, DutiesResponse, ProposerData, StateId, ValidatorId,
@@ -285,11 +283,14 @@ impl<S, T> DutiesServiceBuilder<S, T> {
         self
     }
 
-    pub fn build(self) -> Result<DutiesService<S, T>, String> {
+    pub fn build(self) -> Result<DutiesService<S, T>, String>
+    where
+        S: ValidatorStore,
+        T: SlotClock + 'static,
+    {
         Ok(DutiesService {
             attesters: Default::default(),
             proposers: Default::default(),
-            sync_duties: SyncDutiesMap::new(self.distributed),
             validator_store: self
                 .validator_store
                 .ok_or("Cannot build DutiesService without validator_store")?,
@@ -318,8 +319,6 @@ pub struct DutiesService<S, T> {
     /// Maps an epoch to all *local* proposers in this epoch. Notably, this does not contain
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
-    /// Map from validator index to sync committee duties.
-    pub sync_duties: SyncDutiesMap,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<S>,
     /// Maps unknown validator pubkeys to the next slot time when a poll should be conducted again.
@@ -538,35 +537,6 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
             }
         },
         "duties_service_attesters",
-    );
-
-    // Spawn the task which keeps track of local sync committee duties.
-    let duties_service = core_duties_service.clone();
-    core_duties_service.executor.spawn(
-        async move {
-            loop {
-                if let Err(e) = poll_sync_committee_duties(&duties_service).await {
-                    error!(
-                        error = ?e,
-                       "Failed to poll sync committee duties"
-                    );
-                }
-
-                // Wait until the next slot before polling again.
-                // This doesn't mean that the beacon node will get polled every slot
-                // as the sync duties service will return early if it deems it already has
-                // enough information.
-                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                    sleep(duration).await;
-                } else {
-                    // Just sleep for one slot if we are unable to read the system clock, this gives
-                    // us an opportunity for the clock to eventually come good.
-                    sleep(duties_service.slot_clock.slot_duration()).await;
-                    continue;
-                }
-            }
-        },
-        "duties_service_sync_committee",
     );
 }
 
