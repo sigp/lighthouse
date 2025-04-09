@@ -289,6 +289,7 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
             .find(|&(_, bit)| bit)
             .map(|(index, _)| index as u64)
     }
+    
 
     pub fn get_committee_indices(&self) -> Vec<u64> {
         self.committee_bits
