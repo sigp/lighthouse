@@ -2126,60 +2126,89 @@ mod test {
     fn test_execution_payload_execution_payload_deserialize_by_fork() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 
-        let payload =
-            ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng));
-        let payload_str = serde_json::to_string(&payload).unwrap();
-        let mut de = serde_json::Deserializer::from_str(&payload_str);
-        generic_deserialize_by_fork(&mut de, payload, ForkName::Fulu);
-
-        let payload = ExecutionPayload::Deneb(
-            ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
+        let payloads = [
+            ExecutionPayload::Bellatrix(
+                ExecutionPayloadBellatrix::<MainnetEthSpec>::random_for_test(rng),
+            ),
+            ExecutionPayload::Capella(ExecutionPayloadCapella::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
+            ExecutionPayload::Deneb(ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
+            ExecutionPayload::Electra(ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
+            ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
+        ];
+        let merged_forks = &ForkName::list_all()[2..];
+        assert_eq!(
+            payloads.len(),
+            merged_forks.len(),
+            "we should test every known fork; add new fork variant to payloads above"
         );
-        let payload_str = serde_json::to_string(&payload).unwrap();
-        let mut de = serde_json::Deserializer::from_str(&payload_str);
-        generic_deserialize_by_fork(&mut de, payload, ForkName::Deneb);
 
-        let payload = ExecutionPayload::Capella(
-            ExecutionPayloadCapella::<MainnetEthSpec>::random_for_test(rng),
-        );
-        let payload_str = serde_json::to_string(&payload).unwrap();
-        let mut de = serde_json::Deserializer::from_str(&payload_str);
-        generic_deserialize_by_fork(&mut de, payload, ForkName::Capella);
-
-        let payload = ExecutionPayload::Bellatrix(
-            ExecutionPayloadBellatrix::<MainnetEthSpec>::random_for_test(rng),
-        );
-        let payload_str = serde_json::to_string(&payload).unwrap();
-        let mut de = serde_json::Deserializer::from_str(&payload_str);
-        generic_deserialize_by_fork(&mut de, payload, ForkName::Bellatrix);
+        for (payload, &fork_name) in payloads.into_iter().zip(merged_forks) {
+            assert_eq!(payload.fork_name(), fork_name);
+            let payload_str = serde_json::to_string(&payload).unwrap();
+            let mut de = serde_json::Deserializer::from_str(&payload_str);
+            generic_deserialize_by_fork(&mut de, payload, fork_name);
+        }
     }
 
     #[test]
     fn test_execution_payload_and_blobs_deserialize_by_fork() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 
-        let execution_payload =
-            ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng));
-        let blobs_bundle = BlobsBundle::random_for_test(rng);
-        let payload_and_blobs = ExecutionPayloadAndBlobs {
-            execution_payload,
-            blobs_bundle,
-        };
-        let payload_and_blobs_str = serde_json::to_string(&payload_and_blobs).unwrap();
-        let mut de = serde_json::Deserializer::from_str(&payload_and_blobs_str);
-        generic_deserialize_by_fork(&mut de, payload_and_blobs, ForkName::Fulu);
+        let payloads = [
+            {
+                let execution_payload =
+                    ExecutionPayload::Deneb(
+                        ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+            {
+                let execution_payload =
+                    ExecutionPayload::Electra(
+                        ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+            {
+                let execution_payload =
+                    ExecutionPayload::Fulu(
+                        ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+        ];
+        let blob_forks = &ForkName::list_all()[4..];
 
-        let execution_payload = ExecutionPayload::Deneb(
-            ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
+        assert_eq!(
+            payloads.len(),
+            blob_forks.len(),
+            "we should test every known fork; add new fork variant to payloads above"
         );
-        let blobs_bundle = BlobsBundle::random_for_test(rng);
-        let payload_and_blobs = ExecutionPayloadAndBlobs {
-            execution_payload,
-            blobs_bundle,
-        };
-        let payload_and_blobs_str = serde_json::to_string(&payload_and_blobs).unwrap();
-        let mut de = serde_json::Deserializer::from_str(&payload_and_blobs_str);
-        generic_deserialize_by_fork(&mut de, payload_and_blobs, ForkName::Deneb);
+
+        for (payload, &fork_name) in payloads.into_iter().zip(blob_forks) {
+            assert_eq!(payload.execution_payload.fork_name(), fork_name);
+            let payload_str = serde_json::to_string(&payload).unwrap();
+            let mut de = serde_json::Deserializer::from_str(&payload_str);
+            generic_deserialize_by_fork(&mut de, payload, fork_name);
+        }
     }
 
     fn generic_deserialize_by_fork<
