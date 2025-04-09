@@ -46,6 +46,7 @@ pub struct TestRig<Engine, E: EthSpec = MainnetEthSpec> {
     ee_b: ExecutionPair<Engine, E>,
     spec: ChainSpec,
     _runtime_shutdown: async_channel::Sender<()>,
+    use_local_signing: bool,
 }
 
 /// Import a private key into the execution engine and unlock it so that we can
@@ -106,7 +107,7 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
 }
 
 impl<Engine: GenericExecutionEngine> TestRig<Engine> {
-    pub fn new(generic_engine: Engine) -> Self {
+    pub fn new(generic_engine: Engine, use_local_signing: bool) -> Self {
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -168,13 +169,14 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             ee_b,
             spec,
             _runtime_shutdown: runtime_shutdown,
+            use_local_signing,
         }
     }
 
-    pub fn perform_tests_blocking(&self, use_local_signing: bool) {
+    pub fn perform_tests_blocking(&self) {
         self.runtime
             .handle()
-            .block_on(async { self.perform_tests(use_local_signing).await });
+            .block_on(async { self.perform_tests().await });
     }
 
     pub async fn wait_until_synced(&self) {
@@ -196,7 +198,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         }
     }
 
-    pub async fn perform_tests(&self, use_local_signing: bool) {
+    pub async fn perform_tests(&self) {
         self.wait_until_synced().await;
 
         // Create a local signer in case we need to sign transactions locally
@@ -233,7 +235,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         let txs = transactions::<MainnetEthSpec>(account1, account2);
         let mut pending_txs = Vec::new();
 
-        if use_local_signing {
+        if self.use_local_signing {
             // Sign locally with the Signer middleware
             for (i, tx) in txs.clone().into_iter().enumerate() {
                 // The local signer uses eth_sendRawTransaction, so we need to manually set the nonce
