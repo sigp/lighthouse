@@ -7,6 +7,9 @@ use std::io;
 use zip::ZipArchive;
 
 fn main() {
+    // This file doesn't exist, so Cargo treats it as changed.
+    println!("cargo:rerun-if-changed=non_existent_file");
+
     for network in ETH2_NET_DIRS {
         match uncompress_state(network) {
             Ok(()) => (),
