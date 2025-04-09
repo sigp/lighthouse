@@ -81,6 +81,6 @@ if [ "$KEEP_ENCLAVE" = false ]; then
   kurtosis enclave rm -f $ENCLAVE_NAME 2>/dev/null || true
 fi
 
-kurtosis run --enclave $ENCLAVE_NAME github.com/ethpandaops/ethereum-package@$ETHEREUM_PKG_VERSION --args-file $NETWORK_PARAMS_FILE
+kurtosis run --enclave $ENCLAVE_NAME github.com/ethpandaops/ethereum-package@$ETHEREUM_PKG_VERSION --args-file $NETWORK_PARAMS_FILE --verbosity detailed
 
 echo "Started!"
