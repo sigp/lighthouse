@@ -1258,7 +1258,7 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
-                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+                u64::checked_pow(2, 6)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
 
