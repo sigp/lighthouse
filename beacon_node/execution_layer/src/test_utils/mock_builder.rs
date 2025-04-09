@@ -546,7 +546,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
                         blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
+                            .map(|b| b.commitments.clone())
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
@@ -558,7 +558,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
                         blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
+                            .map(|b| b.commitments.clone())
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),
@@ -570,7 +570,7 @@ impl<E: EthSpec> MockBuilder<E> {
                             .map_err(|_| "incorrect payload variant".to_string())?
                             .into(),
                         blob_kzg_commitments: maybe_blobs_bundle
-                            .map(|b| b.commitments)
+                            .map(|b| b.commitments.clone())
                             .unwrap_or_default(),
                         value: self.get_bid_value(value),
                         pubkey: self.builder_sk.public_key().compress(),

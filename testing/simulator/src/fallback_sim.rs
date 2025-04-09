@@ -5,7 +5,6 @@ use clap::ArgMatches;
 use crate::retry::with_retry;
 use environment::tracing_common;
 use futures::prelude::*;
-use logging::MetricsLayer;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
     testing_validator_config, ValidatorFiles,
@@ -94,12 +93,11 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let (
         env_builder,
-        libp2p_discv5_layer,
-        file_logging_layer,
-        stdout_logging_layer,
-        _sse_logging_layer_opt,
         logger_config,
-        dependency_log_filter,
+        stdout_logging_layer,
+        _file_logging_layer,
+        _sse_logging_layer_opt,
+        _libp2p_discv5_layer,
     ) = tracing_common::construct_logger(
         LoggerConfig {
             path: None,
@@ -122,11 +120,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     );
 
     if let Err(e) = tracing_subscriber::registry()
-        .with(dependency_log_filter)
-        .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
         .with(stdout_logging_layer.with_filter(logger_config.debug_level))
-        .with(libp2p_discv5_layer)
-        .with(MetricsLayer)
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging: {e}");
