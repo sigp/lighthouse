@@ -3,6 +3,7 @@ use crate::{checks, LocalNetwork};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
+use environment::tracing_common;
 use futures::prelude::*;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
@@ -10,8 +11,11 @@ use node_test_rig::{
 };
 use rayon::prelude::*;
 use std::cmp::max;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
 const END_EPOCH: u64 = 16;
@@ -20,8 +24,8 @@ const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 1;
 const DENEB_FORK_EPOCH: u64 = 2;
-const EIP7594_FORK_EPOCH: u64 = 3;
-//const ELECTRA_FORK_EPOCH: u64 = 0;
+const ELECTRA_FORK_EPOCH: u64 = 3;
+const FULU_FORK_EPOCH: u64 = 4;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
@@ -33,8 +37,8 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
         .parse::<usize>()
         .expect("missing nodes default");
 
-    // extra beacon node added with delay
-    let extra_nodes: usize = 8;
+    // Extra beacon nodes added with delay
+    let extra_nodes = 4;
     let validators_per_node = matches
         .get_one::<String>("validators-per-node")
         .expect("missing validators-per-node default")
@@ -73,25 +77,44 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let mut env = EnvironmentBuilder::minimal()
-        .initialize_logger(LoggerConfig {
+    let (
+        env_builder,
+        logger_config,
+        stdout_logging_layer,
+        _file_logging_layer,
+        _sse_logging_layer_opt,
+        _libp2p_discv5_layer,
+    ) = tracing_common::construct_logger(
+        LoggerConfig {
             path: None,
-            debug_level: log_level.clone(),
-            logfile_debug_level: log_level.clone(),
+            debug_level: tracing_common::parse_level(&log_level.clone()),
+            logfile_debug_level: tracing_common::parse_level(&log_level.clone()),
             log_format: None,
             logfile_format: None,
-            log_color: false,
+            log_color: true,
+            logfile_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
             is_restricted: true,
             sse_logging: false,
-        })?
-        .multi_threaded_tokio_runtime()?
-        .build()?;
+            extra_info: false,
+        },
+        matches,
+        EnvironmentBuilder::minimal(),
+    );
 
-    let spec = &mut env.eth2_config.spec;
+    if let Err(e) = tracing_subscriber::registry()
+        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging: {e}");
+    }
+
+    let mut env = env_builder.multi_threaded_tokio_runtime()?.build()?;
+
+    let mut spec = (*env.eth2_config.spec).clone();
 
     let total_validator_count = validators_per_node * node_count;
     let genesis_delay = GENESIS_DELAY;
@@ -105,8 +128,11 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.bellatrix_fork_epoch = Some(Epoch::new(BELLATRIX_FORK_EPOCH));
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
-    spec.eip7594_fork_epoch = Some(Epoch::new(EIP7594_FORK_EPOCH));
-    //spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
+    spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
+    spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
+
+    let spec = Arc::new(spec);
+    env.eth2_config.spec = spec.clone();
 
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
@@ -151,7 +177,8 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
             executor.spawn(
                 async move {
                     let mut validator_config = testing_validator_config();
-                    validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
+                    validator_config.validator_store.fee_recipient =
+                        Some(SUGGESTED_FEE_RECIPIENT.into());
                     println!("Adding validator client {}", i);
 
                     // Enable broadcast on every 4th node.
@@ -182,7 +209,7 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
             node.server.all_payloads_valid();
         });
 
-        let duration_to_genesis = network.duration_to_genesis().await;
+        let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 
@@ -196,36 +223,47 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
          */
 
         let mut sequence = vec![];
-        let mut epoch_delay = extra_nodes as u64;
-        let mut node_count = node_count;
 
-        for _ in 0..extra_nodes {
+        let mut current_node_count = node_count;
+
+        let available_epochs = END_EPOCH.saturating_sub(2);
+
+        // Using floats here is kind of hacky, but it seems to work paired with the `ceil` later.
+        let step = if extra_nodes > 1 {
+            (available_epochs as f64) / (extra_nodes as f64)
+        } else {
+            1.0
+        };
+
+        for i in 0..extra_nodes {
             let network_1 = network.clone();
             let owned_mock_execution_config = mock_execution_config.clone();
             let owned_beacon_config = beacon_config.clone();
+
+            let node_index = current_node_count;
+
+            let epoch_delay = (i as f64 * step).ceil() as u64;
+
             sequence.push(async move {
                 network_1
                     .add_beacon_node_with_delay(
                         owned_beacon_config,
                         owned_mock_execution_config,
-                        END_EPOCH - epoch_delay,
+                        epoch_delay,
                         slot_duration,
                         slots_per_epoch,
                     )
                     .await?;
                 checks::ensure_node_synced_up_to_slot(
                     network_1,
-                    // This must be set to be the node which was just created. Should be equal to
-                    // `node_count`.
-                    node_count,
+                    node_index,
                     Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
                     slot_duration,
                 )
                 .await?;
                 Ok::<(), String>(())
             });
-            epoch_delay -= 2;
-            node_count += 1;
+            current_node_count += 1;
         }
 
         let futures = futures::future::join_all(sequence).await;
