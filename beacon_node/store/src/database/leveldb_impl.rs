@@ -13,7 +13,6 @@ use leveldb::{
     iterator::{Iterable, LevelDBIterator},
     options::{Options, ReadOptions},
 };
-use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::path::Path;

@@ -41,7 +41,6 @@ pub use impls::{
 };
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
-use parking_lot::MutexGuard;
 use std::collections::HashSet;
 use std::sync::Arc;
 use strum::{EnumIter, EnumString, IntoStaticStr};

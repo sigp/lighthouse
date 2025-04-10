@@ -2,7 +2,7 @@ use crate::{
     errors::Error as DBError, get_key_for_col, hot_cold_store::BytesKey, ColumnIter, ColumnKeyIter,
     DBColumn, Error, ItemStore, Key, KeyValueStore, KeyValueStoreOp,
 };
-use parking_lot::{Mutex, MutexGuard, RwLock};
+use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashSet};
 use std::marker::PhantomData;
 use types::*;
