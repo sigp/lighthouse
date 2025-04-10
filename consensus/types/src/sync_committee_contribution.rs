@@ -41,8 +41,8 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
     ///
     /// - `message`: A single `SyncCommitteeMessage`.
     /// - `subcommittee_index`: The subcommittee this contribution pertains to out of the broader
-    ///     sync committee. This can be determined from the `SyncSubnetId` of the gossip subnet
-    ///     this message was seen on.
+    ///   sync committee. This can be determined from the `SyncSubnetId` of the gossip subnet
+    ///   this message was seen on.
     /// - `validator_sync_committee_index`: The index of the validator **within** the subcommittee.
     pub fn from_message(
         message: &SyncCommitteeMessage,
