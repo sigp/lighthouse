@@ -801,7 +801,7 @@ pub struct LightClientUpdatesQuery {
 
 #[derive(Encode, Decode)]
 pub struct LightClientUpdateResponseChunk {
-    pub response_chunk_len: u8,
+    pub response_chunk_len: u64,
     pub response_chunk: LightClientUpdateResponseChunkInner,
 }
 
