@@ -5,6 +5,7 @@ use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -206,6 +207,13 @@ impl<E: EthSpec> Attestation<E> {
         match self {
             Attestation::Base(att) => Some(att.data.index),
             Attestation::Electra(att) => att.committee_index(),
+        }
+    }
+
+    pub fn get_committee_indices_map(&self) -> HashSet<u64> {
+        match self {
+            Attestation::Base(att) => HashSet::from([att.data.index]),
+            Attestation::Electra(att) => att.get_committee_indices().into_iter().collect(),
         }
     }
 
