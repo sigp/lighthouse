@@ -5463,8 +5463,6 @@ dependencies = [
  "chrono",
  "logroller",
  "metrics",
- "once_cell",
- "parking_lot 0.12.3",
  "serde",
  "serde_json",
  "tokio",

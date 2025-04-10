@@ -1,4 +1,4 @@
-use crate::beacon_proposer_cache::Proposer;
+use crate::beacon_proposer_cache::EpochBlockProposers;
 use crate::block_verification::{
     cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
     BlockSlashInfo,
@@ -572,44 +572,56 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
             parent_block.root
         };
 
-    let Proposer {
-        index: proposer_index,
-        fork,
-    } = chain
+    // We lock the cache briefly to get or insert a OnceCell, then drop the lock
+    // before doing proposer shuffling calculation via `OnceCell::get_or_try_init`. This avoids
+    // holding the lock during the computation, while still ensuring the result is cached and
+    // initialised only once.
+    //
+    // This approach exposes the cache internals (`OnceCell` & `EpochBlockProposers`)
+    //  as a trade-off for avoiding lock contention.
+    let epoch_proposers_cell = chain
         .beacon_proposer_cache
         .lock()
-        .get_slot_or_insert_with::<E, _, GossipDataColumnError>(
-            proposer_shuffling_root,
+        .get_or_insert_key(column_epoch, proposer_shuffling_root);
+
+    let epoch_proposers = epoch_proposers_cell.get_or_try_init(move || {
+        debug!(
+            %block_root,
+            index = %column_index,
+            "Proposer shuffling cache miss for column verification"
+        );
+        let (parent_state_root, mut parent_state) = chain
+            .store
+            .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
+            .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?
+            .ok_or_else(|| {
+                BeaconChainError::DBInconsistent(format!(
+                    "Missing state for parent block {block_parent_root:?}",
+                ))
+            })?;
+
+        let state = cheap_state_advance_to_obtain_committees::<_, GossipDataColumnError>(
+            &mut parent_state,
+            Some(parent_state_root),
             column_slot,
-            move || {
-                debug!(
-                    %block_root,
-                    index = %column_index,
-                    "Proposer shuffling cache miss for column verification"
-                );
-                let (parent_state_root, mut parent_state) = chain
-                    .store
-                    .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
-                    .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?
-                    .ok_or_else(|| {
-                        BeaconChainError::DBInconsistent(format!(
-                            "Missing state for parent block {block_parent_root:?}",
-                        ))
-                    })?;
+            &chain.spec,
+        )?;
 
-                let state = cheap_state_advance_to_obtain_committees::<_, GossipDataColumnError>(
-                    &mut parent_state,
-                    Some(parent_state_root),
-                    column_slot,
-                    &chain.spec,
-                )?;
+        let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+        // Prime the proposer shuffling cache with the newly-learned value.
+        Ok::<_, GossipDataColumnError>(EpochBlockProposers {
+            epoch: column_epoch,
+            fork: state.fork(),
+            proposers: proposers.into(),
+        })
+    })?;
 
-                let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
-                // Prime the proposer shuffling cache with the newly-learned value.
-                Ok((proposers, state.fork()))
-            },
-        )?
+    let proposer_index = *epoch_proposers
+        .proposers
+        .get(column_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
         .ok_or_else(|| BeaconChainError::NoProposerForSlot(column_slot))?;
+
+    let fork = epoch_proposers.fork;
 
     // Signature verify the signed block header.
     let signature_is_valid = {
