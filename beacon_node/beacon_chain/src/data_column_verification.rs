@@ -1,3 +1,4 @@
+use crate::beacon_proposer_cache::Proposer;
 use crate::block_verification::{
     cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
     BlockSlashInfo,
@@ -571,18 +572,15 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
             parent_block.root
         };
 
-    let proposer_opt = chain
+    let Proposer {
+        index: proposer_index,
+        fork,
+    } = chain
         .beacon_proposer_cache
         .lock()
-        .get_slot::<T::EthSpec>(proposer_shuffling_root, column_slot);
-
-    let (proposer_index, fork) = if let Some(proposer) = proposer_opt {
-        (proposer.index, proposer.fork)
-    } else {
-        let mut lock = chain.beacon_proposer_cache.lock();
-        let (proposers, fork) = lock.insert_with::<_, GossipDataColumnError>(
+        .get_slot_or_insert_with::<E, _, GossipDataColumnError>(
             proposer_shuffling_root,
-            column_epoch,
+            column_slot,
             move || {
                 debug!(
                     %block_root,
@@ -610,14 +608,8 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
                 // Prime the proposer shuffling cache with the newly-learned value.
                 Ok((proposers, state.fork()))
             },
-        )?;
-
-        let proposer_index = *proposers
-            .get(column_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
-            .ok_or_else(|| BeaconChainError::NoProposerForSlot(column_slot))?;
-        drop(lock);
-        (proposer_index, fork)
-    };
+        )?
+        .ok_or_else(|| BeaconChainError::NoProposerForSlot(column_slot))?;
 
     // Signature verify the signed block header.
     let signature_is_valid = {

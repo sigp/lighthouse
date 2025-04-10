@@ -138,20 +138,41 @@ impl BeaconProposerCache {
         Ok(())
     }
 
-    pub fn insert_with<F, E: BlockBlobError>(
+    pub fn get_slot_or_insert_with<E: EthSpec, F, Err: BlockBlobError>(
+        &mut self,
+        shuffling_decision_block: Hash256,
+        slot: Slot,
+        compute_proposers_and_fork_fn: F,
+    ) -> Result<Option<Proposer>, Err>
+    where
+        F: FnOnce() -> Result<(Vec<usize>, Fork), Err>,
+    {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let (proposers, fork) = self.get_epoch_or_insert_with(
+            shuffling_decision_block,
+            epoch,
+            compute_proposers_and_fork_fn,
+        )?;
+
+        Ok(proposers
+            .get(slot.as_usize() % E::SlotsPerEpoch::to_usize())
+            .map(|&index| Proposer { index, fork }))
+    }
+
+    pub fn get_epoch_or_insert_with<F, Err: BlockBlobError>(
         &mut self,
         shuffling_decision_block: Hash256,
         epoch: Epoch,
         compute_proposers_and_fork_fn: F,
-    ) -> Result<(&SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>, Fork), E>
+    ) -> Result<(&SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>, Fork), Err>
     where
-        F: FnOnce() -> Result<(Vec<usize>, Fork), E>,
+        F: FnOnce() -> Result<(Vec<usize>, Fork), Err>,
     {
         let key = (epoch, shuffling_decision_block);
-        let once_cell = self.cache.get_or_insert_mut(key, || OnceCell::new());
+        let once_cell = self.cache.get_or_insert_mut(key, OnceCell::new);
         let epoch_block_proposers = once_cell.get_or_try_init(|| {
             let (proposers, fork) = compute_proposers_and_fork_fn()?;
-            Ok::<EpochBlockProposers, E>(EpochBlockProposers {
+            Ok::<EpochBlockProposers, Err>(EpochBlockProposers {
                 epoch,
                 fork,
                 proposers: proposers.into(),
