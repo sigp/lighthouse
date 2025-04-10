@@ -12,7 +12,6 @@ type DBMap = BTreeMap<BytesKey, Vec<u8>>;
 /// A thread-safe `BTreeMap` wrapper.
 pub struct MemoryStore<E: EthSpec> {
     db: RwLock<DBMap>,
-    transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
 
@@ -21,7 +20,6 @@ impl<E: EthSpec> MemoryStore<E> {
     pub fn open() -> Self {
         Self {
             db: RwLock::new(BTreeMap::new()),
-            transaction_mutex: Mutex::new(()),
             _phantom: PhantomData,
         }
     }
@@ -105,10 +103,6 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
 
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
         Box::new(self.iter_column(column).map(|res| res.map(|(k, _)| k)))
-    }
-
-    fn begin_rw_transaction(&self) -> MutexGuard<()> {
-        self.transaction_mutex.lock()
     }
 
     fn compact_column(&self, _column: DBColumn) -> Result<(), Error> {
