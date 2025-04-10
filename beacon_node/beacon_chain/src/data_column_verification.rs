@@ -579,41 +579,44 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
     let (proposer_index, fork) = if let Some(proposer) = proposer_opt {
         (proposer.index, proposer.fork)
     } else {
-        debug!(
-            %block_root,
-            index = %column_index,
-            "Proposer shuffling cache miss for column verification"
-        );
-        let (parent_state_root, mut parent_state) = chain
-            .store
-            .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
-            .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?
-            .ok_or_else(|| {
-                BeaconChainError::DBInconsistent(format!(
-                    "Missing state for parent block {block_parent_root:?}",
-                ))
-            })?;
+        let mut lock = chain.beacon_proposer_cache.lock();
+        let (proposers, fork) = lock.insert_with::<_, GossipDataColumnError>(
+            proposer_shuffling_root,
+            column_epoch,
+            move || {
+                debug!(
+                    %block_root,
+                    index = %column_index,
+                    "Proposer shuffling cache miss for column verification"
+                );
+                let (parent_state_root, mut parent_state) = chain
+                    .store
+                    .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
+                    .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?
+                    .ok_or_else(|| {
+                        BeaconChainError::DBInconsistent(format!(
+                            "Missing state for parent block {block_parent_root:?}",
+                        ))
+                    })?;
 
-        let state = cheap_state_advance_to_obtain_committees::<_, GossipDataColumnError>(
-            &mut parent_state,
-            Some(parent_state_root),
-            column_slot,
-            &chain.spec,
+                let state = cheap_state_advance_to_obtain_committees::<_, GossipDataColumnError>(
+                    &mut parent_state,
+                    Some(parent_state_root),
+                    column_slot,
+                    &chain.spec,
+                )?;
+
+                let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+                // Prime the proposer shuffling cache with the newly-learned value.
+                Ok((proposers, state.fork()))
+            },
         )?;
 
-        let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
         let proposer_index = *proposers
             .get(column_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
             .ok_or_else(|| BeaconChainError::NoProposerForSlot(column_slot))?;
-
-        // Prime the proposer shuffling cache with the newly-learned value.
-        chain.beacon_proposer_cache.lock().insert(
-            column_epoch,
-            proposer_shuffling_root,
-            proposers,
-            state.fork(),
-        )?;
-        (proposer_index, state.fork())
+        drop(lock);
+        (proposer_index, fork)
     };
 
     // Signature verify the signed block header.

@@ -8,9 +8,11 @@
 //! very simple to reason about, but it might store values that are useless due to finalization. The
 //! values it stores are very small, so this should not be an issue.
 
+use crate::block_verification::BlockBlobError;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use fork_choice::ExecutionStatus;
 use lru::LruCache;
+use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
 use std::cmp::Ordering;
@@ -53,7 +55,7 @@ pub struct EpochBlockProposers {
 ///
 /// See the module-level documentation for more information.
 pub struct BeaconProposerCache {
-    cache: LruCache<(Epoch, Hash256), EpochBlockProposers>,
+    cache: LruCache<(Epoch, Hash256), OnceCell<EpochBlockProposers>>,
 }
 
 impl Default for BeaconProposerCache {
@@ -74,7 +76,8 @@ impl BeaconProposerCache {
     ) -> Option<Proposer> {
         let epoch = slot.epoch(E::slots_per_epoch());
         let key = (epoch, shuffling_decision_block);
-        if let Some(cache) = self.cache.get(&key) {
+        let cache_opt = self.cache.get(&key).and_then(|cell| cell.get());
+        if let Some(cache) = cache_opt {
             // This `if` statement is likely unnecessary, but it feels like good practice.
             if epoch == cache.epoch {
                 cache
@@ -103,7 +106,9 @@ impl BeaconProposerCache {
         epoch: Epoch,
     ) -> Option<&SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> {
         let key = (epoch, shuffling_decision_block);
-        self.cache.get(&key).map(|cache| &cache.proposers)
+        self.cache
+            .get(&key)
+            .and_then(|cache_once_cell| cache_once_cell.get().map(|proposers| &proposers.proposers))
     }
 
     /// Insert the proposers into the cache.
@@ -122,15 +127,38 @@ impl BeaconProposerCache {
         if !self.cache.contains(&key) {
             self.cache.put(
                 key,
-                EpochBlockProposers {
+                OnceCell::with_value(EpochBlockProposers {
                     epoch,
                     fork,
                     proposers: proposers.into(),
-                },
+                }),
             );
         }
 
         Ok(())
+    }
+
+    pub fn insert_with<F, E: BlockBlobError>(
+        &mut self,
+        shuffling_decision_block: Hash256,
+        epoch: Epoch,
+        compute_proposers_and_fork_fn: F,
+    ) -> Result<(&SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>, Fork), E>
+    where
+        F: FnOnce() -> Result<(Vec<usize>, Fork), E>,
+    {
+        let key = (epoch, shuffling_decision_block);
+        let once_cell = self.cache.get_or_insert_mut(key, || OnceCell::new());
+        let epoch_block_proposers = once_cell.get_or_try_init(|| {
+            let (proposers, fork) = compute_proposers_and_fork_fn()?;
+            Ok::<EpochBlockProposers, E>(EpochBlockProposers {
+                epoch,
+                fork,
+                proposers: proposers.into(),
+            })
+        })?;
+
+        Ok((&epoch_block_proposers.proposers, epoch_block_proposers.fork))
     }
 }
 
