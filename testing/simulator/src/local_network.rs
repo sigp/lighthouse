@@ -205,6 +205,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.discv5_config.table_filter = |_| true;
+        beacon_config.network.subscribe_all_data_column_subnets = true;
 
         let execution_node = LocalExecutionNode::new(
             self.context.service_context("boot_node_el".into()),
