@@ -169,7 +169,7 @@ fn map_light_client_update_to_ssz_chunk<T: BeaconChainTypes>(
     };
 
     LightClientUpdateResponseChunk {
-        response_chunk_len: response_chunk_len as u8,
+        response_chunk_len: response_chunk_len as u64,
         response_chunk,
     }
 }
