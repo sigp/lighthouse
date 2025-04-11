@@ -1,6 +1,6 @@
 use crate::{metrics, ColumnIter, ColumnKeyIter, Key};
 use crate::{DBColumn, Error, KeyValueStoreOp};
-use parking_lot::{Mutex, MutexGuard, RwLock};
+use parking_lot::RwLock;
 use redb::TableDefinition;
 use std::collections::HashSet;
 use std::{borrow::BorrowMut, marker::PhantomData, path::Path};
