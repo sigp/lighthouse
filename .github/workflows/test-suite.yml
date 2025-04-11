@@ -296,7 +296,7 @@ jobs:
           channel: stable
           cache-target: release
     - name: Run a basic beacon chain sim that starts from Deneb
-      run: cargo run --release --bin simulator basic-sim --speed-up-factor 1
+      run: cargo run --release --bin simulator basic-sim --speed-up-factor 2
   fallback-simulator-ubuntu:
     name: fallback-simulator-ubuntu
     needs: [check-labels]

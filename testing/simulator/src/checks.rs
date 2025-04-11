@@ -128,17 +128,23 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
     slot_delay(slot, slot_duration).await;
     let beacon_nodes = network.beacon_nodes.read();
     let beacon_chain = beacon_nodes[0].client.beacon_chain().unwrap();
-    let num_blocks = beacon_chain
+    let block_slots = beacon_chain
         .chain_dump()
         .unwrap()
         .iter()
         .take_while(|s| s.beacon_block.slot() <= slot)
-        .count();
+        .map(|s| s.beacon_block.slot().as_usize())
+        .collect::<Vec<_>>();
+    let num_blocks = block_slots.len();
     if num_blocks != slot.as_usize() + 1 {
+        let missed_slots = (0..slot.as_usize())
+            .filter(|slot| !block_slots.contains(slot))
+            .collect::<Vec<_>>();
         return Err(format!(
-            "There wasn't a block produced at every slot, got: {}, expected: {}",
+            "There wasn't a block produced at every slot, got: {}, expected: {}, missed: {:?}",
             num_blocks,
-            slot.as_usize() + 1
+            slot.as_usize() + 1,
+            missed_slots
         ));
     }
     Ok(())
