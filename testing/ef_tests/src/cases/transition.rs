@@ -100,7 +100,10 @@ impl<E: EthSpec> Case for TransitionTest<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         // Upgrades exist targeting all forks except phase0/base.
         // Transition tests also need BLS.
-        cfg!(not(feature = "fake_crypto")) && fork_name != ForkName::Base
+        // No test in Fulu for whatever reason..
+        cfg!(not(feature = "fake_crypto"))
+            && fork_name != ForkName::Base
+            && fork_name != ForkName::Fulu
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

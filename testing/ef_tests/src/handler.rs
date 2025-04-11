@@ -21,7 +21,7 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Fulu]
+        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -47,6 +47,19 @@ pub trait Handler {
             if self.is_enabled_for_feature(feature_name) {
                 self.run_for_feature(feature_name);
             }
+        }
+    }
+
+    // Do NOT override this function.
+    // TODO: use default keyword when stable.
+    fn rayon_enabled() -> bool {
+        #[cfg(feature = "disable_rayon")]
+        {
+            false
+        }
+        #[cfg(not(feature = "disable_rayon"))]
+        {
+            Self::use_rayon()
         }
     }
 
@@ -85,7 +98,7 @@ pub trait Handler {
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+        let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
 
         let name = format!(
             "{}/{}/{}",
@@ -127,7 +140,7 @@ pub trait Handler {
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+        let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
 
         let name = format!(
             "{}/{}/{}",
@@ -205,7 +218,7 @@ macro_rules! bls_handler {
                     })
                     .collect();
 
-                let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+                let results = Cases { test_cases }.test_results(fork_name, Self::rayon_enabled());
 
                 let name = format!(
                     "{}/{}/{}",
@@ -673,15 +686,20 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // No FCU override tests prior to bellatrix.
+        // No FCU override tests prior to bellatrix or in Fulu for some reason.
         if self.handler_name == "should_override_forkchoice_update"
-            && !fork_name.bellatrix_enabled()
+            && (!fork_name.bellatrix_enabled() || fork_name == ForkName::Fulu)
         {
             return false;
         }
 
-        // Deposit tests exist only after Electra.
-        if self.handler_name == "deposit_with_reorg" && !fork_name.electra_enabled() {
+        // This Deposit test exists only in Electra (so far)..
+        if self.handler_name == "deposit_with_reorg" && fork_name != ForkName::Electra {
+            return false;
+        }
+
+        if self.handler_name == "get_proposer_head" && fork_name == ForkName::Fulu {
+            // This test isn't present in Fulu for some reason.
             return false;
         }
 
@@ -716,7 +734,10 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name.bellatrix_enabled() && cfg!(not(feature = "fake_crypto"))
+        // no test in Fulu for whatever reason..
+        fork_name.bellatrix_enabled()
+            && cfg!(not(feature = "fake_crypto"))
+            && fork_name != ForkName::Fulu
     }
 }
 
@@ -1048,7 +1069,8 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name.altair_enabled()
+        // no test in Fulu for whatever reason..
+        fork_name.altair_enabled() && fork_name != ForkName::Fulu
     }
 }
 
@@ -1073,7 +1095,8 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Altair
-        fork_name.altair_enabled()
+        // no test in Fulu for whatever reason..
+        fork_name.altair_enabled() && fork_name != ForkName::Fulu
     }
 }
 
