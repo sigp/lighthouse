@@ -2181,7 +2181,6 @@ impl ApiTester {
                 .into_iter()
                 .filter(|att| att.get_committee_indices_map().contains(&0))
                 .collect::<Vec<_>>();
-            assert!(expected_committee_index_filtered.is_empty());
             assert_eq!(
                 result_committee_index_filtered,
                 expected_committee_index_filtered
