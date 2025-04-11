@@ -2366,7 +2366,7 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new_without_blobs(Some(block_root), block);
+            return RpcBlock::new_without_blobs(Some(block_root), block, 0);
         }
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
@@ -2417,7 +2417,7 @@ where
                     &self.spec,
                 )?
             } else {
-                RpcBlock::new_without_blobs(Some(block_root), block)
+                RpcBlock::new_without_blobs(Some(block_root), block, 0)
             }
         } else {
             let blobs = blob_items
