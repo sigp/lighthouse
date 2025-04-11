@@ -2366,12 +2366,16 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new_without_blobs(Some(block_root), block);
+            return RpcBlock::new_without_blobs(Some(block_root), block, 0);
         }
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
+            let columns = self
+                .chain
+                .get_data_columns(&block_root)
+                .unwrap()
+                .or_default();
             let custody_columns = columns
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
@@ -2417,7 +2421,7 @@ where
                     &self.spec,
                 )?
             } else {
-                RpcBlock::new_without_blobs(Some(block_root), block)
+                RpcBlock::new_without_blobs(Some(block_root), block, sampling_column_count)
             }
         } else {
             let blobs = blob_items
