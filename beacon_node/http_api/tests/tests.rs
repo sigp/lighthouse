@@ -2159,12 +2159,15 @@ impl ApiTester {
 
         // aggregate electra attestations
         if fork_name.electra_enabled() {
-            let mut all_attestations = self.chain.op_pool.attestations.write();
-            let (prev_epoch_key, curr_epoch_key) =
-                CheckpointKey::keys_for_state(&self.harness.get_current_state());
-            all_attestations.aggregate_across_committees(prev_epoch_key);
-            all_attestations.aggregate_across_committees(curr_epoch_key);
-            drop(all_attestations);
+            // Take and drop the lock in a block to avoid clippy complaining
+            // about taking locks across await points
+            {
+                let mut all_attestations = self.chain.op_pool.attestations.write();
+                let (prev_epoch_key, curr_epoch_key) =
+                    CheckpointKey::keys_for_state(&self.harness.get_current_state());
+                all_attestations.aggregate_across_committees(prev_epoch_key);
+                all_attestations.aggregate_across_committees(curr_epoch_key);
+            }
             let result_committee_index_filtered = self
                 .client
                 .get_beacon_pool_attestations_v2(None, Some(0))
