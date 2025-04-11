@@ -1236,7 +1236,7 @@ impl ChainSpec {
              * Electra hard fork params
              */
             electra_fork_version: [0x05, 0x00, 0x00, 0x64],
-            electra_fork_epoch: None,
+            electra_fork_epoch: Some(Epoch::new(1337856)),
             unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
@@ -1258,7 +1258,7 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
-                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+                u64::checked_pow(2, 6)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
 
@@ -1300,7 +1300,7 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
-            max_blobs_per_block: default_max_blobs_per_block(),
+            max_blobs_per_block: 2,
 
             /*
              * Derived Deneb Specific
@@ -1313,9 +1313,9 @@ impl ChainSpec {
             /*
              * Networking Electra specific
              */
-            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
-            blob_sidecar_subnet_count_electra: default_blob_sidecar_subnet_count_electra(),
-            max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
+            max_blobs_per_block_electra: 2,
+            blob_sidecar_subnet_count_electra: 2,
+            max_request_blob_sidecars_electra: 256,
 
             /*
              * Application specific

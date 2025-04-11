@@ -4104,7 +4104,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &mut state,
                 )
                 .unwrap_or_else(|e| {
-                    error!(self.log, "error caching light_client data {:?}", e);
+                    debug!(self.log, "error caching light_client data {:?}", e);
                 });
         }
 
