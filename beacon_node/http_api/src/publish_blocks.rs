@@ -521,7 +521,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             .len()
             .saturating_sub(malicious_withhold_count);
         // Randomize columns before dropping the last malicious_withhold_count items
-        data_column_sidecars.shuffle(&mut rand::thread_rng());
+        data_column_sidecars.shuffle(&mut **chain.rng.lock());
         data_column_sidecars.truncate(columns_to_keep);
     }
     let pubsub_messages = data_column_sidecars

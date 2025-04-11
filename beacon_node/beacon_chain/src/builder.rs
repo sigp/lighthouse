@@ -30,6 +30,7 @@ use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -105,6 +106,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
+    rng: Option<Box<dyn RngCore + Send>>,
 }
 
 impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
@@ -145,6 +147,7 @@ where
             task_executor: None,
             validator_monitor_config: None,
             import_all_data_columns: false,
+            rng: None,
         }
     }
 
@@ -691,6 +694,14 @@ where
         self
     }
 
+    /// Sets the `rng` field.
+    ///
+    /// Currently used for shuffling column sidecars in block publishing.
+    pub fn rng(mut self, rng: Box<dyn RngCore + Send>) -> Self {
+        self.rng = Some(rng);
+        self
+    }
+
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -716,6 +727,7 @@ where
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
+        let rng = self.rng.ok_or("Cannot build without an RNG")?;
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
         let mut validator_monitor =
@@ -979,6 +991,7 @@ where
                     .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
+            rng: Arc::new(Mutex::new(rng)),
         };
 
         let head = beacon_chain.head_snapshot();
@@ -1184,6 +1197,8 @@ mod test {
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use ssz::Encode;
     use std::time::Duration;
     use store::config::StoreConfig;
@@ -1230,6 +1245,7 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .rng(Box::new(StdRng::seed_from_u64(42)))
             .build()
             .expect("should build");
 

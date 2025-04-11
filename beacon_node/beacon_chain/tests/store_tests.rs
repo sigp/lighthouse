@@ -16,6 +16,7 @@ use beacon_chain::{
 };
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
+use rand::rngs::StdRng;
 use rand::Rng;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{state_advance::complete_state_advance, BlockReplayer};
@@ -2373,6 +2374,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .chain_config(ChainConfig::default())
         .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
+        .rng(Box::new(StdRng::seed_from_u64(42)))
         .build()
         .expect("should build");
 
