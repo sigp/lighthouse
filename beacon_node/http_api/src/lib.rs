@@ -1186,6 +1186,39 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/states/{state_id}/pending_consolidations
+    let get_beacon_state_pending_consolidations = beacon_states_path
+        .clone()
+        .and(warp::path("pending_consolidations"))
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(consolidations) = state.pending_consolidations() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Pending consolidations not found".to_string(),
+                                    ));
+                                };
+
+                                Ok((consolidations.clone(), execution_optimistic, finalized))
+                            },
+                        )?;
+
+                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                        data,
+                        execution_optimistic: Some(execution_optimistic),
+                        finalized: Some(finalized),
+                    })
+                })
+            },
+        );
+
     // GET beacon/headers
     //
     // Note: this endpoint only returns information about blocks in the canonical chain. Given that
@@ -4853,6 +4886,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_randao)
                 .uor(get_beacon_state_pending_deposits)
                 .uor(get_beacon_state_pending_partial_withdrawals)
+                .uor(get_beacon_state_pending_consolidations)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)
