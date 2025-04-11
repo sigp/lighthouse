@@ -68,6 +68,7 @@ use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
+use std::collections::HashSet;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -85,13 +86,14 @@ use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
 };
+use types::AttestationData;
 use types::{
-    fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
-    AttesterSlashing, BeaconStateError, ChainSpec, Checkpoint, CommitteeCache, ConfigAndPreset,
-    Epoch, EthSpec, ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData,
-    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
+    fork_versioned_response::EmptyMetadata, Attestation, AttestationShufflingId, AttesterSlashing,
+    BeaconStateError, ChainSpec, Checkpoint, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
+    ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing,
+    RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -2032,11 +2034,11 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              query: api_types::AttestationPoolQuery| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
-                    let query_filter = |data: &AttestationData| {
+                    let query_filter = |data: &AttestationData, committee_indices: HashSet<u64>| {
                         query.slot.is_none_or(|slot| slot == data.slot)
                             && query
                                 .committee_index
-                                .is_none_or(|index| index == data.index)
+                                .is_none_or(|index| committee_indices.contains(&index))
                     };
 
                     let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
@@ -2045,7 +2047,9 @@ pub fn serve<T: BeaconChainTypes>(
                             .naive_aggregation_pool
                             .read()
                             .iter()
-                            .filter(|&att| query_filter(att.data()))
+                            .filter(|&att| {
+                                query_filter(att.data(), att.get_committee_indices_map())
+                            })
                             .cloned(),
                     );
                     // Use the current slot to find the fork version, and convert all messages to the
