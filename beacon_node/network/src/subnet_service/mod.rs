@@ -133,8 +133,17 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         if config.subscribe_all_subnets {
             // We are subscribed to all subnets, set all the bits to true.
             for index in 0..beacon_chain.spec.attestation_subnet_count {
-                permanent_attestation_subscriptions.set(index as usize, true)
-                    .expect("Subnet index should be within bounds");
+                let index_usize = index as usize;
+                // Instead of using expect, handle any potential error and log it
+                if let Err(e) = permanent_attestation_subscriptions.set(index_usize, true) {
+                    // This should never happen, but log it if it does
+                    warn!(
+                        log,
+                        "Failed to set bit in BitVector";
+                        "index" => index_usize,
+                        "error" => ?e
+                    );
+                }
             }
         } else {
             // Not subscribed to all subnets, so just calculate the required subnets from the node
@@ -142,8 +151,18 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             for subnet_id in
                 SubnetId::compute_attestation_subnets(node_id.raw(), &beacon_chain.spec)
             {
-                permanent_attestation_subscriptions.set(subnet_id.into(), true)
-                    .expect("Subnet index should be within bounds");
+                let index = subnet_id.into();
+                // Instead of using expect, handle any potential error and log it
+                if let Err(e) = permanent_attestation_subscriptions.set(index, true) {
+                    // This should never happen, but log it if it does
+                    warn!(
+                        log,
+                        "Failed to set bit in BitVector for subnet";
+                        "subnet_id" => ?subnet_id,
+                        "index" => index,
+                        "error" => ?e
+                    );
+                }
             }
         }
 
@@ -204,7 +223,12 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     #[cfg(test)]
     pub fn permanent_subscriptions(&self) -> impl Iterator<Item = Subnet> {
         (0..self.permanent_attestation_subscriptions.len())
-            .filter(move |&i| self.permanent_attestation_subscriptions.get(i).unwrap_or(false))
+            .filter(move |&i| {
+                // Safely handle potential errors by defaulting to false if get() returns an error
+                self.permanent_attestation_subscriptions
+                    .get(i)
+                    .unwrap_or(false)
+            })
             .map(|i| Subnet::Attestation(SubnetId::new(i as u64)))
     }
 
@@ -214,7 +238,10 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         self.subscriptions.contains_key(subnet)
             || match subnet {
                 Subnet::Attestation(subnet_id) => {
-                    self.permanent_attestation_subscriptions.get(subnet_id.into()).unwrap_or(false)
+                    // Safely handle potential errors by defaulting to false if get() returns an error
+                    self.permanent_attestation_subscriptions
+                        .get(subnet_id.into())
+                        .unwrap_or(false)
                 },
                 _ => false
             }
@@ -488,7 +515,12 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     ) -> Result<(), &'static str> {
         // If the subnet is one of our permanent subnets, we do not need to subscribe.
         if self.subscribe_all_subnets || match subnet {
-            Subnet::Attestation(subnet_id) => self.permanent_attestation_subscriptions.get(subnet_id.into()).unwrap_or(false),
+            Subnet::Attestation(subnet_id) => {
+                // Safely handle potential errors by defaulting to false if get() returns an error
+                self.permanent_attestation_subscriptions
+                    .get(subnet_id.into())
+                    .unwrap_or(false)
+            },
             _ => false
         } {
             return Ok(());
