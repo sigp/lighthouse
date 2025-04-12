@@ -4,7 +4,7 @@ use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub
 use itertools::Itertools;
 use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
-use score::{PeerAction, ReportSource, Score, ScoreState, PenaltyRecord};
+use score::{PeerAction, ReportSource, Score, ScoreState, PenaltyRecord, MAX_STORED_PENALTY_RECORDS};
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
