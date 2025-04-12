@@ -9,9 +9,10 @@ use crate::service::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSU
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::sync::LazyLock;
-use std::time::Instant;
+use std::time::{SystemTime, UNIX_EPOCH, Instant};
 use strum::AsRefStr;
 use tokio::time::Duration;
+use super::ScoreUpdateResult;
 
 static HALFLIFE_DECAY: LazyLock<f64> = LazyLock::new(|| -(2.0f64.ln()) / SCORE_HALFLIFE);
 
@@ -39,11 +40,43 @@ const GOSSIPSUB_NEGATIVE_SCORE_WEIGHT: f64 =
     (MIN_SCORE_BEFORE_DISCONNECT + 1.0) / GOSSIPSUB_GREYLIST_THRESHOLD;
 const GOSSIPSUB_POSITIVE_SCORE_WEIGHT: f64 = GOSSIPSUB_NEGATIVE_SCORE_WEIGHT;
 
+pub(crate) const MAX_STORED_PENALTY_RECORDS: usize = 20;
+
+#[derive(Clone, Debug, Serialize)]
+pub struct PenaltyRecord {
+    /// The action that caused the penalty
+    action: PeerAction,
+    /// Where the penalty came from
+    source: ReportSource,
+    /// The penalty message
+    msg: String,
+    /// The result of the penalty
+    result: ScoreUpdateResult,
+    /// The time when the penalty occured in unix millis
+    time_stamp: Option<u128>
+}
+
+impl PenaltyRecord {
+    /// Create a new penalty record
+    pub fn new(action: PeerAction, source:ReportSource, msg: impl Into<String>, result: ScoreUpdateResult) -> PenaltyRecord {
+        let time_stamp: Option<u128> = SystemTime::now()
+            .duration_since(UNIX_EPOCH).ok()
+            .map(|dur| dur.as_millis());
+        PenaltyRecord {
+            action: action,
+            source: source,
+            msg: msg.into(),
+            result: result,
+            time_stamp: time_stamp
+        }
+    }
+}
+
 /// A collection of actions a peer can perform which will adjust its score.
 /// Each variant has an associated score change.
 // To easily assess the behaviour of scores changes the number of variants should stay low, and
 // somewhat generic.
-#[derive(Debug, Clone, Copy, AsRefStr)]
+#[derive(Debug, Clone, Copy, AsRefStr, Serialize)]
 #[strum(serialize_all = "snake_case")]
 pub enum PeerAction {
     /// We should not communicate more with this peer.
@@ -66,7 +99,7 @@ pub enum PeerAction {
 }
 
 /// Service reporting a `PeerAction` for a peer.
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, AsRefStr)]
 pub enum ReportSource {
     Gossipsub,
     RPC,

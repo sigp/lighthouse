@@ -1,5 +1,5 @@
 use super::client::Client;
-use super::score::{PeerAction, Score, ScoreState};
+use super::score::{PeerAction, Score, ScoreState, PenaltyRecord, MAX_STORED_PENALTY_RECORDS};
 use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
 use crate::{rpc::MetaData, types::Subnet};
@@ -10,7 +10,7 @@ use serde::{
     ser::{SerializeStruct, Serializer},
     Serialize,
 };
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::net::IpAddr;
 use std::time::Instant;
 use strum::AsRefStr;
@@ -46,6 +46,8 @@ pub struct PeerInfo<E: EthSpec> {
     /// Note: Another reason to keep this separate to `self.subnets` is an upcoming change to
     /// decouple custody requirements from the actual subnets, i.e. changing this to `custody_groups`.
     custody_subnets: HashSet<DataColumnSubnetId>,
+    /// The record of penalties given to a peer
+    penalty_records: VecDeque<PenaltyRecord>,
     /// The time we would like to retain this peer. After this time, the peer is no longer
     /// necessary.
     #[serde(skip)]
@@ -56,7 +58,7 @@ pub struct PeerInfo<E: EthSpec> {
     /// None if this peer was never connected.
     connection_direction: Option<ConnectionDirection>,
     /// The enr of the peer, if known.
-    enr: Option<Enr>,
+    enr: Option<Enr>
 }
 
 impl<E: EthSpec> Default for PeerInfo<E> {
@@ -75,6 +77,7 @@ impl<E: EthSpec> Default for PeerInfo<E> {
             is_trusted: false,
             connection_direction: None,
             enr: None,
+            penalty_records: VecDeque::new()
         }
     }
 }
@@ -385,6 +388,15 @@ impl<E: EthSpec> PeerInfo<E> {
     // VISIBILITY: The peer manager is able to adjust the meta_data
     pub(in crate::peer_manager) fn set_meta_data(&mut self, meta_data: MetaData<E>) {
         self.meta_data = Some(meta_data);
+    }
+
+    /// Adds a penalty record
+    // VISIBILITY: The peer manager is able to add a penalty record
+    pub(in crate::peer_manager) fn add_penalty_record(&mut self, penalty_record: PenaltyRecord) {
+        self.penalty_records.push_back(penalty_record);
+        while self.penalty_records.len() > MAX_STORED_PENALTY_RECORDS {
+            self.penalty_records.pop_front();
+        }
     }
 
     /// Sets the connection status of the peer.

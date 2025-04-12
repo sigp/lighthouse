@@ -4,7 +4,7 @@ use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub
 use itertools::Itertools;
 use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
-use score::{PeerAction, ReportSource, Score, ScoreState};
+use score::{PeerAction, ReportSource, Score, ScoreState, PenaltyRecord};
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
@@ -16,6 +16,8 @@ use sync_status::SyncStatus;
 use tracing::{debug, error, trace, warn};
 use types::data_column_custody_group::compute_subnets_for_node;
 use types::{ChainSpec, DataColumnSubnetId, EthSpec};
+use serde::Serialize;
+use strum::AsRefStr;
 
 pub mod client;
 pub mod peer_info;
@@ -560,7 +562,7 @@ impl<E: EthSpec> PeerDB<E> {
                 info.apply_peer_action_to_score(action);
                 metrics::inc_counter_vec(
                     &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
-                    &[info.client().kind.as_ref(), action.as_ref(), source.into()],
+                    &[info.client().kind.as_ref(), action.as_ref(), source.as_ref()],
                 );
                 let result = Self::handle_score_transition(previous_state, peer_id, info);
                 if previous_state == info.score_state() {
@@ -571,7 +573,7 @@ impl<E: EthSpec> PeerDB<E> {
                         "Peer score adjusted"
                     );
                 }
-                match result {
+                let final_result = match result {
                     ScoreTransitionResult::Banned => {
                         // The peer was banned as a result of this action.
                         self.update_connection_state(peer_id, NewConnectionState::Banned)
@@ -596,7 +598,9 @@ impl<E: EthSpec> PeerDB<E> {
                         );
                         ScoreUpdateResult::NoAction
                     }
-                }
+                };
+                self.add_penalty_record(peer_id, PenaltyRecord::new(action, source, msg, final_result.clone()));
+                final_result
             }
             None => {
                 debug!(
@@ -750,6 +754,19 @@ impl<E: EthSpec> PeerDB<E> {
         }
 
         peer_id
+    }
+
+
+    fn add_penalty_record(&mut self, peer_id: &PeerId, penalty_record: PenaltyRecord) {
+        let info = self.peers.entry(*peer_id).or_insert_with(|| {
+            error!(%peer_id, "Adding a penalty record to a non-existant peer");
+            if self.disable_peer_scoring {
+                PeerInfo::trusted_peer_info()
+            } else {
+                PeerInfo::default()
+            }
+        });
+        info.add_penalty_record(penalty_record);
     }
 
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
@@ -1237,6 +1254,8 @@ enum ScoreTransitionResult {
 }
 
 /// The type of results that can happen from executing the `report_peer` function.
+#[derive(Clone, Debug, Serialize, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum ScoreUpdateResult {
     /// The reported peer must be banned.
     Ban(BanOperation),
@@ -1259,6 +1278,8 @@ impl From<Option<BanOperation>> for ScoreUpdateResult {
 }
 
 /// When attempting to ban a peer provides the peer manager with the operation that must be taken.
+#[derive(Clone, Debug, Serialize, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum BanOperation {
     /// Optionally temporarily ban this peer to prevent instantaneous reconnection.
     /// The peer manager will decide if temporary banning is required.
