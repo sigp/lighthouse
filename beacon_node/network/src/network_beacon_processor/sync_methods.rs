@@ -85,7 +85,6 @@ impl PeerGroupAction {
             AvailabilityCheckError::MissingCustodyColumns(columns) => Some(
                 PeerGroupAction::column_peers(columns, PeerAction::LowToleranceError),
             ),
-            AvailabilityCheckError::MissingAllCustodyColumns => todo!(),
             AvailabilityCheckError::BlobIndexInvalid(_) => {
                 Some(PeerGroupAction::block_peer(PeerAction::LowToleranceError))
             }

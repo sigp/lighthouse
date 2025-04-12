@@ -918,10 +918,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
-            let (request, batch_type) = batch.to_blocks_by_range_request();
+            let request = batch.to_blocks_by_range_request();
             let failed_peers = batch.failed_peers();
             match network.block_components_by_range_request(
-                batch_type,
                 request,
                 RangeRequestId::RangeSync {
                     chain_id: self.id,
@@ -1017,8 +1016,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
 
             if let Entry::Vacant(entry) = self.batches.entry(epoch) {
-                let batch_type = network.batch_type(epoch);
-                let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH, batch_type);
+                let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH);
                 entry.insert(optimistic_batch);
                 self.send_batch(network, epoch)?;
             }
@@ -1119,8 +1117,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 self.include_next_batch(network)
             }
             Entry::Vacant(entry) => {
-                let batch_type = network.batch_type(next_batch_id);
-                entry.insert(BatchInfo::new(&next_batch_id, EPOCHS_PER_BATCH, batch_type));
+                entry.insert(BatchInfo::new(&next_batch_id, EPOCHS_PER_BATCH));
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
                 Some(next_batch_id)
             }

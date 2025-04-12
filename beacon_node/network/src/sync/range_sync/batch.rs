@@ -139,8 +139,6 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     failed_download_attempts: Vec<PeerId>,
     /// State of the batch.
     state: BatchState<E>,
-    /// Whether this batch contains all blocks or all blocks and blobs.
-    batch_type: ByRangeRequestType,
     /// Pin the generic
     marker: std::marker::PhantomData<B>,
 }
@@ -200,7 +198,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     /// fork boundary will be of mixed type (all blocks and one last blockblob), and I don't want to
     /// deal with this for now.
     /// This means finalization might be slower in deneb
-    pub fn new(start_epoch: &Epoch, num_of_epochs: u64, batch_type: ByRangeRequestType) -> Self {
+    pub fn new(start_epoch: &Epoch, num_of_epochs: u64) -> Self {
         let start_slot = start_epoch.start_slot(E::slots_per_epoch());
         let end_slot = start_slot + num_of_epochs * E::slots_per_epoch();
         BatchInfo {
@@ -210,7 +208,6 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             failed_download_attempts: Vec::new(),
             non_faulty_processing_attempts: 0,
             state: BatchState::AwaitingDownload,
-            batch_type,
             marker: std::marker::PhantomData,
         }
     }
@@ -266,13 +263,10 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     }
 
     /// Returns a BlocksByRange request associated with the batch.
-    pub fn to_blocks_by_range_request(&self) -> (BlocksByRangeRequest, ByRangeRequestType) {
-        (
-            BlocksByRangeRequest::new(
-                self.start_slot.into(),
-                self.end_slot.sub(self.start_slot).into(),
-            ),
-            self.batch_type,
+    pub fn to_blocks_by_range_request(&self) -> BlocksByRangeRequest {
+        BlocksByRangeRequest::new(
+            self.start_slot.into(),
+            self.end_slot.sub(self.start_slot).into(),
         )
     }
 

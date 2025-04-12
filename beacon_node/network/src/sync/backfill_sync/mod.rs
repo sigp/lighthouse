@@ -913,10 +913,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .cloned()
                 .collect::<HashSet<_>>();
 
-            let (request, is_blob_batch) = batch.to_blocks_by_range_request();
+            let request = batch.to_blocks_by_range_request();
             let failed_peers = batch.failed_peers();
             match network.block_components_by_range_request(
-                is_blob_batch,
                 request,
                 RangeRequestId::BackfillSync { batch_id },
                 &synced_peers,
@@ -1076,12 +1075,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 self.include_next_batch(network)
             }
             Entry::Vacant(entry) => {
-                let batch_type = network.batch_type(batch_id);
-                entry.insert(BatchInfo::new(
-                    &batch_id,
-                    BACKFILL_EPOCHS_PER_BATCH,
-                    batch_type,
-                ));
+                entry.insert(BatchInfo::new(&batch_id, BACKFILL_EPOCHS_PER_BATCH));
                 if self.would_complete(batch_id) {
                     self.last_batch_downloaded = true;
                 }

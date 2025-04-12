@@ -474,8 +474,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         spec: self.spec.clone(),
                     })
                 } else {
-                    // Note: strictly asserts blocks to be available instead of returning MaybeAvailableBlock
-                    return Err(AvailabilityCheckError::MissingAllCustodyColumns);
+                    // This is unreachable. If a block returns true for
+                    // `data_columns_required_for_block` it must be a Fulu block. All Fulu RpcBlocks
+                    // are constructed with the `DataColumns` variant, so `data_columns` must be Some
+                    return Err(AvailabilityCheckError::Unexpected(
+                        "Data columns should be Some for a Fulu block".to_string(),
+                    ));
                 }
             } else {
                 MaybeAvailableBlock::Available(AvailableBlock {

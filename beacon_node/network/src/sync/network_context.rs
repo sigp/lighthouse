@@ -408,12 +408,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// A blocks by range request sent by the range sync algorithm
     pub fn block_components_by_range_request(
         &mut self,
-        batch_type: ByRangeRequestType,
         request: BlocksByRangeRequest,
         requester: RangeRequestId,
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
+        let batch_epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
+        let batch_type = self.batch_type(batch_epoch);
+
         let active_request_count_by_peer = self.active_request_count_by_peer();
 
         let Some(block_peer) = peers
@@ -1172,7 +1174,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Check whether a batch for this epoch (and only this epoch) should request just blocks or
     /// blocks and blobs.
-    pub fn batch_type(&self, epoch: types::Epoch) -> ByRangeRequestType {
+    fn batch_type(&self, epoch: types::Epoch) -> ByRangeRequestType {
         // Induces a compile time panic if this doesn't hold true.
         #[allow(clippy::assertions_on_constants)]
         const _: () = assert!(

@@ -14,7 +14,6 @@ pub enum Error {
     SszTypes(ssz_types::Error),
     MissingBlobs,
     MissingCustodyColumns(Vec<ColumnIndex>),
-    MissingAllCustodyColumns,
     BlobIndexInvalid(u64),
     DataColumnIndexInvalid(u64),
     StoreError(store::Error),
@@ -39,7 +38,6 @@ impl Error {
             Error::SszTypes(_)
             | Error::MissingBlobs
             | Error::MissingCustodyColumns(_)
-            | Error::MissingAllCustodyColumns
             | Error::StoreError(_)
             | Error::DecodeError(_)
             | Error::Unexpected(_)

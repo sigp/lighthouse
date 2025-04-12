@@ -31,8 +31,11 @@ enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
 }
 
 enum RangeBlockDataRequest<E: EthSpec> {
+    /// All pre-deneb blocks
     NoData,
+    /// All post-Deneb blocks, regardless of if they have data or not
     Blobs(ByRangeRequest<BlobsByRangeRequestId, Vec<Arc<BlobSidecar<E>>>>),
+    /// All post-Fulu blocks, regardless of if they have data or not
     DataColumns {
         requests: HashMap<
             DataColumnsByRangeRequestId,

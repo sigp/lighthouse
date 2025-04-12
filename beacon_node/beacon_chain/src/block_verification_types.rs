@@ -118,13 +118,15 @@ impl<E: EthSpec> RpcBlock<E> {
 #[derive(Debug, Clone, Derivative)]
 #[derivative(Hash(bound = "E: EthSpec"))]
 enum RpcBlockInner<E: EthSpec> {
-    /// Single block lookup response. This should potentially hit the data availability cache.
+    /// **Range sync**: Variant for all pre-Deneb blocks
+    /// **Lookup sync**: Variant used for all blocks of all forks, regardless if the have data or
+    /// not. Note: this is confusing and should be fixed in a later refactor.
     Block(Arc<SignedBeaconBlock<E>>),
-    /// This variant is used with parent lookups and by-range responses. It should have all blobs
-    /// ordered, all block roots matching, and the correct number of blobs for this block.
+    /// Variant for all post-Deneb blocks regardless if they have data or not. Only used for chain
+    /// segments in range sync
     BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
-    /// This variant is used with parent lookups and by-range responses. It should have all
-    /// requested data columns, all block roots matching for this block.
+    /// Variant for all post-Fulu blocks regardless if they have data or not. Only used for chain
+    /// segments in range sync
     BlockAndCustodyColumns(
         Arc<SignedBeaconBlock<E>>,
         CustodyDataColumnList<E>,
