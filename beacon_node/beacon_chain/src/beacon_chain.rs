@@ -4007,7 +4007,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &mut state,
                 )
                 .unwrap_or_else(|e| {
-                    error!("error caching light_client data {:?}", e);
+                    debug!("error caching light_client data {:?}", e);
                 });
         }
 
@@ -7134,6 +7134,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(Some(StoreOp::PutDataColumns(block_root, data_columns)))
             }
         }
+    }
+
+    /// Retrieves block roots (in ascending slot order) within some slot range from fork choice.
+    pub fn block_roots_from_fork_choice(&self, start_slot: u64, count: u64) -> Vec<Hash256> {
+        let head_block_root = self.canonical_head.cached_head().head_block_root();
+        let fork_choice_read_lock = self.canonical_head.fork_choice_read_lock();
+        let block_roots_iter = fork_choice_read_lock
+            .proto_array()
+            .iter_block_roots(&head_block_root);
+        let end_slot = start_slot.saturating_add(count);
+        let mut roots = vec![];
+
+        for (root, slot) in block_roots_iter {
+            if slot < end_slot && slot >= start_slot {
+                roots.push(root);
+            }
+            if slot < start_slot {
+                break;
+            }
+        }
+
+        drop(fork_choice_read_lock);
+        // return in ascending slot order
+        roots.reverse();
+        roots
     }
 }
 

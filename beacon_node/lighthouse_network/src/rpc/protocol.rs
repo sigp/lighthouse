@@ -57,7 +57,7 @@ pub static SIGNED_BEACON_BLOCK_ALTAIR_MAX: LazyLock<usize> = LazyLock::new(|| {
 /// The `BeaconBlockBellatrix` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
 /// We calculate the value from its fields instead of constructing the block and checking the length.
 /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
-/// with `max_chunk_size`.
+/// with `max_payload_size`.
 pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
     LazyLock::new(||     // Size of a full altair block
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
@@ -121,15 +121,6 @@ const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
-
-/// Returns the maximum bytes that can be sent across the RPC.
-pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize {
-    if fork_context.current_fork().bellatrix_enabled() {
-        max_chunk_size
-    } else {
-        max_chunk_size / 10
-    }
-}
 
 /// Returns the rpc limits for beacon_block_by_range and beacon_block_by_root responses.
 ///
