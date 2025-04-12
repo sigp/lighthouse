@@ -6389,6 +6389,55 @@ impl ApiTester {
             let api_beacon_block_reward = self.test_get_beacon_rewards_blocks_at_head().await;
             assert_eq!(beacon_block_reward, api_beacon_block_reward);
         }
+    pub async fn test_get_beacon_pool_attestations_filtered(self) -> Self {
+        // Determine a target slot and committee index to filter by.
+        // Use the slot before the current slot, where attestations likely exist.
+        let target_slot = self.chain.slot().unwrap() - 1;
+        let target_committee_index = 0; // Use the first committee for simplicity initially.
+
+        // Construct the query filter used by the op_pool.
+        let query_filter = OperationPoolAccessFilter {
+            slot: Some(target_slot),
+            committee_index: Some(target_committee_index),
+        };
+
+        // Get expected attestations directly from the op_pool and naive_aggregation_pool using filtering.
+        // Note: We might need a more sophisticated way to filter the naive pool if necessary.
+        // For now, let's assume get_filtered_attestations covers what we need or that naive pool items
+        // won't conflict with this simple filter.
+        let mut expected = self.chain.op_pool.get_filtered_attestations(&query_filter);
+        // Add filtered attestations from the naive pool as well.
+        expected.extend(
+            self.chain
+                .naive_aggregation_pool
+                .read()
+                .iter()
+                .filter(|att| {
+                    att.data.slot == target_slot && att.data.index == target_committee_index
+                })
+                .cloned(),
+        );
+        expected.sort_by(|a, b| a.data.slot.cmp(&b.data.slot)); // Ensure consistent order
+
+        // Call the API with the filters.
+        let result = self
+            .client
+            .get_beacon_pool_attestations_v2(Some(target_slot), Some(target_committee_index))
+            .await
+            .unwrap()
+            .data;
+
+        let mut sorted_result = result;
+        sorted_result.sort_by(|a, b| a.data.slot.cmp(&b.data.slot)); // Ensure consistent order
+
+        assert_eq!(
+            sorted_result, expected,
+            "Filtered attestations from API should match filtered attestations from chain pools"
+        );
+
+        // TODO: Add tests for multiple committees per slot if needed by adjusting harness config.
+        // TODO: Add tests using the minimal spec if needed.
+
         self
     }
 }
@@ -6569,6 +6618,8 @@ async fn test_beacon_pool_attestations_base() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_get_pools() {
     ApiTester::new()
+        .await
+        .test_get_beacon_pool_attestations_filtered()
         .await
         .test_get_beacon_pool_attester_slashings()
         .await
@@ -7336,68 +7387,269 @@ async fn builder_chain_health_optimistic_head_v3() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn builder_payload_chosen_by_profit() {
-    ApiTester::new_mev_tester_default_payload_value()
+async fn builder_payload_chosen_when_more_profitable(self) -> Self {
+    // Mutate value.
+    self.mock_builder
+        .as_ref()
+        .unwrap()
+        .add_operation(Operation::Value(Uint256::from(
+            DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+        )));
+
+    let slot = self.chain.slot().unwrap();
+    let epoch = self.chain.epoch().unwrap();
+
+    let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+    let payload: BlindedPayload<E> = self
+        .client
+        .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
         .await
-        .test_builder_payload_chosen_when_more_profitable()
-        .await
-        .test_local_payload_chosen_when_equally_profitable()
-        .await
-        .test_local_payload_chosen_when_more_profitable()
-        .await;
+        .unwrap()
+        .data
+        .body()
+        .execution_payload()
+        .unwrap()
+        .into();
+
+    // The builder's payload should've been chosen, so this cache should not be populated
+    assert!(self
+        .chain
+        .execution_layer
+        .as_ref()
+        .unwrap()
+        .get_payload_by_root(&payload.tree_hash_root())
+        .is_none());
+    self
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn builder_payload_chosen_by_profit_v3() {
-    ApiTester::new_mev_tester_default_payload_value()
-        .await
-        .test_builder_payload_v3_chosen_when_more_profitable()
-        .await
-        .test_local_payload_v3_chosen_when_equally_profitable()
-        .await
-        .test_local_payload_v3_chosen_when_more_profitable()
-        .await;
-}
+async fn builder_payload_v3_chosen_when_more_profitable(self) -> Self {
+    // Mutate value.
+    self.mock_builder
+        .as_ref()
+        .unwrap()
+        .add_operation(Operation::Value(Uint256::from(
+            DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+        )));
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn builder_works_post_capella() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
+    let slot = self.chain.slot().unwrap();
+    let epoch = self.chain.epoch().unwrap();
+
+    let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+    let (payload_type, metadata) = self
+        .client
+        .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+        .await
+        .unwrap();
+    Self::check_block_v3_metadata(&metadata, &payload_type);
+
+    match payload_type.data {
+        ProduceBlockV3Response::Blinded(_) => (),
+        ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
     };
-    config.spec.altair_fork_epoch = Some(Epoch::new(0));
-    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-    config.spec.capella_fork_epoch = Some(Epoch::new(0));
 
-    ApiTester::new_from_config(config)
-        .await
-        .test_post_validator_register_validator()
-        .await
-        .test_builder_works_post_capella()
-        .await
-        .test_lighthouse_rejects_invalid_withdrawals_root()
-        .await;
+    self
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn builder_works_post_deneb() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
-    config.spec.altair_fork_epoch = Some(Epoch::new(0));
-    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-    config.spec.capella_fork_epoch = Some(Epoch::new(0));
-    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+async fn local_payload_chosen_when_equally_profitable(self) -> Self {
+    // Mutate value.
+    self.mock_builder
+        .as_ref()
+        .unwrap()
+        .add_operation(Operation::Value(Uint256::from(
+            DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+        )));
 
-    ApiTester::new_from_config(config)
+    let slot = self.chain.slot().unwrap();
+    let epoch = self.chain.epoch().unwrap();
+
+    let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+    let payload: BlindedPayload<E> = self
+        .client
+        .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
         .await
-        .test_post_validator_register_validator()
+        .unwrap()
+        .data
+        .body()
+        .execution_payload()
+        .unwrap()
+        .into();
+
+    // The local payload should've been chosen, so this cache should be populated
+    assert!(self
+        .chain
+        .execution_layer
+        .as_ref()
+        .unwrap()
+        .get_payload_by_root(&payload.tree_hash_root())
+        .is_some());
+    self
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_payload_v3_chosen_when_equally_profitable(self) -> Self {
+    // Mutate value.
+    self.mock_builder
+        .as_ref()
+        .unwrap()
+        .add_operation(Operation::Value(Uint256::from(
+            DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+        )));
+
+    let slot = self.chain.slot().unwrap();
+    let epoch = self.chain.epoch().unwrap();
+
+    let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+    let (payload_type, metadata) = self
+        .client
+        .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
         .await
-        .test_builder_works_post_deneb()
+        .unwrap();
+    Self::check_block_v3_metadata(&metadata, &payload_type);
+
+    match payload_type.data {
+        ProduceBlockV3Response::Full(_) => (),
+        ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+    };
+
+    self
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_payload_chosen_when_more_profitable(self) -> Self {
+    // Mutate value.
+    self.mock_builder
+        .as_ref()
+        .unwrap()
+        .add_operation(Operation::Value(Uint256::from(
+            DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI - 1,
+        )));
+
+    let slot = self.chain.slot().unwrap();
+    let epoch = self.chain.epoch().unwrap();
+
+    let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+    let payload: BlindedPayload<E> = self
+        .client
+        .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
         .await
-        .test_lighthouse_rejects_invalid_withdrawals_root_v3()
-        .await;
+        .unwrap()
+        .data
+        .body()
+        .execution_payload()
+        .unwrap()
+        .into();
+
+    // The local payload should've been chosen, so this cache should be populated
+    assert!(self
+        .chain
+        .execution_layer
+        .as_ref()
+        .unwrap()
+        .get_payload_by_root(&payload.tree_hash_root())
+        .is_some());
+    self
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn local_payload_v3_chosen_when_more_profitable(self) -> Self {
+    // Mutate value.
+    self.mock_builder
+        .as_ref()
+        .unwrap()
+        .add_operation(Operation::Value(Uint256::from(
+            DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI - 1,
+        )));
+
+    let slot = self.chain.slot().unwrap();
+    let epoch = self.chain.epoch().unwrap();
+
+    let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+    let (payload_type, metadata) = self
+        .client
+        .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+        .await
+        .unwrap();
+    Self::check_block_v3_metadata(&metadata, &payload_type);
+
+    match payload_type.data {
+        ProduceBlockV3Response::Full(_) => (),
+        ProduceBlockV3Response::Blinded(_) => panic!("Expecting a full payload"),
+    };
+
+    self
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_works_post_capella(self) -> Self {
+    // Ensure builder payload is chosen
+    self.mock_builder
+        .as_ref()
+        .unwrap()
+        .add_operation(Operation::Value(Uint256::from(
+            DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+        )));
+
+    let slot = self.chain.slot().unwrap();
+    let epoch = self.chain.epoch().unwrap();
+    let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+    let payload: BlindedPayload<E> = self
+        .client
+        .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
+        .await
+        .unwrap()
+        .data
+        .body()
+        .execution_payload()
+        .unwrap()
+        .into();
+
+    // The builder's payload should've been chosen, so this cache should not be populated
+    assert!(self
+        .chain
+        .execution_layer
+        .as_ref()
+        .unwrap()
+        .get_payload_by_root(&payload.tree_hash_root())
+        .is_none());
+    self
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_works_post_deneb(self) -> Self {
+    // Ensure builder payload is chosen
+    self.mock_builder
+        .as_ref()
+        .unwrap()
+        .add_operation(Operation::Value(Uint256::from(
+            DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+        )));
+
+    let slot = self.chain.slot().unwrap();
+    let epoch = self.chain.epoch().unwrap();
+    let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+    let (payload_type, metadata) = self
+        .client
+        .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+        .await
+        .unwrap();
+    Self::check_block_v3_metadata(&metadata, &payload_type);
+
+    let _block_contents = match payload_type.data {
+        ProduceBlockV3Response::Blinded(payload) => payload,
+        ProduceBlockV3Response::Full(_) => panic!("Expecting a blinded payload"),
+    };
+
+    self
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
