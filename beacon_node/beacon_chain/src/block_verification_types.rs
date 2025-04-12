@@ -80,6 +80,36 @@ impl<E: EthSpec> RpcBlock<E> {
             RpcBlockInner::BlockAndCustodyColumns(_, data_columns, _) => Some(data_columns),
         }
     }
+
+    pub fn non_matching_blobs_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+        match &self.block {
+            RpcBlockInner::Block(_) => None,
+            RpcBlockInner::BlockAndBlobs(block, blobs) => Some(
+                blobs
+                    .iter()
+                    .filter(|blob| &blob.signed_block_header.signature != block.signature())
+                    .map(|blob| blob.index)
+                    .collect(),
+            ),
+            RpcBlockInner::BlockAndCustodyColumns(..) => None,
+        }
+    }
+
+    pub fn non_matching_custody_columns_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+        match &self.block {
+            RpcBlockInner::Block(_) => None,
+            RpcBlockInner::BlockAndBlobs(..) => None,
+            RpcBlockInner::BlockAndCustodyColumns(block, data_columns, _) => Some(
+                data_columns
+                    .iter()
+                    .filter(|column| {
+                        &column.as_data_column().signed_block_header.signature != block.signature()
+                    })
+                    .map(|column| column.index())
+                    .collect(),
+            ),
+        }
+    }
 }
 
 /// Note: This variant is intentionally private because we want to safely construct the

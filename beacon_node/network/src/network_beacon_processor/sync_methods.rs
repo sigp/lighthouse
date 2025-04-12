@@ -666,6 +666,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // TODO(das): check blobs and columns signatures separately
                         Some(PeerGroupAction::block_peer(PeerAction::LowToleranceError))
                     }
+                    // Blobs are served by the block_peer
+                    HistoricalBlockError::InvalidBlobsSignature(_) => {
+                        Some(PeerGroupAction::block_peer(PeerAction::LowToleranceError))
+                    }
+                    HistoricalBlockError::InvalidDataColumnsSignature(indices) => Some(
+                        PeerGroupAction::column_peers(indices, PeerAction::LowToleranceError),
+                    ),
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout
                     | HistoricalBlockError::IndexOutOfBounds
                     | HistoricalBlockError::StoreError(_)

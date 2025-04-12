@@ -94,6 +94,7 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
 use tracing::{debug, error};
+use types::ColumnIndex;
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
@@ -220,6 +221,10 @@ pub enum BlockError {
     ///
     /// The block is invalid and the peer is faulty.
     InvalidSignature(InvalidSignature),
+    /// One or more signatures in a BlobSidecar of an RpcBlock are invalid
+    InvalidBlobsSignature(Vec<u64>),
+    /// One or more signatures in a DataColumnSidecar of an RpcBlock are invalid
+    InvalidDataColumnsSignature(Vec<ColumnIndex>),
     /// The provided block is not from a later slot than its parent.
     ///
     /// ## Peer scoring
@@ -633,16 +638,28 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     )?;
 
     // verify signatures before matching blocks and data
-    {
-        let pubkey_cache = get_validator_pubkey_cache(chain)?;
-        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
-        for (block_root, block) in &chain_segment {
-            let mut consensus_context =
-                ConsensusContext::new(block.slot()).set_current_block_root(*block_root);
-            signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
+    let pubkey_cache = get_validator_pubkey_cache(chain)?;
+    let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+    for (block_root, block) in &chain_segment {
+        let mut consensus_context =
+            ConsensusContext::new(block.slot()).set_current_block_root(*block_root);
+        signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
+    }
+    if signature_verifier.verify().is_err() {
+        return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
+    }
+
+    // Verify that blobs or data columns signatures match
+    for (_, block) in &chain_segment {
+        if let Some(indices) = block.non_matching_blobs_signed_headers() {
+            if !indices.is_empty() {
+                return Err(BlockError::InvalidBlobsSignature(indices));
+            }
         }
-        if signature_verifier.verify().is_err() {
-            return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
+        if let Some(indices) = block.non_matching_custody_columns_signed_headers() {
+            if !indices.is_empty() {
+                return Err(BlockError::InvalidDataColumnsSignature(indices));
+            }
         }
     }
 

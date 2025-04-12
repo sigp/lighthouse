@@ -1425,7 +1425,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return None;
             }
             // BlobNotRequired is unreachable. Only constructed in `process_gossip_blob`
-            Err(e @ BlockError::InternalError(_)) | Err(e @ BlockError::BlobNotRequired(_)) => {
+            // InvalidBlobsSignature is unreachable. Only constructed in `process_chain_segment`
+            // InvalidDataColumnsSignature is unreachable. Only constructed in `process_chain_segment`
+            Err(e @ BlockError::InternalError(_))
+            | Err(e @ BlockError::BlobNotRequired(_))
+            | Err(e @ BlockError::InvalidBlobsSignature(_))
+            | Err(e @ BlockError::InvalidDataColumnsSignature(_)) => {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
             }

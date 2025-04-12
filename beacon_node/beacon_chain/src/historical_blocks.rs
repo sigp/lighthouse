@@ -13,7 +13,7 @@ use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::debug;
-use types::{FixedBytesExtended, Hash256, Slot};
+use types::{ColumnIndex, FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -29,6 +29,10 @@ pub enum HistoricalBlockError {
     },
     /// Bad signature, caller should retry with different blocks.
     InvalidSignature(String),
+    /// One or more signatures in a BlobSidecar of an RpcBlock are invalid
+    InvalidBlobsSignature(Vec<u64>),
+    /// One or more signatures in a DataColumnSidecar of an RpcBlock are invalid
+    InvalidDataColumnsSignature(Vec<ColumnIndex>),
     /// Unexpected error
     Unexpected(String),
     /// Transitory error, caller should retry with the same blocks.
@@ -119,6 +123,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<usize, HistoricalBlockError> {
         // First check that chain of blocks is correct
         self.assert_correct_historical_block_chain(&blocks)?;
+
+        // Verify that blobs or data columns signatures match
+        // Why are we computing the DB ops before verifying the signatures? ¬Ø\_(„ÉÑ)_/¬Ø We have to
+        // wait to maybe return the invalid block signature error.
+        let matching_sidecar_signatures_error = blocks
+            .iter()
+            .map(|block| {
+                if let Some(indices) = block.non_matching_blobs_signed_headers() {
+                    if !indices.is_empty() {
+                        return Err(HistoricalBlockError::InvalidBlobsSignature(indices));
+                    }
+                }
+                if let Some(indices) = block.non_matching_custody_columns_signed_headers() {
+                    if !indices.is_empty() {
+                        return Err(HistoricalBlockError::InvalidDataColumnsSignature(indices));
+                    }
+                }
+                Ok(())
+            })
+            .collect::<Result<Vec<_>, _>>();
 
         // Check that all data columns are present <- faulty failure if missing because we have
         // checked the block root is correct first.
@@ -284,8 +308,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(pubkey_cache);
         drop(setup_timer);
 
-        // TODO: Check that the proposer signature in the blobs and data columns is the same as the
+        // Check that the proposer signature in the blobs and data columns is the same as the
         // correct signature in the block.
+        matching_sidecar_signatures_error?;
 
         let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
         if !signature_set.verify() {
