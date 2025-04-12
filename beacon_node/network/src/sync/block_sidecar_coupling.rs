@@ -131,7 +131,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         match &self.block_data_request {
             RangeBlockDataRequest::NoData => Some(
                 Self::responses_with_blobs(blocks.to_vec(), vec![], spec)
-                    .map(|blocks| (blocks, BatchPeerGroup::new(block_peer))),
+                    .map(|blocks| (blocks, BatchPeerGroup::new_from_block_peer(block_peer))),
             ),
             RangeBlockDataRequest::Blobs(request) => {
                 let Some((blobs, _blob_peer)) = request.to_finished() else {
@@ -139,7 +139,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 };
                 Some(
                     Self::responses_with_blobs(blocks.to_vec(), blobs.to_vec(), spec)
-                        .map(|blocks| (blocks, BatchPeerGroup::new(block_peer))),
+                        .map(|blocks| (blocks, BatchPeerGroup::new_from_block_peer(block_peer))),
                 )
             }
             RangeBlockDataRequest::DataColumns {
@@ -147,11 +147,15 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 expected_column_to_peer,
             } => {
                 let mut data_columns = vec![];
+                let mut column_peers = HashMap::new();
                 for req in requests.values() {
-                    let Some((data, _column_peer)) = req.to_finished() else {
+                    let Some((resp_columns, column_peer)) = req.to_finished() else {
                         return None;
                     };
-                    data_columns.extend(data.clone())
+                    data_columns.extend(resp_columns.clone());
+                    for column in resp_columns {
+                        column_peers.insert(column.index, *column_peer);
+                    }
                 }
 
                 Some(
@@ -161,7 +165,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         expected_column_to_peer.clone(),
                         spec,
                     )
-                    .map(|blocks| (blocks, BatchPeerGroup::new(block_peer))),
+                    .map(|blocks| (blocks, BatchPeerGroup::new(block_peer, column_peers))),
                 )
             }
         }

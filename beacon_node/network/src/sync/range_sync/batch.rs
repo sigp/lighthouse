@@ -2,7 +2,7 @@ use beacon_chain::block_verification_types::RpcBlock;
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::PeerId;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
@@ -29,19 +29,29 @@ pub enum ByRangeRequestType {
 #[derive(Clone, Debug)]
 pub struct BatchPeerGroup {
     block_peer: PeerId,
+    column_peers: HashMap<ColumnIndex, PeerId>,
 }
 
 impl BatchPeerGroup {
-    pub fn new(block_peer: PeerId) -> Self {
-        Self { block_peer }
+    pub fn new_from_block_peer(block_peer: PeerId) -> Self {
+        Self {
+            block_peer,
+            column_peers: <_>::default(),
+        }
+    }
+    pub fn new(block_peer: PeerId, column_peers: HashMap<ColumnIndex, PeerId>) -> Self {
+        Self {
+            block_peer,
+            column_peers,
+        }
     }
 
     pub fn block(&self) -> PeerId {
         self.block_peer
     }
 
-    pub fn column(&self, _index: ColumnIndex) -> Option<PeerId> {
-        todo!();
+    pub fn column(&self, index: &ColumnIndex) -> Option<&PeerId> {
+        self.column_peers.get(index)
     }
 }
 

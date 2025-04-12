@@ -458,7 +458,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        let batch_peers = batch.processing_peer().cloned().ok_or_else(|| {
+        let batch_peers = batch.processing_peer().ok_or_else(|| {
             RemoveChain::WrongBatchState(format!(
                 "Processing target is in wrong state: {:?}",
                 batch.state(),
@@ -541,8 +541,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     network.report_peer(batch_peers.block(), penalty, "faulty_batch");
                 }
                 for (column_index, penalty) in &peer_action.column_peer {
-                    if let Some(peer) = batch_peers.column(*column_index) {
-                        network.report_peer(peer, *penalty, "faulty_batch");
+                    if let Some(peer) = batch_peers.column(column_index) {
+                        network.report_peer(*peer, *penalty, "faulty_batch");
                     } else {
                         warn!(%batch_id, column_index, "Missing peer in PeerGroup");
                     }

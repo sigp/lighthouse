@@ -639,8 +639,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     //             client = %network.client_type(peer),
                 }
                 for (column_index, penalty) in &peer_action.column_peer {
-                    if let Some(peer) = batch_peers.column(*column_index) {
-                        network.report_peer(peer, *penalty, "faulty_batch");
+                    if let Some(peer) = batch_peers.column(column_index) {
+                        network.report_peer(*peer, *penalty, "faulty_batch");
                     } else {
                         warn!(%batch_id, column_index, "Missing peer in PeerGroup");
                     }
