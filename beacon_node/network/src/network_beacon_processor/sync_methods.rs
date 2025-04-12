@@ -659,11 +659,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     HistoricalBlockError::AvailabilityCheckError(e) => {
                         PeerGroupAction::from_availability_check_error(e)
                     }
+                    // The peer is faulty if they send blocks with bad roots or invalid signatures
                     HistoricalBlockError::MismatchedBlockRoot { .. }
                     | HistoricalBlockError::InvalidSignature(_) => {
-                        // The peer is faulty if they send blocks with bad roots or invalid
-                        // signatures
-                        // TODO(das): check blobs and columns signatures separately
                         Some(PeerGroupAction::block_peer(PeerAction::LowToleranceError))
                     }
                     // Blobs are served by the block_peer
@@ -793,6 +791,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             BlockError::BeaconChainError(_)
             | BlockError::InternalError(_)
             | BlockError::BlobNotRequired(_) => None,
+            // Do not use a fallback match, handle all errors explicitly
         };
 
         if peer_action.is_some() {

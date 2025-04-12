@@ -130,12 +130,6 @@ pub struct BackFillSync<T: BeaconChainTypes> {
     /// Batches validated by this chain.
     validated_batches: u64,
 
-    /// We keep track of peers that are participating in the backfill sync. Unlike RangeSync,
-    /// BackFillSync uses all synced peers to download the chain from. If BackFillSync fails, we don't
-    /// want to penalize all our synced peers, so we use this variable to keep track of peers that
-    /// have participated and only penalize these peers if backfill sync fails.
-    participating_peers: HashSet<PeerId>,
-
     /// When a backfill sync fails, we keep track of whether a new fully synced peer has joined.
     /// This signifies that we are able to attempt to restart a failed chain.
     restart_failed_sync: bool,
@@ -183,7 +177,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             network_globals,
             current_processing_batch: None,
             validated_batches: 0,
-            participating_peers: HashSet::new(),
             restart_failed_sync: false,
             beacon_chain,
         };
@@ -302,25 +295,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         if matches!(self.state(), BackFillState::Failed) {
             self.restart_failed_sync = true;
         }
-    }
-
-    /// A peer has disconnected.
-    /// If the peer has active batches, those are considered failed and re-requested.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
-    #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
-    pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), BackFillError> {
-        if matches!(self.state(), BackFillState::Failed) {
-            return Ok(());
-        }
-
-        // Remove the peer from the participation list
-        self.participating_peers.remove(peer_id);
-        Ok(())
     }
 
     /// An RPC error has occurred.
@@ -442,7 +416,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         self.set_state(BackFillState::Failed);
         // Remove all batches and active requests and participating peers.
         self.batches.clear();
-        self.participating_peers.clear();
         self.restart_failed_sync = false;
 
         // Reset all downloading and processing targets
@@ -631,12 +604,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 peer_action,
                 error,
             } => {
-                // TODO: De-dup between back and forwards sync
+                // TODO(sync): De-dup between back and forwards sync
                 if let Some(penalty) = peer_action.block_peer {
                     // Penalize the peer appropiately.
                     network.report_peer(batch_peers.block(), penalty, "faulty_batch");
-                    // TODO(das): downscore the right peer and display the client_type
-                    //             client = %network.client_type(peer),
                 }
                 for (column_index, penalty) in &peer_action.column_peer {
                     if let Some(peer) = batch_peers.column(column_index) {
@@ -652,29 +623,22 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
                             .map(|_| ProcessResult::Successful)
                     }
-                    Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
-                        // TODO(das): what peer action should we apply to the rest of
-                        // peers? Say a batch repeatedly fails because a custody peer is not
-                        // sending us its custody columns
-                        let penalty = PeerAction::LowToleranceError;
-
-                        // check that we have not exceeded the re-process retry counter
-                        // If a batch has exceeded the invalid batch lookup attempts limit, it means
-                        // that it is likely all peers are sending invalid batches
-                        // repeatedly and are either malicious or faulty. We stop the backfill sync and
-                        // report all synced peers that have participated.
+                    Ok(BatchOperationOutcome::Failed { .. }) => {
+                        // When backfill syncing post-PeerDAS we can't attribute fault to previous
+                        // peers if a batch fails to process too many times. We have strict peer
+                        // scoring for faulty errors, so participating peers that sent invalid
+                        // data are already downscored.
+                        //
+                        // Because backfill sync deals with historical data that we can assert
+                        // to be correct, once we import a batch that contains at least one
+                        // block we are sure we got the right data. There's no need to penalize
+                        // all participating peers in backfill sync if a batch fails
                         warn!(
-                            score_adjustment = %penalty,
                             batch_epoch = %batch_id,
                             error,
-                            "Backfill batch failed to download. Penalizing peers"
+                            "Backfill sync failed after attempting to process batch too many times"
                         );
 
-                        for peer in self.participating_peers.drain() {
-                            // TODO(das): `participating_peers` only includes block peers. Should we
-                            // penalize the custody column peers too?
-                            network.report_peer(peer, penalty, "backfill_batch_failed");
-                        }
                         self.fail_sync(BackFillError::BatchProcessingFailed(batch_id))
                             .map(|_| ProcessResult::Successful)
                     }

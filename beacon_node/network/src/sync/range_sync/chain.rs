@@ -532,10 +532,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             BatchProcessResult::FaultyFailure {
                 imported_blocks,
                 peer_action,
-                // TODO: propagate error in logs
+                // TODO(sync): propagate error in logs
                 error: _,
             } => {
-                // TODO: De-dup between back and forwards sync
+                // TODO(sync): De-dup between back and forwards sync
                 if let Some(penalty) = peer_action.block_peer {
                     // Penalize the peer appropiately.
                     network.report_peer(batch_peers.block(), penalty, "faulty_batch");

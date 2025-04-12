@@ -518,7 +518,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // Remove peer from all data structures
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
-        let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.block_lookups.peer_disconnected(peer_id);
 
         // Regardless of the outcome, we update the sync status.
