@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::Error as AttnError;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
@@ -2643,12 +2644,17 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert_eq!(split.block_root, valid_fork_block.parent_root());
     assert_ne!(split.state_root, unadvanced_split_state_root);
 
+    let invalid_fork_rpc_block = RpcBlock::new_without_blobs(
+        None,
+        invalid_fork_block.clone(),
+        harness.sampling_column_count,
+    );
     // Applying the invalid block should fail.
     let err = harness
         .chain
         .process_block(
-            invalid_fork_block.canonical_root(),
-            invalid_fork_block.clone(),
+            invalid_fork_rpc_block.block_root(),
+            invalid_fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -2658,11 +2664,16 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert!(matches!(err, BlockError::WouldRevertFinalizedSlot { .. }));
 
     // Applying the valid block should succeed, but it should not become head.
+    let valid_fork_rpc_block = RpcBlock::new_without_blobs(
+        None,
+        valid_fork_block.clone(),
+        harness.sampling_column_count,
+    );
     harness
         .chain
         .process_block(
-            valid_fork_block.canonical_root(),
-            valid_fork_block.clone(),
+            valid_fork_rpc_block.block_root(),
+            valid_fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
