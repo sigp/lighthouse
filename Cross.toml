@@ -4,6 +4,9 @@ pre-build = ["apt-get install -y cmake clang-5.0"]
 [target.aarch64-unknown-linux-gnu]
 pre-build = ["apt-get install -y cmake clang-5.0"]
 
+[target.riscv64gc-unknown-linux-gnu]
+pre-build = ["apt-get install -y cmake clang"]
+
 # Allow setting page size limits for jemalloc at build time:
 # For certain architectures (like aarch64), we must compile
 # jemalloc with support for large page sizes, otherwise the host's
