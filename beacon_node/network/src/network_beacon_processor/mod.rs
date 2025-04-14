@@ -844,7 +844,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         publish_blobs: bool,
     ) {
         let custody_columns = self.network_globals.sampling_columns.clone();
-        let is_supernode = self.network_globals.is_supernode();
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {
@@ -852,10 +851,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     BlobsOrDataColumns::Blobs(blobs) => {
                         self_cloned.publish_blobs_gradually(blobs, block_root);
                     }
-                    BlobsOrDataColumns::DataColumns(mut columns) => {
-                        if !is_supernode {
-                            columns.retain(|col| custody_columns.contains(&col.index));
-                        }
+                    BlobsOrDataColumns::DataColumns(columns) => {
                         self_cloned.publish_data_columns_gradually(columns, block_root);
                     }
                 };
@@ -866,6 +862,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.chain.clone(),
             block_root,
             block.clone(),
+            custody_columns,
             publish_fn,
         )
         .instrument(tracing::info_span!(
