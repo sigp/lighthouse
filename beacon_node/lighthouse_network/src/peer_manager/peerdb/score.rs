@@ -70,6 +70,31 @@ impl PenaltyRecord {
             time_stamp: time_stamp
         }
     }
+
+    /// Obtains the action from the penalty record
+    pub fn action(&self) -> &PeerAction {
+        &self.action
+    }
+
+    /// Obtains the report source from the penalty record
+    pub fn source(&self) -> &ReportSource {
+        &self.source
+    }
+
+    /// Obtains the message associated with the penalty record
+    pub fn msg(&self) -> &String {
+        &self.msg
+    }
+
+    /// Obtains the result of the penalty record
+    pub fn result(&self) -> &ScoreUpdateResult {
+        &self.result
+    }
+
+    /// Obtains the time stamp of when the penalty record was made
+    pub fn time_stamp(&self) -> &Option<u128> {
+        &self.time_stamp
+    }
 }
 
 /// A collection of actions a peer can perform which will adjust its score.

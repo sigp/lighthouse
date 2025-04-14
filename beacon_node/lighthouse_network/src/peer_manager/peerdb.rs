@@ -1918,6 +1918,66 @@ mod tests {
     }
 
     #[test]
+    fn test_add_penalty_record() {
+        let mut pdb = get_db();
+        let random_peer = PeerId::random();
+
+        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+        // Check to see if get_penalty_records is able to get the associated peer info
+        assert!(pdb.get_penalty_records(&random_peer).is_some());
+
+        // Check to see if there are no initial penalty records
+        assert_eq!(pdb.get_penalty_records(&random_peer).unwrap().into_iter().count(),0);
+        
+        let _ = pdb.report_peer(
+            &random_peer,
+            PeerAction::HighToleranceError,
+            ReportSource::PeerManager,
+            "Minor report action",
+        );
+
+        // Check to see if there was a penalty record added
+        assert_eq!(pdb.get_penalty_records(&random_peer).unwrap().into_iter().count(),1);
+
+        let first_record = pdb.get_penalty_records(&random_peer).unwrap().into_iter().next().unwrap();
+
+        // Check to see the correct report action for the penalty record
+        assert!(matches!(first_record.action(),PeerAction::HighToleranceError));
+
+        // Check to see the correct report source for the penalty record
+        assert!(matches!(first_record.source(),ReportSource::PeerManager));
+
+        // Check to see the correct message for the penalty record
+        assert_eq!(*first_record.msg(),"Minor report action".to_string());
+
+        // Check to see the correct result for the penalty record
+        assert!(matches!(first_record.result(),ScoreUpdateResult::NoAction));
+
+        let _ = pdb.report_peer(
+            &random_peer,
+            PeerAction::HighToleranceError,
+            ReportSource::PeerManager,
+            "Minor report action",
+        );
+
+        // Check to see if there was a penalty record added
+        assert_eq!(pdb.get_penalty_records(&random_peer).unwrap().into_iter().count(),2);
+
+        for _ in 1..(MAX_STORED_PENALTY_RECORDS+1) {
+            let _ = pdb.report_peer(
+                &random_peer,
+                PeerAction::HighToleranceError,
+                ReportSource::PeerManager,
+                "Minor report action",
+            );
+        }
+
+        // Check to make sure that the number of penalty records don't exceed the maximum
+        assert_eq!(pdb.get_penalty_records(&random_peer).unwrap().into_iter().count(),MAX_STORED_PENALTY_RECORDS);
+    }
+
+    #[test]
     fn test_ban_address() {
         let mut pdb = get_db();
 

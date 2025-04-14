@@ -399,6 +399,12 @@ impl<E: EthSpec> PeerInfo<E> {
         }
     }
 
+    /// Gets an iterator with the penalty records
+    // VISIBILITY: The peer manager is able to add a penalty record
+    pub(in crate::peer_manager) fn get_penalty_records(&self) -> impl Iterator<Item = &PenaltyRecord>{
+        self.penalty_records.iter()
+    }
+
     /// Sets the connection status of the peer.
     pub(super) fn set_connection_status(&mut self, connection_status: PeerConnectionStatus) {
         self.connection_status = connection_status
