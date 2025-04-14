@@ -769,6 +769,17 @@ impl<E: EthSpec> PeerDB<E> {
         info.add_penalty_record(penalty_record);
     }
 
+    /// Gets all the penalty records for a given peer id
+    pub fn get_penalty_records(&self, peer_id: &PeerId) -> Option<impl Iterator<Item = &PenaltyRecord>> {
+        match self.peers.get(peer_id) {
+            Some(info) => Some(info.get_penalty_records()),
+            None => {
+                error!(%peer_id, "Adding a penalty record to a non-existant peer");
+                None
+            },
+        }
+    }
+
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
     /// variables are in sync with libp2p.
     /// Updating the state can lead to a `BanOperation` which needs to be processed via the peer
