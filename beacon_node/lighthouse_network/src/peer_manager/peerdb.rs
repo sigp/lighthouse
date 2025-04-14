@@ -774,7 +774,7 @@ impl<E: EthSpec> PeerDB<E> {
         match self.peers.get(peer_id) {
             Some(info) => Some(info.get_penalty_records()),
             None => {
-                error!(%peer_id, "Adding a penalty record to a non-existant peer");
+                error!(%peer_id, "Getting the penalty records of a non-existant peer");
                 None
             },
         }
