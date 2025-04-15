@@ -6,7 +6,7 @@ use crate::{
 };
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn, KzgVerifiedDataColumn};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
@@ -1131,6 +1131,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_root = verified_data_column.block_root();
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.id().index;
+
+        let publish_blobs = true;
+        let self_clone = self.clone();
+        let column_clone = KzgVerifiedDataColumn::from_verified(verified_data_column.clone_data_column());
+
+        self.executor.spawn(
+            async move {
+                self_clone
+                    .fetch_engine_blobs_and_publish_with_column(
+                        column_clone,
+                        block_root,
+                        publish_blobs,
+                    )
+                    .await
+            },
+            "fetch_blobs_gossip"
+        );
 
         let result = self
             .chain

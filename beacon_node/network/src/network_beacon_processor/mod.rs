@@ -3,9 +3,9 @@ use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_column_verification::{observe_gossip_data_column, GossipDataColumnError};
+use beacon_chain::data_column_verification::{observe_gossip_data_column, GossipDataColumnError, KzgVerifiedDataColumn};
 use beacon_chain::fetch_blobs::{
-    fetch_and_process_engine_blobs, BlobsOrDataColumns, FetchEngineBlobError,
+    fetch_and_process_engine_blobs, fetch_and_process_engine_blobs_with_column, BlobsOrDataColumns, FetchEngineBlobError
 };
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
@@ -862,6 +862,81 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.chain.clone(),
             block_root,
             block.clone(),
+            custody_columns,
+            publish_fn,
+        )
+        .instrument(tracing::info_span!(
+            "",
+            service = "fetch_engine_blobs",
+            block_root = format!("{:?}", block_root)
+        ))
+        .await
+        {
+            Ok(Some(availability)) => match availability {
+                AvailabilityProcessingStatus::Imported(_) => {
+                    debug!(
+                        result = "imported block and custody columns",
+                        %block_root,
+                        "Block components retrieved from EL"
+                    );
+                    self.chain.recompute_head_at_current_slot().await;
+                }
+                AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                    debug!(
+                        %block_root,
+                        "Still missing blobs after engine blobs processed successfully"
+                    );
+                }
+            },
+            Ok(None) => {
+                debug!(
+                    %block_root,
+                    "Fetch blobs completed without import"
+                );
+            }
+            Err(FetchEngineBlobError::BlobProcessingError(BlockError::DuplicateFullyImported(
+                ..,
+            ))) => {
+                debug!(
+                    %block_root,
+                    "Fetch blobs duplicate import"
+                );
+            }
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    %block_root,
+                    "Error fetching or processing blobs from EL"
+                );
+            }
+        }
+    }
+
+    pub async fn fetch_engine_blobs_and_publish_with_column(
+        self: &Arc<Self>,
+        data_column: KzgVerifiedDataColumn<T::EthSpec>,
+        block_root: Hash256,
+        publish_blobs: bool,
+    ) {
+        let custody_columns = self.network_globals.sampling_columns.clone();
+        let self_cloned = self.clone();
+        let publish_fn = move |blobs_or_data_column| {
+            if publish_blobs {
+                match blobs_or_data_column {
+                    BlobsOrDataColumns::Blobs(blobs) => {
+                        self_cloned.publish_blobs_gradually(blobs, block_root);
+                    }
+                    BlobsOrDataColumns::DataColumns(columns) => {
+                        self_cloned.publish_data_columns_gradually(columns, block_root);
+                    }
+                };
+            }
+        };
+
+        match fetch_and_process_engine_blobs_with_column(
+            self.chain.clone(),
+            block_root,
+            data_column.clone(),
             custody_columns,
             publish_fn,
         )

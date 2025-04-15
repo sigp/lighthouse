@@ -228,6 +228,56 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     .map_err(DataColumnSidecarError::BuildSidecarFailed)
 }
 
+pub fn blobs_to_data_column_sidecars_with_column<E: EthSpec>(
+    blobs: &[&Blob<E>],
+    cell_proofs: Vec<KzgProof>,
+    data_column: &DataColumnSidecar<E>,
+    kzg: &Kzg,
+    spec: &ChainSpec,
+) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
+    if blobs.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let kzg_commitments = data_column.kzg_commitments.clone();
+    let kzg_commitments_inclusion_proof = data_column.kzg_commitments_inclusion_proof.clone();
+    let signed_block_header = data_column.signed_block_header.clone();
+
+    let proof_chunks = cell_proofs
+        .chunks_exact(spec.number_of_columns as usize)
+        .collect::<Vec<_>>();
+
+    // NOTE: assumes blob sidecars are ordered by index
+    let blob_cells_and_proofs_vec = blobs
+        .into_par_iter()
+        .zip(proof_chunks.into_par_iter())
+        .map(|(blob, proofs)| {
+            let blob = blob
+                .as_ref()
+                .try_into()
+                .expect("blob should have a guaranteed size due to FixedVector");
+
+            kzg.compute_cells(blob).map(|cells| {
+                (
+                    cells,
+                    proofs
+                        .try_into()
+                        .expect("proof chunks should have exactly `number_of_columns` proofs"),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, KzgError>>()?;
+
+    build_data_column_sidecars(
+        kzg_commitments,
+        kzg_commitments_inclusion_proof,
+        signed_block_header,
+        blob_cells_and_proofs_vec,
+        spec,
+    )
+    .map_err(DataColumnSidecarError::BuildSidecarFailed)
+}
+
 pub fn compute_cells<E: EthSpec>(blobs: &[&Blob<E>], kzg: &Kzg) -> Result<Vec<KzgCell>, KzgError> {
     let cells_vec = blobs
         .into_par_iter()
