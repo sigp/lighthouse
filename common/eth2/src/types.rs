@@ -18,7 +18,9 @@ use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
+use test_random_derive::TestRandom;
 use types::beacon_block_body::KzgCommitments;
+use types::test_utils::TestRandom;
 pub use types::*;
 
 #[cfg(feature = "lighthouse")]
@@ -802,13 +804,13 @@ pub struct LightClientUpdatesQuery {
 }
 
 #[derive(Encode, Decode)]
-pub struct LightClientUpdateSszResponse {
-    pub response_chunk_len: Vec<u8>,
-    pub response_chunk: Vec<u8>,
+pub struct LightClientUpdateResponseChunk {
+    pub response_chunk_len: u64,
+    pub response_chunk: LightClientUpdateResponseChunkInner,
 }
 
 #[derive(Encode, Decode)]
-pub struct LightClientUpdateResponseChunk {
+pub struct LightClientUpdateResponseChunkInner {
     pub context: [u8; 4],
     pub payload: Vec<u8>,
 }
@@ -1997,11 +1999,11 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         if fork_name.deneb_enabled() {
-            serde_json::from_value(value)
+            ExecutionPayloadAndBlobs::deserialize_by_fork::<'de, D>(value, fork_name)
                 .map(Self::PayloadAndBlobs)
                 .map_err(serde::de::Error::custom)
         } else if fork_name.bellatrix_enabled() {
-            serde_json::from_value(value)
+            ExecutionPayload::deserialize_by_fork::<'de, D>(value, fork_name)
                 .map(Self::Payload)
                 .map_err(serde::de::Error::custom)
         } else {
@@ -2017,6 +2019,28 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
 pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub execution_payload: ExecutionPayload<E>,
     pub blobs_bundle: BlobsBundle<E>,
+}
+
+impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayloadAndBlobs<E> {
+    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
+        value: Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(bound = "E: EthSpec")]
+        struct Helper<E: EthSpec> {
+            execution_payload: serde_json::Value,
+            blobs_bundle: BlobsBundle<E>,
+        }
+        let helper: Helper<E> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            execution_payload: ExecutionPayload::deserialize_by_fork::<'de, D>(
+                helper.execution_payload,
+                fork_name,
+            )?,
+            blobs_bundle: helper.blobs_bundle,
+        })
+    }
 }
 
 impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadAndBlobs<E> {
@@ -2049,7 +2073,7 @@ pub enum ContentType {
     Ssz,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlobsBundle<E: EthSpec> {
     pub commitments: KzgCommitments<E>,
@@ -2144,6 +2168,10 @@ pub struct StandardAttestationRewards {
 
 #[cfg(test)]
 mod test {
+    use std::fmt::Debug;
+
+    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+
     use super::*;
 
     #[test]
@@ -2156,5 +2184,108 @@ mod test {
         let pubkey_str = "\"0xb824b5ede33a7b05a378a84b183b4bc7e7db894ce48b659f150c97d359edca2f503081d6678d1200f582ec7cafa9caf2\"";
         let y: ValidatorId = serde_json::from_str(pubkey_str).unwrap();
         assert_eq!(serde_json::to_string(&y).unwrap(), pubkey_str);
+    }
+
+    #[test]
+    fn test_execution_payload_execution_payload_deserialize_by_fork() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+
+        let payloads = [
+            ExecutionPayload::Bellatrix(
+                ExecutionPayloadBellatrix::<MainnetEthSpec>::random_for_test(rng),
+            ),
+            ExecutionPayload::Capella(ExecutionPayloadCapella::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
+            ExecutionPayload::Deneb(ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
+            ExecutionPayload::Electra(ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
+            ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
+        ];
+        let merged_forks = &ForkName::list_all()[2..];
+        assert_eq!(
+            payloads.len(),
+            merged_forks.len(),
+            "we should test every known fork; add new fork variant to payloads above"
+        );
+
+        for (payload, &fork_name) in payloads.into_iter().zip(merged_forks) {
+            assert_eq!(payload.fork_name(), fork_name);
+            let payload_str = serde_json::to_string(&payload).unwrap();
+            let mut de = serde_json::Deserializer::from_str(&payload_str);
+            generic_deserialize_by_fork(&mut de, payload, fork_name);
+        }
+    }
+
+    #[test]
+    fn test_execution_payload_and_blobs_deserialize_by_fork() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+
+        let payloads = [
+            {
+                let execution_payload =
+                    ExecutionPayload::Deneb(
+                        ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+            {
+                let execution_payload =
+                    ExecutionPayload::Electra(
+                        ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+            {
+                let execution_payload =
+                    ExecutionPayload::Fulu(
+                        ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+        ];
+        let blob_forks = &ForkName::list_all()[4..];
+
+        assert_eq!(
+            payloads.len(),
+            blob_forks.len(),
+            "we should test every known fork; add new fork variant to payloads above"
+        );
+
+        for (payload, &fork_name) in payloads.into_iter().zip(blob_forks) {
+            assert_eq!(payload.execution_payload.fork_name(), fork_name);
+            let payload_str = serde_json::to_string(&payload).unwrap();
+            let mut de = serde_json::Deserializer::from_str(&payload_str);
+            generic_deserialize_by_fork(&mut de, payload, fork_name);
+        }
+    }
+
+    fn generic_deserialize_by_fork<
+        'de,
+        D: Deserializer<'de>,
+        O: ForkVersionDeserialize + PartialEq + Debug,
+    >(
+        deserializer: D,
+        original: O,
+        fork_name: ForkName,
+    ) {
+        let val = Value::deserialize(deserializer).unwrap();
+        let roundtrip = O::deserialize_by_fork::<'de, D>(val, fork_name).unwrap();
+        assert_eq!(original, roundtrip);
     }
 }

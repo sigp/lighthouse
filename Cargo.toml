@@ -141,6 +141,8 @@ ethereum_ssz = "0.8.2"
 ethereum_ssz_derive = "0.8.2"
 ethers-core = "1"
 ethers-providers = { version = "1", default-features = false }
+ethers-signers = { version = "1", default-features = false }
+ethers-middleware = { version = "1", default-features = false }
 exit-future = "0.2"
 fnv = "1"
 fs2 = "0.4"

@@ -5,6 +5,7 @@ use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -210,6 +211,13 @@ impl<E: EthSpec> Attestation<E> {
         }
     }
 
+    pub fn get_committee_indices_map(&self) -> HashSet<u64> {
+        match self {
+            Attestation::Base(att) => HashSet::from([att.data.index]),
+            Attestation::Electra(att) => att.get_committee_indices().into_iter().collect(),
+        }
+    }
+
     pub fn is_aggregation_bits_zero(&self) -> bool {
         match self {
             Attestation::Base(att) => att.aggregation_bits.is_zero(),
@@ -293,7 +301,11 @@ impl<E: EthSpec> AttestationRef<'_, E> {
 
 impl<E: EthSpec> AttestationElectra<E> {
     pub fn committee_index(&self) -> Option<u64> {
-        self.get_committee_indices().first().cloned()
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .find(|&(_, bit)| bit)
+            .map(|(index, _)| index as u64)
     }
 
     pub fn get_aggregation_bits(&self) -> Vec<u64> {
