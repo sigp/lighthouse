@@ -174,7 +174,7 @@ Some examples of the full log is shown below:
 
 ```text
 ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
-ERRO Attestation delay queue is full         msg: check system clock, queue_size: 16384, service: bproc
+ERRO Attestation delay queue is full         msg: system resources may be saturated, queue_size: 16384, service: bproc
 ```
 
 This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. Some common reasons are:
