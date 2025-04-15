@@ -1374,7 +1374,7 @@ pub async fn test_block_seen_on_gossip_without_blobs_or_columns() {
 
     let futures = deneb_enabled_forks
         .into_iter()
-        .map(|fork| block_seen_on_gossip_without_blobs_or_columns(fork));
+        .map(block_seen_on_gossip_without_blobs_or_columns);
 
     join_all(futures).await;
 }
@@ -1449,7 +1449,7 @@ pub async fn test_block_seen_on_gossip_with_some_blobs_or_columns() {
 
     let futures = deneb_enabled_forks
         .into_iter()
-        .map(|fork| block_seen_on_gossip_with_some_blobs_or_columns(fork));
+        .map(block_seen_on_gossip_with_some_blobs_or_columns);
 
     join_all(futures).await;
 }
@@ -1542,7 +1542,7 @@ pub async fn test_blobs_or_columns_seen_on_gossip_without_block() {
 
     let futures = deneb_enabled_forks
         .into_iter()
-        .map(|fork| blobs_or_columns_seen_on_gossip_without_block(fork));
+        .map(blobs_or_columns_seen_on_gossip_without_block);
 
     join_all(futures).await;
 }
@@ -1619,9 +1619,9 @@ pub async fn test_blobs_or_columns_seen_on_gossip_without_block_and_no_http_blob
         .filter(|f| f.deneb_enabled())
         .collect::<Vec<_>>();
 
-    let futures = deneb_enabled_forks.into_iter().map(|fork| {
-        blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_columns(fork)
-    });
+    let futures = deneb_enabled_forks
+        .into_iter()
+        .map(blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_columns);
 
     join_all(futures).await;
 }
@@ -1704,7 +1704,7 @@ pub async fn test_slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
 
     let futures = deneb_enabled_forks
         .into_iter()
-        .map(|fork| slashable_blobs_or_columns_seen_on_gossip_cause_failure(fork));
+        .map(slashable_blobs_or_columns_seen_on_gossip_cause_failure);
 
     join_all(futures).await;
 }
