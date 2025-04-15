@@ -5,7 +5,7 @@
 //! - Verification for gossip blocks (i.e., should we gossip some block from the network).
 //! - Verification for normal blocks (e.g., some block received on the RPC during a parent lookup).
 //! - Verification for chain segments (e.g., some chain of blocks received on the RPC during a
-//!    sync).
+//!   sync).
 //!
 //! The primary source of complexity here is that we wish to avoid doing duplicate work as a block
 //! moves through the verification process. For example, if some block is verified for gossip, we
@@ -97,8 +97,8 @@ use tracing::{debug, error};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
-    Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    Hash256, InconsistentFork, KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -755,6 +755,7 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     blobs: BlobsList<T::EthSpec>,
+    kzg_cell_proofs: KzgProofs<T::EthSpec>,
 ) -> Result<DataColumnSidecarList<T::EthSpec>, DataColumnSidecarError> {
     // Only attempt to build data columns if blobs is non empty to avoid skewing the metrics.
     if blobs.is_empty() {
@@ -766,8 +767,14 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
         &[&blobs.len().to_string()],
     );
     let blob_refs = blobs.iter().collect::<Vec<_>>();
-    let sidecars = blobs_to_data_column_sidecars(&blob_refs, block, &chain.kzg, &chain.spec)
-        .discard_timer_on_break(&mut timer)?;
+    let sidecars = blobs_to_data_column_sidecars(
+        &blob_refs,
+        kzg_cell_proofs.to_vec(),
+        block,
+        &chain.kzg,
+        &chain.spec,
+    )
+    .discard_timer_on_break(&mut timer)?;
     drop(timer);
     Ok(sidecars)
 }
@@ -1453,21 +1460,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
-        // Stage a batch of operations to be completed atomically if this block is imported
-        // successfully. If there is a skipped slot, we include the state root of the pre-state,
-        // which may be an advanced state that was stored in the DB with a `temporary` flag.
         let mut state = parent.pre_state;
-
-        let mut confirmed_state_roots =
-            if block.slot() > state.slot() && state.slot() > parent.beacon_block.slot() {
-                // Advanced pre-state. Delete its temporary flag.
-                let pre_state_root = state.update_tree_hash_cache()?;
-                vec![pre_state_root]
-            } else {
-                // Pre state is either unadvanced, or should not be stored long-term because there
-                // is no skipped slot between `parent` and `block`.
-                vec![]
-            };
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_block.slot() {
@@ -1515,37 +1508,28 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // processing, but we get early access to it.
                 let state_root = state.update_tree_hash_cache()?;
 
-                // Store the state immediately, marking it as temporary, and staging the deletion
-                // of its temporary status as part of the larger atomic operation.
+                // Store the state immediately.
                 let txn_lock = chain.store.hot_db.begin_rw_transaction();
                 let state_already_exists =
                     chain.store.load_hot_state_summary(&state_root)?.is_some();
 
                 let state_batch = if state_already_exists {
-                    // If the state exists, it could be temporary or permanent, but in neither case
-                    // should we rewrite it or store a new temporary flag for it. We *will* stage
-                    // the temporary flag for deletion because it's OK to double-delete the flag,
-                    // and we don't mind if another thread gets there first.
+                    // If the state exists, we do not need to re-write it.
                     vec![]
                 } else {
-                    vec![
-                        if state.slot() % T::EthSpec::slots_per_epoch() == 0 {
-                            StoreOp::PutState(state_root, &state)
-                        } else {
-                            StoreOp::PutStateSummary(
-                                state_root,
-                                HotStateSummary::new(&state_root, &state)?,
-                            )
-                        },
-                        StoreOp::PutStateTemporaryFlag(state_root),
-                    ]
+                    vec![if state.slot() % T::EthSpec::slots_per_epoch() == 0 {
+                        StoreOp::PutState(state_root, &state)
+                    } else {
+                        StoreOp::PutStateSummary(
+                            state_root,
+                            HotStateSummary::new(&state_root, &state)?,
+                        )
+                    }]
                 };
                 chain
                     .store
                     .do_atomically_with_block_and_blobs_cache(state_batch)?;
                 drop(txn_lock);
-
-                confirmed_state_roots.push(state_root);
 
                 state_root
             };
@@ -1713,7 +1697,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 state,
                 parent_block: parent.beacon_block,
                 parent_eth1_finalization_data,
-                confirmed_state_roots,
                 consensus_context,
             },
             payload_verification_handle,

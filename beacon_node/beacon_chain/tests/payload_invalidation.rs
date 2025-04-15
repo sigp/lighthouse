@@ -1282,7 +1282,7 @@ impl InvalidHeadSetup {
     ///
     /// 1. A chain where the only viable head block has an invalid execution payload.
     /// 2. A block (`fork_block`) which will become the head of the chain when
-    ///     it is imported.
+    ///    it is imported.
     async fn new() -> InvalidHeadSetup {
         let slots_per_epoch = E::slots_per_epoch();
         let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -1419,8 +1419,8 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
 
     let slot_clock = rig.harness.chain.slot_clock.clone();
 
-    // Forcefully persist the head and fork choice.
-    rig.harness.chain.persist_head_and_fork_choice().unwrap();
+    // Forcefully persist fork choice.
+    rig.harness.chain.persist_fork_choice().unwrap();
 
     let resumed = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()

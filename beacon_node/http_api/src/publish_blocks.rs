@@ -364,7 +364,7 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
                 } else {
                     // Post PeerDAS: construct data columns.
                     let gossip_verified_data_columns =
-                        build_gossip_verified_data_columns(&chain, &block, blobs)?;
+                        build_gossip_verified_data_columns(&chain, &block, blobs, kzg_proofs)?;
                     Ok((vec![], gossip_verified_data_columns))
                 }
             },
@@ -383,10 +383,11 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     blobs: BlobsList<T::EthSpec>,
+    kzg_cell_proofs: KzgProofs<T::EthSpec>,
 ) -> Result<Vec<Option<GossipVerifiedDataColumn<T>>>, Rejection> {
     let slot = block.slot();
     let data_column_sidecars =
-        build_blob_data_column_sidecars(chain, block, blobs).map_err(|e| {
+        build_blob_data_column_sidecars(chain, block, blobs, kzg_cell_proofs).map_err(|e| {
             error!(
                 error = ?e,
                 %slot,
@@ -520,7 +521,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             .len()
             .saturating_sub(malicious_withhold_count);
         // Randomize columns before dropping the last malicious_withhold_count items
-        data_column_sidecars.shuffle(&mut rand::thread_rng());
+        data_column_sidecars.shuffle(&mut **chain.rng.lock());
         data_column_sidecars.truncate(columns_to_keep);
     }
     let pubsub_messages = data_column_sidecars

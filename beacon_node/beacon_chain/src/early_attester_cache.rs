@@ -33,7 +33,7 @@ pub struct CacheItem<E: EthSpec> {
 ///
 /// - Produce an attestation without using `chain.canonical_head`.
 /// - Verify that a block root exists (i.e., will be imported in the future) during attestation
-///     verification.
+///   verification.
 /// - Provide a block which can be sent to peers via RPC.
 #[derive(Default)]
 pub struct EarlyAttesterCache<E: EthSpec> {
@@ -74,10 +74,6 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             AvailableBlockData::NoData => (None, None),
             AvailableBlockData::Blobs(blobs) => (Some(blobs.clone()), None),
             AvailableBlockData::DataColumns(data_columns) => (None, Some(data_columns.clone())),
-            // TODO(das): Once the columns are received, they will not be available in
-            // the early attester cache. If someone does a query to us via RPC we
-            // will get downscored.
-            AvailableBlockData::DataColumnsRecv(_) => (None, None),
         };
 
         let item = CacheItem {

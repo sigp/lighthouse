@@ -38,8 +38,7 @@ use kzg::{Kzg, TrustedSetup};
 use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
-use parking_lot::Mutex;
-use parking_lot::RwLockWriteGuard;
+use parking_lot::{Mutex, RwLockWriteGuard};
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -588,7 +587,8 @@ where
             .chain_config(chain_config)
             .import_all_data_columns(self.import_all_data_columns)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
-            .validator_monitor_config(validator_monitor_config);
+            .validator_monitor_config(validator_monitor_config)
+            .rng(Box::new(StdRng::seed_from_u64(42)));
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
@@ -891,6 +891,28 @@ where
 
     pub fn is_skipped_slot(&self, state: &BeaconState<E>, slot: Slot) -> bool {
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
+    }
+
+    pub fn knows_head(&self, block_hash: &SignedBeaconBlockHash) -> bool {
+        self.chain
+            .heads()
+            .iter()
+            .any(|(head, _)| *head == Hash256::from(*block_hash))
+    }
+
+    pub fn assert_knows_head(&self, head_block_root: Hash256) {
+        let heads = self.chain.heads();
+        if !heads.iter().any(|(head, _)| *head == head_block_root) {
+            let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+            if heads.is_empty() {
+                let nodes = &fork_choice.proto_array().core_proto_array().nodes;
+                panic!("Expected to know head block root {head_block_root:?}, but heads is empty. Nodes: {nodes:#?}");
+            } else {
+                panic!(
+                    "Expected to know head block root {head_block_root:?}, known heads {heads:#?}"
+                );
+            }
+        }
     }
 
     pub async fn make_blinded_block(
@@ -3172,7 +3194,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
 
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
@@ -3192,7 +3214,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
@@ -3211,7 +3233,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
