@@ -480,6 +480,7 @@ jobs:
       'ef-tests-ubuntu',
       'basic-simulator-ubuntu',
       'fallback-simulator-ubuntu',
+      'peering-simulator-ubuntu',
       'execution-engine-integration-ubuntu',
       'check-code',
       'check-msrv',
