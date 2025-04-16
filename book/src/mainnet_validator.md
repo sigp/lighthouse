@@ -33,7 +33,7 @@ There are five primary steps to become a validator:
 1. [Start an execution client and Lighthouse beacon node](#step-2-start-an-execution-client-and-lighthouse-beacon-node)
 1. [Import validator keys into Lighthouse](#step-3-import-validator-keys-to-lighthouse)
 1. [Start Lighthouse validator client](#step-4-start-lighthouse-validator-client)
-1. [Submit deposit](#step-5-submit-deposit-32eth-per-validator)
+1. [Submit deposit](#step-5-submit-deposit-a-minimum-of-32eth-to-activate-one-validator)
 
 > **Important note**: The guide below contains both mainnet and testnet instructions. We highly recommend *all* users to **run a testnet validator** prior to staking mainnet ETH.  By far, the best technical learning experience is to run a testnet validator. You can get hands-on experience with all the tools and it's a great way to test your staking
 hardware. 32 ETH is a significant outlay and joining a testnet is a great way to "try before you buy".
