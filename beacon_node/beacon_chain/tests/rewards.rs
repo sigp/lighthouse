@@ -257,6 +257,35 @@ async fn test_rewards_base_inactivity_leak_justification_epoch() {
 }
 
 #[tokio::test]
+async fn test_rewards_electra_slashings() {
+    let spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    let harness = get_electra_harness(spec);
+    let state = harness.get_current_state();
+
+    harness.extend_slots(E::slots_per_epoch() as usize).await;
+
+    let mut initial_balances = harness.get_current_state().balances().to_vec();
+
+    // add an attester slashing and calculate slashing penalties
+    harness.add_attester_slashing(vec![0]).unwrap();
+    let slashed_balance_1 = initial_balances.get_mut(0).unwrap();
+    let validator_1_effective_balance = state.get_effective_balance(0).unwrap();
+    let delta_1 = validator_1_effective_balance
+        / harness.spec.min_slashing_penalty_quotient_for_state(&state);
+    *slashed_balance_1 -= delta_1;
+
+    // add a proposer slashing and calculating slashing penalties
+    harness.add_proposer_slashing(1).unwrap();
+    let slashed_balance_2 = initial_balances.get_mut(1).unwrap();
+    let validator_2_effective_balance = state.get_effective_balance(1).unwrap();
+    let delta_2 = validator_2_effective_balance
+        / harness.spec.min_slashing_penalty_quotient_for_state(&state);
+    *slashed_balance_2 -= delta_2;
+
+    check_all_electra_rewards(&harness, initial_balances).await;
+}
+
+#[tokio::test]
 async fn test_rewards_base_slashings() {
     let spec = ForkName::Base.make_genesis_spec(E::default_spec());
     let harness = get_harness(spec);
@@ -694,6 +723,75 @@ async fn test_rewards_base_subset_only() {
         .await;
 
     check_all_base_rewards_for_subset(&harness, initial_balances, validators_subset).await;
+}
+
+async fn check_all_electra_rewards(
+    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    mut balances: Vec<u64>,
+) {
+    let mut proposal_rewards_map = HashMap::new();
+    let mut sync_committee_rewards_map = HashMap::new();
+    for _ in 0..E::slots_per_epoch() {
+        let state = harness.get_current_state();
+        let slot = state.slot() + Slot::new(1);
+
+        // calculate beacon block rewards / penalties
+        let ((signed_block, _maybe_blob_sidecars), mut state) =
+            harness.make_block_return_pre_state(state, slot).await;
+        let beacon_block_reward = harness
+            .chain
+            .compute_beacon_block_reward(signed_block.message(), &mut state)
+            .unwrap();
+
+        let total_proposer_reward = proposal_rewards_map
+            .entry(beacon_block_reward.proposer_index)
+            .or_insert(0);
+        *total_proposer_reward += beacon_block_reward.total as i64;
+
+        // calculate sync committee rewards / penalties
+        let reward_payload = harness
+            .chain
+            .compute_sync_committee_rewards(signed_block.message(), &mut state)
+            .unwrap();
+
+        for reward in reward_payload {
+            let total_sync_reward = sync_committee_rewards_map
+                .entry(reward.validator_index)
+                .or_insert(0);
+            *total_sync_reward += reward.reward;
+        }
+
+        harness.extend_slots(1).await;
+    }
+
+    // compute reward deltas for all validators in epoch 0
+    let StandardAttestationRewards {
+        ideal_rewards,
+        total_rewards,
+    } = harness
+        .chain
+        .compute_attestation_rewards(Epoch::new(0), vec![])
+        .unwrap();
+
+    // assert ideal rewards are greater than 0
+    assert_eq!(
+        ideal_rewards.len() as u64,
+        harness.spec.max_effective_balance_electra / harness.spec.effective_balance_increment
+    );
+
+    assert!(ideal_rewards
+        .iter()
+        .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
+
+    // apply attestation, proposal, and sync committee rewards and penalties to initial balances
+    apply_attestation_rewards(&mut balances, total_rewards);
+    apply_other_rewards(&mut balances, &proposal_rewards_map);
+    apply_other_rewards(&mut balances, &sync_committee_rewards_map);
+
+    // verify expected balances against actual balances
+    let actual_balances: Vec<u64> = harness.get_current_state().balances().to_vec();
+
+    assert_eq!(balances, actual_balances);
 }
 
 async fn check_all_base_rewards(
