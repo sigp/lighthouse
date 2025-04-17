@@ -20,6 +20,7 @@ use derivative::Derivative;
 use either::Either;
 use futures::Stream;
 use futures_util::StreamExt;
+use lighthouse::StandardBlockReward;
 use lighthouse_network::PeerId;
 use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
@@ -1677,17 +1678,18 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET beacon/rewards/blocks`
-    pub async fn get_beacon_rewards_blocks(&self, epoch: Epoch) -> Result<(), Error> {
+    pub async fn get_beacon_rewards_blocks(
+        &self,
+        block_id: BlockId,
+    ) -> Result<GenericResponse<StandardBlockReward>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("rewards")
-            .push("blocks");
-
-        path.query_pairs_mut()
-            .append_pair("epoch", &epoch.to_string());
+            .push("blocks")
+            .push(&block_id.to_string());
 
         self.get(path).await
     }
