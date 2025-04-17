@@ -60,7 +60,7 @@ Exit epoch in approximately 1920 secs
 
 ## Exit via the execution layer
 
-The voluntary exit above is via the consensus layer. With [Pectra](https://ethereum.org/en/history/#pectra) upgrade, validators with 0x01 and 0x02 withdrawal credentials can also exit their validators via the execution layer by sending a transaction using the withdrawal address. You can use [Siren](./ui.md) or the [staking launchpad](https://launchpad.ethereum.org/en/) to execute partial withdrawals.
+The voluntary exit above is via the consensus layer. With the [Pectra](https://ethereum.org/en/history/#pectra) upgrade, validators with 0x01 and 0x02 withdrawal credentials can also exit their validators via the execution layer by sending a transaction using the withdrawal address. You can use [Siren](./ui.md) or the [staking launchpad](https://launchpad.ethereum.org/en/) to send an exit transaction.
 
 ## Full withdrawal of staked fund
 
