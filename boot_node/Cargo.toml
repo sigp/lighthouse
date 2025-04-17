@@ -1,6 +1,6 @@
 [package]
 name = "boot_node"
-version = "7.0.0-beta.6"
+version = "7.0.0-beta.7"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
