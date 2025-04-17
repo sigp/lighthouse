@@ -374,7 +374,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let Some(current_sync_committee_branch) = store.get_sync_committee_branch(block_root)?
         else {
             return Err(BeaconChainError::LightClientBootstrapError(format!(
-                "Block Root {:?} is not a finalized checkpoint root. Sync Committee branch only availble for finalized checkpoint block roots.",
+                "Sync committee branch for block root {:?} not found. It might not be a checkpoint block",
                 block_root
             )));
         };
