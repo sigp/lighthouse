@@ -1,4 +1,4 @@
-#![cfg(not(debug_assertions))] // Tests are too slow in debug.
+//#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::{
@@ -429,13 +429,13 @@ impl TestRig {
         }
     }
 
-    pub fn enqueue_blobs_by_range_request(&self, count: u64) {
+    pub fn enqueue_blobs_by_range_request(&self, start_slot: u64, count: u64) {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
                 InboundRequestId::new_unchecked(42, 24),
                 BlobsByRangeRequest {
-                    start_slot: 0,
+                    start_slot,
                     count,
                 },
             )
@@ -1216,9 +1216,11 @@ async fn test_blobs_by_range() {
     if test_spec::<E>().deneb_fork_epoch.is_none() {
         return;
     };
-    let mut rig = TestRig::new(64).await;
+    let rig_slot = 64;
+    let mut rig = TestRig::new(rig_slot).await;
     let slot_count = 32;
-    rig.enqueue_blobs_by_range_request(slot_count);
+    // can I use slots_per_epoch from types::EthSpec?
+    rig.enqueue_blobs_by_range_request(0, slot_count);
 
     let mut blob_count = 0;
     for slot in 0..slot_count {
@@ -1252,5 +1254,51 @@ async fn test_blobs_by_range() {
             panic!("unexpected message {:?}", next);
         }
     }
+    assert_eq!(blob_count, actual_count);
+}
+
+#[tokio::test]
+async fn test_blobs_by_range_fulu() {
+    if !test_spec::<E>().is_peer_das_scheduled() {
+        return;
+    };
+    let mut rig = TestRig::new(64).await;
+    let slot_count = 32;
+    rig.enqueue_blobs_by_range_request(0, slot_count);
+
+    let mut blob_count = 0;
+    for slot in 0..slot_count {
+        let root = rig
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap();
+        blob_count += root
+            .map(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .map(|list| list.len())
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+    }
+    let mut actual_count = 0;
+    while let Some(next) = rig._network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    assert_eq!(blob_count, 0);
+    assert_eq!(actual_count, 0);
     assert_eq!(blob_count, actual_count);
 }
