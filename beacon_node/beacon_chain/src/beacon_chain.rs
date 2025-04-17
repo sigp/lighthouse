@@ -2736,7 +2736,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(BlockError::DuplicateFullyImported(_)) => continue,
                 // If the block is the genesis block, simply ignore this block.
                 Err(BlockError::GenesisBlock) => continue,
-                // If the block is is for a finalized slot, simply ignore this block.
+                // If the block is for a finalized slot, simply ignore this block.
                 //
                 // The block is either:
                 //
