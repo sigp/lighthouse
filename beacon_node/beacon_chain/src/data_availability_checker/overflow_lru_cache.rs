@@ -1193,7 +1193,7 @@ mod pending_components_tests {
     use crate::test_utils::{generate_rand_block_and_blobs, test_spec, NumBlobs};
     use crate::PayloadVerificationOutcome;
     use fork_choice::PayloadVerificationStatus;
-    use kzg::KzgCommitment;
+    use kzg_types::KzgCommitment;
     use rand::rngs::StdRng;
     use rand::SeedableRng;
     use state_processing::ConsensusContext;

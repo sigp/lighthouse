@@ -68,6 +68,7 @@ members = [
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
     "crypto/kzg",
+    "crypto/kzg_types",
 
     "database_manager",
 

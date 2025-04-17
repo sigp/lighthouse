@@ -1,6 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
-use kzg::{Bytes48, Error as KzgError};
+use kzg::Error as KzgError;
+use kzg_types::Bytes48;
 use serde::Deserialize;
 use std::marker::PhantomData;
 
@@ -47,8 +48,8 @@ impl<E: EthSpec> Case for KZGVerifyCellKZGProofBatch<E> {
 
         let result =
             parse_input(&self.input).and_then(|(cells, proofs, cell_indices, commitments)| {
-                let proofs: Vec<Bytes48> = proofs.iter().map(|&proof| proof.into()).collect();
-                let commitments: Vec<Bytes48> = commitments.iter().map(|&c| c.into()).collect();
+                let proofs: Vec<Bytes48> = proofs.iter().map(|p| p.0).collect();
+                let commitments: Vec<Bytes48> = commitments.iter().map(|c| c.0).collect();
                 let cells = cells.iter().map(|c| c.as_ref()).collect::<Vec<_>>();
                 let kzg = get_kzg();
                 match kzg.verify_cell_proof_batch(&cells, &proofs, cell_indices, &commitments) {

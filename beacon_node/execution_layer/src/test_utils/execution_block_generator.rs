@@ -7,7 +7,8 @@ use crate::engine_api::{
 use crate::engines::ForkchoiceState;
 use crate::EthersTransaction;
 use eth2::types::BlobsBundle;
-use kzg::{Kzg, KzgCommitment, KzgProof};
+use kzg::Kzg;
+use kzg_types::{KzgCommitment, KzgProof};
 use parking_lot::Mutex;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
@@ -18,10 +19,10 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadHeader, FixedBytesExtended, ForkName, Hash256, Transaction, Transactions,
-    Uint256,
+    Blob as TypesBlob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadHeader, FixedBytesExtended,
+    ForkName, Hash256, Transaction, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -721,7 +722,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     }
 }
 
-pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String> {
+pub fn load_test_blobs_bundle<E: EthSpec>(
+) -> Result<(KzgCommitment, KzgProof, TypesBlob<E>), String> {
     let BlobsBundle::<E> {
         commitments,
         proofs,
@@ -987,18 +989,24 @@ mod test {
 
     fn validate_blob<E: EthSpec>() -> Result<(), String> {
         let kzg = load_kzg()?;
-        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
-        let kzg_blob = kzg::Blob::from_bytes(blob.as_ref())
+        // blob is now types::Blob<E>
+        let (kzg_commitment, kzg_proof, types_blob) = load_test_blobs_bundle::<E>()?;
+        // Convert types::Blob<E> bytes to kzg_types::Blob ([u8; N])
+        let kzg_types_blob = KzgTypesBlob::try_from(types_blob.as_ref())
             .map(Box::new)
-            .map_err(|e| format!("Error converting blob to kzg blob: {e:?}"))?;
-        kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
+            .map_err(|e| format!("Error converting blob to kzg_types::Blob: {e:?}"))?;
+        // verify_blob_kzg_proof now expects &kzg_types::Blob
+        kzg.verify_blob_kzg_proof(&kzg_types_blob, kzg_commitment, kzg_proof)
             .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
     }
 
     fn load_kzg() -> Result<Kzg, String> {
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(get_trusted_setup().as_slice())
-                .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;
+        // Use kzg::trusted_setup::get_trusted_setup to get bytes
+        let setup_bytes = kzg::trusted_setup::get_trusted_setup();
+        // Deserialize into kzg_types::TrustedSetup
+        let trusted_setup: KzgTrustedSetup = serde_json::from_reader(setup_bytes.as_slice())
+            .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;
+        // Kzg::new_from_trusted_setup expects kzg_types::TrustedSetup
         Kzg::new_from_trusted_setup(trusted_setup)
             .map_err(|e| format!("Failed to load trusted setup: {e:?}"))
     }

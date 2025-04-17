@@ -1,6 +1,5 @@
-use kzg::{
-    Blob as KzgBlob, Bytes48, CellRef as KzgCellRef, CellsAndKzgProofs, Error as KzgError, Kzg,
-};
+use kzg::{Error as KzgError, Kzg};
+use kzg_types::{Blob as KzgBlob, Bytes48, CellRef as KzgCellRef, CellsAndKzgProofs};
 use rayon::prelude::*;
 use ssz_types::FixedVector;
 use std::sync::Arc;
@@ -15,7 +14,9 @@ use types::{
 /// Converts a blob ssz List object to an array to be used with the kzg
 /// crypto library.
 fn ssz_blob_to_crypto_blob<E: EthSpec>(blob: &Blob<E>) -> Result<KzgBlob, KzgError> {
-    KzgBlob::from_bytes(blob.as_ref()).map_err(Into::into)
+    blob.as_ref()
+        .try_into()
+        .map_err(|e| KzgError::InconsistentArrayLength(format!("Blob length error: {:?}", e)))
 }
 
 fn ssz_blob_to_crypto_blob_boxed<E: EthSpec>(blob: &Blob<E>) -> Result<Box<KzgBlob>, KzgError> {
@@ -80,7 +81,7 @@ where
             data_column
                 .kzg_commitments
                 .iter()
-                .map(|&commitment| Bytes48::from(commitment))
+                .map(|commitment| commitment.0)
         })
         .collect::<Vec<_>>();
 

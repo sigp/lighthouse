@@ -5,7 +5,7 @@ use beacon_chain::test_utils::get_kzg;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use bls::Signature;
-use kzg::KzgCommitment;
+use kzg_types::KzgCommitment;
 use types::{
     beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList, ChainSpec,
     EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,

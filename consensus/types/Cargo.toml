@@ -28,6 +28,7 @@ hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
+kzg_types = { path = "../../crypto/kzg_types", features = ["arbitrary"] }
 log = { workspace = true }
 maplit = { workspace = true }
 merkle_proof = { workspace = true }

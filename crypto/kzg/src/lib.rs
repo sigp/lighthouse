@@ -2,31 +2,31 @@ mod kzg_commitment;
 mod kzg_proof;
 pub mod trusted_setup;
 
-use rust_eth_kzg::{CellIndex, DASContext};
+use c_kzg::KzgSettings;
+use kzg_types::{
+    Blob, Bytes32, Bytes48, CellRef, CellsAndKzgProofs, KzgBlobRef,
+    TrustedSetup, *, // Re-export all constants
+};
+use rand::Rng;
+use rust_eth_kzg::{CellIndex, DASContext, UsePrecomp};
 use std::fmt::Debug;
 
-pub use crate::{
-    kzg_commitment::{KzgCommitment, VERSIONED_HASH_VERSION_KZG},
-    kzg_proof::KzgProof,
-    trusted_setup::TrustedSetup,
+// Re-export necessary types/constants from kzg_types for downstream crates
+pub use kzg_types::{
+    KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, VERSIONED_HASH_VERSION_KZG,
 };
 
-pub use c_kzg::{
-    Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
-    BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
-};
 
-pub use rust_eth_kzg::{
-    constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
-    Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
-};
+// Re-export necessary items from c_kzg (excluding types now in kzg_types)
+pub use c_kzg::KzgSettings as CKzgSettings;
 
-// Note: `spec.number_of_columns` is a config and should match `CELLS_PER_EXT_BLOB` - however this
-// is a constant in the KZG library - be aware that overriding `number_of_columns` will break KZG
-// operations.
-pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]);
+// Re-export necessary items from rust_eth_kzg (excluding types now in kzg_types)
+pub use rust_eth_kzg::{CellIndex as CKzgCellIndex, DASContext as CKzgDASContext};
 
-pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];
+// Type aliases pointing to kzg_types versions.
+pub type CellsAndKzgProofsAlias = CellsAndKzgProofs;
+pub type KzgBlobRefAlias<'a> = KzgBlobRef<'a>;
+
 
 #[derive(Debug)]
 pub enum Error {
@@ -60,8 +60,7 @@ pub struct Kzg {
 impl Kzg {
     pub fn new_from_trusted_setup_no_precomp(trusted_setup: TrustedSetup) -> Result<Self, Error> {
         let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
-
-        let context = DASContext::new(&peerdas_trusted_setup, rust_eth_kzg::UsePrecomp::No);
+        let context = DASContext::new(&peerdas_trusted_setup, UsePrecomp::No);
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
@@ -75,10 +74,9 @@ impl Kzg {
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
     pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
         let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
-
         let context = DASContext::new(
             &peerdas_trusted_setup,
-            rust_eth_kzg::UsePrecomp::Yes {
+            UsePrecomp::Yes {
                 width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
             },
         );
@@ -93,18 +91,10 @@ impl Kzg {
     }
 
     pub fn new_from_trusted_setup_das_enabled(trusted_setup: TrustedSetup) -> Result<Self, Error> {
-        // Initialize the trusted setup using default parameters
-        //
-        // Note: One can also use `from_json` to initialize it from the consensus-specs
-        // json string.
         let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
-
-        // It's not recommended to change the config parameter for precomputation as storage
-        // grows exponentially, but the speedup is exponential - after a while the speedup
-        // starts to become sublinear.
         let context = DASContext::new(
             &peerdas_trusted_setup,
-            rust_eth_kzg::UsePrecomp::Yes {
+            UsePrecomp::Yes {
                 width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
             },
         );
@@ -128,8 +118,9 @@ impl Kzg {
         blob: &Blob,
         kzg_commitment: KzgCommitment,
     ) -> Result<KzgProof, Error> {
-        c_kzg::KzgProof::compute_blob_kzg_proof(blob, &kzg_commitment.into(), &self.trusted_setup)
-            .map(|proof| KzgProof(proof.to_bytes().into_inner()))
+        let commitment_bytes: c_kzg::Bytes48 = kzg_commitment.0.into();
+        c_kzg::KzgProof::compute_blob_kzg_proof(&(*blob).into(), &commitment_bytes, &self.trusted_setup)
+            .map(|proof| kzg_types::KzgProof(*proof.to_bytes().as_ref()))
             .map_err(Into::into)
     }
 
@@ -140,10 +131,12 @@ impl Kzg {
         kzg_commitment: KzgCommitment,
         kzg_proof: KzgProof,
     ) -> Result<(), Error> {
+        let commitment_bytes: c_kzg::Bytes48 = kzg_commitment.0.into();
+        let proof_bytes: c_kzg::Bytes48 = kzg_proof.0.into();
         if !c_kzg::KzgProof::verify_blob_kzg_proof(
-            blob,
-            &kzg_commitment.into(),
-            &kzg_proof.into(),
+            &(*blob).into(),
+            &commitment_bytes,
+            &proof_bytes,
             &self.trusted_setup,
         )? {
             Err(Error::KzgVerificationFailed)
@@ -153,27 +146,26 @@ impl Kzg {
     }
 
     /// Verify a batch of blob commitment proof triplets.
-    ///
-    /// Note: This method is slightly faster than calling `Self::verify_blob_kzg_proof` in a loop sequentially.
-    /// TODO(pawan): test performance against a parallelized rayon impl.
     pub fn verify_blob_kzg_proof_batch(
         &self,
         blobs: &[Blob],
         kzg_commitments: &[KzgCommitment],
         kzg_proofs: &[KzgProof],
     ) -> Result<(), Error> {
-        let commitments_bytes = kzg_commitments
+        let commitments_bytes: Vec<c_kzg::Bytes48> = kzg_commitments
             .iter()
-            .map(|comm| Bytes48::from(*comm))
-            .collect::<Vec<_>>();
+            .map(|comm| comm.0.into())
+            .collect();
 
-        let proofs_bytes = kzg_proofs
+        let proofs_bytes: Vec<c_kzg::Bytes48> = kzg_proofs
             .iter()
-            .map(|proof| Bytes48::from(*proof))
-            .collect::<Vec<_>>();
+            .map(|proof| proof.0.into())
+            .collect();
+
+        let blobs_ckzg: Vec<c_kzg::Blob> = blobs.iter().map(|b| (*b).into()).collect();
 
         if !c_kzg::KzgProof::verify_blob_kzg_proof_batch(
-            blobs,
+            &blobs_ckzg,
             &commitments_bytes,
             &proofs_bytes,
             &self.trusted_setup,
@@ -185,20 +177,25 @@ impl Kzg {
     }
 
     /// Converts a blob to a kzg commitment.
-    pub fn blob_to_kzg_commitment(&self, blob: &Blob) -> Result<KzgCommitment, Error> {
-        c_kzg::KzgCommitment::blob_to_kzg_commitment(blob, &self.trusted_setup)
-            .map(|commitment| KzgCommitment(commitment.to_bytes().into_inner()))
+    pub fn blob_to_kzg_commitment(&self, blob: &kzg_types::Blob) -> Result<kzg_types::KzgCommitment, Error> {
+        c_kzg::KzgCommitment::blob_to_kzg_commitment(&(*blob).into(), &self.trusted_setup)
+            .map(|commitment| kzg_types::KzgCommitment(*commitment.to_bytes().as_ref()))
             .map_err(Into::into)
     }
 
     /// Computes the kzg proof for a given `blob` and an evaluation point `z`
     pub fn compute_kzg_proof(
         &self,
-        blob: &Blob,
-        z: &Bytes32,
-    ) -> Result<(KzgProof, Bytes32), Error> {
-        c_kzg::KzgProof::compute_kzg_proof(blob, z, &self.trusted_setup)
-            .map(|(proof, y)| (KzgProof(proof.to_bytes().into_inner()), y))
+        blob: &kzg_types::Blob,
+        z: &kzg_types::Bytes32,
+    ) -> Result<(kzg_types::KzgProof, kzg_types::Bytes32), Error> {
+        c_kzg::KzgProof::compute_kzg_proof(&(*blob).into(), &(*z).into(), &self.trusted_setup)
+            .map(|(proof, y)| {
+                (
+                    kzg_types::KzgProof(*proof.to_bytes().as_ref()),
+                    *y.as_ref(),
+                )
+            })
             .map_err(Into::into)
     }
 
@@ -210,17 +207,19 @@ impl Kzg {
         y: &Bytes32,
         kzg_proof: KzgProof,
     ) -> Result<bool, Error> {
+        let commitment_bytes: c_kzg::Bytes48 = kzg_commitment.0.into();
+        let proof_bytes: c_kzg::Bytes48 = kzg_proof.0.into();
         c_kzg::KzgProof::verify_kzg_proof(
-            &kzg_commitment.into(),
-            z,
-            y,
-            &kzg_proof.into(),
+            &commitment_bytes,
+            &(*z).into(),
+            &(*y).into(),
+            &proof_bytes,
             &self.trusted_setup,
         )
         .map_err(Into::into)
     }
 
-    /// Computes the cells and associated proofs for a given `blob` at index `index`.
+    /// Computes the cells and associated proofs for a given `blob`.
     pub fn compute_cells_and_proofs(
         &self,
         blob: KzgBlobRef<'_>,
@@ -230,16 +229,11 @@ impl Kzg {
             .compute_cells_and_kzg_proofs(blob)
             .map_err(Error::PeerDASKZG)?;
 
-        // Convert the proof type to a c-kzg proof type
-        let c_kzg_proof = proofs.map(KzgProof);
-        Ok((cells, c_kzg_proof))
+        let kzg_proofs_array = proofs.map(|p| kzg_types::KzgProof(p));
+        Ok((cells, kzg_proofs_array))
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
-    ///
-    /// Here, `coordinates` correspond to the (row, col) coordinate of the cell in the extended
-    /// blob "matrix". In the 1D extension, row corresponds to the blob index, and col corresponds
-    /// to the data column index.
     pub fn verify_cell_proof_batch(
         &self,
         cells: &[CellRef<'_>],
@@ -247,19 +241,29 @@ impl Kzg {
         columns: Vec<CellIndex>,
         kzg_commitments: &[Bytes48],
     ) -> Result<(), Error> {
-        let proofs: Vec<_> = kzg_proofs.iter().map(|proof| proof.as_ref()).collect();
-        let commitments: Vec<_> = kzg_commitments
+        let commitments_refs: Result<Vec<&[u8; 48]>, _> = kzg_commitments
             .iter()
-            .map(|commitment| commitment.as_ref())
+            .map(|c| c.as_slice().try_into())
             .collect();
+        let proofs_refs: Result<Vec<&[u8; 48]>, _> = kzg_proofs
+            .iter()
+            .map(|p| p.as_slice().try_into())
+            .collect();
+
+        let commitments_refs = commitments_refs.map_err(|e| {
+            Error::InconsistentArrayLength(format!("Failed to convert commitments: {}", e))
+        })?;
+        let proofs_refs = proofs_refs.map_err(|e| {
+            Error::InconsistentArrayLength(format!("Failed to convert proofs: {}", e))
+        })?;
+
         let verification_result = self.context().verify_cell_kzg_proof_batch(
-            commitments.to_vec(),
+            commitments_refs,
             columns,
             cells.to_vec(),
-            proofs.to_vec(),
+            proofs_refs,
         );
 
-        // Modify the result so it matches roughly what the previous method was doing.
         match verification_result {
             Ok(_) => Ok(()),
             Err(e) if e.invalid_proof() => Err(Error::KzgVerificationFailed),
@@ -267,18 +271,44 @@ impl Kzg {
         }
     }
 
+    /// Recovers cells and computes proofs.
     pub fn recover_cells_and_compute_kzg_proofs(
         &self,
         cell_ids: &[u64],
         cells: &[CellRef<'_>],
     ) -> Result<CellsAndKzgProofs, Error> {
-        let (cells, proofs) = self
+        let (recovered_cells, recovered_proofs) = self
             .context()
             .recover_cells_and_kzg_proofs(cell_ids.to_vec(), cells.to_vec())
             .map_err(Error::PeerDASKZG)?;
 
-        // Convert the proof type to a c-kzg proof type
-        let c_kzg_proof = proofs.map(KzgProof);
-        Ok((cells, c_kzg_proof))
+        let kzg_proofs_array = recovered_proofs.map(|p| kzg_types::KzgProof(p));
+        Ok((recovered_cells, kzg_proofs_array))
     }
+
+    /// Generates a random blob, KZG commitment, and KZG proof.
+    ///
+    /// This function is intended for testing purposes.
+    pub fn generate_random_blob_commitment_proof<R: Rng>(
+        &self,
+        rng: &mut R,
+    ) -> Result<(Blob, KzgCommitment, KzgProof), Error> {
+        let mut blob_bytes = vec![0u8; BYTES_PER_BLOB];
+        rng.fill_bytes(&mut blob_bytes);
+        for byte in blob_bytes.iter_mut().step_by(BYTES_PER_FIELD_ELEMENT) {
+            *byte = 0;
+            }
+
+        // Convert the Vec<u8> to a fixed-size array kzg_types::Blob
+        let kzg_blob: Blob = blob_bytes
+            .try_into()
+            .map_err(|_| Error::InconsistentArrayLength("Failed to convert Vec<u8> to Blob".to_string()))?;
+
+        let commitment = self.blob_to_kzg_commitment(&kzg_blob)?;
+
+        let proof = self.compute_blob_kzg_proof(&kzg_blob, commitment)?;
+
+        Ok((kzg_blob, commitment, proof))
+    }
+
 }

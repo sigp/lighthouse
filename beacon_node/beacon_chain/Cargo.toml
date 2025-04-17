@@ -42,6 +42,7 @@ hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
+kzg_types = { path = "../../crypto/kzg_types" }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
 lru = { workspace = true }

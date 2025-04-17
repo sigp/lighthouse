@@ -25,8 +25,10 @@ fork_choice = { workspace = true }
 fs2 = { workspace = true }
 hex = { workspace = true }
 kzg = { workspace = true }
+kzg_types = { path = "../../crypto/kzg_types" }
 logging = { workspace = true }
 rayon = { workspace = true }
+rust_eth_kzg = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }

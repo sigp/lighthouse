@@ -1,6 +1,7 @@
 use c_kzg::KzgSettings;
 use criterion::{criterion_group, criterion_main, Criterion};
-use kzg::{trusted_setup::get_trusted_setup, TrustedSetup};
+use kzg::trusted_setup::get_trusted_setup;
+use kzg_types::TrustedSetup;
 use rust_eth_kzg::{DASContext, TrustedSetup as PeerDASTrustedSetup};
 
 pub fn bench_init_context(c: &mut Criterion) {

@@ -5,7 +5,7 @@ use crate::{BeaconBlockHeader, Epoch, EthSpec, Hash256, KzgProofs, SignedBeaconB
 use bls::Signature;
 use derivative::Derivative;
 use kzg::Error as KzgError;
-use kzg::{KzgCommitment, KzgProof};
+use kzg_types::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};

@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::blob_to_kzg_commitment;
-use kzg::KzgCommitment;
+use kzg_types::KzgCommitment;
 use serde::Deserialize;
 use std::marker::PhantomData;
 

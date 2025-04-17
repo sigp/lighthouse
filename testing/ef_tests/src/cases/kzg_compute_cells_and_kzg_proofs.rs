@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use kzg::CellsAndKzgProofs;
+use kzg_types::CellsAndKzgProofs;
 use serde::Deserialize;
 use std::marker::PhantomData;
 
