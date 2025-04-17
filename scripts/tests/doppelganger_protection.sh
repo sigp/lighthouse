@@ -128,7 +128,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     # Sleep three epochs, then make sure all validators were active in epoch 2. Use
     # `is_previous_epoch_target_attester` from epoch 3 for a complete view of epoch 2 inclusion.
     #
-    # See: https://lighthouse-book.sigmaprime.io/validator-inclusion.html
+    # See: https://lighthouse-book.sigmaprime.io/api_validator_inclusion.html
     echo "Waiting three epochs..."
     sleep $(( $SECONDS_PER_SLOT * 32 * 3 ))
 
@@ -156,7 +156,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     # Sleep two epochs, then make sure all validators were active in epoch 4. Use
     # `is_previous_epoch_target_attester` from epoch 5 for a complete view of epoch 4 inclusion.
     #
-    # See: https://lighthouse-book.sigmaprime.io/validator-inclusion.html
+    # See: https://lighthouse-book.sigmaprime.io/api_validator_inclusion.html
     echo "Waiting two more epochs..."
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do
