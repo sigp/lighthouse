@@ -15,7 +15,7 @@ Let's take a look at an example: Initially, validators A and B are both with 0x0
 
    and then execute the transaction.
 
-    Depending on the exit and deposit queue, the process could take from a day to weeks. The outcome is:
+    Depending on the exit queue and pending consolidations, the process could take from a day to weeks. The outcome is:
     - validator A has 64 ETH
     - validator B has 0 ETH (i.e., validator B has exited the beacon chain)
 
