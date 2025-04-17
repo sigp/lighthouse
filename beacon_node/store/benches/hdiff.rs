@@ -32,8 +32,20 @@ pub fn all_benches(c: &mut Criterion) {
         // And some validator records
         for _ in 0..validator_mutations {
             let index = rng.gen_range(1..n);
-            // TODO: Only change a few things, and not the pubkey
-            *target_state.validators_mut().get_mut(index).unwrap() = rand_validator(&mut rng);
+            let validator = target_state.validators_mut().get_mut(index).unwrap();
+
+            // Only change relevant fields — keep pubkey intact
+            let activation_eligibility_epoch = rng.gen_range(0..=1000);
+            let activation_epoch = rng.gen_range(activation_eligibility_epoch..=2000);
+            let exit_epoch = rng.gen_range(activation_epoch..=3000);
+            let withdrawable_epoch = rng.gen_range(exit_epoch..=4000);
+            
+            validator.effective_balance = rng.gen_range(1..=32_000_000_000);
+            validator.slashed = rng.gen_bool(0.05);
+            validator.activation_eligibility_epoch = activation_eligibility_epoch;
+            validator.activation_epoch = activation_epoch;
+            validator.exit_epoch = exit_epoch;
+            validator.withdrawable_epoch = withdrawable_epoch;
         }
         for _ in 0..validator_additions {
             append_validator(&mut target_state, &mut rng);
