@@ -16,6 +16,7 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
+| v7.1.0             | TBD 2025     | v23            | yes                  |
 | v6.0.0             | Nov 2024     | v22            | no                   |
 | v5.3.0             | Aug 2024     | v21            | yes                  |
 | v5.2.0             | Jun 2024     | v19            | no                   |
@@ -209,6 +210,7 @@ Here are the steps to prune historic states:
 
 | Lighthouse version | Release date | Schema version | Downgrade available?                |
 |--------------------|--------------|----------------|-------------------------------------|
+| v7.1.0             | TBD 2025     | v23            | yes                                 |
 | v6.0.0             | Nov 2024     | v22            | no                                  |
 | v5.3.0             | Aug 2024     | v21            | yes                                 |
 | v5.2.0             | Jun 2024     | v19            | yes before Deneb using <= v5.2.1    |
