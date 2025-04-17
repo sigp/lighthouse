@@ -95,7 +95,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     fn into_responses_with_blobs(self) -> Result<Vec<RpcBlock<E>>, String> {
         let RangeBlockComponentsRequest { blocks, blobs, .. } = self;
 
-        // There can't be more more blobs than blocks. i.e. sending any blob (empty
+        // There can't be more blobs than blocks. i.e. sending any blob (empty
         // included) for a skipped slot is not permitted.
         let mut responses = Vec::with_capacity(blocks.len());
         let mut blob_iter = blobs.into_iter().peekable();
