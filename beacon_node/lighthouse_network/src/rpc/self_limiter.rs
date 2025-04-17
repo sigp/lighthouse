@@ -188,7 +188,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
 
     pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, E>> {
         // First check the requests that were self rate limited, since those might add events to
-        // the queue. Also do this this before rate limiter prunning to avoid removing and
+        // the queue. Also do this before rate limiter prunning to avoid removing and
         // immediately adding rate limiting keys.
         if let Poll::Ready(Some(expired)) = self.next_peer_request.poll_expired(cx) {
             let (peer_id, protocol) = expired.into_inner();
