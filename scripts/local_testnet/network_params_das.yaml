@@ -1,6 +1,7 @@
 participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
+    el_image: ethpandaops/geth:engine-getblobs-v2-3676b56
     cl_extra_params:
       - --subscribe-all-data-column-subnets
       - --subscribe-all-subnets
@@ -10,6 +11,7 @@ participants:
     count: 2
   - cl_type: lighthouse
     cl_image: lighthouse:local
+    el_image: ethpandaops/geth:engine-getblobs-v2-3676b56
     cl_extra_params:
       # Note: useful for testing range sync (only produce block if node is in sync to prevent forking)
       - --sync-tolerance-epochs=0
@@ -19,6 +21,10 @@ network_params:
   electra_fork_epoch: 1
   fulu_fork_epoch: 2
   seconds_per_slot: 6
+  max_blobs_per_block_electra: 64
+  target_blobs_per_block_electra: 48
+  max_blobs_per_block_fulu: 64
+  target_blobs_per_block_fulu: 48
 snooper_enabled: false
 global_log_level: debug
 additional_services:
@@ -27,3 +33,7 @@ additional_services:
   - prometheus_grafana
 dora_params:
   image: ethpandaops/dora:fulu-support
+spamoor_blob_params:
+  # Throughput of spamoor
+  # Defaults to 3
+  throughput: 32

@@ -765,8 +765,8 @@ fn handle_rpc_response<E: EthSpec>(
         SupportedProtocol::PingV1 => Ok(Some(RpcSuccessResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
-        SupportedProtocol::MetaDataV1 => Ok(Some(RpcSuccessResponse::MetaData(MetaData::V1(
-            MetaDataV1::from_ssz_bytes(decoded_buffer)?,
+        SupportedProtocol::MetaDataV1 => Ok(Some(RpcSuccessResponse::MetaData(Arc::new(
+            MetaData::V1(MetaDataV1::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::LightClientBootstrapV1 => match fork_name {
             Some(fork_name) => Ok(Some(RpcSuccessResponse::LightClientBootstrap(Arc::new(
@@ -826,11 +826,11 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         // MetaData V2/V3 responses have no context bytes, so behave similarly to V1 responses
-        SupportedProtocol::MetaDataV3 => Ok(Some(RpcSuccessResponse::MetaData(MetaData::V3(
-            MetaDataV3::from_ssz_bytes(decoded_buffer)?,
+        SupportedProtocol::MetaDataV3 => Ok(Some(RpcSuccessResponse::MetaData(Arc::new(
+            MetaData::V3(MetaDataV3::from_ssz_bytes(decoded_buffer)?),
         )))),
-        SupportedProtocol::MetaDataV2 => Ok(Some(RpcSuccessResponse::MetaData(MetaData::V2(
-            MetaDataV2::from_ssz_bytes(decoded_buffer)?,
+        SupportedProtocol::MetaDataV2 => Ok(Some(RpcSuccessResponse::MetaData(Arc::new(
+            MetaData::V2(MetaDataV2::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::BlocksByRangeV2 => match fork_name {
             Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
@@ -1002,38 +1002,34 @@ mod tests {
     }
 
     /// Bellatrix block with length < max_rpc_size.
-    fn bellatrix_block_small(
-        fork_context: &ForkContext,
-        spec: &ChainSpec,
-    ) -> SignedBeaconBlock<Spec> {
+    fn bellatrix_block_small(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(&Spec::default_spec());
+
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>());
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
         let block = BeaconBlock::Bellatrix(block);
-        assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec.max_chunk_size as usize));
+        assert!(block.ssz_bytes_len() <= spec.max_payload_size as usize);
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
 
     /// Bellatrix block with length > MAX_RPC_SIZE.
     /// The max limit for a Bellatrix block is in the order of ~16GiB which wouldn't fit in memory.
     /// Hence, we generate a Bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
-    fn bellatrix_block_large(
-        fork_context: &ForkContext,
-        spec: &ChainSpec,
-    ) -> SignedBeaconBlock<Spec> {
+    fn bellatrix_block_large(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(&Spec::default_spec());
+
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>());
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
         let block = BeaconBlock::Bellatrix(block);
-        assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec.max_chunk_size as usize));
+        assert!(block.ssz_bytes_len() > spec.max_payload_size as usize);
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
 
@@ -1105,28 +1101,31 @@ mod tests {
         Ping { data: 1 }
     }
 
-    fn metadata() -> MetaData<Spec> {
+    fn metadata() -> Arc<MetaData<Spec>> {
         MetaData::V1(MetaDataV1 {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
         })
+        .into()
     }
 
-    fn metadata_v2() -> MetaData<Spec> {
+    fn metadata_v2() -> Arc<MetaData<Spec>> {
         MetaData::V2(MetaDataV2 {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
             syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
         })
+        .into()
     }
 
-    fn metadata_v3() -> MetaData<Spec> {
+    fn metadata_v3() -> Arc<MetaData<Spec>> {
         MetaData::V3(MetaDataV3 {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
             syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
             custody_group_count: 1,
         })
+        .into()
     }
 
     /// Encodes the given protocol response as bytes.
@@ -1138,7 +1137,7 @@ mod tests {
     ) -> Result<BytesMut, RPCError> {
         let snappy_protocol_id = ProtocolId::new(protocol, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context(fork_name));
-        let max_packet_size = max_rpc_size(&fork_context, spec.max_chunk_size as usize);
+        let max_packet_size = spec.max_payload_size as usize;
 
         let mut buf = BytesMut::new();
         let mut snappy_inbound_codec =
@@ -1185,7 +1184,7 @@ mod tests {
     ) -> Result<Option<RpcSuccessResponse<Spec>>, RPCError> {
         let snappy_protocol_id = ProtocolId::new(protocol, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context(fork_name));
-        let max_packet_size = max_rpc_size(&fork_context, spec.max_chunk_size as usize);
+        let max_packet_size = spec.max_payload_size as usize;
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
         // decode message just as snappy message
@@ -1206,7 +1205,7 @@ mod tests {
     /// Verifies that requests we send are encoded in a way that we would correctly decode too.
     fn encode_then_decode_request(req: RequestType<Spec>, fork_name: ForkName, spec: &ChainSpec) {
         let fork_context = Arc::new(fork_context(fork_name));
-        let max_packet_size = max_rpc_size(&fork_context, spec.max_chunk_size as usize);
+        let max_packet_size = spec.max_payload_size as usize;
         let protocol = ProtocolId::new(req.versioned_protocol(), Encoding::SSZSnappy);
         // Encode a request we send
         let mut buf = BytesMut::new();
@@ -1583,10 +1582,8 @@ mod tests {
             ))))
         );
 
-        let bellatrix_block_small =
-            bellatrix_block_small(&fork_context(ForkName::Bellatrix), &chain_spec);
-        let bellatrix_block_large =
-            bellatrix_block_large(&fork_context(ForkName::Bellatrix), &chain_spec);
+        let bellatrix_block_small = bellatrix_block_small(&chain_spec);
+        let bellatrix_block_large = bellatrix_block_large(&chain_spec);
 
         assert_eq!(
             encode_then_decode_response(
@@ -2086,7 +2083,7 @@ mod tests {
 
         // Insert length-prefix
         uvi_codec
-            .encode(chain_spec.max_chunk_size as usize + 1, &mut dst)
+            .encode(chain_spec.max_payload_size as usize + 1, &mut dst)
             .unwrap();
 
         // Insert snappy stream identifier
@@ -2124,7 +2121,7 @@ mod tests {
 
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
             snappy_protocol_id,
-            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
+            chain_spec.max_payload_size as usize,
             fork_context,
         );
 
@@ -2160,7 +2157,7 @@ mod tests {
 
         let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
             snappy_protocol_id,
-            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
+            chain_spec.max_payload_size as usize,
             fork_context,
         );
 
@@ -2189,7 +2186,7 @@ mod tests {
 
         let chain_spec = Spec::default_spec();
 
-        let max_rpc_size = max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize);
+        let max_rpc_size = chain_spec.max_payload_size as usize;
         let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context);
         let mut max = encode_len(limit.max + 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(

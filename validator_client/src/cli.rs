@@ -67,7 +67,6 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "SECRETS_DIRECTORY",
-        conflicts_with = "datadir",
         help = "The directory which contains the password to unlock the validator \
                 voting keypairs. Each password should be contained in a file where the \
                 name is the 0x-prefixed hex representation of the validators voting public \

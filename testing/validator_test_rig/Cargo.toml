@@ -5,10 +5,9 @@ edition = { workspace = true }
 
 [dependencies]
 eth2 = { workspace = true }
-logging = { workspace = true }
 mockito = { workspace = true }
 regex = { workspace = true }
 sensitive_url = { workspace = true }
 serde_json = { workspace = true }
-slog = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }

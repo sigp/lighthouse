@@ -63,7 +63,7 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
 ) -> Result<IndexedAttestationRef<'ctxt, E>> {
     let data = attestation.data();
 
-    // TODO(electra) choosing a validation based on the attestation's fork
+    // NOTE: choosing a validation based on the attestation's fork
     // rather than the state's fork makes this simple, but technically the spec
     // defines this verification based on the state's fork.
     match attestation {

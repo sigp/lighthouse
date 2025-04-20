@@ -232,7 +232,7 @@ impl DatabasePubkey {
 mod test {
     use super::*;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use logging::test_logger;
+    use logging::create_test_tracing_subscriber;
     use std::sync::Arc;
     use store::HotColdDB;
     use types::{EthSpec, Keypair, MainnetEthSpec};
@@ -253,10 +253,8 @@ mod test {
     }
 
     fn get_store() -> BeaconStore<T> {
-        Arc::new(
-            HotColdDB::open_ephemeral(<_>::default(), Arc::new(E::default_spec()), test_logger())
-                .unwrap(),
-        )
+        create_test_tracing_subscriber();
+        Arc::new(HotColdDB::open_ephemeral(<_>::default(), Arc::new(E::default_spec())).unwrap())
     }
 
     #[allow(clippy::needless_range_loop)]

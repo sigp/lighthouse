@@ -10,12 +10,12 @@ use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
 use slasher::test_utils::E;
-use slog::debug;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use tracing::debug;
 use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
@@ -141,13 +141,23 @@ pub enum GossipDataColumnError {
     ///
     /// The column sidecar is invalid and the peer is faulty
     UnexpectedDataColumn,
-    /// The data column length must be equal to the number of commitments/proofs, otherwise the
+    /// The data column length must be equal to the number of commitments, otherwise the
     /// sidecar is invalid.
     ///
     /// ## Peer scoring
     ///
     /// The column sidecar is invalid and the peer is faulty
-    InconsistentCommitmentsOrProofLength,
+    InconsistentCommitmentsLength {
+        cells_len: usize,
+        commitments_len: usize,
+    },
+    /// The data column length must be equal to the number of proofs, otherwise the
+    /// sidecar is invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column sidecar is invalid and the peer is faulty
+    InconsistentProofsLength { cells_len: usize, proofs_len: usize },
 }
 
 impl From<BeaconChainError> for GossipDataColumnError {
@@ -238,6 +248,14 @@ pub struct KzgVerifiedDataColumn<E: EthSpec> {
 impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_data_column(data_column, kzg)
+    }
+
+    /// Create a `KzgVerifiedDataColumn` from `data_column` that are already KZG verified.
+    ///
+    /// This should be used with caution, as used incorrectly it could result in KZG verification
+    /// being skipped and invalid data_columns being deemed valid.
+    pub fn from_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
+        Self { data: data_column }
     }
 
     pub fn from_batch(
@@ -473,10 +491,23 @@ fn verify_data_column_sidecar<E: EthSpec>(
     if data_column.kzg_commitments.is_empty() {
         return Err(GossipDataColumnError::UnexpectedDataColumn);
     }
-    if data_column.column.len() != data_column.kzg_commitments.len()
-        || data_column.column.len() != data_column.kzg_proofs.len()
-    {
-        return Err(GossipDataColumnError::InconsistentCommitmentsOrProofLength);
+
+    let cells_len = data_column.column.len();
+    let commitments_len = data_column.kzg_commitments.len();
+    let proofs_len = data_column.kzg_proofs.len();
+
+    if cells_len != commitments_len {
+        return Err(GossipDataColumnError::InconsistentCommitmentsLength {
+            cells_len,
+            commitments_len,
+        });
+    }
+
+    if cells_len != proofs_len {
+        return Err(GossipDataColumnError::InconsistentProofsLength {
+            cells_len,
+            proofs_len,
+        });
     }
 
     Ok(())
@@ -580,10 +611,9 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
         (proposer.index, proposer.fork)
     } else {
         debug!(
-            chain.log,
-            "Proposer shuffling cache miss for column verification";
-            "block_root" => %block_root,
-            "index" => %column_index,
+            %block_root,
+            index = %column_index,
+            "Proposer shuffling cache miss for column verification"
         );
         let (parent_state_root, mut parent_state) = chain
             .store

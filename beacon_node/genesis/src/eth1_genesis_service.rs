@@ -2,7 +2,6 @@ pub use crate::common::genesis_deposits;
 pub use eth1::Config as Eth1Config;
 
 use eth1::{DepositLog, Eth1Block, Service as Eth1Service};
-use slog::{debug, error, info, trace, Logger};
 use state_processing::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
     per_block_processing::process_operations::apply_deposit, process_activations,
@@ -13,6 +12,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use tokio::time::sleep;
+use tracing::{debug, error, info, trace};
 use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, FixedBytesExtended, Hash256};
 
 /// The number of blocks that are pulled per request whilst waiting for genesis.
@@ -43,7 +43,7 @@ impl Eth1GenesisService {
     /// Creates a new service. Does not attempt to connect to the Eth1 node.
     ///
     /// Modifies the given `config` to make it more suitable to the task of listening to genesis.
-    pub fn new(config: Eth1Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
+    pub fn new(config: Eth1Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
         let config = Eth1Config {
             // Truncating the block cache makes searching for genesis more
             // complicated.
@@ -65,7 +65,7 @@ impl Eth1GenesisService {
         };
 
         Ok(Self {
-            eth1_service: Eth1Service::new(config, log, spec)
+            eth1_service: Eth1Service::new(config, spec)
                 .map_err(|e| format!("Failed to create eth1 service: {:?}", e))?,
             stats: Arc::new(Statistics {
                 highest_processed_block: AtomicU64::new(0),
@@ -103,15 +103,11 @@ impl Eth1GenesisService {
     ) -> Result<BeaconState<E>, String> {
         let eth1_service = &self.eth1_service;
         let spec = eth1_service.chain_spec();
-        let log = &eth1_service.log;
 
         let mut sync_blocks = false;
         let mut highest_processed_block = None;
 
-        info!(
-            log,
-            "Importing eth1 deposit logs";
-        );
+        info!("Importing eth1 deposit logs");
 
         loop {
             let update_result = eth1_service
@@ -120,11 +116,7 @@ impl Eth1GenesisService {
                 .map_err(|e| format!("{:?}", e));
 
             if let Err(e) = update_result {
-                error!(
-                    log,
-                    "Failed to update eth1 deposit cache";
-                    "error" => e
-                )
+                error!(error = e, "Failed to update eth1 deposit cache")
             }
 
             self.stats
@@ -135,19 +127,15 @@ impl Eth1GenesisService {
                 if let Some(viable_eth1_block) = self
                     .first_candidate_eth1_block(spec.min_genesis_active_validator_count as usize)
                 {
-                    info!(
-                        log,
-                        "Importing eth1 blocks";
-                    );
+                    info!("Importing eth1 blocks");
                     self.eth1_service.set_lowest_cached_block(viable_eth1_block);
                     sync_blocks = true
                 } else {
                     info!(
-                        log,
-                        "Waiting for more deposits";
-                        "min_genesis_active_validators" => spec.min_genesis_active_validator_count,
-                        "total_deposits" => eth1_service.deposit_cache_len(),
-                        "valid_deposits" => eth1_service.get_raw_valid_signature_count(),
+                        min_genesis_active_validators = spec.min_genesis_active_validator_count,
+                        total_deposits = eth1_service.deposit_cache_len(),
+                        valid_deposits = eth1_service.get_raw_valid_signature_count(),
+                        "Waiting for more deposits"
                     );
 
                     sleep(update_interval).await;
@@ -160,19 +148,17 @@ impl Eth1GenesisService {
             let blocks_imported = match eth1_service.update_block_cache(None).await {
                 Ok(outcome) => {
                     debug!(
-                        log,
-                        "Imported eth1 blocks";
-                        "latest_block_timestamp" => eth1_service.latest_block_timestamp(),
-                        "cache_head" => eth1_service.highest_safe_block(),
-                        "count" => outcome.blocks_imported,
+                        latest_block_timestamp = eth1_service.latest_block_timestamp(),
+                        cache_head = eth1_service.highest_safe_block(),
+                        count = outcome.blocks_imported,
+                        "Imported eth1 blocks"
                     );
                     outcome.blocks_imported
                 }
                 Err(e) => {
                     error!(
-                        log,
-                        "Failed to update eth1 block cache";
-                        "error" => format!("{:?}", e)
+                        error = ?e,
+                        "Failed to update eth1 block cache"
                     );
                     0
                 }
@@ -183,13 +169,12 @@ impl Eth1GenesisService {
                 self.scan_new_blocks::<E>(&mut highest_processed_block, spec)?
             {
                 info!(
-                    log,
-                    "Genesis ceremony complete";
-                    "genesis_validators" => genesis_state
+                    genesis_validators = genesis_state
                         .get_active_validator_indices(E::genesis_epoch(), spec)
                         .map_err(|e| format!("Genesis validators error: {:?}", e))?
                         .len(),
-                    "genesis_time" => genesis_state.genesis_time(),
+                    genesis_time = genesis_state.genesis_time(),
+                    "Genesis ceremony complete"
                 );
                 break Ok(genesis_state);
             }
@@ -207,21 +192,19 @@ impl Eth1GenesisService {
                 // Indicate that we are awaiting adequate active validators.
                 if (active_validator_count as u64) < spec.min_genesis_active_validator_count {
                     info!(
-                        log,
-                        "Waiting for more validators";
-                        "min_genesis_active_validators" => spec.min_genesis_active_validator_count,
-                        "active_validators" => active_validator_count,
-                        "total_deposits" => total_deposit_count,
-                        "valid_deposits" => eth1_service.get_valid_signature_count().unwrap_or(0),
+                        min_genesis_active_validators = spec.min_genesis_active_validator_count,
+                        active_validators = active_validator_count,
+                        total_deposits = total_deposit_count,
+                        valid_deposits = eth1_service.get_valid_signature_count().unwrap_or(0),
+                        "Waiting for more validators"
                     );
                 }
             } else {
                 info!(
-                    log,
-                    "Waiting for adequate eth1 timestamp";
-                    "genesis_delay" => spec.genesis_delay,
-                    "genesis_time" => spec.min_genesis_time,
-                    "latest_eth1_timestamp" => latest_timestamp,
+                    genesis_delay = spec.genesis_delay,
+                    genesis_time = spec.min_genesis_time,
+                    latest_eth1_timestamp = latest_timestamp,
+                    "Waiting for adequate eth1 timestamp"
                 );
             }
 
@@ -253,7 +236,6 @@ impl Eth1GenesisService {
         spec: &ChainSpec,
     ) -> Result<Option<BeaconState<E>>, String> {
         let eth1_service = &self.eth1_service;
-        let log = &eth1_service.log;
 
         for block in eth1_service.blocks().read().iter() {
             // It's possible that the block and deposit caches aren't synced. Ignore any blocks
@@ -286,12 +268,11 @@ impl Eth1GenesisService {
             // Ignore any block with an insufficient timestamp.
             if !timestamp_can_trigger_genesis(block.timestamp, spec)? {
                 trace!(
-                    log,
-                    "Insufficient block timestamp";
-                    "genesis_delay" => spec.genesis_delay,
-                    "min_genesis_time" => spec.min_genesis_time,
-                    "eth1_block_timestamp" => block.timestamp,
-                    "eth1_block_number" => block.number,
+                    genesis_delay = spec.genesis_delay,
+                    min_genesis_time = spec.min_genesis_time,
+                    eth1_block_timestamp = block.timestamp,
+                    eth1_block_number = block.number,
+                    "Insufficient block timestamp"
                 );
                 continue;
             }
@@ -301,12 +282,11 @@ impl Eth1GenesisService {
                 .unwrap_or(0);
             if (valid_signature_count as u64) < spec.min_genesis_active_validator_count {
                 trace!(
-                    log,
-                    "Insufficient valid signatures";
-                    "genesis_delay" => spec.genesis_delay,
-                    "valid_signature_count" => valid_signature_count,
-                    "min_validator_count" => spec.min_genesis_active_validator_count,
-                    "eth1_block_number" => block.number,
+                    genesis_delay = spec.genesis_delay,
+                    valid_signature_count = valid_signature_count,
+                    min_validator_count = spec.min_genesis_active_validator_count,
+                    eth1_block_number = block.number,
+                    "Insufficient valid signatures"
                 );
                 continue;
             }
@@ -333,11 +313,11 @@ impl Eth1GenesisService {
                 return Ok(Some(genesis_state));
             } else {
                 trace!(
-                    log,
-                    "Insufficient active validators";
-                    "min_genesis_active_validator_count" => format!("{}", spec.min_genesis_active_validator_count),
-                    "active_validators" => active_validator_count,
-                    "eth1_block_number" => block.number,
+                    min_genesis_active_validator_count =
+                        format!("{}", spec.min_genesis_active_validator_count),
+                    active_validators = active_validator_count,
+                    eth1_block_number = block.number,
+                    "Insufficient active validators"
                 );
             }
         }
