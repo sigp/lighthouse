@@ -298,8 +298,13 @@ where
             .get_blinded_block(&chain.genesis_block_root)
             .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
+        // We're resuming from some state in the db so it makes sense to cache it.
         let genesis_state = store
-            .get_state(&genesis_block.state_root(), Some(genesis_block.slot()))
+            .get_state(
+                &genesis_block.state_root(),
+                Some(genesis_block.slot()),
+                true,
+            )
             .map_err(|e| descriptive_db_error("genesis state", &e))?
             .ok_or("Genesis state not found in store")?;
 
@@ -842,10 +847,31 @@ where
             ));
         }
 
-        let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&head_snapshot.beacon_state, store.clone())
-                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
-        })?;
+        let validator_pubkey_cache = self
+            .validator_pubkey_cache
+            .map(|mut validator_pubkey_cache| {
+                // If any validators weren't persisted to disk on previous runs, this will use the head state to
+                // "top-up" the in-memory validator cache and its on-disk representation with any missing validators.
+                let pubkey_store_ops = validator_pubkey_cache
+                    .import_new_pubkeys(&head_snapshot.beacon_state)
+                    .map_err(|e| format!("Unable to top-up persisted pubkey cache {:?}", e))?;
+                if !pubkey_store_ops.is_empty() {
+                    // Write any missed validators to disk
+                    debug!(
+                        store.log,
+                        "Topping up validator pubkey cache";
+                        "missing_validators" => pubkey_store_ops.len()
+                    );
+                    store
+                        .do_atomically_with_block_and_blobs_cache(pubkey_store_ops)
+                        .map_err(|e| format!("Unable to write pubkeys to disk {:?}", e))?;
+                }
+                Ok(validator_pubkey_cache)
+            })
+            .unwrap_or_else(|| {
+                ValidatorPubkeyCache::new(&head_snapshot.beacon_state, store.clone())
+                    .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
+            })?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
         let store_migrator = BackgroundMigrator::new(

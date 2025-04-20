@@ -61,6 +61,7 @@ pub enum BeaconChainError {
     ForkChoiceStoreError(ForkChoiceStoreError),
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
+    MissingHotStateSummary(Hash256),
     SlotProcessingError(SlotProcessingError),
     EpochProcessingError(EpochProcessingError),
     StateAdvanceError(StateAdvanceError),
@@ -181,9 +182,9 @@ pub enum BeaconChainError {
         execution_block_hash: Option<ExecutionBlockHash>,
     },
     ForkchoiceUpdate(execution_layer::Error),
-    FinalizedCheckpointMismatch {
-        head_state: Checkpoint,
-        fork_choice: Hash256,
+    InvalidCheckpoint {
+        state_root: Hash256,
+        checkpoint: Checkpoint,
     },
     InvalidSlot(Slot),
     HeadBlockNotFullyVerified {

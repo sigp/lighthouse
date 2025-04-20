@@ -20,6 +20,7 @@ use derivative::Derivative;
 use either::Either;
 use futures::Stream;
 use futures_util::StreamExt;
+use lighthouse::StandardBlockReward;
 use lighthouse_network::PeerId;
 use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
@@ -817,6 +818,26 @@ impl BeaconNodeHttpClient {
             .push("states")
             .push(&state_id.to_string())
             .push("pending_partial_withdrawals");
+
+        self.get_opt(path).await
+    }
+
+    /// `GET beacon/states/{state_id}/pending_consolidations`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_pending_consolidations(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingConsolidation>>>, Error>
+    {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("pending_consolidations");
 
         self.get_opt(path).await
     }
@@ -1657,17 +1678,18 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET beacon/rewards/blocks`
-    pub async fn get_beacon_rewards_blocks(&self, epoch: Epoch) -> Result<(), Error> {
+    pub async fn get_beacon_rewards_blocks(
+        &self,
+        block_id: BlockId,
+    ) -> Result<GenericResponse<StandardBlockReward>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("rewards")
-            .push("blocks");
-
-        path.query_pairs_mut()
-            .append_pair("epoch", &epoch.to_string());
+            .push("blocks")
+            .push(&block_id.to_string());
 
         self.get(path).await
     }

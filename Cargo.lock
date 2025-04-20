@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "7.0.0-beta.0"
+version = "7.0.0-beta.7"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -1108,7 +1108,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "7.0.0-beta.0"
+version = "7.0.0-beta.7"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -1696,9 +1696,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.14"
+version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06ba6d68e24814cb8de6bb986db8222d3a027d15872cabc0d18817bc3c0e4471"
+checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -2615,6 +2615,7 @@ dependencies = [
  "mediatype",
  "pretty_reqwest_error",
  "proto_array",
+ "rand 0.8.5",
  "reqwest",
  "reqwest-eventsource",
  "sensitive_url",
@@ -2623,6 +2624,7 @@ dependencies = [
  "slashing_protection",
  "ssz_types",
  "store",
+ "test_random_derive",
  "tokio",
  "types",
  "zeroize",
@@ -4811,7 +4813,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "7.0.0-beta.0"
+version = "7.0.0-beta.7"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5366,7 +5368,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "7.0.0-beta.0"
+version = "7.0.0-beta.7"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -6336,9 +6338,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.70"
+version = "0.10.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61cfb4e166a8bb8c9b55c500bc2308550148ece889be90f609377e58140f42c6"
+checksum = "fedfea7d58a1f73118430a55da6a286e7b044961736ce96a16a17068ea25e5da"
 dependencies = [
  "bitflags 2.8.0",
  "cfg-if",
@@ -6377,9 +6379,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.105"
+version = "0.9.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b22d5b84be05a8d6947c7cb71f7c849aa0f112acd4bf51c2a7c1c988ac0a9dc"
+checksum = "8288979acd84749c744a9014b4382d42b8f7b2592847b5afb2ed29e5d16ede07"
 dependencies = [
  "cc",
  "libc",
@@ -7457,9 +7459,9 @@ dependencies = [
 
 [[package]]
 name = "ring"
-version = "0.17.13"
+version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70ac5d832aa16abd7d1def883a8545280c20a60f523a370aa3a9617c2b8550ee"
+checksum = "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7"
 dependencies = [
  "cc",
  "cfg-if",
@@ -10760,7 +10762,7 @@ dependencies = [
 [[package]]
 name = "xdelta3"
 version = "0.1.5"
-source = "git+http://github.com/sigp/xdelta3-rs?rev=50d63cdf1878e5cf3538e9aae5eed34a22c64e4a#50d63cdf1878e5cf3538e9aae5eed34a22c64e4a"
+source = "git+http://github.com/sigp/xdelta3-rs?rev=4db64086bb02e9febb584ba93b9d16bb2ae3825a#4db64086bb02e9febb584ba93b9d16bb2ae3825a"
 dependencies = [
  "bindgen",
  "cc",

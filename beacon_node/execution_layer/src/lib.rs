@@ -209,6 +209,7 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         /// `None` for blinded `PayloadAndBlobs`.
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
         // TODO(electra): this should probably be a separate variant/superstruct
+        // See: https://github.com/sigp/lighthouse/issues/6981
         requests: Option<ExecutionRequests<E>>,
     },
 }
@@ -1710,7 +1711,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ///
     /// - `Some(true)` if the given `block_hash` is the terminal proof-of-work block.
     /// - `Some(false)` if the given `block_hash` is certainly *not* the terminal proof-of-work
-    ///     block.
+    ///   block.
     /// - `None` if the `block_hash` or its parent were not present on the execution engine.
     /// - `Err(_)` if there was an error connecting to the execution engine.
     ///

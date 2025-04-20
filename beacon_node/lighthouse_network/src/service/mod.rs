@@ -224,7 +224,7 @@ impl<E: EthSpec> Network<E> {
 
         let gossipsub_config_params = GossipsubConfigParams {
             message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
-            gossip_max_size: ctx.chain_spec.gossip_max_size as usize,
+            gossipsub_max_transmit_size: ctx.chain_spec.max_message_size(),
         };
         let gs_config = gossipsub_config(
             config.network_load,
@@ -310,7 +310,9 @@ impl<E: EthSpec> Network<E> {
                 )
             });
 
-            let snappy_transform = SnappyTransform::new(gs_config.max_transmit_size());
+            let spec = &ctx.chain_spec;
+            let snappy_transform =
+                SnappyTransform::new(spec.max_payload_size as usize, spec.max_compressed_len());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
                 MessageAuthenticity::Anonymous,
                 gs_config.clone(),
@@ -349,7 +351,7 @@ impl<E: EthSpec> Network<E> {
         };
 
         let network_params = NetworkParams {
-            max_chunk_size: ctx.chain_spec.max_chunk_size as usize,
+            max_payload_size: ctx.chain_spec.max_payload_size as usize,
             ttfb_timeout: ctx.chain_spec.ttfb_timeout(),
             resp_timeout: ctx.chain_spec.resp_timeout(),
         };
@@ -1234,6 +1236,21 @@ impl<E: EthSpec> Network<E> {
                 debug!(self.log, "Added cached ENR peer to dial queue"; "peer_id" => %peer_id);
             }
         }
+    }
+
+    /// Adds the given `enr` to the trusted peers mapping and tries to dial it
+    /// every heartbeat to maintain the connection.
+    pub fn dial_trusted_peer(&mut self, enr: Enr) {
+        self.peer_manager_mut().add_trusted_peer(enr.clone());
+        self.peer_manager_mut().dial_peer(enr);
+    }
+
+    /// Remove the given peer from the trusted peers mapping if it exists and disconnect
+    /// from it.
+    pub fn remove_trusted_peer(&mut self, enr: Enr) {
+        self.peer_manager_mut().remove_trusted_peer(enr.clone());
+        self.peer_manager_mut()
+            .disconnect_peer(enr.peer_id(), GoodbyeReason::TooManyPeers);
     }
 
     /* Sub-behaviour event handling functions */

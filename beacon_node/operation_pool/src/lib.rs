@@ -1,5 +1,5 @@
 mod attestation;
-mod attestation_storage;
+pub mod attestation_storage;
 mod attester_slashing;
 mod bls_to_execution_changes;
 mod max_cover;
@@ -47,7 +47,7 @@ type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeCon
 #[derive(Default, Debug)]
 pub struct OperationPool<E: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
-    attestations: RwLock<AttestationMap<E>>,
+    pub attestations: RwLock<AttestationMap<E>>,
     /// Map from sync aggregate ID to the best `SyncCommitteeContribution`s seen for that ID.
     sync_contributions: SyncContributions<E>,
     /// Set of attester slashings, and the fork version they were verified against.
@@ -673,12 +673,12 @@ impl<E: EthSpec> OperationPool<E> {
     /// This method may return objects that are invalid for block inclusion.
     pub fn get_filtered_attestations<F>(&self, filter: F) -> Vec<Attestation<E>>
     where
-        F: Fn(&AttestationData) -> bool,
+        F: Fn(&AttestationData, HashSet<u64>) -> bool,
     {
         self.attestations
             .read()
             .iter()
-            .filter(|att| filter(&att.attestation_data()))
+            .filter(|att| filter(&att.attestation_data(), att.get_committee_indices_map()))
             .map(|att| att.clone_as_attestation())
             .collect()
     }

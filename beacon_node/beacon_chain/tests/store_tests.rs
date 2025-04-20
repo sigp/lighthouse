@@ -39,6 +39,9 @@ use types::*;
 pub const LOW_VALIDATOR_COUNT: usize = 24;
 pub const HIGH_VALIDATOR_COUNT: usize = 64;
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(HIGH_VALIDATOR_COUNT));
@@ -758,6 +761,7 @@ async fn delete_blocks_and_states() {
         .get_state(
             &faulty_head_block.state_root(),
             Some(faulty_head_block.slot()),
+            CACHE_STATE_IN_TESTS,
         )
         .expect("no db error")
         .expect("faulty head state exists");
@@ -771,7 +775,12 @@ async fn delete_blocks_and_states() {
             break;
         }
         store.delete_state(&state_root, slot).unwrap();
-        assert_eq!(store.get_state(&state_root, Some(slot)).unwrap(), None);
+        assert_eq!(
+            store
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+                .unwrap(),
+            None
+        );
     }
 
     // Double-deleting should also be OK (deleting non-existent things is fine)
@@ -1055,7 +1064,11 @@ fn get_state_for_block(harness: &TestHarness, block_root: Hash256) -> BeaconStat
         .unwrap();
     harness
         .chain
-        .get_state(&head_block.state_root(), Some(head_block.slot()))
+        .get_state(
+            &head_block.state_root(),
+            Some(head_block.slot()),
+            CACHE_STATE_IN_TESTS,
+        )
         .unwrap()
         .unwrap()
 }
@@ -1892,7 +1905,10 @@ fn check_all_states_exist<'a>(
     states: impl Iterator<Item = &'a BeaconStateHash>,
 ) {
     for &state_hash in states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
+        let state = harness
+            .chain
+            .get_state(&state_hash.into(), None, CACHE_STATE_IN_TESTS)
+            .unwrap();
         assert!(
             state.is_some(),
             "expected state {:?} to be in DB",
@@ -1910,7 +1926,7 @@ fn check_no_states_exist<'a>(
         assert!(
             harness
                 .chain
-                .get_state(&state_root.into(), None)
+                .get_state(&state_root.into(), None, CACHE_STATE_IN_TESTS)
                 .unwrap()
                 .is_none(),
             "state {:?} should not be in the DB",
@@ -2344,7 +2360,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .get_or_reconstruct_blobs(&wss_block_root)
         .unwrap();
     let wss_state = full_store
-        .get_state(&wss_state_root, Some(checkpoint_slot))
+        .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
         .unwrap()
         .unwrap();
 
@@ -2460,7 +2476,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         // Check that the new block's state can be loaded correctly.
         let mut state = beacon_chain
             .store
-            .get_state(&state_root, Some(slot))
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
@@ -2594,7 +2610,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .unwrap()
         .map(Result::unwrap)
     {
-        let mut state = store.get_state(&state_root, Some(slot)).unwrap().unwrap();
+        let mut state = store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .unwrap();
         assert_eq!(state.slot(), slot);
         assert_eq!(state.canonical_root().unwrap(), state_root);
     }
@@ -3424,9 +3443,10 @@ async fn prune_historic_states() {
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let genesis_state_root = harness.chain.genesis_state_root;
+
     let genesis_state = harness
         .chain
-        .get_state(&genesis_state_root, None)
+        .get_state(&genesis_state_root, None, CACHE_STATE_IN_TESTS)
         .unwrap()
         .unwrap();
 
@@ -3447,7 +3467,10 @@ async fn prune_historic_states() {
         .map(Result::unwrap)
         .collect::<Vec<_>>();
     for &(state_root, slot) in &first_epoch_state_roots {
-        assert!(store.get_state(&state_root, Some(slot)).unwrap().is_some());
+        assert!(store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .is_some());
     }
 
     store
@@ -3462,7 +3485,10 @@ async fn prune_historic_states() {
     // Ensure all epoch 0 states other than the genesis have been pruned.
     for &(state_root, slot) in &first_epoch_state_roots {
         assert_eq!(
-            store.get_state(&state_root, Some(slot)).unwrap().is_some(),
+            store
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+                .unwrap()
+                .is_some(),
             slot == 0
         );
     }
@@ -3588,7 +3614,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
             harness
                 .chain
                 .store
-                .get_state(&checkpoint.beacon_state_root(), None)
+                .get_state(&checkpoint.beacon_state_root(), None, CACHE_STATE_IN_TESTS)
                 .expect("no error")
                 .expect("state exists")
                 .slot(),
@@ -3650,7 +3676,7 @@ fn check_iterators(harness: &TestHarness) {
             harness
                 .chain
                 .store
-                .get_state(&state_root, Some(slot))
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
                 .unwrap()
                 .is_some(),
             "state {:?} from canonical chain should be in DB",

@@ -463,6 +463,12 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.epochs_per_migration = epochs_per_migration;
     }
 
+    if let Some(state_cache_headroom) =
+        clap_utils::parse_optional(cli_args, "state-cache-headroom")?
+    {
+        client_config.store.state_cache_headroom = state_cache_headroom;
+    }
+
     if let Some(prune_blobs) = clap_utils::parse_optional(cli_args, "prune-blobs")? {
         client_config.store.prune_blobs = prune_blobs;
     }
@@ -669,10 +675,7 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
-    client_config.chain.max_network_size = lighthouse_network::gossip_max_size(
-        spec.bellatrix_fork_epoch.is_some(),
-        spec.gossip_max_size as usize,
-    );
+    client_config.chain.max_network_size = spec.max_payload_size as usize;
 
     if cli_args.get_flag("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.get_one::<String>("slasher-dir") {
