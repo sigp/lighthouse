@@ -5,12 +5,17 @@ use crate::*;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_yaml::Value;
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
 use tree_hash::TreeHash;
+use std::collections::HashMap;
+
+/// When a new field is intended to be allowed for a future fork, simply add it to this list
+pub const FUTURE_FIELDS: [&str; 1] = ["future_field_test"];
 
 /// Each of the BLS signature domains.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -1364,6 +1369,7 @@ impl Default for ChainSpec {
 /// make `Config` a superstruct because of the hassle of deserializing an untagged enum.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
+
 pub struct Config {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1372,12 +1378,9 @@ pub struct Config {
     #[serde(default)]
     pub preset_base: String,
 
-    #[serde(default = "default_terminal_total_difficulty")]
     #[serde(with = "serde_utils::quoted_u256")]
     pub terminal_total_difficulty: Uint256,
-    #[serde(default = "default_terminal_block_hash")]
     pub terminal_block_hash: ExecutionBlockHash,
-    #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
 
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1395,7 +1398,6 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(default = "default_bellatrix_fork_version")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     bellatrix_fork_version: [u8; 4],
     #[serde(default)]
@@ -1403,7 +1405,6 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(default = "default_capella_fork_version")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     capella_fork_version: [u8; 4],
     #[serde(default)]
@@ -1411,7 +1412,6 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub capella_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(default = "default_deneb_fork_version")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     deneb_fork_version: [u8; 4],
     #[serde(default)]
@@ -1419,7 +1419,6 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub deneb_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(default = "default_electra_fork_version")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     electra_fork_version: [u8; 4],
     #[serde(default)]
@@ -1427,7 +1426,6 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub electra_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    #[serde(default = "default_fulu_fork_version")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     fulu_fork_version: [u8; 4],
     #[serde(default)]
@@ -1445,7 +1443,6 @@ pub struct Config {
     shard_committee_period: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     eth1_follow_distance: u64,
-    #[serde(default = "default_subnets_per_node")]
     #[serde(with = "serde_utils::quoted_u8")]
     subnets_per_node: u8,
 
@@ -1457,7 +1454,6 @@ pub struct Config {
     ejection_balance: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit: u64,
-    #[serde(default = "default_max_per_epoch_activation_churn_limit")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_churn_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1473,154 +1469,73 @@ pub struct Config {
     #[serde(with = "serde_utils::address_hex")]
     deposit_contract_address: Address,
 
-    #[serde(default = "default_gas_limit_adjustment_factor")]
     #[serde(with = "serde_utils::quoted_u64")]
     gas_limit_adjustment_factor: u64,
 
-    #[serde(default = "default_max_payload_size")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_payload_size: u64,
-    #[serde(default = "default_max_request_blocks")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks: u64,
-    #[serde(default = "default_min_epochs_for_block_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_block_requests: u64,
-    #[serde(default = "default_ttfb_timeout")]
     #[serde(with = "serde_utils::quoted_u64")]
     ttfb_timeout: u64,
-    #[serde(default = "default_resp_timeout")]
     #[serde(with = "serde_utils::quoted_u64")]
     resp_timeout: u64,
-    #[serde(default = "default_attestation_propagation_slot_range")]
     #[serde(with = "serde_utils::quoted_u64")]
     attestation_propagation_slot_range: u64,
-    #[serde(default = "default_maximum_gossip_clock_disparity_millis")]
     #[serde(with = "serde_utils::quoted_u64")]
     maximum_gossip_clock_disparity_millis: u64,
-    #[serde(default = "default_message_domain_invalid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_invalid_snappy: [u8; 4],
-    #[serde(default = "default_message_domain_valid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_valid_snappy: [u8; 4],
-    #[serde(default = "default_attestation_subnet_prefix_bits")]
     #[serde(with = "serde_utils::quoted_u8")]
     attestation_subnet_prefix_bits: u8,
-    #[serde(default = "default_max_request_blocks_deneb")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks_deneb: u64,
-    #[serde(default = "default_max_request_blob_sidecars")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blob_sidecars: u64,
-    #[serde(default = "default_max_request_data_column_sidecars")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_data_column_sidecars: u64,
-    #[serde(default = "default_min_epochs_for_blob_sidecars_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_blob_sidecars_requests: u64,
-    #[serde(default = "default_blob_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     blob_sidecar_subnet_count: u64,
-    #[serde(default = "default_max_blobs_per_block")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_blobs_per_block: u64,
 
-    #[serde(default = "default_min_per_epoch_churn_limit_electra")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_per_epoch_churn_limit_electra: u64,
-    #[serde(default = "default_max_per_epoch_activation_exit_churn_limit")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_exit_churn_limit: u64,
-    #[serde(default = "default_max_blobs_per_block_electra")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_blobs_per_block_electra: u64,
-    #[serde(default = "default_blob_sidecar_subnet_count_electra")]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_sidecar_subnet_count_electra: u64,
-    #[serde(default = "default_max_request_blob_sidecars_electra")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blob_sidecars_electra: u64,
 
-    #[serde(default = "default_number_of_columns")]
     #[serde(with = "serde_utils::quoted_u64")]
     number_of_columns: u64,
-    #[serde(default = "default_number_of_custody_groups")]
     #[serde(with = "serde_utils::quoted_u64")]
     number_of_custody_groups: u64,
-    #[serde(default = "default_data_column_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     data_column_sidecar_subnet_count: u64,
-    #[serde(default = "default_samples_per_slot")]
     #[serde(with = "serde_utils::quoted_u64")]
     samples_per_slot: u64,
-    #[serde(default = "default_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
-    #[serde(default = "default_max_blobs_per_block_fulu")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_blobs_per_block_fulu: u64,
-}
 
-fn default_bellatrix_fork_version() -> [u8; 4] {
-    // This value shouldn't be used.
-    [0xff, 0xff, 0xff, 0xff]
-}
-
-fn default_capella_fork_version() -> [u8; 4] {
-    // TODO: determine if the bellatrix example should be copied like this
-    [0xff, 0xff, 0xff, 0xff]
-}
-
-fn default_deneb_fork_version() -> [u8; 4] {
-    // This value shouldn't be used.
-    [0xff, 0xff, 0xff, 0xff]
-}
-
-fn default_electra_fork_version() -> [u8; 4] {
-    // This value shouldn't be used.
-    [0xff, 0xff, 0xff, 0xff]
-}
-
-fn default_fulu_fork_version() -> [u8; 4] {
-    // This value shouldn't be used.
-    [0xff, 0xff, 0xff, 0xff]
-}
-
-/// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
-///
-/// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
-const fn default_terminal_total_difficulty() -> Uint256 {
-    Uint256::from_limbs([
-        18446744073709550592,
-        18446744073709551615,
-        18446744073709551615,
-        18446744073709551615,
-    ])
-}
-
-fn default_terminal_block_hash() -> ExecutionBlockHash {
-    ExecutionBlockHash::zero()
-}
-
-fn default_terminal_block_hash_activation_epoch() -> Epoch {
-    Epoch::new(u64::MAX)
-}
-
-fn default_subnets_per_node() -> u8 {
-    2u8
+    // For future forks
+    #[serde(flatten)]
+    future_fields: HashMap<String, Value>
 }
 
 fn default_attestation_subnet_prefix_bits() -> u8 {
     6
-}
-
-const fn default_max_per_epoch_activation_churn_limit() -> u64 {
-    8
-}
-
-const fn default_gas_limit_adjustment_factor() -> u64 {
-    1024
 }
 
 const fn default_max_payload_size() -> u64 {
@@ -1685,14 +1600,6 @@ const fn default_max_request_blob_sidecars_electra() -> u64 {
     1152
 }
 
-const fn default_min_per_epoch_churn_limit_electra() -> u64 {
-    128_000_000_000
-}
-
-const fn default_max_per_epoch_activation_exit_churn_limit() -> u64 {
-    256_000_000_000
-}
-
 const fn default_max_blobs_per_block_electra() -> u64 {
     9
 }
@@ -1707,26 +1614,6 @@ const fn default_attestation_propagation_slot_range() -> u64 {
 
 const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
     500
-}
-
-const fn default_custody_requirement() -> u64 {
-    4
-}
-
-const fn default_data_column_sidecar_subnet_count() -> u64 {
-    128
-}
-
-const fn default_number_of_columns() -> u64 {
-    128
-}
-
-const fn default_number_of_custody_groups() -> u64 {
-    128
-}
-
-const fn default_samples_per_slot() -> u64 {
-    8
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -1833,6 +1720,18 @@ impl Config {
         }
     }
 
+    /// As discussed previously, sometimes configs contain extra fields for future forks
+    /// This is intended to check those extra fields to see if it's for a future fork or not
+    pub fn validate_extra_fields(&self) -> Result<(), String> {
+        for key in self.future_fields.keys() {
+            if !FUTURE_FIELDS.contains(&key.as_str()) {
+                return Err(format!("Unknown or disallowed field found: {}", key));
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             config_name: spec.config_name.clone(),
@@ -1929,6 +1828,7 @@ impl Config {
             samples_per_slot: spec.samples_per_slot,
             custody_requirement: spec.custody_requirement,
             max_blobs_per_block_fulu: spec.max_blobs_per_block_fulu,
+            future_fields: HashMap::new()
         }
     }
 
@@ -2008,6 +1908,7 @@ impl Config {
             samples_per_slot,
             custody_requirement,
             max_blobs_per_block_fulu,
+            future_fields: _,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2350,10 +2251,6 @@ mod yaml_tests {
             };
         }
 
-        check_default!(terminal_total_difficulty);
-        check_default!(terminal_block_hash);
-        check_default!(terminal_block_hash_activation_epoch);
-        check_default!(bellatrix_fork_version);
         check_default!(max_payload_size);
         check_default!(min_epochs_for_block_requests);
         check_default!(ttfb_timeout);
@@ -2363,15 +2260,6 @@ mod yaml_tests {
         check_default!(attestation_subnet_prefix_bits);
 
         assert_eq!(chain_spec.bellatrix_fork_epoch, None);
-    }
-
-    #[test]
-    fn test_total_terminal_difficulty() {
-        assert_eq!(
-            Ok(default_terminal_total_difficulty()),
-            "115792089237316195423570985008687907853269984665640564039457584007913129638912"
-                .parse()
-        );
     }
 
     #[test]

@@ -342,7 +342,8 @@ impl Eth2NetworkConfig {
 
         let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
         let boot_enr = optional_load_from_file!(BOOT_ENR_FILE);
-        let config = load_from_file!(BASE_CONFIG_FILE);
+        let config: Config = load_from_file!(BASE_CONFIG_FILE);
+        config.validate_extra_fields()?;
 
         // The genesis state is a special case because it uses SSZ, not YAML.
         let genesis_file_path = base_dir.join(GENESIS_STATE_FILE);
