@@ -23,8 +23,7 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --gas-limit <UINT64>
           When provided, the imported validator will use this gas limit. It is
           recommended to leave this as the default value by not specifying this
@@ -37,7 +36,7 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --keystore-file <PATH_TO_KEYSTORE_FILE>
           The path to a keystore JSON file to be imported to the validator
           client. This file is usually created using staking-deposit-cli or
@@ -47,7 +46,7 @@ Options:
           [possible values: JSON]
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
       --logfile-dir <DIR>
           Directory path where the log file will be stored
       --logfile-format <FORMAT>
@@ -61,7 +60,7 @@ Options:
           set to 0, background file logging is disabled. [default: 200]
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky, hoodi]
       --password <STRING>
           Password of the keystore file.
       --prefer-builder-proposals <prefer-builder-proposals>

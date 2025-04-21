@@ -56,8 +56,10 @@ pub fn get_state_before_applying_block<T: BeaconChainTypes>(
         })
         .map_err(|e| custom_not_found(format!("Parent block is not available! {:?}", e)))?;
 
+    // We are about to apply a new block to the chain. It's parent state
+    // is a useful/recent state, we elect to cache it.
     let parent_state = chain
-        .get_state(&parent_block.state_root(), Some(parent_block.slot()))
+        .get_state(&parent_block.state_root(), Some(parent_block.slot()), true)
         .and_then(|maybe_state| {
             maybe_state
                 .ok_or_else(|| BeaconChainError::MissingBeaconState(parent_block.state_root()))

@@ -78,8 +78,7 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --discovery-port <PORT>
           The UDP port that discovery will listen on. Defaults to `port`
       --discovery-port6 <PORT>
@@ -118,7 +117,7 @@ Options:
       --epochs-per-blob-prune <EPOCHS>
           The epoch interval with which to prune blobs from Lighthouse's
           database when they are older than the data availability boundary
-          relative to the current epoch. [default: 1]
+          relative to the current epoch. [default: 256]
       --epochs-per-migration <N>
           The number of epochs to wait between running the migration of data
           from the hot DB to the cold DB. Less frequent runs can be useful for
@@ -167,7 +166,7 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
@@ -247,7 +246,7 @@ Options:
           [possible values: JSON]
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
       --logfile-dir <DIR>
           Directory path where the log file will be stored
       --logfile-format <FORMAT>
@@ -286,7 +285,7 @@ Options:
           monitoring-endpoint. Default: 60s
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky, hoodi]
       --network-dir <DIR>
           Data directory for network keys. Defaults to network/ inside the
           beacon node dir.
@@ -381,8 +380,11 @@ Options:
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
           DEPRECATED. This flag has no effect.
+      --state-cache-headroom <N>
+          Minimum number of states to cull from the state cache when it gets
+          full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 128]
+          Specifies the size of the state cache [default: 32]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the

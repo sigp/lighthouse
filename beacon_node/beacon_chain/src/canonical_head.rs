@@ -53,7 +53,7 @@ use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{iter::StateRootsIterator, KeyValueStoreOp, StoreItem};
+use store::{iter::StateRootsIterator, KeyValueStore, KeyValueStoreOp, StoreItem};
 use task_executor::{JoinHandle, ShutdownReason};
 use tracing::{debug, error, info, warn};
 use types::*;
@@ -773,6 +773,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_status
             .is_optimistic_or_invalid();
 
+        // Update the state cache so it doesn't mistakenly prune the new head.
+        self.store
+            .state_cache
+            .lock()
+            .update_head_block_root(new_cached_head.head_block_root());
+
         // Detect and potentially report any re-orgs.
         let reorg_distance = detect_reorg(
             &old_snapshot.beacon_state,
@@ -834,7 +840,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         if is_epoch_transition || reorg_distance.is_some() {
-            self.persist_head_and_fork_choice()?;
+            self.persist_fork_choice()?;
             self.op_pool.prune_attestations(self.epoch()?);
         }
 
@@ -977,7 +983,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store_migrator.process_finalization(
             new_finalized_state_root.into(),
             new_view.finalized_checkpoint,
-            self.head_tracker.clone(),
         )?;
 
         // Prune blobs in the background.
@@ -989,6 +994,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;
 
+        Ok(())
+    }
+
+    /// Persist fork choice to disk, writing immediately.
+    pub fn persist_fork_choice(&self) -> Result<(), Error> {
+        let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+        let batch = vec![self.persist_fork_choice_in_batch()];
+        self.store.hot_db.do_atomically(batch)?;
         Ok(())
     }
 
