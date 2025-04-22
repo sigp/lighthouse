@@ -13,6 +13,9 @@ use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::Layer;
 
+const FIXED_MESSAGE_WIDTH: usize = 44;
+const ALIGNED_LEVEL_WIDTH: usize = 5;
+
 pub struct LoggingLayer {
     pub non_blocking_writer: NonBlocking,
     _guard: WorkerGuard,
@@ -368,13 +371,18 @@ fn build_log_text<'a, S>(
         }
     }
 
-    let level_str = if use_color {
-        color_level_str
+    let pad = if plain_level_str.len() < ALIGNED_LEVEL_WIDTH {
+        " "
     } else {
-        plain_level_str
+        ""
     };
 
-    let fixed_message_width = 44;
+    let level_str = if use_color {
+        format!("{}{}", color_level_str, pad)
+    } else {
+        format!("{}{}", plain_level_str, pad)
+    };
+
     let message_len = visitor.message.len();
 
     let message_content = if use_color {
@@ -383,7 +391,7 @@ fn build_log_text<'a, S>(
         visitor.message.clone()
     };
 
-    let padded_message = if message_len < fixed_message_width {
+    let padded_message = if message_len < FIXED_MESSAGE_WIDTH {
         let extra_color_len = if use_color {
             bold_start.len() + bold_end.len()
         } else {
@@ -392,7 +400,7 @@ fn build_log_text<'a, S>(
         format!(
             "{:<width$}",
             message_content,
-            width = fixed_message_width + extra_color_len
+            width = FIXED_MESSAGE_WIDTH + extra_color_len
         )
     } else {
         message_content.clone()

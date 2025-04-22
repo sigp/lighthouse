@@ -2,6 +2,7 @@
 mod migration_schema_v20;
 mod migration_schema_v21;
 mod migration_schema_v22;
+mod migration_schema_v23;
 
 use crate::beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
@@ -56,6 +57,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             // This migration needs to sync data between hot and cold DBs. The schema version is
             // bumped inside the upgrade_to_v22 fn
             migration_schema_v22::upgrade_to_v22::<T>(db.clone(), genesis_state_root)
+        }
+        (SchemaVersion(22), SchemaVersion(23)) => {
+            let ops = migration_schema_v23::upgrade_to_v23::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(23), SchemaVersion(22)) => {
+            let ops = migration_schema_v23::downgrade_from_v23::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {

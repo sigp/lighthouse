@@ -23,7 +23,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use store::KeyValueStore;
 use task_executor::TaskExecutor;
 use tokio::time::{sleep, sleep_until, Instant};
 use tracing::{debug, error, warn};
@@ -297,7 +296,7 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
     // Protect against advancing a state more than a single slot.
     //
     // Advancing more than one slot without storing the intermediate state would corrupt the
-    // database. Future works might store temporary, intermediate states inside this function.
+    // database. Future works might store intermediate states inside this function.
     match state.slot().cmp(&state.latest_block_header().slot) {
         std::cmp::Ordering::Equal => (),
         std::cmp::Ordering::Greater => {
@@ -432,20 +431,13 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         );
     }
 
-    // Write the advanced state to the database with a temporary flag that will be deleted when
-    // a block is imported on top of this state. We should delete this once we bring in the DB
-    // changes from tree-states that allow us to prune states without temporary flags.
+    // Write the advanced state to the database.
+    // We no longer use a transaction lock here when checking whether the state exists, because
+    // even if we race with the deletion of this state by the finalization pruning code, the worst
+    // case is we end up with a finalized state stored, that will get pruned the next time pruning
+    // runs.
     let advanced_state_root = state.update_tree_hash_cache()?;
-    let txn_lock = beacon_chain.store.hot_db.begin_rw_transaction();
-    let state_already_exists = beacon_chain
-        .store
-        .load_hot_state_summary(&advanced_state_root)?
-        .is_some();
-    let temporary = !state_already_exists;
-    beacon_chain
-        .store
-        .put_state_possibly_temporary(&advanced_state_root, &state, temporary)?;
-    drop(txn_lock);
+    beacon_chain.store.put_state(&advanced_state_root, &state)?;
 
     debug!(
         ?head_block_root,

@@ -221,7 +221,7 @@ jobs:
                   |Non-Staking Users| <TODO>|---|
 
                   *See [Update
-                  Priorities](https://lighthouse-book.sigmaprime.io/installation-priorities.html)
+                  Priorities](https://lighthouse-book.sigmaprime.io/installation_priorities.html)
                   more information about this table.*
 
                   ## All Changes
@@ -230,7 +230,7 @@ jobs:
 
                   ## Binaries
 
-                  [See pre-built binaries documentation.](https://lighthouse-book.sigmaprime.io/installation-binaries.html)
+                  [See pre-built binaries documentation.](https://lighthouse-book.sigmaprime.io/installation_binaries.html)
 
                   The binaries are signed with Sigma Prime's PGP key: `15E66D941F697E28F49381F426416DC3F30674B0`
 

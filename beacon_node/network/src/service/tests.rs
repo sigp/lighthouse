@@ -117,7 +117,7 @@ fn test_removing_topic_weight_on_old_topics() {
             Arc::downgrade(&runtime),
             exit,
             shutdown_tx,
-            "test-removing-topic-weight-on-old-topics".to_string()
+            "test-removing-topic-weight-on-old-topics".to_string(),
         );
 
         let mut config = NetworkConfig::default();
