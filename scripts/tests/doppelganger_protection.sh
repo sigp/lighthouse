@@ -75,17 +75,27 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     service_name=vc-1-doppelganger
 
     kurtosis service add \
-      --files /validator_keys:$vc_1_keys_artifact_id,/testnet:el_cl_genesis_data \
-      $ENCLAVE_NAME $service_name $LH_IMAGE_NAME -- lighthouse \
-      vc \
-      --debug-level info \
-      --testnet-dir=/testnet \
-      --validators-dir=/validator_keys/keys \
-      --secrets-dir=/validator_keys/secrets \
-      --init-slashing-protection \
-      --beacon-nodes=http://$bn_2_url:$bn_2_port \
-      --enable-doppelganger-protection \
-      --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990
+      $ENCLAVE_NAME $service_name --json-service-config - <<EOF
+      {
+  "image": "$LH_IMAGE_NAME",
+  "files": {
+    "/validator_keys": ["$vc_1_keys_artifact_id"],
+    "/testnet": ["el_cl_genesis_data"]
+  },
+  "cmd": [
+    "lighthouse",
+    "vc",
+    "--debug-level", "info",
+    "--testnet-dir=/testnet",
+    "--validators-dir=/validator_keys/keys",
+    "--secrets-dir=/validator_keys/secrets",
+    "--init-slashing-protection",
+    "--beacon-nodes=http://$bn_2_url:$bn_2_port",
+    "--enable-doppelganger-protection",
+    "--suggested-fee-recipient", "0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990"
+  ]
+}
+EOF
 
     # Check if doppelganger VC has stopped and exited. Exit code 1 means the check timed out and VC is still running.
     check_exit_cmd="until [ \$(get_service_status $service_name) != 'RUNNING' ]; do sleep 1; done"
@@ -111,17 +121,27 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     service_name=vc-4
 
     kurtosis service add \
-          --files /validator_keys:$vc_4_keys_artifact_id,/testnet:el_cl_genesis_data \
-          $ENCLAVE_NAME $service_name $LH_IMAGE_NAME -- lighthouse \
-          vc \
-          --debug-level debug \
-          --testnet-dir=/testnet \
-          --validators-dir=/validator_keys/keys \
-          --secrets-dir=/validator_keys/secrets \
-          --init-slashing-protection \
-          --beacon-nodes=http://$bn_2_url:$bn_2_port \
-          --enable-doppelganger-protection \
-          --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990
+          $ENCLAVE_NAME $service_name --json-service-config - << EOF
+{
+  "image": "$LH_IMAGE_NAME",
+  "files": {
+    "/validator_keys": ["$vc_4_keys_artifact_id"],
+    "/testnet": ["el_cl_genesis_data"]
+  },
+  "cmd": [
+    "lighthouse",
+    "vc",
+    "--debug-level", "info",
+    "--testnet-dir=/testnet",
+    "--validators-dir=/validator_keys/keys",
+    "--secrets-dir=/validator_keys/secrets",
+    "--init-slashing-protection",
+    "--beacon-nodes=http://$bn_2_url:$bn_2_port",
+    "--enable-doppelganger-protection",
+    "--suggested-fee-recipient", "0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990"
+  ]
+}
+EOF
 
     doppelganger_failure=0
 
