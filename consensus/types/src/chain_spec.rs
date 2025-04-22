@@ -241,6 +241,11 @@ pub struct ChainSpec {
     max_request_blob_sidecars_electra: u64,
 
     /*
+     * Networking Fulu
+     */
+    max_blobs_per_block_fulu: u64,
+
+    /*
      * Networking Derived
      *
      * When adding fields here, make sure any values are derived again during `apply_to_chain_spec`.
@@ -655,7 +660,9 @@ impl ChainSpec {
 
     /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for `fork`.
     pub fn max_blobs_per_block_by_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name.electra_enabled() {
+        if fork_name.fulu_enabled() {
+            self.max_blobs_per_block_fulu
+        } else if fork_name.electra_enabled() {
             self.max_blobs_per_block_electra
         } else {
             self.max_blobs_per_block
@@ -993,6 +1000,11 @@ impl ChainSpec {
             max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
 
             /*
+             * Networking Fulu specific
+             */
+            max_blobs_per_block_fulu: default_max_blobs_per_block_fulu(),
+
+            /*
              * Application specific
              */
             domain_application_mask: APPLICATION_DOMAIN_BUILDER,
@@ -1322,6 +1334,11 @@ impl ChainSpec {
             max_request_blob_sidecars_electra: 256,
 
             /*
+             * Networking Fulu specific
+             */
+            max_blobs_per_block_fulu: default_max_blobs_per_block_fulu(),
+
+            /*
              * Application specific
              */
             domain_application_mask: APPLICATION_DOMAIN_BUILDER,
@@ -1540,6 +1557,9 @@ pub struct Config {
     #[serde(default = "default_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
+    #[serde(default = "default_max_blobs_per_block_fulu")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_blobs_per_block_fulu: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1675,6 +1695,10 @@ const fn default_max_per_epoch_activation_exit_churn_limit() -> u64 {
 
 const fn default_max_blobs_per_block_electra() -> u64 {
     9
+}
+
+const fn default_max_blobs_per_block_fulu() -> u64 {
+    12
 }
 
 const fn default_attestation_propagation_slot_range() -> u64 {
@@ -1904,6 +1928,7 @@ impl Config {
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
             samples_per_slot: spec.samples_per_slot,
             custody_requirement: spec.custody_requirement,
+            max_blobs_per_block_fulu: spec.max_blobs_per_block_fulu,
         }
     }
 
@@ -1982,6 +2007,7 @@ impl Config {
             data_column_sidecar_subnet_count,
             samples_per_slot,
             custody_requirement,
+            max_blobs_per_block_fulu,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2064,6 +2090,7 @@ impl Config {
             data_column_sidecar_subnet_count,
             samples_per_slot,
             custody_requirement,
+            max_blobs_per_block_fulu,
 
             ..chain_spec.clone()
         })
