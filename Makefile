@@ -70,8 +70,6 @@ build-aarch64:
 	# See: https://github.com/sigp/lighthouse/issues/5244
 	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-riscv64:
-	# cross release v0.2.5 is to old, build from sources 
-	cargo install cross --git https://github.com/cross-rs/cross 
 	cross build --bin lighthouse --target riscv64gc-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
 build-lcli-x86_64:
@@ -82,8 +80,6 @@ build-lcli-aarch64:
 	# See: https://github.com/sigp/lighthouse/issues/5244
 	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 build-lcli-riscv64:
-	# cross release v0.2.5 is to old, build from sources
-	cargo install cross --git https://github.com/cross-rs/cross
 	cross build --bin lcli --target riscv64gc-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 
 # Create a `.tar.gz` containing a binary for a specific target.
