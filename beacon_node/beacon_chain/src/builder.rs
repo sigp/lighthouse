@@ -816,6 +816,24 @@ where
             ));
         }
 
+        // Check if the store is within the weak subjectivity period
+        if let Some(ws_checkpoint) = self.chain_config.weak_subjectivity_checkpoint {
+            let Ok(finalized_block) = fork_choice.get_finalized_block() else {
+                panic!("TODO(ws)")
+            };
+            if !store.is_within_weak_subjectivity_period(
+                ws_checkpoint,
+                finalized_block.slot,
+                finalized_block.state_root,
+                head_snapshot
+                    .beacon_state
+                    .slot()
+                    .epoch(E::slots_per_epoch()),
+            ) {
+                panic!("TODO(ws)")
+            }
+        };
+
         let validator_pubkey_cache = self
             .validator_pubkey_cache
             .map(|mut validator_pubkey_cache| {

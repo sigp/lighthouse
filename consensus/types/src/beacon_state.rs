@@ -2505,6 +2505,30 @@ impl<E: EthSpec> BeaconState<E> {
 
         Ok(())
     }
+
+    /// Returns the weak subjectivity period for `self`. This computation takes into
+    /// account the effect of validator set churn (bounded by `get_balance_churn_limit()` per epoch)
+    ///  A detailed calculation can be found at:
+    /// https://notes.ethereum.org/@CarlBeek/electra_weak_subjectivity
+    pub fn compute_weak_subjectivity_period(&self, spec: &ChainSpec) -> Result<Epoch, Error> {
+        // `SAFETY_DECAY` is defined as the maximum percentage tolerable loss in the one-third
+        // safety margin of FFG finality. Thus, any attack exploiting the Weak Subjectivity Period has
+        // a safety margin of at least `1/3 - SAFETY_DECAY/100`.
+        // Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L50-L71
+        // TODO(ws) move this to config
+        const SAFETY_DECAY: u64 = 10;
+
+        let total_active_balance = self.get_total_active_balance()?;
+        let balance_churn_limit = self.get_balance_churn_limit(spec)?;
+        let epochs_for_validator_set_churn = SAFETY_DECAY
+            .safe_mul(total_active_balance)?
+            .safe_div(balance_churn_limit.safe_mul(200)?)?;
+        let weak_subjectivity_period = spec
+            .min_validator_withdrawability_delay
+            .safe_mul(epochs_for_validator_set_churn)?;
+
+        Ok(weak_subjectivity_period)
+    }
 }
 
 impl<E: EthSpec> BeaconState<E> {

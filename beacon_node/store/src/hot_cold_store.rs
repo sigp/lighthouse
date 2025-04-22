@@ -2944,6 +2944,35 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         Ok(())
     }
+
+    pub fn is_within_weak_subjectivity_period(
+        &self,
+        ws_checkpoint: Checkpoint,
+        fc_slot: Slot,
+        fc_state_root: Hash256,
+        current_epoch: Epoch,
+    ) -> bool {
+        let Ok(Some(finalized_state)) = self.get_state(&fc_state_root, Some(fc_slot), true) else {
+            // we cant get a finalized state from the db, we should force exit here?
+            return true;
+        };
+
+        if finalized_state.latest_block_header().state_root != ws_checkpoint.root {
+            return true;
+        }
+
+        let finalized_epoch = finalized_state.slot().epoch(E::slots_per_epoch());
+
+        if finalized_epoch != ws_checkpoint.epoch {
+            return false;
+        }
+
+        let Ok(ws_period) = finalized_state.compute_weak_subjectivity_period(&self.spec) else {
+            // TODO(ws) failed to calculate ws period, log and continue?
+            return true;
+        };
+        current_epoch <= finalized_epoch + ws_period
+    }
 }
 
 /// Advance the split point of the store, copying new finalized states to the freezer.
