@@ -2515,19 +2515,98 @@ impl<E: EthSpec> BeaconState<E> {
         // safety margin of FFG finality. Thus, any attack exploiting the Weak Subjectivity Period has
         // a safety margin of at least `1/3 - SAFETY_DECAY/100`.
         // Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L50-L71
-        // TODO(ws) move this to config
         const SAFETY_DECAY: u64 = 10;
-
         let total_active_balance = self.get_total_active_balance()?;
-        let balance_churn_limit = self.get_balance_churn_limit(spec)?;
-        let epochs_for_validator_set_churn = SAFETY_DECAY
-            .safe_mul(total_active_balance)?
-            .safe_div(balance_churn_limit.safe_mul(200)?)?;
-        let weak_subjectivity_period = spec
-            .min_validator_withdrawability_delay
-            .safe_mul(epochs_for_validator_set_churn)?;
+        let fork_name = self.fork_name_unchecked();
 
-        Ok(weak_subjectivity_period)
+        if fork_name.electra_enabled() {
+            // spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/electra/weak-subjectivity.md?plain=1#L30
+            // labeled delta in the spec
+            let balance_churn_limit = self.get_balance_churn_limit(spec)?;
+            let epochs_for_validator_set_churn = SAFETY_DECAY
+                .safe_mul(total_active_balance)?
+                .safe_div(balance_churn_limit.safe_mul(200)?)?;
+            let ws_period = spec
+                .min_validator_withdrawability_delay
+                .safe_mul(epochs_for_validator_set_churn)?;
+
+            Ok(ws_period)
+        } else {
+            // spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L82
+            let mut ws_period = spec.min_validator_withdrawability_delay;
+            // labeled N in the spec
+            let active_validator_count = self
+                .get_active_validator_indices(self.slot().epoch(E::slots_per_epoch()), spec)?
+                .len() as u64;
+            // labeled t in the spec
+            let total_active_balance_per_validator =
+                total_active_balance.safe_div(active_validator_count)?;
+            // labeled T in the spec
+            let max_effective_balance = spec.max_effective_balance_for_fork(fork_name);
+            // labled delta in the spec
+            let validator_churn_limit = self.get_validator_churn_limit(spec)?;
+            // labeled Delta in the spec
+            let max_deposits_per_epoch = E::MaxDeposits::to_u64().safe_mul(E::slots_per_epoch())?;
+
+            // T * (200 + 3 * D) < t * (200 + 12 * D)
+            if max_effective_balance.safe_mul(200.safe_add(SAFETY_DECAY.safe_mul(3)?)?)?
+                < total_active_balance_per_validator
+                    .safe_mul(SAFETY_DECAY.safe_mul(12)?.safe_add(200)?)?
+            {
+                //  N * (t * (200 + 12 * D) - T * (200 + 3 * D))
+                let epochs_for_validator_set_churn_numerator = active_validator_count
+                    .safe_mul(total_active_balance_per_validator)?
+                    .safe_mul(200.safe_add(SAFETY_DECAY.safe_mul(12)?)?)?
+                    .safe_sub(
+                        max_effective_balance.safe_mul(SAFETY_DECAY.safe_mul(3)?.safe_add(200)?)?,
+                    )?;
+
+                // (600 * delta * (2 * t + T))
+                let epochs_for_validator_set_churn_denominator =
+                    validator_churn_limit.safe_mul(600)?.safe_mul(
+                        total_active_balance_per_validator
+                            .safe_mul(2)?
+                            .safe_add(max_effective_balance)?,
+                    )?;
+
+                // N * (t * (200 + 12 * D) - T * (200 + 3 * D)) // (600 * delta * (2 * t + T))
+                let epochs_for_validator_set_churn = epochs_for_validator_set_churn_numerator
+                    .safe_div(epochs_for_validator_set_churn_denominator)?;
+
+                // N * (200 + 3 * D)
+                let epochs_for_balance_top_ups_numerator =
+                    active_validator_count.safe_mul(SAFETY_DECAY.safe_mul(3)?.safe_add(200)?)?;
+
+                // (600 * Delta)
+                let epochs_for_balance_top_ups_denominator =
+                    max_deposits_per_epoch.safe_mul(600)?;
+
+                //  N * (200 + 3 * D) // (600 * Delta)
+                let epochs_for_balance_top_ups = epochs_for_balance_top_ups_numerator
+                    .safe_div(epochs_for_balance_top_ups_denominator)?;
+
+                ws_period.safe_add_assign(std::cmp::max(
+                    epochs_for_validator_set_churn,
+                    epochs_for_balance_top_ups,
+                ))?;
+            } else {
+                // 3 * N * D * t
+                let numerator = active_validator_count
+                    .safe_mul(3)?
+                    .safe_mul(SAFETY_DECAY)?
+                    .safe_mul(total_active_balance_per_validator)?;
+
+                // 200 * (Delta * (T - t))
+                let denomenator = max_deposits_per_epoch
+                    .safe_mul(max_effective_balance.safe_sub(total_active_balance_per_validator)?)?
+                    .safe_mul(200)?;
+
+                //  3 * N * D * t // (200 * Delta * (T - t))
+                ws_period.safe_add_assign(numerator.safe_div(denomenator)?)?;
+            }
+
+            Ok(ws_period)
+        }
     }
 }
 
