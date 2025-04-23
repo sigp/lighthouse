@@ -29,7 +29,7 @@ snooper_enabled: false
 global_log_level: debug
 additional_services:
   - dora
-  - spamoor_blob
+  - spamoor
   - prometheus_grafana
 dora_params:
   image: ethpandaops/dora:fulu-support

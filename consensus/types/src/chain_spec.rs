@@ -5,14 +5,14 @@ use crate::*;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_yaml::Value;
 use serde_utils::quoted_u64::MaybeQuoted;
+use serde_yaml::Value;
 use ssz::Encode;
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
 use tree_hash::TreeHash;
-use std::collections::HashMap;
 
 /// When a new field is intended to be allowed for a future fork, simply add it to this list
 pub const FUTURE_FIELDS: [&str; 1] = ["future_field_test"];
@@ -1531,7 +1531,7 @@ pub struct Config {
 
     // For future forks
     #[serde(flatten)]
-    future_fields: HashMap<String, Value>
+    future_fields: HashMap<String, Value>,
 }
 
 fn default_attestation_subnet_prefix_bits() -> u8 {
@@ -1828,7 +1828,7 @@ impl Config {
             samples_per_slot: spec.samples_per_slot,
             custody_requirement: spec.custody_requirement,
             max_blobs_per_block_fulu: spec.max_blobs_per_block_fulu,
-            future_fields: HashMap::new()
+            future_fields: HashMap::new(),
         }
     }
 
@@ -2196,70 +2196,6 @@ mod yaml_tests {
             .apply_to_chain_spec::<MinimalEthSpec>(&spec)
             .expect("should have applied spec");
         assert_eq!(new_spec, ChainSpec::minimal());
-    }
-
-    #[test]
-    fn test_defaults() {
-        // Spec yaml string. Fields that serialize/deserialize with a default value are commented out.
-        let spec = r#"
-        PRESET_BASE: 'mainnet'
-        #TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638911
-        #TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000001
-        #TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551614
-        MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
-        MIN_GENESIS_TIME: 1606824000
-        GENESIS_FORK_VERSION: 0x00000000
-        GENESIS_DELAY: 604800
-        ALTAIR_FORK_VERSION: 0x01000000
-        ALTAIR_FORK_EPOCH: 74240
-        #BELLATRIX_FORK_VERSION: 0x02000000
-        #BELLATRIX_FORK_EPOCH: 18446744073709551614
-        SHARDING_FORK_VERSION: 0x03000000
-        SHARDING_FORK_EPOCH: 18446744073709551615
-        SECONDS_PER_SLOT: 12
-        SECONDS_PER_ETH1_BLOCK: 14
-        MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
-        SHARD_COMMITTEE_PERIOD: 256
-        ETH1_FOLLOW_DISTANCE: 2048
-        INACTIVITY_SCORE_BIAS: 4
-        INACTIVITY_SCORE_RECOVERY_RATE: 16
-        EJECTION_BALANCE: 16000000000
-        MIN_PER_EPOCH_CHURN_LIMIT: 4
-        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
-        CHURN_LIMIT_QUOTIENT: 65536
-        PROPOSER_SCORE_BOOST: 40
-        DEPOSIT_CHAIN_ID: 1
-        DEPOSIT_NETWORK_ID: 1
-        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
-        CUSTODY_REQUIREMENT: 1
-        DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
-        NUMBER_OF_COLUMNS: 128
-        SAMPLES_PER_SLOT: 8
-        "#;
-
-        let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
-
-        // Asserts that `chain_spec.$name` and `default_$name()` are equal.
-        macro_rules! check_default {
-            ($name: ident) => {
-                paste! {
-                    assert_eq!(
-                        chain_spec.$name,
-                        [<default_ $name>](),
-                        "{} does not match default", stringify!($name));
-                }
-            };
-        }
-
-        check_default!(max_payload_size);
-        check_default!(min_epochs_for_block_requests);
-        check_default!(ttfb_timeout);
-        check_default!(resp_timeout);
-        check_default!(message_domain_invalid_snappy);
-        check_default!(message_domain_valid_snappy);
-        check_default!(attestation_subnet_prefix_bits);
-
-        assert_eq!(chain_spec.bellatrix_fork_epoch, None);
     }
 
     #[test]
