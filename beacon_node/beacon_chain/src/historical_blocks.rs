@@ -1,6 +1,9 @@
+use crate::blob_verification::verify_kzg_for_blob_list;
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
+use crate::data_column_verification::verify_kzg_for_data_column_list;
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
+use kzg::Error as KzgError;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
     signature_sets::{block_proposal_signature_set_from_parts, Error as SignatureSetError},
@@ -26,10 +29,14 @@ pub enum HistoricalBlockError {
         block_root: Hash256,
         expected_block_root: Hash256,
     },
+    /// Signed block header mismatch with a blob or data column sidecar.
+    MismatchedBlockHeader,
     /// Bad signature, caller should retry with different blocks.
     SignatureSet(SignatureSetError),
     /// Bad signature, caller should retry with different blocks.
     InvalidSignature,
+    /// KZG verification for blobs or data columns failed.
+    BlobOrDataColumnKzgError(KzgError),
     /// Transitory error, caller should retry with the same blocks.
     ValidatorPubkeyCacheTimeout,
     /// Logic error: should never occur.
@@ -47,6 +54,7 @@ impl From<StoreError> for HistoricalBlockError {
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Store a batch of historical blocks in the database.
     ///
+    /// TODO: the ascending order is never checked anywhere.
     /// The `blocks` should be given in slot-ascending order. One of the blocks should have a block
     /// root corresponding to the `oldest_block_parent` from the store's `AnchorInfo`.
     ///
@@ -54,6 +62,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// root listed in its successor, then the whole batch will be discarded and
     /// `MismatchedBlockRoot` will be returned. If any proposer signature is invalid then
     /// `SignatureSetError` or `InvalidSignature` will be returned.
+    /// 
+    /// The block's blob and data column sidecars are verified. The function checks their signed
+    /// block headers equal to their block's block header. Then, it verifies their KZG commitments
+    /// with proofs. KZG inclusion proof verification is not held here as it is already done by the
+    /// network crate.
     ///
     /// To align with sync we allow some excess blocks with slots greater than or equal to
     /// `oldest_block_slot` to be provided. They will be ignored without being checked.
@@ -102,6 +115,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
+        let mut all_blobs = Vec::new();
+        let mut all_data_columns = Vec::new();
 
         for available_block in blocks_to_import.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
@@ -127,12 +142,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
 
+            // Check that block headers in the block and its blob or data column sidecars are the same.
+            // Store blob and data column sidecars all together to verify KZG as a batch at the end.
+            // Also, update the oldest blob and data column slots.
             match &block_data {
                 AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(..) => {
+                AvailableBlockData::Blobs(blobs) => {
+                    for blob in blobs {
+                        if blob.signed_block_header != block.signed_block_header() {
+                            return Err(HistoricalBlockError::MismatchedBlockHeader);
+                        }
+                    }
+                    all_blobs.extend(blobs.clone());
                     new_oldest_blob_slot = Some(block.slot());
                 }
-                AvailableBlockData::DataColumns(_) => {
+                AvailableBlockData::DataColumns(data_columns) => {
+                    for data_column in data_columns {
+                        if data_column.signed_block_header != block.signed_block_header() {
+                            return Err(HistoricalBlockError::MismatchedBlockHeader);
+                        }
+                    }
+                    all_data_columns.extend(data_columns.clone());
                     new_oldest_data_column_slot = Some(block.slot());
                 }
             }
@@ -182,6 +212,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // these were pushed in reverse order so we reverse again
         signed_blocks.reverse();
 
+        // TODO: add metrics for blobs and column verification
         // Verify signatures in one batch, holding the pubkey cache lock for the shortest duration
         // possible. For each block fetch the parent root from its successor. Slicing from index 1
         // is safe because we've already checked that `blocks_to_import` is non-empty.
@@ -224,6 +255,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         drop(verify_timer);
         drop(sig_timer);
+
+        verify_kzg_for_blob_list(all_blobs.iter(), self.kzg.as_ref()).map_err(|e| HistoricalBlockError::BlobOrDataColumnKzgError(e))?;
+        verify_kzg_for_data_column_list(all_data_columns.iter(), self.kzg.as_ref()).map_err(|e| HistoricalBlockError::BlobOrDataColumnKzgError(e))?;
 
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that

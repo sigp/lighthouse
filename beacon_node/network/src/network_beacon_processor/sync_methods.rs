@@ -666,7 +666,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             error = ?e,
                             "Backfill batch processing error"
                         );
-                        // The peer is faulty if they bad signatures.
+                        // The peer is faulty if they send bad signatures.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalBlockError::MismatchedBlockHeader
+                    | HistoricalBlockError::BlobOrDataColumnKzgError(_) => {
+                        warn!(
+                            error = ?e,
+                            "Backfill blob or data column verification error"
+                        );
+                        // The peer is faulty if they send bad blob or data colum sidecars.
                         Some(PeerAction::LowToleranceError)
                     }
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
