@@ -1,10 +1,10 @@
+use beacon_chain::test_utils::test_spec;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock, IntoGossipVerifiedBlock,
 };
 use eth2::reqwest::StatusCode;
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
-use futures::future::join_all;
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, Config, ProvenancedBlock};
 use std::collections::HashSet;
@@ -1366,28 +1366,20 @@ pub async fn blinded_equivocation_full_pass() {
 /// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
 /// even if the block has already been seen on gossip without any blobs/columns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn test_block_seen_on_gossip_without_blobs_or_columns() {
-    let deneb_enabled_forks = ForkName::list_all()
-        .into_iter()
-        .filter(|f| f.deneb_enabled())
-        .collect::<Vec<_>>();
-
-    let futures = deneb_enabled_forks
-        .into_iter()
-        .map(block_seen_on_gossip_without_blobs_or_columns);
-
-    join_all(futures).await;
-}
-
-pub async fn block_seen_on_gossip_without_blobs_or_columns(fork_name: ForkName) {
+pub async fn block_seen_on_gossip_without_blobs_or_columns() {
+    let spec = test_spec::<E>();
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = fork_name.make_genesis_spec(E::default_spec());
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1441,28 +1433,20 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns(fork_name: ForkName) 
 /// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
 /// even if the block has already been seen on gossip without all blobs/columns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn test_block_seen_on_gossip_with_some_blobs_or_columns() {
-    let deneb_enabled_forks = ForkName::list_all()
-        .into_iter()
-        .filter(|f| f.deneb_enabled())
-        .collect::<Vec<_>>();
-
-    let futures = deneb_enabled_forks
-        .into_iter()
-        .map(block_seen_on_gossip_with_some_blobs_or_columns);
-
-    join_all(futures).await;
-}
-
-pub async fn block_seen_on_gossip_with_some_blobs_or_columns(fork_name: ForkName) {
+pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
+    let spec = test_spec::<E>();
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = fork_name.make_genesis_spec(E::default_spec());
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1534,28 +1518,20 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns(fork_name: ForkName
 /// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
 /// even if the blobs/columns have already been seen on gossip.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn test_blobs_or_columns_seen_on_gossip_without_block() {
-    let deneb_enabled_forks = ForkName::list_all()
-        .into_iter()
-        .filter(|f| f.deneb_enabled())
-        .collect::<Vec<_>>();
-
-    let futures = deneb_enabled_forks
-        .into_iter()
-        .map(blobs_or_columns_seen_on_gossip_without_block);
-
-    join_all(futures).await;
-}
-
-pub async fn blobs_or_columns_seen_on_gossip_without_block(fork_name: ForkName) {
-    let spec = fork_name.make_genesis_spec(E::default_spec());
+pub async fn blobs_or_columns_seen_on_gossip_without_block() {
+    let spec = test_spec::<E>();
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1613,30 +1589,20 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block(fork_name: ForkName) 
 /// This test checks that an HTTP POST request with the block succeeds with a 200 response
 /// if just the blobs have already been seen on gossip.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn test_blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_columns() {
-    let deneb_enabled_forks = ForkName::list_all()
-        .into_iter()
-        .filter(|f| f.deneb_enabled())
-        .collect::<Vec<_>>();
-
-    let futures = deneb_enabled_forks
-        .into_iter()
-        .map(blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_columns);
-
-    join_all(futures).await;
-}
-
-async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_columns(
-    fork_name: ForkName,
-) {
+async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_columns() {
+    let spec = test_spec::<E>();
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = fork_name.make_genesis_spec(E::default_spec());
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1696,20 +1662,7 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn test_slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
-    let deneb_enabled_forks = ForkName::list_all()
-        .into_iter()
-        .filter(|f| f.deneb_enabled())
-        .collect::<Vec<_>>();
-
-    let futures = deneb_enabled_forks
-        .into_iter()
-        .map(slashable_blobs_or_columns_seen_on_gossip_cause_failure);
-
-    join_all(futures).await;
-}
-
-async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure(fork_name: ForkName) {
+async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
     let validation_level: Option<BroadcastValidation> =
         Some(BroadcastValidation::ConsensusAndEquivocation);
 
@@ -1717,8 +1670,13 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure(fork_name: Fork
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = fork_name.make_genesis_spec(E::default_spec());
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let spec = test_spec::<E>();
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
