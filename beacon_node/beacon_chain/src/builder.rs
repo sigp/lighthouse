@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, DataColumnSidecarList, Epoch,
     EthSpec, FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
@@ -816,23 +816,30 @@ where
             ));
         }
 
-        // Check if the store is within the weak subjectivity period
-        if let Some(ws_checkpoint) = self.chain_config.weak_subjectivity_checkpoint {
-            let Ok(finalized_block) = fork_choice.get_finalized_block() else {
-                panic!("TODO(ws)")
-            };
-            if !store.is_within_weak_subjectivity_period(
-                ws_checkpoint,
-                finalized_block.slot,
-                finalized_block.state_root,
-                head_snapshot
-                    .beacon_state
-                    .slot()
-                    .epoch(E::slots_per_epoch()),
-            ) {
-                panic!("TODO(ws)")
-            }
+        // Check if the head snapshot is within the weak subjectivity period
+        let head_state = &head_snapshot.beacon_state;
+        let Ok(ws_period) = head_state.compute_weak_subjectivity_period(&self.spec) else {
+            return Err(format!(
+                "Unable to compute the weak subjectivity period at the head snapshot slot: {:?}",
+                head_state.slot()
+            ));
         };
+        if current_slot.epoch(E::slots_per_epoch())
+            > head_state.slot().epoch(E::slots_per_epoch()) + ws_period
+        {
+            if self.chain_config.ignore_ws_check {
+                warn!(
+                    head_slot=%head_state.slot(),
+                    %current_slot,
+                    "The current head state is outside the weak subjectivity period. It is highly recommended to purge your db and \
+                    checkpoint sync."
+                )
+            }
+            return Err(
+                "The current head state is outside the weak subjectivity period. It is highly recommended to purge your db and \
+                checkpoint sync. Alternatively you can accept the risks and ignore this error with the --ignore-ws-check flag.".to_string()
+            );
+        }
 
         let validator_pubkey_cache = self
             .validator_pubkey_cache
