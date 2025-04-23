@@ -445,7 +445,9 @@ impl EthSpec for MainnetEthSpec {
     type MaxPendingDepositsPerEpoch = U16;
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::mainnet()
+        // We use a test spec with the latest fork enabled from genesis.
+        // For actual mainnet, we should be loading the `ChainSpec` from the `Eth2NetworkConfig`.
+        ForkName::latest_stable().make_genesis_spec(ChainSpec::mainnet())
     }
 
     fn spec_name() -> EthSpecId {
@@ -513,7 +515,7 @@ impl EthSpec for MinimalEthSpec {
     });
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::minimal()
+        ForkName::latest_stable().make_genesis_spec(ChainSpec::minimal())
     }
 
     fn spec_name() -> EthSpecId {
@@ -578,7 +580,7 @@ impl EthSpec for GnosisEthSpec {
     type KzgCommitmentsInclusionProofDepth = U4;
 
     fn default_spec() -> ChainSpec {
-        ChainSpec::gnosis()
+        ForkName::latest_stable().make_genesis_spec(ChainSpec::gnosis())
     }
 
     fn spec_name() -> EthSpecId {
