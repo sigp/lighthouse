@@ -2129,7 +2129,6 @@ mod tests {
 #[cfg(test)]
 mod yaml_tests {
     use super::*;
-    use paste::paste;
     use tempfile::NamedTempFile;
 
     #[test]
