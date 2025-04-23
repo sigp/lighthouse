@@ -25,7 +25,7 @@ pub enum Error {
     NoContinuationData,
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),
-    SchemaMigrationError(String),
+    MigrationError(String),
     /// The store's `anchor_info` was mutated concurrently, the latest modification wasn't applied.
     AnchorInfoConcurrentMutation,
     /// The store's `blob_info` was mutated concurrently, the latest modification wasn't applied.

@@ -195,7 +195,6 @@ impl<E: EthSpec> LevelDB<E> {
         };
 
         for (start_key, end_key) in [
-            endpoints(DBColumn::BeaconStateTemporary),
             endpoints(DBColumn::BeaconState),
             endpoints(DBColumn::BeaconStateSummary),
         ] {

@@ -27,7 +27,7 @@ pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
-pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
+pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/validator_voluntary_exit.html";
 
 pub fn cli_app() -> Command {
     Command::new("exit")

@@ -151,7 +151,7 @@ ensure their `secrets-dir` is organised as below:
 ### Manual configuration
 
 The automatic validator discovery process works out-of-the-box with validators
-that are created using the `lighthouse account validator new` command. The
+that are created using the `lighthouse account validator create` command. The
 details of this process are only interesting to those who are using keystores
 generated with another tool or have a non-standard requirements.
 

@@ -92,7 +92,7 @@ fn keystore_pubkey(keystore: &Keystore) -> PublicKeyBytes {
 }
 
 fn all_with_status<T: Clone>(count: usize, status: T) -> impl Iterator<Item = T> {
-    std::iter::repeat(status).take(count)
+    std::iter::repeat_n(status, count)
 }
 
 fn all_imported(count: usize) -> impl Iterator<Item = ImportKeystoreStatus> {
@@ -1059,7 +1059,7 @@ async fn migrate_some_extra_slashing_protection() {
 /// - `first_vc_attestations`: attestations to sign on the first VC as `(validator_idx, att)`
 /// - `delete_indices`: validators to delete from the first VC
 /// - `slashing_protection_indices`: validators to transfer slashing protection data for. It should
-///    be a subset of `delete_indices` or the test will panic.
+///   be a subset of `delete_indices` or the test will panic.
 /// - `import_indices`: validators to transfer. It needn't be a subset of `delete_indices`.
 /// - `second_vc_attestations`: attestations to sign on the second VC after the transfer. The bool
 ///   indicates whether the signing should be successful.

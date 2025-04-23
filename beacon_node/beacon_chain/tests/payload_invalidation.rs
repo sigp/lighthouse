@@ -1,5 +1,6 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
@@ -21,6 +22,7 @@ use task_executor::ShutdownReason;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
+const CGC: usize = 8;
 
 type E = MainnetEthSpec;
 
@@ -686,12 +688,14 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
+    let fork_rpc_block =
+        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_block.canonical_root(),
-            fork_block,
+            fork_rpc_block.block_root(),
+            fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -787,12 +791,14 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
+    let fork_rpc_block =
+        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_block.canonical_root(),
-            fork_block,
+            fork_rpc_block.block_root(),
+            fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -1050,14 +1056,16 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.clone().verify_block_for_gossip(block.clone()).await,
+        rig.harness.chain.clone().verify_block_for_gossip(block.clone(), CGC).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
+    let rpc_block =
+        RpcBlock::new_without_blobs(None, block.clone(), rig.harness.sampling_column_count);
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
+        rig.harness.chain.process_block(rpc_block.block_root(), rpc_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
@@ -1281,7 +1289,7 @@ impl InvalidHeadSetup {
     ///
     /// 1. A chain where the only viable head block has an invalid execution payload.
     /// 2. A block (`fork_block`) which will become the head of the chain when
-    ///     it is imported.
+    ///    it is imported.
     async fn new() -> InvalidHeadSetup {
         let slots_per_epoch = E::slots_per_epoch();
         let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -1379,11 +1387,13 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
+    let fork_rpc_block =
+        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
     rig.harness
         .chain
         .process_block(
-            fork_block.canonical_root(),
-            fork_block.clone(),
+            fork_rpc_block.block_root(),
+            fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -1418,8 +1428,8 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
 
     let slot_clock = rig.harness.chain.slot_clock.clone();
 
-    // Forcefully persist the head and fork choice.
-    rig.harness.chain.persist_head_and_fork_choice().unwrap();
+    // Forcefully persist fork choice.
+    rig.harness.chain.persist_fork_choice().unwrap();
 
     let resumed = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
