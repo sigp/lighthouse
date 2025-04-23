@@ -68,6 +68,9 @@ fn bls_hardware_acceleration() -> bool {
 
     #[cfg(target_arch = "aarch64")]
     return std::arch::is_aarch64_feature_detected!("neon");
+
+    #[cfg(target_arch = "riscv64")]
+    return false;
 }
 
 fn allocator_name() -> String {

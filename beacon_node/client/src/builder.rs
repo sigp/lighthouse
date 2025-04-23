@@ -33,6 +33,8 @@ use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
+use rand::rngs::{OsRng, StdRng};
+use rand::SeedableRng;
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use std::net::TcpListener;
@@ -210,7 +212,10 @@ where
             .event_handler(event_handler)
             .execution_layer(execution_layer)
             .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
-            .validator_monitor_config(config.validator_monitor.clone());
+            .validator_monitor_config(config.validator_monitor.clone())
+            .rng(Box::new(
+                StdRng::from_rng(OsRng).map_err(|e| format!("Failed to create RNG: {:?}", e))?,
+            ));
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)

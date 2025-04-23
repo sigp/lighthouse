@@ -97,8 +97,8 @@ use tracing::{debug, error};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
-    Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    Hash256, InconsistentFork, KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -755,6 +755,7 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     blobs: BlobsList<T::EthSpec>,
+    kzg_cell_proofs: KzgProofs<T::EthSpec>,
 ) -> Result<DataColumnSidecarList<T::EthSpec>, DataColumnSidecarError> {
     // Only attempt to build data columns if blobs is non empty to avoid skewing the metrics.
     if blobs.is_empty() {
@@ -766,8 +767,14 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
         &[&blobs.len().to_string()],
     );
     let blob_refs = blobs.iter().collect::<Vec<_>>();
-    let sidecars = blobs_to_data_column_sidecars(&blob_refs, block, &chain.kzg, &chain.spec)
-        .discard_timer_on_break(&mut timer)?;
+    let sidecars = blobs_to_data_column_sidecars(
+        &blob_refs,
+        kzg_cell_proofs.to_vec(),
+        block,
+        &chain.kzg,
+        &chain.spec,
+    )
+    .discard_timer_on_break(&mut timer)?;
     drop(timer);
     Ok(sidecars)
 }
@@ -1257,40 +1264,6 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
 
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
         self.block.block_cloned()
-    }
-}
-
-impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
-    /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
-    /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
-    fn into_execution_pending_block_slashable(
-        self,
-        block_root: Hash256,
-        chain: &Arc<BeaconChain<T>>,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
-        // Perform an early check to prevent wasting time on irrelevant blocks.
-        let block_root = check_block_relevancy(&self, block_root, chain)
-            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
-        let maybe_available = chain
-            .data_availability_checker
-            .verify_kzg_for_rpc_block(RpcBlock::new_without_blobs(Some(block_root), self.clone()))
-            .map_err(|e| {
-                BlockSlashInfo::SignatureNotChecked(
-                    self.signed_block_header(),
-                    BlockError::AvailabilityCheck(e),
-                )
-            })?;
-        SignatureVerifiedBlock::check_slashable(maybe_available, block_root, chain)?
-            .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
-    }
-
-    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        self
-    }
-
-    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
-        self.clone()
     }
 }
 

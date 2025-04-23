@@ -266,7 +266,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 )
                 .map_err(|e| format!("{e:?}"))?
             } else {
-                RpcBlock::new_without_blobs(Some(block_root), block)
+                // Block has no data, expects zero columns
+                RpcBlock::new_without_blobs(Some(block_root), block, 0)
             });
         }
 

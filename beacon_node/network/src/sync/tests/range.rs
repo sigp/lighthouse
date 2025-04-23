@@ -459,7 +459,8 @@ fn build_rpc_block(
             )
             .unwrap()
         }
-        None => RpcBlock::new_without_blobs(None, block),
+        // Block has no data, expects zero columns
+        None => RpcBlock::new_without_blobs(None, block, 0),
     }
 }
 

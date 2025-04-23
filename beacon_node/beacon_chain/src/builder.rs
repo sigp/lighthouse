@@ -8,7 +8,7 @@ use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
-use crate::kzg_utils::blobs_to_data_column_sidecars;
+use crate::kzg_utils::build_data_column_sidecars;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
@@ -30,6 +30,8 @@ use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+use rand::RngCore;
+use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{per_slot_processing, AllCaches};
@@ -40,8 +42,8 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec,
-    FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, DataColumnSidecarList, Epoch,
+    EthSpec, FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -104,6 +106,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
+    rng: Option<Box<dyn RngCore + Send>>,
 }
 
 impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
@@ -144,6 +147,7 @@ where
             task_executor: None,
             validator_monitor_config: None,
             import_all_data_columns: false,
+            rng: None,
         }
     }
 
@@ -546,15 +550,8 @@ where
             {
                 // After PeerDAS recompute columns from blobs to not force the checkpointz server
                 // into exposing another route.
-                let blobs = blobs
-                    .iter()
-                    .map(|blob_sidecar| &blob_sidecar.blob)
-                    .collect::<Vec<_>>();
                 let data_columns =
-                    blobs_to_data_column_sidecars(&blobs, &weak_subj_block, &self.kzg, &self.spec)
-                        .map_err(|e| {
-                            format!("Failed to compute weak subjectivity data_columns: {e:?}")
-                        })?;
+                    build_data_columns_from_blobs(&weak_subj_block, &blobs, &self.kzg, &self.spec)?;
                 // TODO(das): only persist the columns under custody
                 store
                     .put_data_columns(&weak_subj_block_root, data_columns)
@@ -697,6 +694,14 @@ where
         self
     }
 
+    /// Sets the `rng` field.
+    ///
+    /// Currently used for shuffling column sidecars in block publishing.
+    pub fn rng(mut self, rng: Box<dyn RngCore + Send>) -> Self {
+        self.rng = Some(rng);
+        self
+    }
+
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -722,6 +727,7 @@ where
             .genesis_state_root
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
+        let rng = self.rng.ok_or("Cannot build without an RNG")?;
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
         let mut validator_monitor =
@@ -985,6 +991,7 @@ where
                     .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
+            rng: Arc::new(Mutex::new(rng)),
         };
 
         let head = beacon_chain.head_snapshot();
@@ -1138,6 +1145,49 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
     )
 }
 
+/// Build data columns and proofs from blobs.
+fn build_data_columns_from_blobs<E: EthSpec>(
+    block: &SignedBeaconBlock<E>,
+    blobs: &BlobSidecarList<E>,
+    kzg: &Kzg,
+    spec: &ChainSpec,
+) -> Result<DataColumnSidecarList<E>, String> {
+    let blob_cells_and_proofs_vec = blobs
+        .into_par_iter()
+        .map(|blob_sidecar| {
+            let kzg_blob_ref = blob_sidecar
+                .blob
+                .as_ref()
+                .try_into()
+                .map_err(|e| format!("Failed to convert blob to kzg blob: {e:?}"))?;
+            let cells_and_proofs = kzg
+                .compute_cells_and_proofs(kzg_blob_ref)
+                .map_err(|e| format!("Failed to compute cell kzg proofs: {e:?}"))?;
+            Ok(cells_and_proofs)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    let data_columns = {
+        let beacon_block_body = block.message().body();
+        let kzg_commitments = beacon_block_body
+            .blob_kzg_commitments()
+            .cloned()
+            .map_err(|e| format!("Unexpected pre Deneb block: {e:?}"))?;
+        let kzg_commitments_inclusion_proof = beacon_block_body
+            .kzg_commitments_merkle_proof()
+            .map_err(|e| format!("Failed to compute kzg commitments merkle proof: {e:?}"))?;
+        build_data_column_sidecars(
+            kzg_commitments,
+            kzg_commitments_inclusion_proof,
+            block.signed_block_header(),
+            blob_cells_and_proofs_vec,
+            spec,
+        )
+        .map_err(|e| format!("Failed to compute weak subjectivity data_columns: {e:?}"))?
+    };
+    Ok(data_columns)
+}
+
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
@@ -1147,6 +1197,8 @@ mod test {
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use ssz::Encode;
     use std::time::Duration;
     use store::config::StoreConfig;
@@ -1193,6 +1245,7 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .rng(Box::new(StdRng::seed_from_u64(42)))
             .build()
             .expect("should build");
 
