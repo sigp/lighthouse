@@ -57,8 +57,7 @@ pub fn parse_hardcoded_network(
     Eth2NetworkConfig::constant(network_name.as_str())
 }
 
-/// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's
-/// home directory and appends `default` to it.
+/// If `path` is `Some`, return it, else return the default path
 pub fn parse_path_with_default_in_home_dir_v2(
     path: Option<PathBuf>,
     default: PathBuf,

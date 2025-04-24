@@ -62,10 +62,10 @@ pub fn parse_path_or_default_with_flag(
     )
 }
 
-/// If `arg` is in `matches`, parses the value as a path.
+/// If `dir` is `Some`, return it.
 ///
-/// Otherwise, attempts to find the default directory for the `testnet` from the `matches`
-/// and appends `flag` to it.
+/// Otherwise, construct the default directory for the `testnet` from the `matches`
+/// and append `flag` to it.
 pub fn parse_path_or_default_with_flag_v2(
     matches: &ArgMatches,
     dir: Option<PathBuf>,
