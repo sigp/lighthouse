@@ -2533,6 +2533,7 @@ impl<E: EthSpec> BeaconState<E> {
             let total_active_balance_per_validator = total_active_balance
                 .safe_div(active_validator_count)?
                 .safe_div(GWEI_PER_ETH)?;
+
             compute_weak_subjectivity_period_base::<E>(
                 active_validator_count,
                 total_active_balance_per_validator,
@@ -2926,6 +2927,9 @@ mod weak_subjectivity_tests {
             (8_388_608 * GWEI_PER_ETH, 3_532),
             (16_777_216 * GWEI_PER_ETH, 3_532),
             (33_554_432 * GWEI_PER_ETH, 3_532),
+            // This value cross referenced w/
+            // beacon_chain/tests/tests.rs:test_compute_weak_subjectivity_period
+            (1536 * GWEI_PER_ETH, 256),
         ];
 
         for (total_active_balance, expected_ws_period) in expected_values {
@@ -2982,6 +2986,9 @@ mod weak_subjectivity_tests {
             (32, 262_144, 3532),
             (32, 524_288, 3532),
             (32, 1_048_576, 3532),
+            // This value cross referenced w/
+            // beacon_chain/tests/tests.rs:test_compute_weak_subjectivity_period
+            (32, 48, 256),
         ];
 
         for (total_active_balance_per_validator, active_validator_count, expected_ws_period) in

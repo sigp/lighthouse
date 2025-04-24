@@ -12,8 +12,8 @@ use operation_pool::PersistedOperationPool;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
-    BeaconState, BeaconStateError, BlockImportSource, Checkpoint, EthSpec, Hash256, Keypair,
-    MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, ChainSpec, Checkpoint, EthSpec, ForkName,
+    Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -33,6 +33,27 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
             ..Default::default()
         },
     )
+}
+
+fn get_harness_with_spec(
+    validator_count: usize,
+    spec: &ChainSpec,
+) -> BeaconChainHarness<EphemeralHarnessType<MainnetEthSpec>> {
+    let chain_config = ChainConfig {
+        reconstruct_historic_states: true,
+        ..Default::default()
+    };
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec.clone().into())
+        .chain_config(chain_config)
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    harness
 }
 
 fn get_harness_with_config(
@@ -1042,4 +1063,28 @@ async fn pseudo_finalize_with_lagging_split_update() {
     let epochs_per_migration = 10;
     let expect_true_migration = false;
     pseudo_finalize_test_generic(epochs_per_migration, expect_true_migration).await;
+}
+
+#[tokio::test]
+async fn test_compute_weak_subjectivity_period() {
+    type E = MainnetEthSpec;
+    let expected_ws_period = 256;
+
+    // test Base variant
+    let spec = ForkName::Altair.make_genesis_spec(E::default_spec());
+    let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
+    let head_state = harness.get_current_state();
+
+    let calculated_ws_period = head_state.compute_weak_subjectivity_period(&spec).unwrap();
+
+    assert_eq!(calculated_ws_period, expected_ws_period);
+
+    // test Electra variant
+    let spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
+    let head_state = harness.get_current_state();
+
+    let calculated_ws_period = head_state.compute_weak_subjectivity_period(&spec).unwrap();
+
+    assert_eq!(calculated_ws_period, expected_ws_period);
 }
