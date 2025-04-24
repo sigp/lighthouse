@@ -2957,7 +2957,7 @@ mod weak_subjectivity_tests {
     }
 
     // caclulate the validator_churn_limit without dealing with states
-    // and without initializing the active balance cache
+    // and without initializing any caches
     fn get_validator_churn_limit(active_validator_count: u64, spec: &ChainSpec) -> u64 {
         std::cmp::max(
             spec.min_per_epoch_churn_limit,
