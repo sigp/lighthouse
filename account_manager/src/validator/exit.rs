@@ -11,6 +11,7 @@ use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
 use safe_arith::SafeArith;
 use sensitive_url::SensitiveUrl;
+use serde_json;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -36,6 +37,7 @@ pub fn cli_run<E: EthSpec>(
 
     let spec = env.eth2_config().spec.clone();
     let server_url = exit_config.beacon_node.clone();
+    let presign = exit_config.presign;
     let client = BeaconNodeHttpClient::new(
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
@@ -56,6 +58,7 @@ pub fn cli_run<E: EthSpec>(
         &eth2_network_config,
         no_wait,
         no_confirmation,
+        presign,
     ))?;
 
     Ok(())
@@ -72,6 +75,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     eth2_network_config: &Eth2NetworkConfig,
     no_wait: bool,
     no_confirmation: bool,
+    presign: bool,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
@@ -103,6 +107,23 @@ async fn publish_voluntary_exit<E: EthSpec>(
         validator_index,
     };
 
+    // Sign the voluntary exit. We sign ahead of the prompt as that step is only important for the broadcast
+    let signed_voluntary_exit =
+        voluntary_exit.sign(&keypair.sk, genesis_data.genesis_validators_root, spec);
+    if presign {
+        eprintln!(
+            "Successfully pre-signed voluntary exit for validator {}. Not publishing.",
+            keypair.pk
+        );
+
+        // Convert to JSON and print
+        let string_output = serde_json::to_string_pretty(&signed_voluntary_exit)
+            .map_err(|e| format!("Unable to convert to JSON: {}", e))?;
+
+        println!("{}", string_output);
+        return Ok(());
+    }
+
     eprintln!(
         "Publishing a voluntary exit for validator: {} \n",
         keypair.pk
@@ -123,9 +144,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     };
 
     if confirmation == CONFIRMATION_PHRASE {
-        // Sign and publish the voluntary exit to network
-        let signed_voluntary_exit =
-            voluntary_exit.sign(&keypair.sk, genesis_data.genesis_validators_root, spec);
+        // Publish the voluntary exit to network
         client
             .post_beacon_pool_voluntary_exits(&signed_voluntary_exit)
             .await

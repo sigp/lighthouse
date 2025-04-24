@@ -606,6 +606,20 @@ pub enum ResponseTermination {
     LightClientUpdatesByRange,
 }
 
+impl ResponseTermination {
+    pub fn as_protocol(&self) -> Protocol {
+        match self {
+            ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
+            ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
+            ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
+            ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
+            ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
+            ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
+            ResponseTermination::LightClientUpdatesByRange => Protocol::LightClientUpdatesByRange,
+        }
+    }
+}
+
 /// The structured response containing a result/code indicating success or failure
 /// and the contents of the response
 #[derive(Debug, Clone)]

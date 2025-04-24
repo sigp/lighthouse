@@ -142,6 +142,12 @@ pub struct Exit {
         help = "Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution"
     )]
     pub no_confirmation: bool,
+
+    #[clap(
+        long,
+        help = "Only presign the voluntary exit message without publishing it"
+    )]
+    pub presign: bool
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
