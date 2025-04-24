@@ -147,7 +147,7 @@ pub struct Exit {
         long,
         help = "Only presign the voluntary exit message without publishing it"
     )]
-    pub presign: bool
+    pub presign: bool,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
