@@ -14,7 +14,6 @@ use eth2::{
 use eth2_keystore::KeystoreBuilder;
 use initialized_validators::key_cache::{KeyCache, CACHE_FILENAME};
 use initialized_validators::{InitializedValidators, OnDecryptFailure};
-use logging::test_logger;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
@@ -70,8 +69,6 @@ impl ApiTester {
     }
 
     pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-        let log = test_logger();
-
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join(PK_FILENAME);
@@ -82,7 +79,6 @@ impl ApiTester {
             validator_defs,
             validator_dir.path().into(),
             Default::default(),
-            log.clone(),
         )
         .await
         .unwrap();
@@ -110,11 +106,10 @@ impl ApiTester {
             slashing_protection,
             Hash256::repeat_byte(42),
             spec.clone(),
-            Some(Arc::new(DoppelgangerService::new(log.clone()))),
+            Some(Arc::new(DoppelgangerService::default())),
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            log.clone(),
         ));
 
         validator_store
@@ -134,7 +129,6 @@ impl ApiTester {
             graffiti_flag: Some(Graffiti::default()),
             spec,
             config: http_config,
-            log,
             sse_logging_components: None,
             slot_clock,
             _phantom: PhantomData,

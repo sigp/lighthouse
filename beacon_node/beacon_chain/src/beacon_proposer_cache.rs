@@ -178,7 +178,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 /// - Returns an error if `state.current_epoch() > target_epoch`.
 /// - No-op if `state.current_epoch() == target_epoch`.
 /// - It must be the case that `state.canonical_root() == state_root`, but this function will not
-///     check that.
+///   check that.
 pub fn ensure_state_is_in_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Hash256,

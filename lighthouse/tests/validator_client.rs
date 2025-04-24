@@ -71,6 +71,22 @@ fn validators_and_secrets_dir_flags() {
 }
 
 #[test]
+fn datadir_and_secrets_dir_flags() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("datadir", dir.path().join("data").to_str())
+        .flag("secrets-dir", dir.path().join("secrets").to_str())
+        .run_with_no_datadir()
+        .with_config(|config| {
+            assert_eq!(
+                config.validator_dir,
+                dir.path().join("data").join("validators")
+            );
+            assert_eq!(config.secrets_dir, dir.path().join("secrets"));
+        });
+}
+
+#[test]
 fn validators_dir_alias_flags() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
@@ -127,6 +143,22 @@ fn use_long_timeouts_flag() {
         .flag("use-long-timeouts", None)
         .run()
         .with_config(|config| assert!(config.use_long_timeouts));
+}
+
+#[test]
+fn long_timeouts_multiplier_flag_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.long_timeouts_multiplier, 1));
+}
+
+#[test]
+fn long_timeouts_multiplier_flag() {
+    CommandLineTest::new()
+        .flag("use-long-timeouts", None)
+        .flag("long-timeouts-multiplier", Some("10"))
+        .run()
+        .with_config(|config| assert_eq!(config.long_timeouts_multiplier, 10));
 }
 
 #[test]

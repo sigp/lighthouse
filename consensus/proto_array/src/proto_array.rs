@@ -760,7 +760,7 @@ impl ProtoArray {
     ///
     /// - The child is already the best child but it's now invalid due to a FFG change and should be removed.
     /// - The child is already the best child and the parent is updated with the new
-    ///     best-descendant.
+    ///   best-descendant.
     /// - The child is not the best child but becomes the best child.
     /// - The child is not the best child and does not become the best child.
     fn maybe_update_best_child_and_descendant<E: EthSpec>(
@@ -1040,6 +1040,21 @@ impl ProtoArray {
                     .is_some_and(|node_block_hash| node_block_hash == *block_hash)
             })
             .map(|node| node.root)
+    }
+
+    /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
+    ///
+    /// For informational purposes like the beacon HTTP API, we use this as the list of known heads,
+    /// even though some of them might not be viable. We do this to maintain consistency between the
+    /// definition of "head" used by pruning (which does not consider viability) and fork choice.
+    pub fn heads_descended_from_finalization<E: EthSpec>(&self) -> Vec<&ProtoNode> {
+        self.nodes
+            .iter()
+            .filter(|node| {
+                node.best_child.is_none()
+                    && self.is_finalized_checkpoint_or_descendant::<E>(node.root)
+            })
+            .collect()
     }
 }
 

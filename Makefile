@@ -10,6 +10,8 @@ X86_64_TAG = "x86_64-unknown-linux-gnu"
 BUILD_PATH_X86_64 = "target/$(X86_64_TAG)/release"
 AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
+RISCV64_TAG = "riscv64gc-unknown-linux-gnu"
+BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
 
@@ -67,6 +69,8 @@ build-aarch64:
 	# pages, which are commonly used by aarch64 systems.
 	# See: https://github.com/sigp/lighthouse/issues/5244
 	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
+build-riscv64:
+	cross build --bin lighthouse --target riscv64gc-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
 build-lcli-x86_64:
 	cross build --bin lcli --target x86_64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
@@ -75,6 +79,8 @@ build-lcli-aarch64:
 	# pages, which are commonly used by aarch64 systems.
 	# See: https://github.com/sigp/lighthouse/issues/5244
 	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+build-lcli-riscv64:
+	cross build --bin lcli --target riscv64gc-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -95,6 +101,9 @@ build-release-tarballs:
 	$(call tarball_release_binary,$(BUILD_PATH_X86_64),$(X86_64_TAG),"")
 	$(MAKE) build-aarch64
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"")
+	$(MAKE) build-riscv64
+	$(call tarball_release_binary,$(BUILD_PATH_RISCV64),$(RISCV64_TAG),"")
+
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.

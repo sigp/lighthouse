@@ -28,7 +28,6 @@ hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
-log = { workspace = true }
 maplit = { workspace = true }
 merkle_proof = { workspace = true }
 metastruct = "0.1.0"
@@ -39,18 +38,18 @@ rand_xorshift = "0.3.0"
 rayon = { workspace = true }
 regex = { workspace = true }
 rpds = { workspace = true }
-rusqlite = { workspace = true }
+rusqlite = { workspace = true, optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
-slog = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true, features = ["arbitrary"] }
 superstruct = { workspace = true }
 swap_or_not_shuffle = { workspace = true, features = ["arbitrary"] }
 tempfile = { workspace = true }
 test_random_derive = { path = "../../common/test_random_derive" }
+tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 
@@ -65,7 +64,7 @@ tokio = { workspace = true }
 default = ["sqlite", "legacy-arith"]
 # Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
 legacy-arith = []
-sqlite = []
+sqlite = ["dep:rusqlite"]
 # The `arbitrary-fuzz` feature is a no-op provided for backwards compatibility.
 # For simplicity `Arbitrary` is now derived regardless of the feature's presence.
 arbitrary-fuzz = []

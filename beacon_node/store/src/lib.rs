@@ -14,7 +14,6 @@ pub mod config;
 pub mod consensus_context;
 pub mod errors;
 mod forwards_iter;
-mod garbage_collection;
 pub mod hdiff;
 pub mod historic_state_cache;
 pub mod hot_cold_store;
@@ -195,7 +194,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let key = key.as_slice();
 
         self.put_bytes(column, key, &item.as_store_bytes())
-            .map_err(Into::into)
     }
 
     fn put_sync<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
@@ -203,7 +201,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let key = key.as_slice();
 
         self.put_bytes_sync(column, key, &item.as_store_bytes())
-            .map_err(Into::into)
     }
 
     /// Retrieve an item from `Self`.
@@ -243,8 +240,6 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutBlobs(Hash256, BlobSidecarList<E>),
     PutDataColumns(Hash256, DataColumnSidecarList<E>),
     PutStateSummary(Hash256, HotStateSummary),
-    PutStateTemporaryFlag(Hash256),
-    DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
     DeleteDataColumns(Hash256, Vec<ColumnIndex>),
@@ -289,8 +284,10 @@ pub enum DBColumn {
     /// Mapping from state root to `ColdStateSummary` in the cold DB.
     #[strum(serialize = "bcs")]
     BeaconColdStateSummary,
-    /// For the list of temporary states stored during block import,
-    /// and then made non-temporary by the deletion of their state root from this column.
+    /// DEPRECATED.
+    ///
+    /// Previously used for the list of temporary states stored during block import, and then made
+    /// non-temporary by the deletion of their state root from this column.
     #[strum(serialize = "bst")]
     BeaconStateTemporary,
     /// Execution payloads for blocks more recent than the finalized checkpoint.

@@ -8,7 +8,6 @@ use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
 use lighthouse_network::NetworkGlobals;
 use rand_chacha::ChaCha20Rng;
-use slog::Logger;
 use slot_clock::ManualSlotClock;
 use std::sync::Arc;
 use store::MemoryStore;
@@ -64,6 +63,5 @@ struct TestRig {
     /// `rng` for generating test blocks and blobs.
     rng: ChaCha20Rng,
     fork_name: ForkName,
-    log: Logger,
     spec: Arc<ChainSpec>,
 }

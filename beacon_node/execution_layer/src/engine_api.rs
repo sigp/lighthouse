@@ -1,10 +1,11 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_GET_BLOBS_V1, ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V1,
-    ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_GET_BLOBS_V1, ENGINE_GET_BLOBS_V2, ENGINE_GET_CLIENT_VERSION_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4,
+    ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_NEW_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V5,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -142,9 +143,16 @@ pub struct ExecutionBlock {
     pub block_number: u64,
 
     pub parent_hash: ExecutionBlockHash,
-    pub total_difficulty: Uint256,
+    pub total_difficulty: Option<Uint256>,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
+}
+
+impl ExecutionBlock {
+    pub fn terminal_total_difficulty_reached(&self, terminal_total_difficulty: Uint256) -> bool {
+        self.total_difficulty
+            .is_none_or(|td| td >= terminal_total_difficulty)
+    }
 }
 
 #[superstruct(
@@ -546,6 +554,7 @@ pub struct EngineCapabilities {
     pub get_payload_v5: bool,
     pub get_client_version_v1: bool,
     pub get_blobs_v1: bool,
+    pub get_blobs_v2: bool,
 }
 
 impl EngineCapabilities {
@@ -601,6 +610,9 @@ impl EngineCapabilities {
         }
         if self.get_blobs_v1 {
             response.push(ENGINE_GET_BLOBS_V1);
+        }
+        if self.get_blobs_v2 {
+            response.push(ENGINE_GET_BLOBS_V2);
         }
 
         response

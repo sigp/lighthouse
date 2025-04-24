@@ -52,13 +52,16 @@ pub enum PubsubMessage<E: EthSpec> {
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
 pub struct SnappyTransform {
     /// Sets the maximum size we allow gossipsub messages to decompress to.
-    max_size_per_message: usize,
+    max_uncompressed_len: usize,
+    /// Sets the maximum size we allow for compressed gossipsub message data.
+    max_compressed_len: usize,
 }
 
 impl SnappyTransform {
-    pub fn new(max_size_per_message: usize) -> Self {
+    pub fn new(max_uncompressed_len: usize, max_compressed_len: usize) -> Self {
         SnappyTransform {
-            max_size_per_message,
+            max_uncompressed_len,
+            max_compressed_len,
         }
     }
 }
@@ -69,12 +72,19 @@ impl gossipsub::DataTransform for SnappyTransform {
         &self,
         raw_message: gossipsub::RawMessage,
     ) -> Result<gossipsub::Message, std::io::Error> {
-        // check the length of the raw bytes
-        let len = decompress_len(&raw_message.data)?;
-        if len > self.max_size_per_message {
+        // first check the size of the compressed payload
+        if raw_message.data.len() > self.max_compressed_len {
             return Err(Error::new(
                 ErrorKind::InvalidData,
-                "ssz_snappy decoded data > GOSSIP_MAX_SIZE",
+                "ssz_snappy encoded data > max_compressed_len",
+            ));
+        }
+        // check the length of the uncompressed bytes
+        let len = decompress_len(&raw_message.data)?;
+        if len > self.max_uncompressed_len {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "ssz_snappy decoded data > MAX_PAYLOAD_SIZE",
             ));
         }
 
@@ -98,10 +108,10 @@ impl gossipsub::DataTransform for SnappyTransform {
     ) -> Result<Vec<u8>, std::io::Error> {
         // Currently we are not employing topic-based compression. Everything is expected to be
         // snappy compressed.
-        if data.len() > self.max_size_per_message {
+        if data.len() > self.max_uncompressed_len {
             return Err(Error::new(
                 ErrorKind::InvalidData,
-                "ssz_snappy Encoded data > GOSSIP_MAX_SIZE",
+                "ssz_snappy Encoded data > MAX_PAYLOAD_SIZE",
             ));
         }
         let mut encoder = Encoder::new();

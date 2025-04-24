@@ -220,7 +220,7 @@ impl Kzg {
         .map_err(Into::into)
     }
 
-    /// Computes the cells and associated proofs for a given `blob` at index `index`.
+    /// Computes the cells and associated proofs for a given `blob`.
     pub fn compute_cells_and_proofs(
         &self,
         blob: KzgBlobRef<'_>,
@@ -235,11 +235,14 @@ impl Kzg {
         Ok((cells, c_kzg_proof))
     }
 
+    /// Computes the cells for a given `blob`.
+    pub fn compute_cells(&self, blob: KzgBlobRef<'_>) -> Result<[Cell; CELLS_PER_EXT_BLOB], Error> {
+        self.context()
+            .compute_cells(blob)
+            .map_err(Error::PeerDASKZG)
+    }
+
     /// Verifies a batch of cell-proof-commitment triplets.
-    ///
-    /// Here, `coordinates` correspond to the (row, col) coordinate of the cell in the extended
-    /// blob "matrix". In the 1D extension, row corresponds to the blob index, and col corresponds
-    /// to the data column index.
     pub fn verify_cell_proof_batch(
         &self,
         cells: &[CellRef<'_>],
