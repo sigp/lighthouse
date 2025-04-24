@@ -30,6 +30,7 @@ dependencies = [
  "filesystem",
  "safe_arith",
  "sensitive_url",
+ "serde_json",
  "slashing_protection",
  "slot_clock",
  "tempfile",
