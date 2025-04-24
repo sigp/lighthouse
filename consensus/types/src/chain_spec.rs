@@ -1530,6 +1530,7 @@ pub struct Config {
     max_blobs_per_block_fulu: u64,
 
     // For future forks
+    #[serde(skip_serializing)]
     #[serde(flatten)]
     future_fields: HashMap<String, Value>,
 }
