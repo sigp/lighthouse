@@ -103,6 +103,7 @@ impl Eth2NetworkConfig {
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
         let config: Config = serde_yaml::from_reader(net.config)
             .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?;
+        config.validate_extra_fields()?;
         let kzg_trusted_setup = get_trusted_setup();
         Ok(Self {
             deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)

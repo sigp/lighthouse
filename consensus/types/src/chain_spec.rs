@@ -15,7 +15,17 @@ use std::time::Duration;
 use tree_hash::TreeHash;
 
 /// When a new field is intended to be allowed for a future fork, simply add it to this list
-pub const FUTURE_FIELDS: [&str; 1] = ["future_field_test"];
+pub const FUTURE_FIELDS: [&str; 9] = [
+    "REORG_PARENT_WEIGHT_THRESHOLD",
+    "REORG_HEAD_WEIGHT_THRESHOLD",
+    "REORG_MAX_EPOCHS_SINCE_FINALIZATION",
+    "ATTESTATION_SUBNET_SHUFFLING_PREFIX_BITS",
+    "EPOCHS_PER_SUBNET_SUBSCRIPTION",
+    "ATTESTATION_SUBNET_COUNT",
+    "ATTESTATION_SUBNET_EXTRA_BITS",
+    "TRANSITION_TOTAL_DIFFICULTY",
+    "WHISK_PROPOSER_SELECTION_GAP",
+];
 
 /// Each of the BLS signature domains.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -1836,8 +1846,10 @@ impl Config {
     pub fn from_file(filename: &Path) -> Result<Self, String> {
         let f = File::open(filename)
             .map_err(|e| format!("Error opening spec at {}: {:?}", filename.display(), e))?;
-        serde_yaml::from_reader(f)
-            .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))
+        let config: Self = serde_yaml::from_reader(f)
+            .map_err(|e| format!("Error parsing spec at {}: {:?}", filename.display(), e))?;
+        config.validate_extra_fields()?;
+        Ok(config)
     }
 
     pub fn apply_to_chain_spec<E: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
