@@ -15,7 +15,7 @@ use std::time::Duration;
 use tree_hash::TreeHash;
 
 /// When a new field is intended to be allowed for a future fork, simply add it to this list
-pub const FUTURE_FIELDS: [&str; 9] = [
+pub const FUTURE_FIELDS: [&str; 12] = [
     "REORG_PARENT_WEIGHT_THRESHOLD",
     "REORG_HEAD_WEIGHT_THRESHOLD",
     "REORG_MAX_EPOCHS_SINCE_FINALIZATION",
@@ -25,6 +25,9 @@ pub const FUTURE_FIELDS: [&str; 9] = [
     "ATTESTATION_SUBNET_EXTRA_BITS",
     "TRANSITION_TOTAL_DIFFICULTY",
     "WHISK_PROPOSER_SELECTION_GAP",
+    "WHISK_EPOCHS_PER_SHUFFLING_PHASE",
+    "TARGET_BLOBS_PER_BLOCK_ELECTRA",
+    "MAX_REQUEST_PAYLOADS"
 ];
 
 /// Each of the BLS signature domains.
