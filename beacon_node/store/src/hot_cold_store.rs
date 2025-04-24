@@ -1004,6 +1004,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "State cache missed";
                 "state_root"  => ?state_root,
                 "block_root" => ?block_root,
+            );
+            debug!(
+                self.log,
+                "State cache miss backtrace";
                 "backtrace" => %backtrace,
             );
         }
@@ -1550,6 +1554,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 self.log,
                 "State cache missed";
                 "state_root" => ?state_root,
+            );
+            debug!(
+                self.log,
+                "State cache miss backtrace";
                 "backtrace" => %backtrace,
             );
         }
