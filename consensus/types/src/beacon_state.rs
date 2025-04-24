@@ -48,6 +48,13 @@ pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 const MAX_RANDOM_VALUE: u64 = (1 << 16) - 1;
 
+// `SAFETY_DECAY` is defined as the maximum percentage tolerable loss in the one-third
+// safety margin of FFG finality. Thus, any attack exploiting the Weak Subjectivity Period has
+// a safety margin of at least `1/3 - SAFETY_DECAY/100`.
+// Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L50-L71
+const SAFETY_DECAY: u64 = 10;
+const GWEI_PER_ETH: u64 = 1_000_000_000;
+
 pub type Validators<E> = List<Validator, <E as EthSpec>::ValidatorRegistryLimit>;
 pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 
@@ -2506,106 +2513,33 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(())
     }
 
-    /// Returns the weak subjectivity period for `self`. This computation takes into
-    /// account the effect of validator set churn (bounded by `get_balance_churn_limit()` per epoch)
-    ///  A detailed calculation can be found at:
-    /// https://notes.ethereum.org/@CarlBeek/electra_weak_subjectivity
+    /// Returns the weak subjectivity period for `self`
     pub fn compute_weak_subjectivity_period(&self, spec: &ChainSpec) -> Result<Epoch, Error> {
-        // `SAFETY_DECAY` is defined as the maximum percentage tolerable loss in the one-third
-        // safety margin of FFG finality. Thus, any attack exploiting the Weak Subjectivity Period has
-        // a safety margin of at least `1/3 - SAFETY_DECAY/100`.
-        // Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L50-L71
-        const SAFETY_DECAY: u64 = 10;
         let total_active_balance = self.get_total_active_balance()?;
         let fork_name = self.fork_name_unchecked();
 
         if fork_name.electra_enabled() {
-            // spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/electra/weak-subjectivity.md?plain=1#L30
-            // labeled delta in the spec
             let balance_churn_limit = self.get_balance_churn_limit(spec)?;
-            let epochs_for_validator_set_churn = SAFETY_DECAY
-                .safe_mul(total_active_balance)?
-                .safe_div(balance_churn_limit.safe_mul(200)?)?;
-            let ws_period = spec
-                .min_validator_withdrawability_delay
-                .safe_mul(epochs_for_validator_set_churn)?;
-
-            Ok(ws_period)
+            compute_weak_subjectivity_period_electra(
+                total_active_balance,
+                balance_churn_limit,
+                spec,
+            )
         } else {
-            // spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L82
-            let mut ws_period = spec.min_validator_withdrawability_delay;
-            // labeled N in the spec
             let active_validator_count = self
                 .get_active_validator_indices(self.slot().epoch(E::slots_per_epoch()), spec)?
                 .len() as u64;
-            // labeled t in the spec
-            let total_active_balance_per_validator =
-                total_active_balance.safe_div(active_validator_count)?;
-            // labeled T in the spec
-            let max_effective_balance = spec.max_effective_balance_for_fork(fork_name);
-            // labled delta in the spec
             let validator_churn_limit = self.get_validator_churn_limit(spec)?;
-            // labeled Delta in the spec
-            let max_deposits_per_epoch = E::MaxDeposits::to_u64().safe_mul(E::slots_per_epoch())?;
-
-            // T * (200 + 3 * D) < t * (200 + 12 * D)
-            if max_effective_balance.safe_mul(200.safe_add(SAFETY_DECAY.safe_mul(3)?)?)?
-                < total_active_balance_per_validator
-                    .safe_mul(SAFETY_DECAY.safe_mul(12)?.safe_add(200)?)?
-            {
-                //  N * (t * (200 + 12 * D) - T * (200 + 3 * D))
-                let epochs_for_validator_set_churn_numerator = active_validator_count
-                    .safe_mul(total_active_balance_per_validator)?
-                    .safe_mul(200.safe_add(SAFETY_DECAY.safe_mul(12)?)?)?
-                    .safe_sub(
-                        max_effective_balance.safe_mul(SAFETY_DECAY.safe_mul(3)?.safe_add(200)?)?,
-                    )?;
-
-                // (600 * delta * (2 * t + T))
-                let epochs_for_validator_set_churn_denominator =
-                    validator_churn_limit.safe_mul(600)?.safe_mul(
-                        total_active_balance_per_validator
-                            .safe_mul(2)?
-                            .safe_add(max_effective_balance)?,
-                    )?;
-
-                // N * (t * (200 + 12 * D) - T * (200 + 3 * D)) // (600 * delta * (2 * t + T))
-                let epochs_for_validator_set_churn = epochs_for_validator_set_churn_numerator
-                    .safe_div(epochs_for_validator_set_churn_denominator)?;
-
-                // N * (200 + 3 * D)
-                let epochs_for_balance_top_ups_numerator =
-                    active_validator_count.safe_mul(SAFETY_DECAY.safe_mul(3)?.safe_add(200)?)?;
-
-                // (600 * Delta)
-                let epochs_for_balance_top_ups_denominator =
-                    max_deposits_per_epoch.safe_mul(600)?;
-
-                //  N * (200 + 3 * D) // (600 * Delta)
-                let epochs_for_balance_top_ups = epochs_for_balance_top_ups_numerator
-                    .safe_div(epochs_for_balance_top_ups_denominator)?;
-
-                ws_period.safe_add_assign(std::cmp::max(
-                    epochs_for_validator_set_churn,
-                    epochs_for_balance_top_ups,
-                ))?;
-            } else {
-                // 3 * N * D * t
-                let numerator = active_validator_count
-                    .safe_mul(3)?
-                    .safe_mul(SAFETY_DECAY)?
-                    .safe_mul(total_active_balance_per_validator)?;
-
-                // 200 * (Delta * (T - t))
-                let denomenator = max_deposits_per_epoch
-                    .safe_mul(max_effective_balance.safe_sub(total_active_balance_per_validator)?)?
-                    .safe_mul(200)?;
-
-                //  3 * N * D * t // (200 * Delta * (T - t))
-                ws_period.safe_add_assign(numerator.safe_div(denomenator)?)?;
-            }
-
-            Ok(ws_period)
+            let total_active_balance_per_validator = total_active_balance
+                .safe_div(active_validator_count)?
+                .safe_div(GWEI_PER_ETH)?;
+            compute_weak_subjectivity_period_base::<E>(
+                active_validator_count,
+                total_active_balance_per_validator,
+                validator_churn_limit,
+                fork_name,
+                spec,
+            )
         }
     }
 }
@@ -2864,5 +2798,206 @@ impl<E: EthSpec> ForkVersionDeserialize for BeaconState<E> {
                 e
             )))?
         ))
+    }
+}
+
+/// Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/electra/weak-subjectivity.md?plain=1#L30
+pub fn compute_weak_subjectivity_period_electra(
+    total_active_balance: u64,
+    balance_churn_limit: u64,
+    spec: &ChainSpec,
+) -> Result<Epoch, Error> {
+    let epochs_for_validator_set_churn = SAFETY_DECAY
+        .safe_mul(total_active_balance)?
+        .safe_div(balance_churn_limit.safe_mul(200)?)?;
+    let ws_period = spec
+        .min_validator_withdrawability_delay
+        .safe_add(epochs_for_validator_set_churn)?;
+
+    Ok(ws_period)
+}
+
+/// Spec: https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L82
+/// N: active_validator_count
+/// t: total_active_balance_per_validator
+/// T: max_effective_balance
+/// delta: validator_churn_limit
+/// Delta: max_deposits_per_epoch
+/// D: SAFETY_DECAY
+/// Note: We denominate balance values in Ether to prevent overflow
+pub fn compute_weak_subjectivity_period_base<E: EthSpec>(
+    active_validator_count: u64,
+    total_active_balance_per_validator: u64,
+    validator_churn_limit: u64,
+    fork_name: ForkName,
+    spec: &ChainSpec,
+) -> Result<Epoch, Error> {
+    let mut ws_period = spec.min_validator_withdrawability_delay;
+    let max_effective_balance = spec
+        .max_effective_balance_for_fork(fork_name)
+        .safe_div(GWEI_PER_ETH)?;
+    let max_deposits_per_epoch = E::MaxDeposits::to_u64().safe_mul(E::slots_per_epoch())?;
+
+    // T * (200 + 3 * D) < t * (200 + 12 * D)
+    if max_effective_balance.safe_mul(SAFETY_DECAY.safe_mul(3)?.safe_add(200)?)?
+        < total_active_balance_per_validator.safe_mul(SAFETY_DECAY.safe_mul(12)?.safe_add(200)?)?
+    {
+        //  N * (t * (200 + 12 * D) - T * (200 + 3 * D))
+        let epochs_for_validator_set_churn_numerator = active_validator_count.safe_mul(
+            total_active_balance_per_validator
+                .safe_mul(SAFETY_DECAY.safe_mul(12)?.safe_add(200)?)?
+                .safe_sub(
+                    max_effective_balance.safe_mul(SAFETY_DECAY.safe_mul(3)?.safe_add(200)?)?,
+                )?,
+        )?;
+
+        // (600 * delta * (2 * t + T))
+        let epochs_for_validator_set_churn_denominator =
+            validator_churn_limit.safe_mul(600)?.safe_mul(
+                total_active_balance_per_validator
+                    .safe_mul(2)?
+                    .safe_add(max_effective_balance)?,
+            )?;
+
+        // N * (t * (200 + 12 * D) - T * (200 + 3 * D)) // (600 * delta * (2 * t + T))
+        let epochs_for_validator_set_churn = epochs_for_validator_set_churn_numerator
+            .safe_div(epochs_for_validator_set_churn_denominator)?;
+
+        // N * (200 + 3 * D)
+        let epochs_for_balance_top_ups_numerator =
+            active_validator_count.safe_mul(SAFETY_DECAY.safe_mul(3)?.safe_add(200)?)?;
+
+        // (600 * Delta)
+        let epochs_for_balance_top_ups_denominator = max_deposits_per_epoch.safe_mul(600)?;
+
+        //  N * (200 + 3 * D) // (600 * Delta)
+        let epochs_for_balance_top_ups = epochs_for_balance_top_ups_numerator
+            .safe_div(epochs_for_balance_top_ups_denominator)?;
+
+        ws_period.safe_add_assign(std::cmp::max(
+            epochs_for_validator_set_churn,
+            epochs_for_balance_top_ups,
+        ))?;
+    } else {
+        // 3 * N * D * t
+        let numerator = active_validator_count
+            .safe_mul(3)?
+            .safe_mul(SAFETY_DECAY)?
+            .safe_mul(total_active_balance_per_validator)?;
+
+        // 200 * (Delta * (T - t))
+        let denomenator = max_deposits_per_epoch
+            .safe_mul(max_effective_balance.safe_sub(total_active_balance_per_validator)?)?
+            .safe_mul(200)?;
+
+        //  3 * N * D * t // (200 * Delta * (T - t))
+        ws_period.safe_add_assign(numerator.safe_div(denomenator)?)?;
+    }
+
+    Ok(ws_period)
+}
+
+#[cfg(test)]
+mod weak_subjectivity_tests {
+    use super::MainnetEthSpec;
+    use crate::{
+        beacon_state::GWEI_PER_ETH, compute_weak_subjectivity_period_base,
+        compute_weak_subjectivity_period_electra, eth_spec::EthSpec, ChainSpec, Epoch, ForkName,
+    };
+
+    type E = MainnetEthSpec;
+
+    #[test]
+    fn test_compute_weak_subjectivity_period_electra() {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.electra_fork_epoch = Some(Epoch::new(0));
+
+        // A table of some expected values:
+        // https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/electra/weak-subjectivity.md?plain=1#L44-L54
+        // (total_active_balance, expected_ws_period)
+        let expected_values: Vec<(u64, u64)> = vec![
+            (1_048_576 * GWEI_PER_ETH, 665),
+            (2_097_152 * GWEI_PER_ETH, 1_075),
+            (4_194_304 * GWEI_PER_ETH, 1_894),
+            (8_388_608 * GWEI_PER_ETH, 3_532),
+            (16_777_216 * GWEI_PER_ETH, 3_532),
+            (33_554_432 * GWEI_PER_ETH, 3_532),
+        ];
+
+        for (total_active_balance, expected_ws_period) in expected_values {
+            let balance_churn_limit = get_balance_churn_limit(total_active_balance, &spec);
+
+            let calculated_ws_period = compute_weak_subjectivity_period_electra(
+                total_active_balance,
+                balance_churn_limit,
+                &spec,
+            )
+            .unwrap();
+
+            assert_eq!(calculated_ws_period, expected_ws_period);
+        }
+    }
+
+    // caclulate the balance_churn_limit without dealing with states
+    // and without initializing the active balance cache
+    fn get_balance_churn_limit(total_active_balance: u64, spec: &ChainSpec) -> u64 {
+        let churn = std::cmp::max(
+            spec.min_per_epoch_churn_limit_electra,
+            total_active_balance / spec.churn_limit_quotient,
+        );
+        churn - (churn % spec.effective_balance_increment)
+    }
+
+    // caclulate the validator_churn_limit without dealing with states
+    // and without initializing the active balance cache
+    fn get_validator_churn_limit(active_validator_count: u64, spec: &ChainSpec) -> u64 {
+        std::cmp::max(
+            spec.min_per_epoch_churn_limit,
+            active_validator_count / spec.churn_limit_quotient,
+        )
+    }
+
+    #[test]
+    fn test_compute_weak_subjectivity_period_base() {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+
+        // A table of some expected values:
+        // https://github.com/ethereum/consensus-specs/blob/1937aff86b41b5171a9bc3972515986f1bbbf303/specs/phase0/weak-subjectivity.md?plain=1#L115-L130
+        // (total_active_balance_per_validator, active_validator_count, expected_ws_period)
+        let expected_values: Vec<(u64, u64, u64)> = vec![
+            (28, 32_768, 504),
+            (28, 65_536, 752),
+            (28, 131_072, 1248),
+            (28, 262_144, 2241),
+            (28, 524_288, 2241),
+            (28, 1_048_576, 2241),
+            (32, 32_768, 665),
+            (32, 65_536, 1075),
+            (32, 131_072, 1894),
+            (32, 262_144, 3532),
+            (32, 524_288, 3532),
+            (32, 1_048_576, 3532),
+        ];
+
+        for (total_active_balance_per_validator, active_validator_count, expected_ws_period) in
+            expected_values
+        {
+            let validator_churn_limit = get_validator_churn_limit(active_validator_count, &spec);
+            let calculated_ws_period = compute_weak_subjectivity_period_base::<E>(
+                active_validator_count,
+                total_active_balance_per_validator,
+                validator_churn_limit,
+                ForkName::Altair,
+                &spec,
+            )
+            .unwrap();
+
+            assert_eq!(calculated_ws_period, expected_ws_period);
+        }
     }
 }
