@@ -1,0 +1,38 @@
+name: Nightly mainnet tests
+
+defaults:
+  run:
+    shell: zsh {0}
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: The branch, tag or SHA to checkout and build from
+        default: unstable
+        type: string
+        required: true
+  schedule:
+    # Every day at 00:00 UTC
+    - cron: '0 0 * * *'
+
+jobs:
+  ef-nightly-test:
+    name: ef-tests-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run consensus-spec-tests with blst and fake_crypto
+      run: make run-ef-nightly-tests
