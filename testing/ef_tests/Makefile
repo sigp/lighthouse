@@ -14,8 +14,8 @@ BLS_OUTPUT_DIR := $(OUTPUT_DIR)/$(BLS_TEST_REPO_NAME)
 BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/download/$(BLS_TEST_TAG)
 
 # Can be changed to Mainnet
-NIGHTLY_ARTIFACT := Minimal Test Configuration
-SAFE_ARTIFACT := Minimal_Test_Configuration
+NIGHTLY_ARTIFACT := Mainnet Test Configuration
+SAFE_ARTIFACT := Mainnet_Test_Configuration
 CURL_JSON := curl -sSL -H "Accept: application/vnd.github+json" \
              $(if $(LIGHTHOUSE_GITHUB_TOKEN),-H "Authorization: Bearer $(LIGHTHOUSE_GITHUB_TOKEN)")
 
@@ -70,7 +70,7 @@ nightly:
 	    rm "$${f}.tar"; \
 	  fi; \
 	done
-	@tar_file=nightly-vectors/$(SAFE_ARTIFACT)/minimal.tar.gz; \
+	@tar_file=nightly-vectors/$(SAFE_ARTIFACT)/Mainnet.tar.gz; \
 	echo "Extracting $$tar_file …"; \
 	tar -xzf "$$tar_file" -C "$$(dirname $$tar_file)"
 	rm -f "$$tar_file"
