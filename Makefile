@@ -1,7 +1,6 @@
 .PHONY: tests
 
 EF_TESTS = "testing/ef_tests"
-EF_TESTS_NIGHTLY = "testing/ef_tests_nightly"
 STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 EXECUTION_ENGINE_INTEGRATION = "testing/execution_engine_integration"
 GIT_TAG := $(shell git describe --tags --candidates 1)
@@ -147,7 +146,8 @@ run-ef-tests:
 
 # Downloads the nighlty mainnet artifacts
 run-ef-nightly-tests:
-	cd $(EF_TESTS_NIGHTLY) ef_tests_nightly && make nightly
+	rm -rf $(EF_TESTS)/.accessed_file_log.txt
+	make -C $(EF_TESTS) nightly
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
 	./$(EF_TESTS_NIGHTLY)/check_all_files_accessed.py $(EF_TESTS_NIGHTLY)/.accessed_file_log.txt $(EF_TESTS_NIGHTLY)/consensus-spec-tests
