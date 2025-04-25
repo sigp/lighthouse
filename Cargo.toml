@@ -53,6 +53,8 @@ members = [
     "common/warp_utils",
     "common/workspace_members",
 
+    "consensus/context_deserialize",
+    "consensus/context_deserialize_derive",
     "consensus/fixed_bytes",
     "consensus/fork_choice",
     "consensus/int_to_bytes",

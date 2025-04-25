@@ -1,5 +1,6 @@
 use self::committee_cache::get_active_validator_indices;
 use crate::historical_summary::HistoricalSummary;
+use crate::ContextDeserialize;
 use crate::test_utils::TestRandom;
 use crate::FixedBytesExtended;
 use crate::*;
@@ -11,7 +12,7 @@ use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{metastruct, NumFields};
 pub use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::hash::Hash;
@@ -2760,6 +2761,22 @@ impl<E: EthSpec> ForkVersionDeserialize for BeaconState<E> {
                 "BeaconState failed to deserialize: {:?}",
                 e
             )))?
+        ))
+    }
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BeaconState<E> {
+    fn context_deserialize<D>(
+        deserializer: D,
+        ctx: ForkName,
+    ) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(map_fork_name!(
+            ctx,
+            Self,
+            serde::Deserialize::deserialize(deserializer)?
         ))
     }
 }
