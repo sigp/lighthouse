@@ -1,3 +1,5 @@
+use crate::utils::is_ascii_control;
+
 use chrono::prelude::*;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -13,14 +15,11 @@ use tracing_subscriber::Layer;
 
 pub struct LoggingLayer {
     pub non_blocking_writer: NonBlocking,
-    pub guard: WorkerGuard,
+    _guard: WorkerGuard,
     pub disable_log_timestamp: bool,
     pub log_color: bool,
-    pub logfile_color: bool,
     pub log_format: Option<String>,
-    pub logfile_format: Option<String>,
     pub extra_info: bool,
-    pub dep_logs: bool,
     span_fields: Arc<Mutex<HashMap<Id, SpanData>>>,
 }
 
@@ -28,25 +27,19 @@ impl LoggingLayer {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         non_blocking_writer: NonBlocking,
-        guard: WorkerGuard,
+        _guard: WorkerGuard,
         disable_log_timestamp: bool,
         log_color: bool,
-        logfile_color: bool,
         log_format: Option<String>,
-        logfile_format: Option<String>,
         extra_info: bool,
-        dep_logs: bool,
     ) -> Self {
         Self {
             non_blocking_writer,
-            guard,
+            _guard,
             disable_log_timestamp,
             log_color,
-            logfile_color,
             log_format,
-            logfile_format,
             extra_info,
-            dep_logs,
             span_fields: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -84,16 +77,6 @@ where
             String::new()
         };
 
-        if !self.dep_logs {
-            if let Some(file) = meta.file() {
-                if file.contains("/.cargo/") {
-                    return;
-                }
-            } else {
-                return;
-            }
-        }
-
         let mut writer = self.non_blocking_writer.clone();
 
         let mut visitor = LogMessageExtractor {
@@ -122,16 +105,10 @@ where
             None => "<unknown_line>".to_string(),
         };
 
-        if module.contains("discv5") {
-            visitor
-                .fields
-                .push(("service".to_string(), "\"discv5\"".to_string()));
-        }
-
         let gray = "\x1b[90m";
         let reset = "\x1b[0m";
         let location = if self.extra_info {
-            if self.logfile_color {
+            if self.log_color {
                 format!("{}{}::{}:{}{}", gray, module, file, line, reset)
             } else {
                 format!("{}::{}:{}", module, file, line)
@@ -164,33 +141,16 @@ where
             }
         };
 
-        if self.dep_logs {
-            if self.logfile_format.as_deref() == Some("JSON") {
-                build_json_log_file(
-                    &visitor,
-                    plain_level_str,
-                    meta,
-                    &ctx,
-                    &self.span_fields,
-                    event,
-                    &mut writer,
-                );
-            } else {
-                build_log_text(
-                    &visitor,
-                    plain_level_str,
-                    &timestamp,
-                    &ctx,
-                    &self.span_fields,
-                    event,
-                    &location,
-                    color_level_str,
-                    self.logfile_color,
-                    &mut writer,
-                );
-            }
-        } else if self.log_format.as_deref() == Some("JSON") {
-            build_json_log_stdout(&visitor, plain_level_str, &timestamp, &mut writer);
+        if self.log_format.as_deref() == Some("JSON") {
+            build_log_json(
+                &visitor,
+                plain_level_str,
+                meta,
+                &ctx,
+                &self.span_fields,
+                event,
+                &mut writer,
+            );
         } else {
             build_log_text(
                 &visitor,
@@ -300,49 +260,7 @@ impl tracing_core::field::Visit for LogMessageExtractor {
     }
 }
 
-/// Function to filter out ascii control codes.
-///
-/// This helps to keep log formatting consistent.
-/// Whitespace and padding control codes are excluded.
-fn is_ascii_control(character: &u8) -> bool {
-    matches!(
-        character,
-        b'\x00'..=b'\x08' |
-        b'\x0b'..=b'\x0c' |
-        b'\x0e'..=b'\x1f' |
-        b'\x7f' |
-        b'\x81'..=b'\x9f'
-    )
-}
-
-fn build_json_log_stdout(
-    visitor: &LogMessageExtractor,
-    plain_level_str: &str,
-    timestamp: &str,
-    writer: &mut impl Write,
-) {
-    let mut log_map = Map::new();
-    log_map.insert("msg".to_string(), Value::String(visitor.message.clone()));
-    log_map.insert(
-        "level".to_string(),
-        Value::String(plain_level_str.to_string()),
-    );
-    log_map.insert("ts".to_string(), Value::String(timestamp.to_string()));
-
-    for (key, val) in visitor.fields.clone().into_iter() {
-        let parsed_val = parse_field(&val);
-        log_map.insert(key, parsed_val);
-    }
-
-    let json_obj = Value::Object(log_map);
-    let output = format!("{}\n", json_obj);
-
-    if let Err(e) = writer.write_all(output.as_bytes()) {
-        eprintln!("Failed to write log: {}", e);
-    }
-}
-
-fn build_json_log_file<'a, S>(
+fn build_log_json<'a, S>(
     visitor: &LogMessageExtractor,
     plain_level_str: &str,
     meta: &tracing::Metadata<'_>,
