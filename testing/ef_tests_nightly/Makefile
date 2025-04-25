@@ -38,3 +38,5 @@ nightly:
 	@tar_file=$(ARTIFACTS_FOLDER)/Mainnet.tar.gz; \
 	tar -xzf "$$tar_file" -C "$$(dirname $$tar_file)"
 	rm -f $(ARTIFACTS_FOLDER)/mainnet.tar.gz
+
+.PHONY: nighlty
