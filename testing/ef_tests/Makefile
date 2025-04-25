@@ -17,7 +17,7 @@ BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/downl
 NIGHTLY_ARTIFACT := Minimal Test Configuration
 SAFE_ARTIFACT := Minimal_Test_Configuration
 CURL_JSON := curl -sSL -H "Accept: application/vnd.github+json" \
-             $(if $(GITHUB_TOKEN),-H "Authorization: Bearer $(GITHUB_TOKEN)")
+             $(if $(LIGHTHOUSE_GITHUB_TOKEN),-H "Authorization: Bearer $(LIGHTHOUSE_GITHUB_TOKEN)")
 
 define GH_LAST_ARTIFACT_URL
 $(shell \
