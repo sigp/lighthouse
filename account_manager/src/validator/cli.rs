@@ -237,29 +237,6 @@ pub struct Disable {
     pub all: bool,
 }
 
-pub trait Modifiable {
-    fn get_pubkey(&self) -> Option<PublicKey>;
-    fn is_all(&self) -> bool;
-}
-
-impl Modifiable for &Enable {
-    fn get_pubkey(&self) -> Option<PublicKey> {
-        self.pubkey.clone()
-    }
-    fn is_all(&self) -> bool {
-        self.all
-    }
-}
-
-impl Modifiable for &Disable {
-    fn get_pubkey(&self) -> Option<PublicKey> {
-        self.pubkey.clone()
-    }
-    fn is_all(&self) -> bool {
-        self.all
-    }
-}
-
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
     about = "Recovers validator private keys given a BIP-39 mnemonic phrase. \
