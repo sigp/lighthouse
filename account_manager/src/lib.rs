@@ -31,8 +31,8 @@ pub enum AccountManagerSubcommand {
 
 /// Run the account manager, returning an error if the operation did not succeed.
 pub fn run<E: EthSpec>(
-    account_manager: &AccountManager,
     matches: &ArgMatches,
+    account_manager: &AccountManager,
     env: Environment<E>,
 ) -> Result<(), String> {
     match &account_manager.subcommand {

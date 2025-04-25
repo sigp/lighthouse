@@ -2,8 +2,6 @@ use account_utils::validator_definitions::ValidatorDefinitions;
 use bls::PublicKey;
 use std::{collections::HashSet, path::PathBuf};
 
-use crate::validator::cli::Modifiable;
-
 use super::cli::Modify;
 
 pub const CMD: &str = "modify";
@@ -16,9 +14,9 @@ pub const ALL: &str = "all";
 pub fn cli_run(modify_config: &Modify, validator_dir: PathBuf) -> Result<(), String> {
     // `true` implies we are setting `validator_definition.enabled = true` and
     // vice versa.
-    let (enabled, sub_matches) = match modify_config {
-        Modify::Enable(sub_matches) => (true, Box::new(sub_matches) as Box<dyn Modifiable>),
-        Modify::Disable(sub_matches) => (false, Box::new(sub_matches) as Box<dyn Modifiable>),
+    let (enabled, pubkey_opt, is_all) = match modify_config {
+        Modify::Enable(enable) => (true, enable.pubkey.clone(), enable.all),
+        Modify::Disable(disable) => (false, disable.pubkey.clone(), disable.all),
     };
 
     let mut defs = ValidatorDefinitions::open(&validator_dir).map_err(|e| {
@@ -28,15 +26,13 @@ pub fn cli_run(modify_config: &Modify, validator_dir: PathBuf) -> Result<(), Str
         )
     })?;
 
-    let pubkeys_to_modify = if sub_matches.is_all() {
+    let pubkeys_to_modify = if is_all {
         defs.as_slice()
             .iter()
             .map(|def| def.voting_public_key.clone())
             .collect::<HashSet<_>>()
     } else {
-        let public_key = sub_matches
-            .get_pubkey()
-            .ok_or_else(|| "Pubkey flag must be provided.".to_string())?;
+        let public_key = pubkey_opt.ok_or_else(|| "Pubkey flag must be provided.".to_string())?;
         std::iter::once(public_key).collect::<HashSet<PublicKey>>()
     };
 

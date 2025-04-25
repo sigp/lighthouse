@@ -748,7 +748,7 @@ fn run<E: EthSpec>(
         Ok(LighthouseSubcommands::AccountManager(account_manager_config)) => {
             eprintln!("Running account manager for {} network", network_name);
             // Pass the entire `environment` to the account manager so it can run blocking operations.
-            account_manager::run(&account_manager_config, matches, environment)?;
+            account_manager::run(matches, &account_manager_config, environment)?;
 
             // Exit as soon as account manager returns control.
             return Ok(());
