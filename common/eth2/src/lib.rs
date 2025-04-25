@@ -2639,6 +2639,23 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `GET lighthouse/analysis/global_validator_supply/{state_root}`
+    pub async fn get_global_validator_supply(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<u64>>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("analysis")
+            .push("global_validator_supply")
+            .push(&state_id.to_string());
+
+        self.get_opt(path).await
+    }
+
     /// `GET events?topics`
     pub async fn get_events<E: EthSpec>(
         &self,

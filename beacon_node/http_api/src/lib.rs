@@ -4527,18 +4527,17 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
-                    state_id
-                        .map_state_and_execution_optimistic_and_finalized(
-                            &chain,
-                            |state, execution_optimistic, finalized| {
-                                Ok((
-                                    state.balances().iter().sum::<u64>(),
+                    state_id.map_state_and_execution_optimistic_and_finalized(
+                        &chain,
+                        |state, execution_optimistic, finalized| {
+                            let response = state.balances().iter().sum::<u64>();
+                            Ok(api_types::GenericResponse::from(response)
+                                .add_execution_optimistic_finalized(
                                     execution_optimistic,
                                     finalized,
                                 ))
-                            },
-                        )
-                        .map(api_types::GenericResponse::from)
+                        },
+                    )
                 })
             },
         );

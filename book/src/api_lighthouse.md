@@ -785,18 +785,11 @@ curl -X GET "http://localhost:5052/lighthouse/analysis/global_validator_supply/0
 
 ```json
 {
-  "data": [
-    674144000000000,
-    false,
-    true
-  ]
+  "execution_optimistic": false,
+  "finalized": true,
+  "data": 674144000000000
 }
 ```
-
-The two boolean flags in the response are respectively:
-
-- `execution_optimistic`: whether the response was computed using optimistically synced data
-- `finalized`: whether the response was computed over finalized data
 
 ## `/lighthouse/logs`
 

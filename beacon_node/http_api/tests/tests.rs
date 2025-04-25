@@ -5740,6 +5740,35 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_lighthouse_global_validator_supply(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let global_validator_supply = match state_opt.as_ref() {
+                Some(state) => Some(state.balances().iter().sum::<u64>()),
+                None => None,
+            };
+
+            let api_global_validator_supply = self
+                .client
+                .get_global_validator_supply(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            assert_eq!(
+                global_validator_supply, api_global_validator_supply,
+                "{:?}",
+                state_id
+            );
+        }
+
+        self
+    }
+
     pub async fn test_post_lighthouse_database_reconstruct(self) -> Self {
         let response = self
             .client
@@ -7337,6 +7366,8 @@ async fn lighthouse_endpoints() {
         .test_post_lighthouse_liveness()
         .await
         .test_post_lighthouse_add_remove_peer()
+        .await
+        .test_get_lighthouse_global_validator_supply()
         .await;
 }
 
