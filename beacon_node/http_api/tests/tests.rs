@@ -5747,10 +5747,7 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let global_validator_supply = match state_opt.as_ref() {
-                Some(state) => Some(state.balances().iter().sum::<u64>()),
-                None => None,
-            };
+            let global_validator_supply = state_opt.as_ref().map(|state| state.balances().iter().sum::<u64>());
 
             let api_global_validator_supply = self
                 .client
@@ -7340,7 +7337,7 @@ async fn post_validator_liveness_epoch() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn lighthouse_endpoints() {
+async fn lighthouse_get_endpoints() {
     ApiTester::new()
         .await
         .test_get_lighthouse_health()
@@ -7361,13 +7358,19 @@ async fn lighthouse_endpoints() {
         .await
         .test_get_lighthouse_staking()
         .await
+        .test_get_lighthouse_global_validator_supply()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lighthouse_post_endpoints() {
+    ApiTester::new()
+        .await
         .test_post_lighthouse_database_reconstruct()
         .await
         .test_post_lighthouse_liveness()
         .await
         .test_post_lighthouse_add_remove_peer()
-        .await
-        .test_get_lighthouse_global_validator_supply()
         .await;
 }
 
