@@ -5,14 +5,14 @@
 //! As the logic develops this documentation will advance.
 //!
 //! The scoring algorithms are currently experimental.
+use super::ScoreTransitionResult;
 use crate::service::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH, Instant};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use strum::AsRefStr;
 use tokio::time::Duration;
-use super::ScoreUpdateResult;
 
 static HALFLIFE_DECAY: LazyLock<f64> = LazyLock::new(|| -(2.0f64.ln()) / SCORE_HALFLIFE);
 
@@ -45,55 +45,35 @@ pub(crate) const MAX_STORED_PENALTY_RECORDS: usize = 20;
 #[derive(Clone, Debug, Serialize)]
 pub struct PenaltyRecord {
     /// The action that caused the penalty
-    action: PeerAction,
+    pub action: PeerAction,
     /// Where the penalty came from
-    source: ReportSource,
+    pub source: ReportSource,
     /// The penalty message
-    msg: String,
+    pub msg: String,
     /// The result of the penalty
-    result: ScoreUpdateResult,
+    pub result: ScoreTransitionResult,
     /// The time when the penalty occured in unix millis
-    time_stamp: Option<u128>
+    pub time_stamp: u128,
 }
 
 impl PenaltyRecord {
     /// Create a new penalty record
-    pub fn new(action: PeerAction, source:ReportSource, msg: impl Into<String>, result: ScoreUpdateResult) -> PenaltyRecord {
-        let time_stamp: Option<u128> = SystemTime::now()
-            .duration_since(UNIX_EPOCH).ok()
-            .map(|dur| dur.as_millis());
+    pub fn new(
+        action: PeerAction,
+        source: ReportSource,
+        msg: impl Into<String>,
+        result: ScoreTransitionResult,
+    ) -> PenaltyRecord {
+        let time_stamp: u128 = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |dur| dur.as_millis());
         PenaltyRecord {
             action: action,
             source: source,
             msg: msg.into(),
             result: result,
-            time_stamp: time_stamp
+            time_stamp: time_stamp,
         }
-    }
-
-    /// Obtains the action from the penalty record
-    pub fn action(&self) -> &PeerAction {
-        &self.action
-    }
-
-    /// Obtains the report source from the penalty record
-    pub fn source(&self) -> &ReportSource {
-        &self.source
-    }
-
-    /// Obtains the message associated with the penalty record
-    pub fn msg(&self) -> &String {
-        &self.msg
-    }
-
-    /// Obtains the result of the penalty record
-    pub fn result(&self) -> &ScoreUpdateResult {
-        &self.result
-    }
-
-    /// Obtains the time stamp of when the penalty record was made
-    pub fn time_stamp(&self) -> &Option<u128> {
-        &self.time_stamp
     }
 }
 

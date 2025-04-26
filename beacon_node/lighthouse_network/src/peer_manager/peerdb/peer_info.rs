@@ -1,5 +1,5 @@
 use super::client::Client;
-use super::score::{PeerAction, Score, ScoreState, PenaltyRecord, MAX_STORED_PENALTY_RECORDS};
+use super::score::{PeerAction, PenaltyRecord, Score, ScoreState, MAX_STORED_PENALTY_RECORDS};
 use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
 use crate::{rpc::MetaData, types::Subnet};
@@ -58,7 +58,7 @@ pub struct PeerInfo<E: EthSpec> {
     /// None if this peer was never connected.
     connection_direction: Option<ConnectionDirection>,
     /// The enr of the peer, if known.
-    enr: Option<Enr>
+    enr: Option<Enr>,
 }
 
 impl<E: EthSpec> Default for PeerInfo<E> {
@@ -77,7 +77,7 @@ impl<E: EthSpec> Default for PeerInfo<E> {
             is_trusted: false,
             connection_direction: None,
             enr: None,
-            penalty_records: VecDeque::new()
+            penalty_records: VecDeque::new(),
         }
     }
 }
@@ -401,7 +401,9 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Gets an iterator with the penalty records
     // VISIBILITY: The peer manager is able to add a penalty record
-    pub(in crate::peer_manager) fn get_penalty_records(&self) -> impl Iterator<Item = &PenaltyRecord>{
+    pub(in crate::peer_manager) fn get_penalty_records(
+        &self,
+    ) -> impl Iterator<Item = &PenaltyRecord> {
         self.penalty_records.iter()
     }
 

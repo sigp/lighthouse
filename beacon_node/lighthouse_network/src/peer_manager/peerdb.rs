@@ -4,7 +4,8 @@ use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub
 use itertools::Itertools;
 use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
-use score::{PeerAction, ReportSource, Score, ScoreState, PenaltyRecord, MAX_STORED_PENALTY_RECORDS};
+use score::{PeerAction, PenaltyRecord, ReportSource, Score, ScoreState};
+use serde::Serialize;
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
@@ -12,12 +13,11 @@ use std::{
     collections::{hash_map::Entry, HashMap, HashSet},
     fmt::Formatter,
 };
+use strum::AsRefStr;
 use sync_status::SyncStatus;
 use tracing::{debug, error, trace, warn};
 use types::data_column_custody_group::compute_subnets_for_node;
 use types::{ChainSpec, DataColumnSubnetId, EthSpec};
-use serde::Serialize;
-use strum::AsRefStr;
 
 pub mod client;
 pub mod peer_info;
@@ -562,7 +562,11 @@ impl<E: EthSpec> PeerDB<E> {
                 info.apply_peer_action_to_score(action);
                 metrics::inc_counter_vec(
                     &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
-                    &[info.client().kind.as_ref(), action.as_ref(), source.as_ref()],
+                    &[
+                        info.client().kind.as_ref(),
+                        action.as_ref(),
+                        source.as_ref(),
+                    ],
                 );
                 let result = Self::handle_score_transition(previous_state, peer_id, info);
                 if previous_state == info.score_state() {
@@ -573,7 +577,11 @@ impl<E: EthSpec> PeerDB<E> {
                         "Peer score adjusted"
                     );
                 }
-                let final_result = match result {
+                self.add_penalty_record(
+                    peer_id,
+                    PenaltyRecord::new(action, source, msg, result.clone()),
+                );
+                match result {
                     ScoreTransitionResult::Banned => {
                         // The peer was banned as a result of this action.
                         self.update_connection_state(peer_id, NewConnectionState::Banned)
@@ -598,9 +606,7 @@ impl<E: EthSpec> PeerDB<E> {
                         );
                         ScoreUpdateResult::NoAction
                     }
-                };
-                self.add_penalty_record(peer_id, PenaltyRecord::new(action, source, msg, final_result.clone()));
-                final_result
+                }
             }
             None => {
                 debug!(
@@ -756,7 +762,6 @@ impl<E: EthSpec> PeerDB<E> {
         peer_id
     }
 
-
     fn add_penalty_record(&mut self, peer_id: &PeerId, penalty_record: PenaltyRecord) {
         let info = self.peers.entry(*peer_id).or_insert_with(|| {
             error!(%peer_id, "Adding a penalty record to a non-existant peer");
@@ -770,13 +775,16 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Gets all the penalty records for a given peer id
-    pub fn get_penalty_records(&self, peer_id: &PeerId) -> Option<impl Iterator<Item = &PenaltyRecord>> {
+    pub fn get_penalty_records(
+        &self,
+        peer_id: &PeerId,
+    ) -> Option<impl Iterator<Item = &PenaltyRecord>> {
         match self.peers.get(peer_id) {
             Some(info) => Some(info.get_penalty_records()),
             None => {
                 error!(%peer_id, "Getting the penalty records of a non-existant peer");
                 None
-            },
+            }
         }
     }
 
@@ -1253,7 +1261,9 @@ enum NewConnectionState {
 }
 
 /// The result of applying a score transition to a peer.
-enum ScoreTransitionResult {
+#[derive(Clone, Debug, Serialize, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum ScoreTransitionResult {
     /// The peer has become disconnected.
     Disconnected,
     /// The peer has been banned.
@@ -1265,8 +1275,6 @@ enum ScoreTransitionResult {
 }
 
 /// The type of results that can happen from executing the `report_peer` function.
-#[derive(Clone, Debug, Serialize, AsRefStr)]
-#[strum(serialize_all = "snake_case")]
 pub enum ScoreUpdateResult {
     /// The reported peer must be banned.
     Ban(BanOperation),
@@ -1377,6 +1385,7 @@ impl BannedPeersCount {
 mod tests {
     use super::*;
     use libp2p::core::multiaddr::Protocol;
+    use score::MAX_STORED_PENALTY_RECORDS;
     use std::net::{Ipv4Addr, Ipv6Addr};
     use types::MinimalEthSpec;
 
@@ -1939,8 +1948,14 @@ mod tests {
         assert!(pdb.get_penalty_records(&random_peer).is_some());
 
         // Check to see if there are no initial penalty records
-        assert_eq!(pdb.get_penalty_records(&random_peer).unwrap().into_iter().count(),0);
-        
+        assert_eq!(
+            pdb.get_penalty_records(&random_peer)
+                .unwrap()
+                .into_iter()
+                .count(),
+            0
+        );
+
         let _ = pdb.report_peer(
             &random_peer,
             PeerAction::HighToleranceError,
@@ -1949,21 +1964,38 @@ mod tests {
         );
 
         // Check to see if there was a penalty record added
-        assert_eq!(pdb.get_penalty_records(&random_peer).unwrap().into_iter().count(),1);
+        assert_eq!(
+            pdb.get_penalty_records(&random_peer)
+                .unwrap()
+                .into_iter()
+                .count(),
+            1
+        );
 
-        let first_record = pdb.get_penalty_records(&random_peer).unwrap().into_iter().next().unwrap();
+        let first_record = pdb
+            .get_penalty_records(&random_peer)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
 
         // Check to see the correct report action for the penalty record
-        assert!(matches!(first_record.action(),PeerAction::HighToleranceError));
+        assert!(matches!(
+            first_record.action,
+            PeerAction::HighToleranceError
+        ));
 
         // Check to see the correct report source for the penalty record
-        assert!(matches!(first_record.source(),ReportSource::PeerManager));
+        assert!(matches!(first_record.source, ReportSource::PeerManager));
 
         // Check to see the correct message for the penalty record
-        assert_eq!(*first_record.msg(),"Minor report action".to_string());
+        assert_eq!(*first_record.msg, "Minor report action".to_string());
 
         // Check to see the correct result for the penalty record
-        assert!(matches!(first_record.result(),ScoreUpdateResult::NoAction));
+        assert!(matches!(
+            first_record.result,
+            ScoreTransitionResult::NoAction
+        ));
 
         let _ = pdb.report_peer(
             &random_peer,
@@ -1973,9 +2005,15 @@ mod tests {
         );
 
         // Check to see if there was a penalty record added
-        assert_eq!(pdb.get_penalty_records(&random_peer).unwrap().into_iter().count(),2);
+        assert_eq!(
+            pdb.get_penalty_records(&random_peer)
+                .unwrap()
+                .into_iter()
+                .count(),
+            2
+        );
 
-        for _ in 1..(MAX_STORED_PENALTY_RECORDS+1) {
+        for _ in 1..(MAX_STORED_PENALTY_RECORDS + 1) {
             let _ = pdb.report_peer(
                 &random_peer,
                 PeerAction::HighToleranceError,
@@ -1985,7 +2023,13 @@ mod tests {
         }
 
         // Check to make sure that the number of penalty records don't exceed the maximum
-        assert_eq!(pdb.get_penalty_records(&random_peer).unwrap().into_iter().count(),MAX_STORED_PENALTY_RECORDS);
+        assert_eq!(
+            pdb.get_penalty_records(&random_peer)
+                .unwrap()
+                .into_iter()
+                .count(),
+            MAX_STORED_PENALTY_RECORDS
+        );
     }
 
     #[test]
