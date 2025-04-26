@@ -1297,8 +1297,6 @@ impl From<Option<BanOperation>> for ScoreUpdateResult {
 }
 
 /// When attempting to ban a peer provides the peer manager with the operation that must be taken.
-#[derive(Clone, Debug, Serialize, AsRefStr)]
-#[strum(serialize_all = "snake_case")]
 pub enum BanOperation {
     /// Optionally temporarily ban this peer to prevent instantaneous reconnection.
     /// The peer manager will decide if temporary banning is required.
