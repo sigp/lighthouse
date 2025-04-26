@@ -27,7 +27,7 @@ pub const FUTURE_FIELDS: [&str; 12] = [
     "WHISK_PROPOSER_SELECTION_GAP",
     "WHISK_EPOCHS_PER_SHUFFLING_PHASE",
     "TARGET_BLOBS_PER_BLOCK_ELECTRA",
-    "MAX_REQUEST_PAYLOADS"
+    "MAX_REQUEST_PAYLOADS",
 ];
 
 /// Each of the BLS signature domains.
@@ -1543,9 +1543,8 @@ pub struct Config {
     max_blobs_per_block_fulu: u64,
 
     // For future forks
-    #[serde(skip_serializing)]
     #[serde(flatten)]
-    future_fields: HashMap<String, Value>,
+    pub future_fields: HashMap<String, Value>,
 }
 
 fn default_attestation_subnet_prefix_bits() -> u8 {

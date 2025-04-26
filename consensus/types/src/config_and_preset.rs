@@ -4,7 +4,7 @@ use crate::{
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_yaml::Value;
 use std::collections::HashMap;
 use superstruct::superstruct;
 
@@ -18,9 +18,6 @@ use superstruct::superstruct;
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(untagged)]
 pub struct ConfigAndPreset {
-    #[serde(flatten)]
-    pub config: Config,
-
     #[serde(flatten)]
     pub base_preset: BasePreset,
     #[serde(flatten)]
@@ -37,21 +34,21 @@ pub struct ConfigAndPreset {
     #[superstruct(only(Fulu))]
     #[serde(flatten)]
     pub fulu_preset: FuluPreset,
-    /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
+    // This needs to be on the bottom since all extra fields that don't match the above are stored in future_fields now.
     #[serde(flatten)]
-    pub extra_fields: HashMap<String, Value>,
+    pub config: Config,
 }
 
 impl ConfigAndPreset {
     // DEPRECATED: the `fork_name` argument is never used, we should remove it.
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
-        let config = Config::from_chain_spec::<E>(spec);
+        let mut config = Config::from_chain_spec::<E>(spec);
         let base_preset = BasePreset::from_chain_spec::<E>(spec);
         let altair_preset = AltairPreset::from_chain_spec::<E>(spec);
         let bellatrix_preset = BellatrixPreset::from_chain_spec::<E>(spec);
         let capella_preset = CapellaPreset::from_chain_spec::<E>(spec);
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
-        let extra_fields = get_extra_fields(spec);
+        config.future_fields = get_extra_fields(spec);
 
         if spec.fulu_fork_epoch.is_some()
             || fork_name.is_none()
@@ -69,7 +66,6 @@ impl ConfigAndPreset {
                 deneb_preset,
                 electra_preset,
                 fulu_preset,
-                extra_fields,
             })
         } else if spec.electra_fork_epoch.is_some()
             || fork_name.is_none()
@@ -85,7 +81,6 @@ impl ConfigAndPreset {
                 capella_preset,
                 deneb_preset,
                 electra_preset,
-                extra_fields,
             })
         } else {
             ConfigAndPreset::Deneb(ConfigAndPresetDeneb {
@@ -95,7 +90,6 @@ impl ConfigAndPreset {
                 bellatrix_preset,
                 capella_preset,
                 deneb_preset,
-                extra_fields,
             })
         }
     }
@@ -159,10 +153,19 @@ mod test {
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
         let (k3, v3) = ("SAMPLE_HARDFORK_KEY3", 32);
         let (k4, v4) = ("SAMPLE_HARDFORK_KEY4", Value::Null);
-        yamlconfig.extra_fields_mut().insert(k1.into(), v1.into());
-        yamlconfig.extra_fields_mut().insert(k2.into(), v2.into());
-        yamlconfig.extra_fields_mut().insert(k3.into(), v3.into());
-        yamlconfig.extra_fields_mut().insert(k4.into(), v4);
+        yamlconfig
+            .config_mut()
+            .future_fields
+            .insert(k1.into(), v1.into());
+        yamlconfig
+            .config_mut()
+            .future_fields
+            .insert(k2.into(), v2.into());
+        yamlconfig
+            .config_mut()
+            .future_fields
+            .insert(k3.into(), v3.into());
+        yamlconfig.config_mut().future_fields.insert(k4.into(), v4);
 
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
