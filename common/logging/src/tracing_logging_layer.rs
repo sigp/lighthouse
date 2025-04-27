@@ -464,7 +464,7 @@ mod tests {
             Buffer { data: Vec::new() }
         }
 
-        fn to_string(self) -> String {
+        fn into_string(self) -> String {
             String::from_utf8(self.data).unwrap()
         }
     }
@@ -598,6 +598,6 @@ mod tests {
             &mut writer,
         );
 
-        assert_eq!(expected, &writer.to_string());
+        assert_eq!(expected, &writer.into_string());
     }
 }
