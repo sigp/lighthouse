@@ -350,8 +350,8 @@ fn build_log_text(
 
     let mut formatted_spans = String::new();
     for (_, fields) in collected_span_fields.iter().rev() {
-        for (i, (field_name, field_value)) in fields.iter().enumerate() {
-            if i > 0 && !visitor.fields.is_empty() {
+        for (field_name, field_value) in fields.iter() {
+            if !formatted_spans.is_empty() {
                 formatted_spans.push_str(", ");
             }
             if use_color {
@@ -524,6 +524,49 @@ mod tests {
             )],
         )];
         let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name: span_field_value\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_multiple_spans() {
+        let log_fields = vec![];
+        let span_fields = vec![
+            (
+                "span_name1".to_string(),
+                vec![(
+                    "span_field_name1".to_string(),
+                    "span_field_value1".to_string(),
+                )],
+            ),
+            (
+                "span_name2".to_string(),
+                vec![(
+                    "span_field_name2".to_string(),
+                    "span_field_value2".to_string(),
+                )],
+            ),
+        ];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name2: span_field_value2, span_field_name1: span_field_value1\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_multiple_span_fields() {
+        let log_fields = vec![];
+        let span_fields = vec![(
+            "span_name1".to_string(),
+            vec![
+                (
+                    "span_field_name1-1".to_string(),
+                    "span_field_value1-1".to_string(),
+                ),
+                (
+                    "span_field_name1-2".to_string(),
+                    "span_field_value1-2".to_string(),
+                ),
+            ],
+        )];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name1-1: span_field_value1-1, span_field_name1-2: span_field_value1-2\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
