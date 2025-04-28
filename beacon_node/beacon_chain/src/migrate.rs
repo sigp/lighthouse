@@ -655,6 +655,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             let mut potentially_abandoned_blocks = vec![];
 
             // Iterate backwards from this head, staging blocks and states for deletion.
+            debug!(
+                log,
+                "Iterating roots for head";
+                "head_slot" => head_slot,
+                "head_block_root" => ?head_hash,
+                "head_state_root" => ?head_state_root,
+            );
             let iter = std::iter::once(Ok((head_hash, head_state_root, head_slot)))
                 .chain(RootsIterator::from_block(&store, head_hash)?);
 

@@ -193,6 +193,13 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> RootsIterator<'a, E,
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash.into()))?;
         // We are querying some block from the database. It's not clear if the block's state is useful,
         // we elect not to cache it.
+        slog::debug!(
+            store.log,
+            "Loading state for RootsIterator::from_block";
+            "state_root" => ?block.state_root(),
+            "slot" => block.slot(),
+            "block_root" => ?block_hash,
+        );
         let state = store
             .get_state(&block.state_root(), Some(block.slot()), false)?
             .ok_or_else(|| BeaconStateError::MissingBeaconState(block.state_root().into()))?;
