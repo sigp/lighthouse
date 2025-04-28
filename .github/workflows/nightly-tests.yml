@@ -24,7 +24,7 @@ jobs:
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.LIGHTHOUSE_GITHUB_TOKEN }}
     steps:
     - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
