@@ -149,7 +149,7 @@ pub struct RPCRateLimiterBuilder {
     lcbootstrap_quota: Option<Quota>,
     /// Quota for the LightClientOptimisticUpdate protocol.
     lc_optimistic_update_quota: Option<Quota>,
-    /// Quota for the LightClientOptimisticUpdate protocol.
+    /// Quota for the LightClientFinalityUpdate protocol.
     lc_finality_update_quota: Option<Quota>,
     /// Quota for the LightClientUpdatesByRange protocol.
     lc_updates_by_range_quota: Option<Quota>,
@@ -272,6 +272,17 @@ impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
 
     fn max_responses(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
         self.max_responses(current_fork, spec)
+    }
+}
+
+impl<E: EthSpec> RateLimiterItem for (super::RpcResponse<E>, Protocol) {
+    fn protocol(&self) -> Protocol {
+        self.1
+    }
+
+    fn max_responses(&self, _current_fork: ForkName, _spec: &ChainSpec) -> u64 {
+        // A response chunk consumes one token of the rate limiter.
+        1
     }
 }
 

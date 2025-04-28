@@ -36,7 +36,7 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --keystore-file <PATH_TO_KEYSTORE_FILE>
           The path to a keystore JSON file to be imported to the validator
           client. This file is usually created using staking-deposit-cli or

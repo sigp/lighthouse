@@ -4,7 +4,6 @@
 //! direct peer-to-peer communication primarily for sending/receiving chain information for
 //! syncing.
 
-use futures::future::FutureExt;
 use handler::RPCHandler;
 use libp2p::core::transport::PortUse;
 use libp2p::swarm::{
@@ -13,14 +12,12 @@ use libp2p::swarm::{
 };
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
-use logging::crit;
-use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
+use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, error, instrument, trace};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -29,16 +26,17 @@ pub(crate) use methods::{
 };
 pub use protocol::RequestType;
 
+use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
+use self::protocol::RPCProtocol;
+use self::self_limiter::SelfRateLimiter;
+use crate::rpc::rate_limiter::RateLimiterItem;
+use crate::rpc::response_limiter::ResponseLimiter;
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
     ResponseTermination, RpcErrorResponse, StatusMessage,
 };
-pub use protocol::{max_rpc_size, Protocol, RPCError};
-
-use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
-use self::protocol::RPCProtocol;
-use self::self_limiter::SelfRateLimiter;
+pub use protocol::{Protocol, RPCError};
 
 pub(crate) mod codec;
 pub mod config;
@@ -47,9 +45,11 @@ pub mod methods;
 mod outbound;
 mod protocol;
 mod rate_limiter;
+mod response_limiter;
 mod self_limiter;
 
-static NEXT_REQUEST_ID: AtomicUsize = AtomicUsize::new(1);
+// Maximum number of concurrent requests per protocol ID that a client may issue.
+const MAX_CONCURRENT_REQUESTS: usize = 2;
 
 /// Composite trait for a request id.
 pub trait ReqId: Send + 'static + std::fmt::Debug + Copy + Clone {}
@@ -80,7 +80,7 @@ pub enum RPCReceived<Id, E: EthSpec> {
     ///
     /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    Request(Request<E>),
+    Request(InboundRequestId, RequestType<E>),
     /// A response received from the outside.
     ///
     /// The `Id` corresponds to the application given ID of the original request sent to the
@@ -91,33 +91,28 @@ pub enum RPCReceived<Id, E: EthSpec> {
     EndOfStream(Id, ResponseTermination),
 }
 
-/// Rpc `Request` identifier.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RequestId(usize);
+// An identifier for the inbound requests received via Rpc.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct InboundRequestId {
+    /// The connection ID of the peer that sent the request.
+    connection_id: ConnectionId,
+    /// The ID of the substream that sent the request.
+    substream_id: SubstreamId,
+}
 
-impl RequestId {
-    /// Returns the next available [`RequestId`].
-    pub fn next() -> Self {
-        Self(NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst))
-    }
-
-    /// Creates an _unchecked_ [`RequestId`].
+impl InboundRequestId {
+    /// Creates an _unchecked_ [`InboundRequestId`].
     ///
-    /// [`Rpc`] enforces that [`RequestId`]s are unique and not reused.
+    /// [`Rpc`] enforces that [`InboundRequestId`]s are unique and not reused.
     /// This constructor does not, hence the _unchecked_.
     ///
     /// It is primarily meant for allowing manual tests.
-    pub fn new_unchecked(id: usize) -> Self {
-        Self(id)
+    pub fn new_unchecked(connection_id: usize, substream_id: usize) -> Self {
+        Self {
+            connection_id: ConnectionId::new_unchecked(connection_id),
+            substream_id: SubstreamId::new(substream_id),
+        }
     }
-}
-
-/// An Rpc Request.
-#[derive(Debug, Clone)]
-pub struct Request<E: EthSpec> {
-    pub id: RequestId,
-    pub substream_id: SubstreamId,
-    pub r#type: RequestType<E>,
 }
 
 impl<E: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, E> {
@@ -136,7 +131,7 @@ pub struct RPCMessage<Id, E: EthSpec> {
     /// The peer that sent the message.
     pub peer_id: PeerId,
     /// Handler managing this message.
-    pub conn_id: ConnectionId,
+    pub connection_id: ConnectionId,
     /// The message that was sent.
     pub message: Result<RPCReceived<Id, E>, HandlerErr<Id>>,
 }
@@ -144,7 +139,7 @@ pub struct RPCMessage<Id, E: EthSpec> {
 type BehaviourAction<Id, E> = ToSwarm<RPCMessage<Id, E>, RPCSend<Id, E>>;
 
 pub struct NetworkParams {
-    pub max_chunk_size: usize,
+    pub max_payload_size: usize,
     pub ttfb_timeout: Duration,
     pub resp_timeout: Duration,
 }
@@ -152,10 +147,12 @@ pub struct NetworkParams {
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<Id: ReqId, E: EthSpec> {
-    /// Rate limiter
-    limiter: Option<RateLimiter>,
+    /// Rate limiter for our responses.
+    response_limiter: Option<ResponseLimiter<E>>,
     /// Rate limiter for our own requests.
-    self_limiter: Option<SelfRateLimiter<Id, E>>,
+    outbound_request_limiter: SelfRateLimiter<Id, E>,
+    /// Active inbound requests that are awaiting a response.
+    active_inbound_requests: HashMap<InboundRequestId, (PeerId, RequestType<E>)>,
     /// Queue of events to be processed.
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
@@ -181,20 +178,20 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         network_params: NetworkParams,
         seq_number: u64,
     ) -> Self {
-        let inbound_limiter = inbound_rate_limiter_config.map(|config| {
-            debug!(?config, "Using inbound rate limiting params");
-            RateLimiter::new_with_config(config.0, fork_context.clone())
+        let response_limiter = inbound_rate_limiter_config.map(|config| {
+            debug!(?config, "Using response rate limiting params");
+            ResponseLimiter::new(config, fork_context.clone())
                 .expect("Inbound limiter configuration parameters are valid")
         });
 
-        let self_limiter = outbound_rate_limiter_config.map(|config| {
-            SelfRateLimiter::new(config, fork_context.clone())
-                .expect("Configuration parameters are valid")
-        });
+        let outbound_request_limiter: SelfRateLimiter<Id, E> =
+            SelfRateLimiter::new(outbound_rate_limiter_config, fork_context.clone())
+                .expect("Outbound limiter configuration parameters are valid");
 
         RPC {
-            limiter: inbound_limiter,
-            self_limiter,
+            response_limiter,
+            outbound_request_limiter,
+            active_inbound_requests: HashMap::new(),
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
@@ -215,14 +212,51 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        id: (ConnectionId, SubstreamId),
-        _request_id: RequestId,
-        event: RpcResponse<E>,
+        request_id: InboundRequestId,
+        response: RpcResponse<E>,
     ) {
+        let Some((_peer_id, request_type)) = self.active_inbound_requests.remove(&request_id)
+        else {
+            error!(%peer_id, ?request_id, %response, "Request not found in active_inbound_requests. Response not sent");
+            return;
+        };
+
+        // Add the request back to active requests if the response is `Success` and requires stream
+        // termination.
+        if request_type.protocol().terminator().is_some()
+            && matches!(response, RpcResponse::Success(_))
+        {
+            self.active_inbound_requests
+                .insert(request_id, (peer_id, request_type.clone()));
+        }
+
+        self.send_response_inner(peer_id, request_type.protocol(), request_id, response);
+    }
+
+    fn send_response_inner(
+        &mut self,
+        peer_id: PeerId,
+        protocol: Protocol,
+        request_id: InboundRequestId,
+        response: RpcResponse<E>,
+    ) {
+        if let Some(response_limiter) = self.response_limiter.as_mut() {
+            if !response_limiter.allows(
+                peer_id,
+                protocol,
+                request_id.connection_id,
+                request_id.substream_id,
+                response.clone(),
+            ) {
+                // Response is logged and queued internally in the response limiter.
+                return;
+            }
+        }
+
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
-            handler: NotifyHandler::One(id.0),
-            event: RPCSend::Response(id.1, event),
+            handler: NotifyHandler::One(request_id.connection_id),
+            event: RPCSend::Response(request_id.substream_id, response),
         });
     }
 
@@ -236,23 +270,19 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         skip_all
     )]
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: RequestType<E>) {
-        let event = if let Some(self_limiter) = self.self_limiter.as_mut() {
-            match self_limiter.allows(peer_id, request_id, req) {
-                Ok(event) => event,
-                Err(_e) => {
-                    // Request is logged and queued internally in the self rate limiter.
-                    return;
-                }
+        match self
+            .outbound_request_limiter
+            .allows(peer_id, request_id, req)
+        {
+            Ok(event) => self.events.push(BehaviourAction::NotifyHandler {
+                peer_id,
+                handler: NotifyHandler::Any,
+                event,
+            }),
+            Err(_e) => {
+                // Request is logged and queued internally in the self rate limiter.
             }
-        } else {
-            RPCSend::Request(request_id, req)
-        };
-
-        self.events.push(BehaviourAction::NotifyHandler {
-            peer_id,
-            handler: NotifyHandler::Any,
-            event,
-        });
+        }
     }
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
@@ -315,7 +345,7 @@ where
         let protocol = SubstreamProtocol::new(
             RPCProtocol {
                 fork_context: self.fork_context.clone(),
-                max_rpc_size: max_rpc_size(&self.fork_context, self.network_params.max_chunk_size),
+                max_rpc_size: self.fork_context.spec.max_payload_size as usize,
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
                 ttfb_timeout: self.network_params.ttfb_timeout,
@@ -345,7 +375,7 @@ where
         let protocol = SubstreamProtocol::new(
             RPCProtocol {
                 fork_context: self.fork_context.clone(),
-                max_rpc_size: max_rpc_size(&self.fork_context, self.network_params.max_chunk_size),
+                max_rpc_size: self.fork_context.spec.max_payload_size as usize,
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
                 ttfb_timeout: self.network_params.ttfb_timeout,
@@ -382,20 +412,27 @@ where
             if remaining_established > 0 {
                 return;
             }
+
             // Get a list of pending requests from the self rate limiter
-            if let Some(limiter) = self.self_limiter.as_mut() {
-                for (id, proto) in limiter.peer_disconnected(peer_id) {
-                    let error_msg = ToSwarm::GenerateEvent(RPCMessage {
-                        peer_id,
-                        conn_id: connection_id,
-                        message: Err(HandlerErr::Outbound {
-                            id,
-                            proto,
-                            error: RPCError::Disconnected,
-                        }),
-                    });
-                    self.events.push(error_msg);
-                }
+            for (id, proto) in self.outbound_request_limiter.peer_disconnected(peer_id) {
+                let error_msg = ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    connection_id,
+                    message: Err(HandlerErr::Outbound {
+                        id,
+                        proto,
+                        error: RPCError::Disconnected,
+                    }),
+                });
+                self.events.push(error_msg);
+            }
+
+            self.active_inbound_requests.retain(
+                |_inbound_request_id, (request_peer_id, _request_type)| *request_peer_id != peer_id,
+            );
+
+            if let Some(limiter) = self.response_limiter.as_mut() {
+                limiter.peer_disconnected(peer_id);
             }
 
             // Replace the pending Requests to the disconnected peer
@@ -408,7 +445,7 @@ where
                 } if *p == peer_id => {
                     *event = ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
-                        conn_id: connection_id,
+                        connection_id,
                         message: Err(HandlerErr::Outbound {
                             id: *request_id,
                             proto: req.versioned_protocol().protocol(),
@@ -424,75 +461,50 @@ where
     fn on_connection_handler_event(
         &mut self,
         peer_id: PeerId,
-        conn_id: ConnectionId,
+        connection_id: ConnectionId,
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
         match event {
-            HandlerEvent::Ok(RPCReceived::Request(Request {
-                id,
-                substream_id,
-                r#type,
-            })) => {
-                if let Some(limiter) = self.limiter.as_mut() {
-                    // check if the request is conformant to the quota
-                    match limiter.allows(&peer_id, &r#type) {
-                        Err(RateLimitedErr::TooLarge) => {
-                            // we set the batch sizes, so this is a coding/config err for most protocols
-                            let protocol = r#type.versioned_protocol().protocol();
-                            if matches!(
-                                protocol,
-                                Protocol::BlocksByRange
-                                    | Protocol::BlobsByRange
-                                    | Protocol::DataColumnsByRange
-                                    | Protocol::BlocksByRoot
-                                    | Protocol::BlobsByRoot
-                                    | Protocol::DataColumnsByRoot
-                            ) {
-                                debug!(request = %r#type, %protocol, "Request too large to process");
-                            } else {
-                                // Other protocols shouldn't be sending large messages, we should flag the peer kind
-                                crit!(%protocol, "Request size too large to ever be processed");
-                            }
-                            // send an error code to the peer.
-                            // the handler upon receiving the error code will send it back to the behaviour
-                            self.send_response(
-                                peer_id,
-                                (conn_id, substream_id),
-                                id,
-                                RpcResponse::Error(
-                                    RpcErrorResponse::RateLimited,
-                                    "Rate limited. Request too large".into(),
-                                ),
-                            );
-                            return;
-                        }
-                        Err(RateLimitedErr::TooSoon(wait_time)) => {
-                            debug!(request = %r#type, %peer_id, wait_time_ms = wait_time.as_millis(), "Request exceeds the rate limit");
-                            // send an error code to the peer.
-                            // the handler upon receiving the error code will send it back to the behaviour
-                            self.send_response(
-                                peer_id,
-                                (conn_id, substream_id),
-                                id,
-                                RpcResponse::Error(
-                                    RpcErrorResponse::RateLimited,
-                                    format!("Wait {:?}", wait_time).into(),
-                                ),
-                            );
-                            return;
-                        }
-                        // No rate limiting, continue.
-                        Ok(()) => {}
-                    }
+            HandlerEvent::Ok(RPCReceived::Request(request_id, request_type)) => {
+                let is_concurrent_request_limit_exceeded = self
+                    .active_inbound_requests
+                    .iter()
+                    .filter(
+                        |(_inbound_request_id, (request_peer_id, active_request_type))| {
+                            *request_peer_id == peer_id
+                                && active_request_type.protocol() == request_type.protocol()
+                        },
+                    )
+                    .count()
+                    >= MAX_CONCURRENT_REQUESTS;
+
+                // Restricts more than MAX_CONCURRENT_REQUESTS inbound requests from running simultaneously on the same protocol per peer.
+                if is_concurrent_request_limit_exceeded {
+                    // There is already an active request with the same protocol. Send an error code to the peer.
+                    debug!(request = %request_type, protocol = %request_type.protocol(), %peer_id, "There is an active request with the same protocol");
+                    self.send_response_inner(
+                        peer_id,
+                        request_type.protocol(),
+                        request_id,
+                        RpcResponse::Error(
+                            RpcErrorResponse::RateLimited,
+                            format!("Rate limited. There are already {MAX_CONCURRENT_REQUESTS} active requests with the same protocol")
+                                .into(),
+                        ),
+                    );
+                    return;
                 }
 
+                // Requests that are below the limit on the number of simultaneous requests are added to the active inbound requests.
+                self.active_inbound_requests
+                    .insert(request_id, (peer_id, request_type.clone()));
+
                 // If we received a Ping, we queue a Pong response.
-                if let RequestType::Ping(_) = r#type {
-                    trace!(connection_id = %conn_id, %peer_id, "Received Ping, queueing Pong");
+                if let RequestType::Ping(_) = request_type {
+                    trace!(connection_id = %connection_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
                         peer_id,
-                        (conn_id, substream_id),
-                        id,
+                        request_id,
                         RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
                             data: self.seq_number,
                         })),
@@ -501,25 +513,45 @@ where
 
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
-                    conn_id,
-                    message: Ok(RPCReceived::Request(Request {
-                        id,
-                        substream_id,
-                        r#type,
-                    })),
+                    connection_id,
+                    message: Ok(RPCReceived::Request(request_id, request_type)),
                 }));
             }
-            HandlerEvent::Ok(rpc) => {
+            HandlerEvent::Ok(RPCReceived::Response(id, response)) => {
+                if response.protocol().terminator().is_none() {
+                    // Inform the limiter that a response has been received.
+                    self.outbound_request_limiter
+                        .request_completed(&peer_id, response.protocol());
+                }
+
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
-                    conn_id,
-                    message: Ok(rpc),
+                    connection_id,
+                    message: Ok(RPCReceived::Response(id, response)),
+                }));
+            }
+            HandlerEvent::Ok(RPCReceived::EndOfStream(id, response_termination)) => {
+                // Inform the limiter that a response has been received.
+                self.outbound_request_limiter
+                    .request_completed(&peer_id, response_termination.as_protocol());
+
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    connection_id,
+                    message: Ok(RPCReceived::EndOfStream(id, response_termination)),
                 }));
             }
             HandlerEvent::Err(err) => {
+                // Inform the limiter that the request has ended with an error.
+                let protocol = match err {
+                    HandlerErr::Inbound { proto, .. } | HandlerErr::Outbound { proto, .. } => proto,
+                };
+                self.outbound_request_limiter
+                    .request_completed(&peer_id, protocol);
+
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
-                    conn_id,
+                    connection_id,
                     message: Err(err),
                 }));
             }
@@ -534,15 +566,20 @@ where
     }
 
     fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        // let the rate limiter prune.
-        if let Some(limiter) = self.limiter.as_mut() {
-            let _ = limiter.poll_unpin(cx);
+        if let Some(response_limiter) = self.response_limiter.as_mut() {
+            if let Poll::Ready(responses) = response_limiter.poll_ready(cx) {
+                for response in responses {
+                    self.events.push(ToSwarm::NotifyHandler {
+                        peer_id: response.peer_id,
+                        handler: NotifyHandler::One(response.connection_id),
+                        event: RPCSend::Response(response.substream_id, response.response),
+                    });
+                }
+            }
         }
 
-        if let Some(self_limiter) = self.self_limiter.as_mut() {
-            if let Poll::Ready(event) = self_limiter.poll_ready(cx) {
-                self.events.push(event)
-            }
+        if let Poll::Ready(event) = self.outbound_request_limiter.poll_ready(cx) {
+            self.events.push(event)
         }
 
         if !self.events.is_empty() {
