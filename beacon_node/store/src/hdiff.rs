@@ -21,8 +21,8 @@ static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::em
 pub enum Error {
     InvalidHierarchy,
     DiffDeletionsNotSupported,
-    UnableToComputeDiff,
-    UnableToApplyDiff,
+    UnableToComputeDiff(xdelta3::Error),
+    UnableToApplyDiff(xdelta3::Error),
     BalancesIncompleteChunk,
     Compression(std::io::Error),
     InvalidSszState(ssz::DecodeError),
@@ -323,9 +323,15 @@ impl BytesDiff {
     }
 
     pub fn compute_xdelta(source_bytes: &[u8], target_bytes: &[u8]) -> Result<Self, Error> {
-        let bytes = xdelta3::encode(target_bytes, source_bytes)
-            .ok_or(Error::UnableToComputeDiff)
-            .unwrap();
+        // TODO(hdiff): Use a smaller estimate for the output diff buffer size, currently the
+        // xdelta3 lib will use 2x the size of the source plus the target length, which is 4x the
+        // size of the hdiff buffer. In practice, diffs are almost always smaller than buffers (by a
+        // signficiant factor), so this is 4-16x larger than necessary in a temporary allocation.
+        //
+        // We should use an estimated size that *should* be enough, and then dynamically increase it
+        // if we hit an insufficient space error.
+        let bytes =
+            xdelta3::encode(target_bytes, source_bytes).map_err(Error::UnableToComputeDiff)?;
         Ok(Self { bytes })
     }
 
@@ -334,8 +340,31 @@ impl BytesDiff {
     }
 
     pub fn apply_xdelta(&self, source: &[u8], target: &mut Vec<u8>) -> Result<(), Error> {
-        *target = xdelta3::decode(&self.bytes, source).ok_or(Error::UnableToApplyDiff)?;
-        Ok(())
+        // TODO(hdiff): Dynamic buffer allocation. This is a stopgap until we implement a schema
+        // change to store the output buffer size inside the `BytesDiff`.
+        let mut output_length = ((source.len() + self.bytes.len()) * 3) / 2;
+        let mut num_resizes = 0;
+        loop {
+            match xdelta3::decode_with_output_len(&self.bytes, source, output_length as u32) {
+                Ok(result_buffer) => {
+                    *target = result_buffer;
+
+                    metrics::observe(
+                        &metrics::BEACON_HDIFF_BUFFER_APPLY_RESIZES,
+                        num_resizes as f64,
+                    );
+                    return Ok(());
+                }
+                Err(xdelta3::Error::InsufficientOutputLength) => {
+                    // Double the output buffer length and try again.
+                    output_length *= 2;
+                    num_resizes += 1;
+                }
+                Err(err) => {
+                    return Err(Error::UnableToApplyDiff(err));
+                }
+            }
+        }
     }
 
     /// Byte size of this instance

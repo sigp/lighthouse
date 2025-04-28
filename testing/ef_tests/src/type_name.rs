@@ -155,6 +155,7 @@ type_name!(SignedBeaconBlockHeader);
 type_name_generic!(SignedContributionAndProof);
 type_name!(SignedVoluntaryExit);
 type_name!(SigningData);
+type_name!(SingleAttestation);
 type_name_generic!(SyncCommitteeContribution);
 type_name!(SyncCommitteeMessage);
 type_name!(SyncAggregatorSelectionData);

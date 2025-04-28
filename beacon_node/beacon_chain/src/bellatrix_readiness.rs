@@ -171,7 +171,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return BellatrixReadiness::NotSynced;
             }
             let params = MergeConfig::from_chainspec(&self.spec);
-            let current_difficulty = el.get_current_difficulty().await.ok();
+            let current_difficulty = el.get_current_difficulty().await.ok().flatten();
             BellatrixReadiness::Ready {
                 config: params,
                 current_difficulty,

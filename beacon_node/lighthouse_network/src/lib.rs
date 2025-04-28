@@ -12,7 +12,6 @@ pub mod peer_manager;
 pub mod rpc;
 pub mod types;
 
-pub use config::gossip_max_size;
 use libp2p::swarm::DialError;
 pub use listen_addr::*;
 
@@ -122,6 +121,6 @@ pub use peer_manager::{
     ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
 };
 // pub use service::{load_private_key, Context, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
-pub use service::api_types::{PeerRequestId, Response};
+pub use service::api_types::Response;
 pub use service::utils::*;
 pub use service::{Gossipsub, NetworkEvent};

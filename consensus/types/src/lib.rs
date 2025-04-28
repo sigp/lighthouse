@@ -272,7 +272,14 @@ pub type Address = fixed_bytes::Address;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<E> = FixedVector<u8, <E as EthSpec>::BytesPerBlob>;
-pub type KzgProofs<E> = VariableList<KzgProof, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+// Note on List limit:
+// - Deneb to Electra: `MaxBlobCommitmentsPerBlock`
+// - Fulu: `MaxCellsPerBlock`
+// We choose to use a single type (with the larger value from Fulu as `N`) instead of having to
+// introduce a new type for Fulu. This is to avoid messy conversions and having to add extra types
+// with no gains - as `N` does not impact serialisation at all, and only affects merkleization,
+// which we don't current do on `KzgProofs` anyway.
+pub type KzgProofs<E> = VariableList<KzgProof, <E as EthSpec>::MaxCellsPerBlock>;
 pub type VersionedHash = Hash256;
 pub type Hash64 = alloy_primitives::B64;
 

@@ -35,6 +35,17 @@ const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url
     genesis_state_root: "0x0ea3f6f9515823b59c863454675fefcd1d8b4f2dbe454db166206a41fda060a0",
 };
 
+const HOODI_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
+    urls: &[
+        // This is an AWS S3 bucket hosted by Sigma Prime. See Paul Hauner for
+        // more details.
+        "https://sigp-public-genesis-states.s3.ap-southeast-2.amazonaws.com/hoodi/",
+    ],
+    checksum: "0x7f42257ef69e055496c964a753bb07e54001ccd57ab467ef72d67af086bcfce7",
+    genesis_validators_root: "0x212f13fc4df078b6cb7db228f1c8307566dcecf900867401a92023d7ba99cb5f",
+    genesis_state_root: "0x2683ebc120f91f740c7bed4c866672d01e1ba51b4cc360297138465ee5df40f0",
+};
+
 const CHIADO_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
     // No default checkpoint sources are provided.
     urls: &[],
@@ -328,5 +339,14 @@ define_hardcoded_nets!(
         "holesky",
         // Describes how the genesis state can be obtained.
         HOLESKY_GENESIS_STATE_SOURCE
+    ),
+    (
+        // Network name (must be unique among all networks).
+        hoodi,
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
+        // directory where the configuration files are located for this network.
+        "hoodi",
+        // Describes how the genesis state can be obtained.
+        HOODI_GENESIS_STATE_SOURCE
     )
 );
