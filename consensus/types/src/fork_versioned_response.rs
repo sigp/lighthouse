@@ -1,33 +1,62 @@
-use crate::ForkName;
+use crate::{ContextDeserialize, ForkName};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::Value;
-use std::sync::Arc;
 
 pub trait ForkVersionDecode: Sized {
     /// SSZ decode with explicit fork variant.
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError>;
 }
 
-pub trait ForkVersionDeserialize: Sized + DeserializeOwned {
-    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
-        value: Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error>;
-}
-
-/// Deserialize is only implemented for types that implement ForkVersionDeserialize.
-///
 /// The metadata of type M should be set to `EmptyMetadata` if you don't care about adding fields other than
 /// version. If you *do* care about adding other fields you can mix in any type that implements
 /// `Deserialize`.
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct ForkVersionedResponse<T, M = EmptyMetadata> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<ForkName>,
+    pub version: ForkName,
     #[serde(flatten)]
     pub metadata: M,
     pub data: T,
+}
+
+// Used for responses to V1 endpoints that don't have a version field.
+/// The metadata of type M should be set to `EmptyMetadata` if you don't care about adding fields other than
+/// version. If you *do* care about adding other fields you can mix in any type that implements
+/// `Deserialize`.
+#[derive(Debug, PartialEq, Clone, Serialize)]
+pub struct UnVersionedResponse<T, M = EmptyMetadata> {
+    pub metadata: M,
+    pub data: T,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize)]
+#[serde(untagged)]
+pub enum BeaconResponse<T, M = EmptyMetadata> {
+    ForkVersioned(ForkVersionedResponse<T, M>),
+    UnVersioned(UnVersionedResponse<T, M>),
+}
+
+impl<T, M> BeaconResponse<T, M> {
+    pub fn version(&self) -> Option<ForkName> {
+        match self {
+            BeaconResponse::ForkVersioned(response) => Some(response.version),
+            BeaconResponse::UnVersioned(_) => None,
+        }
+    }
+
+    pub fn data(&self) -> &T {
+        match self {
+            BeaconResponse::ForkVersioned(response) => &response.data,
+            BeaconResponse::UnVersioned(response) => &response.data,
+        }
+    }
+
+    pub fn metadata(&self) -> &M {
+        match self {
+            BeaconResponse::ForkVersioned(response) => &response.metadata,
+            BeaconResponse::UnVersioned(response) => &response.metadata,
+        }
+    }
 }
 
 /// Metadata type similar to unit (i.e. `()`) but deserializes from a map (`serde_json::Value`).
@@ -38,6 +67,9 @@ pub struct ForkVersionedResponse<T, M = EmptyMetadata> {
 pub struct EmptyMetadata {}
 
 /// Fork versioned response with extra information about finalization & optimistic execution.
+pub type ExecutionOptimisticFinalizedBeaconResponse<T> =
+    BeaconResponse<T, ExecutionOptimisticFinalizedMetadata>;
+
 pub type ExecutionOptimisticFinalizedForkVersionedResponse<T> =
     ForkVersionedResponse<T, ExecutionOptimisticFinalizedMetadata>;
 
@@ -47,9 +79,9 @@ pub struct ExecutionOptimisticFinalizedMetadata {
     pub finalized: Option<bool>,
 }
 
-impl<'de, F, M> serde::Deserialize<'de> for ForkVersionedResponse<F, M>
+impl<'de, T, M> Deserialize<'de> for ForkVersionedResponse<T, M>
 where
-    F: ForkVersionDeserialize,
+    T: ContextDeserialize<'de, ForkName>,
     M: DeserializeOwned,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -58,18 +90,20 @@ where
     {
         #[derive(Deserialize)]
         struct Helper {
-            version: Option<ForkName>,
+            version: ForkName,
             #[serde(flatten)]
-            metadata: serde_json::Value,
-            data: serde_json::Value,
+            metadata: Value,
+            data: Value,
         }
 
         let helper = Helper::deserialize(deserializer)?;
-        let data = match helper.version {
-            Some(fork_name) => F::deserialize_by_fork::<'de, D>(helper.data, fork_name)?,
-            None => serde_json::from_value(helper.data).map_err(serde::de::Error::custom)?,
-        };
+
+        // Deserialize metadata
         let metadata = serde_json::from_value(helper.metadata).map_err(serde::de::Error::custom)?;
+
+        // Deserialize `data` using ContextDeserialize
+        let data = T::context_deserialize(helper.data, helper.version)
+            .map_err(serde::de::Error::custom)?;
 
         Ok(ForkVersionedResponse {
             version: helper.version,
@@ -79,14 +113,51 @@ where
     }
 }
 
-impl<F: ForkVersionDeserialize> ForkVersionDeserialize for Arc<F> {
-    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
-        value: Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
-        Ok(Arc::new(F::deserialize_by_fork::<'de, D>(
-            value, fork_name,
-        )?))
+impl<'de, T, M> Deserialize<'de> for UnVersionedResponse<T, M>
+where
+    T: DeserializeOwned,
+    M: DeserializeOwned,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper<T, M> {
+            #[serde(flatten)]
+            metadata: M,
+            data: T,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+
+        Ok(UnVersionedResponse {
+            metadata: helper.metadata,
+            data: helper.data,
+        })
+    }
+}
+
+impl<T, M> BeaconResponse<T, M> {
+    pub fn map_data<U>(self, f: impl FnOnce(T) -> U) -> BeaconResponse<U, M> {
+        match self {
+            BeaconResponse::ForkVersioned(response) => {
+                BeaconResponse::ForkVersioned(response.map_data(f))
+            }
+            BeaconResponse::UnVersioned(response) => {
+                BeaconResponse::UnVersioned(response.map_data(f))
+            }
+        }
+    }
+}
+
+impl<T, M> UnVersionedResponse<T, M> {
+    pub fn map_data<U>(self, f: impl FnOnce(T) -> U) -> UnVersionedResponse<U, M> {
+        let UnVersionedResponse { metadata, data } = self;
+        UnVersionedResponse {
+            metadata,
+            data: f(data),
+        }
     }
 }
 
@@ -106,6 +177,18 @@ impl<T, M> ForkVersionedResponse<T, M> {
     }
 }
 
+impl<T, M> From<ForkVersionedResponse<T, M>> for BeaconResponse<T, M> {
+    fn from(response: ForkVersionedResponse<T, M>) -> Self {
+        BeaconResponse::ForkVersioned(response)
+    }
+}
+
+impl<T, M> From<UnVersionedResponse<T, M>> for BeaconResponse<T, M> {
+    fn from(response: UnVersionedResponse<T, M>) -> Self {
+        BeaconResponse::UnVersioned(response)
+    }
+}
+
 #[cfg(test)]
 mod fork_version_response_tests {
     use crate::{
@@ -120,7 +203,7 @@ mod fork_version_response_tests {
 
         let response_json =
             serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {
-                version: Some(ForkName::Bellatrix),
+                version: ForkName::Bellatrix,
                 metadata: Default::default(),
                 data: ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()),
             }))
@@ -138,7 +221,7 @@ mod fork_version_response_tests {
 
         let response_json =
             serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {
-                version: Some(ForkName::Capella),
+                version: ForkName::Capella,
                 metadata: Default::default(),
                 data: ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()),
             }))

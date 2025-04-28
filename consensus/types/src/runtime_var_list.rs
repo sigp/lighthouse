@@ -1,5 +1,6 @@
+use crate::{ContextDeserialize, ForkName};
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_types::Error;
 use std::ops::{Deref, Index, IndexMut};
@@ -214,6 +215,21 @@ where
 
     fn ssz_bytes_len(&self) -> usize {
         self.vec.ssz_bytes_len()
+    }
+}
+
+impl<'de, C> ContextDeserialize<'de, ForkName> for RuntimeVariableList<C>
+where
+    C: ContextDeserialize<'de, ForkName>,
+{
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // first parse out a Vec<C> using the Vec<C> impl you already have
+        let vec: Vec<C> = Vec::context_deserialize(deserializer, context)?;
+        let len = vec.len();
+        Ok(RuntimeVariableList::from_vec(vec, len))
     }
 }
 

@@ -10,7 +10,6 @@ use mediatype::{names, MediaType, MediaTypeList};
 use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
 use serde_utils::quoted_u64::Quoted;
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
@@ -1050,51 +1049,71 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
 
-impl ForkVersionDeserialize for SsePayloadAttributes {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Bellatrix => serde_json::from_value(value)
-                .map(Self::V1)
-                .map_err(serde::de::Error::custom),
-            ForkName::Capella => serde_json::from_value(value)
-                .map(Self::V2)
-                .map_err(serde::de::Error::custom),
-            ForkName::Deneb => serde_json::from_value(value)
-                .map(Self::V3)
-                .map_err(serde::de::Error::custom),
-            ForkName::Electra => serde_json::from_value(value)
-                .map(Self::V3)
-                .map_err(serde::de::Error::custom),
-            ForkName::Fulu => serde_json::from_value(value)
-                .map(Self::V3)
-                .map_err(serde::de::Error::custom),
-            ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
-                "SsePayloadAttributes deserialization for {fork_name} not implemented"
-            ))),
-        }
+impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let convert_err = |e| {
+            serde::de::Error::custom(format!(
+                "SsePayloadAttributes failed to deserialize: {:?}",
+                e
+            ))
+        };
+        Ok(match context {
+            ForkName::Base | ForkName::Altair => {
+                return Err(serde::de::Error::custom(format!(
+                    "SsePayloadAttributes failed to deserialize: unsupported fork '{}'",
+                    context
+                )))
+            }
+            ForkName::Bellatrix => {
+                Self::V1(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Capella => {
+                Self::V2(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Deneb => {
+                Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Electra => {
+                Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Fulu => {
+                Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+        })
     }
 }
 
-impl ForkVersionDeserialize for SseExtendedPayloadAttributes {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
-        let helper: SseExtendedPayloadAttributesGeneric<serde_json::Value> =
-            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+impl<'de> ContextDeserialize<'de, ForkName> for SseExtendedPayloadAttributes {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper {
+            proposal_slot: Slot,
+            proposer_index: u64,
+            parent_block_root: Hash256,
+            parent_block_number: u64,
+            parent_block_hash: ExecutionBlockHash,
+            payload_attributes: serde_json::Value,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+
         Ok(Self {
             proposal_slot: helper.proposal_slot,
             proposer_index: helper.proposer_index,
             parent_block_root: helper.parent_block_root,
             parent_block_number: helper.parent_block_number,
             parent_block_hash: helper.parent_block_hash,
-            payload_attributes: SsePayloadAttributes::deserialize_by_fork::<D>(
+            payload_attributes: SsePayloadAttributes::context_deserialize(
                 helper.payload_attributes,
-                fork_name,
-            )?,
+                context,
+            )
+            .map_err(serde::de::Error::custom)?,
         })
     }
 }
@@ -1724,18 +1743,18 @@ impl<E: EthSpec> FullBlockContents<E> {
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for FullBlockContents<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
-        if fork_name.deneb_enabled() {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for FullBlockContents<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if context.deneb_enabled() {
             Ok(FullBlockContents::BlockContents(
-                BlockContents::deserialize_by_fork::<'de, D>(value, fork_name)?,
+                BlockContents::context_deserialize::<D>(deserializer, context)?,
             ))
         } else {
             Ok(FullBlockContents::Block(
-                BeaconBlock::deserialize_by_fork::<'de, D>(value, fork_name)?,
+                BeaconBlock::context_deserialize::<D>(deserializer, context)?,
             ))
         }
     }
@@ -1905,11 +1924,11 @@ pub struct BlockContents<E: EthSpec> {
     pub blobs: BlobsList<E>,
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for BlockContents<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BlockContents<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         #[derive(Deserialize)]
         #[serde(bound = "E: EthSpec")]
         struct Helper<E: EthSpec> {
@@ -1918,10 +1937,13 @@ impl<E: EthSpec> ForkVersionDeserialize for BlockContents<E> {
             #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
             blobs: BlobsList<E>,
         }
-        let helper: Helper<E> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        let helper = Helper::<E>::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+
+        let block = BeaconBlock::context_deserialize(helper.block, context)
+            .map_err(serde::de::Error::custom)?;
 
         Ok(Self {
-            block: BeaconBlock::deserialize_by_fork::<'de, D>(helper.block, fork_name)?,
+            block,
             kzg_proofs: helper.kzg_proofs,
             blobs: helper.blobs,
         })
@@ -1993,22 +2015,22 @@ impl<E: EthSpec> FullPayloadContents<E> {
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
-    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
-        value: Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
-        if fork_name.deneb_enabled() {
-            ExecutionPayloadAndBlobs::deserialize_by_fork::<'de, D>(value, fork_name)
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for FullPayloadContents<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if context.deneb_enabled() {
+            ExecutionPayloadAndBlobs::context_deserialize::<D>(deserializer, context)
                 .map(Self::PayloadAndBlobs)
                 .map_err(serde::de::Error::custom)
-        } else if fork_name.bellatrix_enabled() {
-            ExecutionPayload::deserialize_by_fork::<'de, D>(value, fork_name)
+        } else if context.bellatrix_enabled() {
+            ExecutionPayload::context_deserialize::<D>(deserializer, context)
                 .map(Self::Payload)
                 .map_err(serde::de::Error::custom)
         } else {
             Err(serde::de::Error::custom(format!(
-                "FullPayloadContents deserialization for {fork_name} not implemented"
+                "FullPayloadContents deserialization for {context} not implemented"
             )))
         }
     }
@@ -2021,23 +2043,25 @@ pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
     pub blobs_bundle: BlobsBundle<E>,
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayloadAndBlobs<E> {
-    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
-        value: Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadAndBlobs<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         #[derive(Deserialize)]
         #[serde(bound = "E: EthSpec")]
         struct Helper<E: EthSpec> {
             execution_payload: serde_json::Value,
             blobs_bundle: BlobsBundle<E>,
         }
-        let helper: Helper<E> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        let helper = Helper::<E>::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+
         Ok(Self {
-            execution_payload: ExecutionPayload::deserialize_by_fork::<'de, D>(
+            execution_payload: ExecutionPayload::context_deserialize(
                 helper.execution_payload,
-                fork_name,
-            )?,
+                context,
+            )
+            .map_err(serde::de::Error::custom)?,
             blobs_bundle: helper.blobs_bundle,
         })
     }
@@ -2278,14 +2302,13 @@ mod test {
     fn generic_deserialize_by_fork<
         'de,
         D: Deserializer<'de>,
-        O: ForkVersionDeserialize + PartialEq + Debug,
+        O: ContextDeserialize<'de, ForkName> + PartialEq + Debug,
     >(
         deserializer: D,
         original: O,
         fork_name: ForkName,
     ) {
-        let val = Value::deserialize(deserializer).unwrap();
-        let roundtrip = O::deserialize_by_fork::<'de, D>(val, fork_name).unwrap();
+        let roundtrip = O::context_deserialize::<D>(deserializer, fork_name).unwrap();
         assert_eq!(original, roundtrip);
     }
 }

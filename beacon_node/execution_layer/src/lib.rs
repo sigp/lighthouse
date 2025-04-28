@@ -2116,9 +2116,9 @@ fn verify_builder_bid<E: EthSpec>(
             payload: header.block_number(),
             expected: block_number,
         }))
-    } else if bid.version != Some(current_fork) {
+    } else if bid.version != current_fork {
         Err(Box::new(InvalidBuilderPayload::Fork {
-            payload: bid.version,
+            payload: Some(bid.version),
             expected: current_fork,
         }))
     } else if !is_signature_valid {

@@ -1598,10 +1598,7 @@ impl ApiTester {
 
             if let (Some(json), Some(expected)) = (&json_result, &expected) {
                 assert_eq!(&json.data, expected.as_ref(), "{:?}", block_id);
-                assert_eq!(
-                    json.version,
-                    Some(expected.fork_name(&self.chain.spec).unwrap())
-                );
+                assert_eq!(json.version, expected.fork_name(&self.chain.spec).unwrap());
             } else {
                 assert_eq!(json_result, None);
                 assert_eq!(expected, None);
@@ -1623,8 +1620,8 @@ impl ApiTester {
             // Check that the legacy v1 API still works but doesn't return a version field.
             let v1_result = self.client.get_beacon_blocks_v1(block_id.0).await.unwrap();
             if let (Some(v1_result), Some(expected)) = (&v1_result, &expected) {
-                assert_eq!(v1_result.version, None);
-                assert_eq!(&v1_result.data, expected.as_ref());
+                assert_eq!(v1_result.version(), None);
+                assert_eq!(v1_result.data(), expected.as_ref());
             } else {
                 assert_eq!(v1_result, None);
                 assert_eq!(expected, None);
@@ -1686,10 +1683,7 @@ impl ApiTester {
 
             if let (Some(json), Some(expected)) = (&json_result, &expected) {
                 assert_eq!(&json.data, expected, "{:?}", block_id);
-                assert_eq!(
-                    json.version,
-                    Some(expected.fork_name(&self.chain.spec).unwrap())
-                );
+                assert_eq!(json.version, expected.fork_name(&self.chain.spec).unwrap());
             } else {
                 assert_eq!(json_result, None);
                 assert_eq!(expected, None);
@@ -2650,10 +2644,7 @@ impl ApiTester {
 
             if let (Some(json), Some(expected)) = (&result_json, &expected) {
                 assert_eq!(json.data, *expected, "{:?}", state_id);
-                assert_eq!(
-                    json.version,
-                    Some(expected.fork_name(&self.chain.spec).unwrap())
-                );
+                assert_eq!(json.version, expected.fork_name(&self.chain.spec).unwrap());
             } else {
                 assert_eq!(result_json, None);
                 assert_eq!(expected, None);
@@ -3254,7 +3245,7 @@ impl ApiTester {
     ) {
         // Compare fork name to ForkVersionedResponse rather than metadata consensus_version, which
         // is deserialized to a dummy value.
-        assert_eq!(Some(metadata.consensus_version), response.version);
+        assert_eq!(metadata.consensus_version, response.version);
         assert_eq!(ForkName::Base, response.metadata.consensus_version);
         assert_eq!(
             metadata.execution_payload_blinded,

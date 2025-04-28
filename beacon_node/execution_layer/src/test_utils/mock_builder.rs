@@ -980,7 +980,7 @@ pub fn serve<E: EthSpec>(
                         .await
                         .map_err(|e| warp::reject::custom(Custom(e)))?;
                     let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                        version: Some(fork_name),
+                        version: fork_name,
                         metadata: Default::default(),
                         data: payload,
                     };
@@ -1040,7 +1040,7 @@ pub fn serve<E: EthSpec>(
                     ),
                     eth2::types::Accept::Json | eth2::types::Accept::Any => {
                         let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                            version: Some(fork_name),
+                            version: fork_name,
                             metadata: Default::default(),
                             data: signed_bid,
                         };

@@ -1,9 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    parse_macro_input, AttributeArgs, DeriveInput, Meta, NestedMeta, Path,
-    LifetimeDef,
-};
+use syn::{parse_macro_input, AttributeArgs, DeriveInput, LifetimeDef, Meta, NestedMeta, Path};
 
 /// `#[context_deserialize(Foo, Bar, ...)]`
 /// generates `ContextDeserialize<'de, Foo>` and `ContextDeserialize<'de, Bar>`
@@ -11,8 +8,8 @@ use syn::{
 #[proc_macro_attribute]
 pub fn context_deserialize(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parse attribute and input struct
-    let args  = parse_macro_input!(attr  as AttributeArgs);
-    let input = parse_macro_input!(item  as DeriveInput);
+    let args = parse_macro_input!(attr as AttributeArgs);
+    let input = parse_macro_input!(item as DeriveInput);
     let ident = &input.ident;
 
     // Context types provided in macro
@@ -33,7 +30,7 @@ pub fn context_deserialize(attr: TokenStream, item: TokenStream) -> TokenStream 
 
     // Generic handling
     let generics = &input.generics;
-    let params   = &generics.params;
+    let params = &generics.params;
     let (_, ty_generics, where_clause) = generics.split_for_impl();
 
     let has_de = generics

@@ -1,7 +1,7 @@
 use self::committee_cache::get_active_validator_indices;
 use crate::historical_summary::HistoricalSummary;
-use crate::ContextDeserialize;
 use crate::test_utils::TestRandom;
+use crate::ContextDeserialize;
 use crate::FixedBytesExtended;
 use crate::*;
 use compare_fields::CompareFields;
@@ -2749,32 +2749,13 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for BeaconState<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
-        Ok(map_fork_name!(
-            fork_name,
-            Self,
-            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
-                "BeaconState failed to deserialize: {:?}",
-                e
-            )))?
-        ))
-    }
-}
-
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BeaconState<E> {
-    fn context_deserialize<D>(
-        deserializer: D,
-        ctx: ForkName,
-    ) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         Ok(map_fork_name!(
-            ctx,
+            context,
             Self,
             serde::Deserialize::deserialize(deserializer)?
         ))

@@ -52,7 +52,7 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
 
     if endpoint_version == V2 {
         let fork_versioned_response = ForkVersionedResponse {
-            version: Some(fork_name),
+            version: fork_name,
             metadata: EmptyMetadata {},
             data: aggregate_attestation,
         };
