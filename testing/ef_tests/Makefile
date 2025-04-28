@@ -11,13 +11,11 @@ BLS_TEST = bls_tests_yaml
 BLS_TARBALL = $(patsubst %,%-$(BLS_TEST_TAG).tar.gz,$(BLS_TEST))
 BLS_OUTPUT_DIR := $(OUTPUT_DIR)/$(BLS_TEST_REPO_NAME)
 
-CURL_JSON := curl -sSL -H "Accept: application/vnd.github+json" \
-             $(if $(LIGHTHOUSE_GITHUB_TOKEN),-H "Authorization: Bearer $(LIGHTHOUSE_GITHUB_TOKEN)")
 BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/download/$(BLS_TEST_TAG)
 WORKFLOW_FILE := generate_vectors.yml
 
 
-CURL := $(if $(GITHUB_TOKEN),curl -L --header "Authorization: $(GITHUB_TOKEN)",curl -L)
+CURL := $(if $(LIGHTHOUSE_GITHUB_TOKEN),curl -L --header "Authorization: $(LIGHTHOUSE_GITHUB_TOKEN)",curl -L)
 
 all:
 	make $(OUTPUT_DIR)
@@ -48,12 +46,13 @@ clean: clean-test-files clean-archives
 nightly:
 	rm -rf $(OUTPUT_DIR)
 	mkdir -p $(OUTPUT_DIR)
+	make $(BLS_OUTPUT_DIR)
 	RUN_ID="$$( \
-		$(CURL_JSON) \
+		$(CURL) \
 		"https://api.github.com/repos/ethereum/consensus-specs/actions/workflows/$(WORKFLOW_FILE)/runs?per_page=1" \
 		| jq -r '.workflow_runs[0].id' \
 	)"; \
-	$(CURL_JSON) \
+	$(CURL) \
 		"https://api.github.com/repos/ethereum/consensus-specs/actions/runs/$$RUN_ID/artifacts" \
 		| jq -r '.artifacts[] | select(.name!="consensustestgen.log") | "\(.id) \(.name)"' \
 		| while read -r ART_ID ART_NAME; do \
