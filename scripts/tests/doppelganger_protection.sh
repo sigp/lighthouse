@@ -119,7 +119,6 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     vc_4_keys_artifact_id="4-lighthouse-geth-$vc_4_range_start-$vc_4_range_end"
     service_name=vc-4
 
-
     kurtosis service add $ENCLAVE_NAME $service_name --json-service-config - << EOF
     {
         "image": "$LH_IMAGE_NAME",
