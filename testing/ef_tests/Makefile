@@ -11,11 +11,10 @@ BLS_TEST = bls_tests_yaml
 BLS_TARBALL = $(patsubst %,%-$(BLS_TEST_TAG).tar.gz,$(BLS_TEST))
 BLS_OUTPUT_DIR := $(OUTPUT_DIR)/$(BLS_TEST_REPO_NAME)
 
-NIGHTLY_ARTIFACT := Mainnet Test Configuration
-SAFE_ARTIFACT := Mainnet_Test_Configuration
 CURL_JSON := curl -sSL -H "Accept: application/vnd.github+json" \
              $(if $(LIGHTHOUSE_GITHUB_TOKEN),-H "Authorization: Bearer $(LIGHTHOUSE_GITHUB_TOKEN)")
 BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/download/$(BLS_TEST_TAG)
+WORKFLOW_FILE := generate_vectors.yml
 
 
 CURL := $(if $(GITHUB_TOKEN),curl -L --header "Authorization: $(GITHUB_TOKEN)",curl -L)
@@ -46,41 +45,31 @@ clean-archives:
 
 clean: clean-test-files clean-archives
 
-.PHONY: clean clean-archives clean-test-files
-
-define GH_LAST_ARTIFACT_URL
-$(shell \
-  $(CURL_JSON) \
-    "https://api.github.com/repos/ethereum/consensus-specs/actions/workflows/generate_vectors.yml/runs?branch=dev&status=success&per_page=1" \
-    | jq -r '.workflow_runs[0].id' \
-    | xargs -I{} \
-      $(CURL_JSON) "https://api.github.com/repos/ethereum/consensus-specs/actions/runs/{}/artifacts" \
-    | jq -r --arg name "$(1)" \
-        '.artifacts[] | select(.name==$$name).archive_download_url' \
-)
-endef
-
 nightly:
-	rm -rf $(REPO_NAME)
-	@echo "Downloading $(NIGHTLY_ARTIFACT)…"
-	@url="$(call GH_LAST_ARTIFACT_URL,$(NIGHTLY_ARTIFACT))"; \
-	echo "URL = $$url"; \
-	$(CURL_JSON) -L "$$url" -o $(SAFE_ARTIFACT).zip; \
-	unzip -q -o $(SAFE_ARTIFACT).zip \
-	      -d $(REPO_NAME)
-	rm Mainnet_Test_Configuration.zip
-	cd $(REPO_NAME) && \
-	for f in *; do \
-	  if file "$$f" | grep -q 'Zstandard compressed data'; then \
-	    echo "Decompressing $$f…"; \
-	    mv "$$f" "$$f.tar.zst"; \
-	    unzstd "$$f.tar.zst"; \
-	    tar -xf "$${f}.tar"; \
-	    rm "$${f}.tar"; \
-	  fi; \
-	done
-	@tar_file=$(REPO_NAME)/Mainnet.tar.gz; \
-	tar -xzf "$$tar_file" -C "$$(dirname $$tar_file)"
-	rm -f $(REPO_NAME)/mainnet.tar.gz
+	rm -rf $(OUTPUT_DIR)
+	mkdir -p $(OUTPUT_DIR)
+	RUN_ID="$$( \
+		$(CURL_JSON) \
+		"https://api.github.com/repos/ethereum/consensus-specs/actions/workflows/$(WORKFLOW_FILE)/runs?per_page=1" \
+		| jq -r '.workflow_runs[0].id' \
+	)"; \
+	$(CURL_JSON) \
+		"https://api.github.com/repos/ethereum/consensus-specs/actions/runs/$$RUN_ID/artifacts" \
+		| jq -r '.artifacts[] | select(.name!="consensustestgen.log") | "\(.id) \(.name)"' \
+		| while read -r ART_ID ART_NAME; do \
+			curl -sSL -L \
+				$(if $(LIGHTHOUSE_GITHUB_TOKEN),-H "Authorization: Bearer $(LIGHTHOUSE_GITHUB_TOKEN)") \
+				-o "$(OUTPUT_DIR)/$$ART_NAME.zip" \
+				"https://api.github.com/repos/ethereum/consensus-specs/actions/artifacts/$$ART_ID/zip"; \
+			unzip -q -o "$(OUTPUT_DIR)/$$ART_NAME.zip" -d "$(OUTPUT_DIR)/"; \
+			rm -rf "$(OUTPUT_DIR)/$$ART_NAME.zip"; \
+		done; \
+	find $(OUTPUT_DIR) -type f -name '*.tar.gz' -print0 | \
+	while IFS= read -r -d '' archive; do \
+		dest=$$(dirname "$$archive"); \
+		tar -xzf "$$archive" -C "$$dest"; \
+		rm -f "$$archive"; \
+	done;
 
-.PHONY: nighlty
+
+.PHONY: clean clean-archives clean-test-files nightly
