@@ -1,9 +1,9 @@
-#![cfg(not(debug_assertions))]
+//#![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
-use beacon_chain::data_availability_checker::AvailableBlock;
+use beacon_chain::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
@@ -21,6 +21,7 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{state_advance::complete_state_advance, BlockReplayer};
+use tracing::debug;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -2279,6 +2280,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let temp1 = tempdir().unwrap();
     let full_store = get_store(&temp1);
 
+    let is_deneb = full_store.get_chain_spec().deneb_fork_epoch.is_some();
+    let is_fulu = full_store.get_chain_spec().is_peer_das_scheduled();
+
     // TODO(das): Run a supernode so the node has full blobs stored.
     // This may not be required in the future if we end up implementing downloading checkpoint
     // blobs from p2p peers:
@@ -2495,8 +2499,101 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         let (block_root, block, data) = clone_block(&available_blocks[0]).deconstruct();
         let mut corrupt_block = (*block).clone();
         *corrupt_block.signature_mut() = Signature::empty();
-        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), data, Arc::new(spec))
+        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), data, Arc::new(spec.clone()))
     };
+    assert_eq!(*batch_with_invalid_first_block[0].block().signature(), Signature::empty());
+
+    // Corrupt the signature on the 1st blocks with blob sidecar and data column sidecar to ensure
+    // that the backfill processor is checking signatures correctly.
+    // TODO make them into one loop if possible
+    if is_deneb || is_fulu {
+        let first_blob_or_col_index = 
+            available_blocks
+                .iter()
+                .position(|block| {
+                    let (_, _, data) = clone_block(block).deconstruct();
+                    match &data {
+                        AvailableBlockData::NoData => false,
+                        AvailableBlockData::Blobs(_) => is_deneb && !is_fulu,
+                        AvailableBlockData::DataColumns(_) => is_fulu,
+                    }
+                })
+                .unwrap();
+        
+        let mut batch_with_invalid_header =
+            available_blocks.iter().map(clone_block).collect::<Vec<_>>();
+        batch_with_invalid_header[first_blob_or_col_index] = {
+            let (block_root, block, mut data) = clone_block(&batch_with_invalid_header[first_blob_or_col_index]).deconstruct();
+            match &mut data {
+                AvailableBlockData::NoData => panic!("should get blobs or data columns"),
+                AvailableBlockData::Blobs(sidecars) => {
+                    assert!(!sidecars.is_empty(), "sidecars shouldn't be empty");
+                    let mut_sidecar = Arc::make_mut(&mut sidecars[0]);
+                    mut_sidecar.signed_block_header.signature = Signature::empty();
+                    AvailableBlock::__new_for_testing(block_root, block, data, Arc::new(spec.clone()))
+                }
+                AvailableBlockData::DataColumns(sidecars) => {
+                    assert!(!sidecars.is_empty(), "sidecars shouldn't be empty");
+                    let mut_sidecar = Arc::make_mut(&mut sidecars[0]);
+                    mut_sidecar.signed_block_header.signature = Signature::empty();
+                    AvailableBlock::__new_for_testing(block_root, block, data, Arc::new(spec.clone()))
+                }
+            }
+        };
+
+        let mut batch_with_invalid_kzg =
+            available_blocks.iter().map(clone_block).collect::<Vec<_>>();
+            batch_with_invalid_kzg[first_blob_or_col_index] = {
+            let (block_root, block, mut data) = clone_block(&batch_with_invalid_kzg[first_blob_or_col_index]).deconstruct();
+            match &mut data {
+                AvailableBlockData::NoData => panic!("should get blobs or data columns"),
+                AvailableBlockData::Blobs(sidecars) => {
+                    assert!(!sidecars.is_empty(), "sidecars shouldn't be empty");
+                    let mut_sidecar = Arc::make_mut(&mut sidecars[0]);
+                    mut_sidecar.kzg_commitment = KzgCommitment::empty_for_testing();
+                    AvailableBlock::__new_for_testing(block_root, block, data, Arc::new(spec))
+                }
+                AvailableBlockData::DataColumns(sidecars) => {
+                    assert!(!sidecars.is_empty() && !sidecars[0].kzg_commitments.is_empty(), "sidecars and their commitments shouldn't be empty");
+                    let mut_sidecar = Arc::make_mut(&mut sidecars[0]);
+                    mut_sidecar.kzg_commitments[0] = KzgCommitment::empty_for_testing();
+                    AvailableBlock::__new_for_testing(block_root, block, data, Arc::new(spec))
+                }
+            }
+        };
+        if let AvailableBlockData::DataColumns(blobs) =
+            &batch_with_invalid_kzg[first_blob_or_col_index].data()
+        {
+            assert!(
+                !blobs.is_empty(),
+                "Expected at least one blob in the corrupted block"
+            );
+        
+            let blob = &blobs[0];
+            assert_eq!(
+                blob.kzg_commitments[0],
+                KzgCommitment::empty_for_testing(),
+                "Blob signature was not correctly cleared"
+            );
+        } else {
+            panic!("Expected Blobs variant at first_blob_or_col_index");
+        }
+        
+        // Importing the batch with an invalid blob signature block header should error.
+        assert!(matches!(
+            beacon_chain
+                .import_historical_block_batch(batch_with_invalid_header)
+                .unwrap_err(),
+            HistoricalBlockError::MismatchedBlockHeader
+        ));
+
+        assert!(matches!(
+            beacon_chain
+                .import_historical_block_batch(batch_with_invalid_kzg)
+                .unwrap_err(),
+            HistoricalBlockError::BlobOrDataColumnKzgError(_)
+        ));
+    }
 
     // Importing the invalid batch should error.
     assert!(matches!(
