@@ -7,26 +7,21 @@ use crate::{
 };
 use lru::LruCache;
 use parking_lot::RwLock;
-use ssz_derive::{Decode, Encode};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
 use store::OnDiskConsensusContext;
 use types::beacon_block_body::KzgCommitments;
-use types::{ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc};
 use types::{BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// This mirrors everything in the `AvailabilityPendingExecutedBlock`, except
 /// that it is much smaller because it contains only a state root instead of
 /// a full `BeaconState`.
-#[derive(Encode, Decode, Clone)]
+#[derive(Clone)]
 pub struct DietAvailabilityPendingExecutedBlock<E: EthSpec> {
-    #[ssz(with = "ssz_tagged_signed_beacon_block_arc")]
     block: Arc<SignedBeaconBlock<E>>,
     state_root: Hash256,
-    #[ssz(with = "ssz_tagged_signed_beacon_block")]
     parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     parent_eth1_finalization_data: Eth1FinalizationData,
-    confirmed_state_roots: Vec<Hash256>,
     consensus_context: OnDiskConsensusContext<E>,
     payload_verification_outcome: PayloadVerificationOutcome,
     custody_columns_count: usize,
@@ -108,7 +103,6 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
             state_root,
             parent_block: executed_block.import_data.parent_block,
             parent_eth1_finalization_data: executed_block.import_data.parent_eth1_finalization_data,
-            confirmed_state_roots: executed_block.import_data.confirmed_state_roots,
             consensus_context: OnDiskConsensusContext::from_consensus_context(
                 executed_block.import_data.consensus_context,
             ),
@@ -138,7 +132,6 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                 state,
                 parent_block: diet_executed_block.parent_block,
                 parent_eth1_finalization_data: diet_executed_block.parent_eth1_finalization_data,
-                confirmed_state_roots: diet_executed_block.confirmed_state_roots,
                 consensus_context: diet_executed_block
                     .consensus_context
                     .into_consensus_context(),
@@ -227,7 +220,6 @@ impl<E: EthSpec> From<AvailabilityPendingExecutedBlock<E>>
             state_root: value.import_data.state.canonical_root().unwrap(),
             parent_block: value.import_data.parent_block,
             parent_eth1_finalization_data: value.import_data.parent_eth1_finalization_data,
-            confirmed_state_roots: value.import_data.confirmed_state_roots,
             consensus_context: OnDiskConsensusContext::from_consensus_context(
                 value.import_data.consensus_context,
             ),

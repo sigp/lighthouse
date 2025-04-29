@@ -19,6 +19,7 @@ mediatype = "0.19.13"
 multiaddr = "0.18.2"
 pretty_reqwest_error = { workspace = true }
 proto_array = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
 reqwest-eventsource = "0.5.0"
 sensitive_url = { workspace = true }
@@ -26,6 +27,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 slashing_protection = { workspace = true }
 ssz_types = { workspace = true }
+test_random_derive = { path = "../../common/test_random_derive" }
 types = { workspace = true }
 zeroize = { workspace = true }
 
