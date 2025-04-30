@@ -682,7 +682,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
-                .metadata
+                .metadata()
                 .finalized
                 .unwrap();
 
@@ -719,7 +719,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
-                .metadata
+                .metadata()
                 .finalized
                 .unwrap();
 
@@ -757,7 +757,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
-                .metadata
+                .metadata()
                 .finalized
                 .unwrap();
 
@@ -1597,8 +1597,11 @@ impl ApiTester {
             let json_result = self.client.get_beacon_blocks(block_id.0).await.unwrap();
 
             if let (Some(json), Some(expected)) = (&json_result, &expected) {
-                assert_eq!(&json.data, expected.as_ref(), "{:?}", block_id);
-                assert_eq!(json.version, expected.fork_name(&self.chain.spec).unwrap());
+                assert_eq!(json.data(), expected.as_ref(), "{:?}", block_id);
+                assert_eq!(
+                    json.version(),
+                    Some(expected.fork_name(&self.chain.spec).unwrap())
+                );
             } else {
                 assert_eq!(json_result, None);
                 assert_eq!(expected, None);
@@ -1682,8 +1685,11 @@ impl ApiTester {
                 .unwrap();
 
             if let (Some(json), Some(expected)) = (&json_result, &expected) {
-                assert_eq!(&json.data, expected, "{:?}", block_id);
-                assert_eq!(json.version, expected.fork_name(&self.chain.spec).unwrap());
+                assert_eq!(json.data(), expected, "{:?}", block_id);
+                assert_eq!(
+                    json.version(),
+                    Some(expected.fork_name(&self.chain.spec).unwrap())
+                );
             } else {
                 assert_eq!(json_result, None);
                 assert_eq!(expected, None);
@@ -1747,7 +1753,7 @@ impl ApiTester {
             .get_blobs::<E>(CoreBlockId::Root(block_root), blob_indices.as_deref())
             .await
         {
-            Ok(result) => result.unwrap().data,
+            Ok(result) => result.unwrap().into_data(),
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
@@ -1806,7 +1812,7 @@ impl ApiTester {
             Ok(result) => {
                 if zero_blobs {
                     assert_eq!(
-                        &result.unwrap().data[..],
+                        &result.unwrap().into_data()[..],
                         &[],
                         "empty blobs are always available"
                     );
@@ -1855,7 +1861,7 @@ impl ApiTester {
                 .get_beacon_blocks_attestations_v2(block_id.0)
                 .await
                 .unwrap()
-                .map(|res| res.data);
+                .map(|res| res.into_data());
 
             let expected = block_id.full_block(&self.chain).await.ok().map(
                 |(block, _execution_optimistic, _finalized)| {
@@ -2065,7 +2071,7 @@ impl ApiTester {
             .get_light_client_bootstrap(&self.chain.store, &block_root, 1u64, &self.chain.spec);
 
         assert!(expected.is_ok());
-        assert_eq!(result.unwrap().data, expected.unwrap().unwrap().0);
+        assert_eq!(result.unwrap().data(), &expected.unwrap().unwrap().0);
 
         self
     }
@@ -2077,7 +2083,7 @@ impl ApiTester {
             .get_beacon_light_client_optimistic_update::<E>()
             .await
         {
-            Ok(result) => result.map(|res| res.data),
+            Ok(result) => result.map(|res| res.into_data()),
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
@@ -2096,7 +2102,7 @@ impl ApiTester {
             .get_beacon_light_client_finality_update::<E>()
             .await
         {
-            Ok(result) => result.map(|res| res.data),
+            Ok(result) => result.map(|res| res.into_data()),
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
@@ -2127,7 +2133,7 @@ impl ApiTester {
             .get_beacon_pool_attestations_v2(None, None)
             .await
             .unwrap()
-            .data;
+            .into_data();
 
         assert_eq!(result, expected);
 
@@ -2189,7 +2195,7 @@ impl ApiTester {
                 .get_beacon_pool_attestations_v2(None, Some(0))
                 .await
                 .unwrap()
-                .data;
+                .into_data();
             let mut expected = self.chain.op_pool.get_all_attestations();
             expected.extend(self.chain.naive_aggregation_pool.read().iter().cloned());
             let expected_committee_index_filtered = expected
@@ -2305,7 +2311,7 @@ impl ApiTester {
             .get_beacon_pool_attester_slashings_v2()
             .await
             .unwrap()
-            .data;
+            .into_data();
         assert_eq!(result, expected);
 
         self
@@ -2643,8 +2649,11 @@ impl ApiTester {
             expected.as_mut().map(|state| state.drop_all_caches());
 
             if let (Some(json), Some(expected)) = (&result_json, &expected) {
-                assert_eq!(json.data, *expected, "{:?}", state_id);
-                assert_eq!(json.version, expected.fork_name(&self.chain.spec).unwrap());
+                assert_eq!(json.data(), expected, "{:?}", state_id);
+                assert_eq!(
+                    json.version(),
+                    Some(expected.fork_name(&self.chain.spec).unwrap())
+                );
             } else {
                 assert_eq!(result_json, None);
                 assert_eq!(expected, None);
@@ -3148,7 +3157,7 @@ impl ApiTester {
                 .get_validator_blocks::<E>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .data
+                .into_data()
                 .deconstruct()
                 .0;
 
@@ -3371,7 +3380,7 @@ impl ApiTester {
                 )
                 .await
                 .unwrap()
-                .data
+                .into_data()
                 .deconstruct()
                 .0;
             assert_eq!(block.slot(), slot);
@@ -3485,7 +3494,7 @@ impl ApiTester {
                 .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
-                .data;
+                .into_data();
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
@@ -3500,7 +3509,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
-                .data;
+                .into_data();
 
             assert_eq!(head_block.clone_as_blinded(), signed_block);
 
@@ -3573,7 +3582,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
-                .data;
+                .into_data();
 
             let signed_block = signed_block_contents.signed_block();
             assert_eq!(head_block, **signed_block);
@@ -3596,7 +3605,7 @@ impl ApiTester {
                 )
                 .await
                 .unwrap()
-                .data;
+                .into_data();
             assert_eq!(blinded_block.slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
@@ -3740,7 +3749,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .unwrap()
-                .data;
+                .into_data();
             let expected = attestation;
 
             assert_eq!(result, expected);
@@ -4314,7 +4323,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -4360,7 +4369,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -4404,7 +4413,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -4478,7 +4487,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -4564,7 +4573,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -4656,7 +4665,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -4746,7 +4755,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -4835,7 +4844,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -4910,7 +4919,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -4973,7 +4982,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5049,7 +5058,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5080,7 +5089,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5188,7 +5197,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5229,7 +5238,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(next_slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5345,7 +5354,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5426,7 +5435,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5494,7 +5503,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5562,7 +5571,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5629,7 +5638,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()
@@ -5700,7 +5709,7 @@ impl ApiTester {
             .get_validator_blinded_blocks::<E>(slot, &randao_reveal, None)
             .await
             .unwrap()
-            .data
+            .into_data()
             .body()
             .execution_payload()
             .unwrap()

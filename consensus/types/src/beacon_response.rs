@@ -70,9 +70,6 @@ pub struct EmptyMetadata {}
 pub type ExecutionOptimisticFinalizedBeaconResponse<T> =
     BeaconResponse<T, ExecutionOptimisticFinalizedMetadata>;
 
-pub type ExecutionOptimisticFinalizedForkVersionedResponse<T> =
-    ForkVersionedResponse<T, ExecutionOptimisticFinalizedMetadata>;
-
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ExecutionOptimisticFinalizedMetadata {
     pub execution_optimistic: Option<bool>,
@@ -147,6 +144,13 @@ impl<T, M> BeaconResponse<T, M> {
             BeaconResponse::UnVersioned(response) => {
                 BeaconResponse::UnVersioned(response.map_data(f))
             }
+        }
+    }
+
+    pub fn into_data(self) -> T {
+        match self {
+            BeaconResponse::ForkVersioned(response) => response.data,
+            BeaconResponse::UnVersioned(response) => response.data,
         }
     }
 }

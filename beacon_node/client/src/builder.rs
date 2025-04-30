@@ -466,7 +466,7 @@ where
                         .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
                     {
                         debug!("Downloaded finalized blobs");
-                        Some(response.data)
+                        Some(response.into_data())
                     } else {
                         warn!(
                             block_root = %block_root,

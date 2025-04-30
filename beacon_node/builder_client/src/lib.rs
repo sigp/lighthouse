@@ -1,5 +1,5 @@
+use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder_bid::SignedBuilderBid;
-use eth2::types::fork_versioned_response::EmptyMetadata;
 use eth2::types::{
     ContentType, ContextDeserialize, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode,
     ForkVersionedResponse, PublicKeyBytes, SignedValidatorRegistrationData, Slot,

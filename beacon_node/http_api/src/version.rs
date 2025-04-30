@@ -5,7 +5,7 @@ use eth2::{
 };
 use serde::Serialize;
 use types::{
-    fork_versioned_response::{
+    beacon_response::{
         ExecutionOptimisticFinalizedBeaconResponse, ExecutionOptimisticFinalizedMetadata,
     },
     BeaconResponse, ForkName, ForkVersionedResponse, InconsistentFork, Uint256,

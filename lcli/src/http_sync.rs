@@ -127,7 +127,7 @@ async fn get_block_from_source<T: EthSpec>(
             .await
             .unwrap()
             .unwrap()
-            .data;
+            .into_data();
 
         let (kzg_proofs, blobs): (Vec<_>, Vec<_>) = blobs_from_source
             .iter()
