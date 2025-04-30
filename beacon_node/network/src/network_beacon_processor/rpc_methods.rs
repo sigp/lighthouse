@@ -880,9 +880,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "Received BlobsByRange Request"
         );
 
-        // Check Deneb is enabled. Blobs are available since then.
-        let request_start_slot = Slot::from(req.start_slot);
+        if req.count == 0 {
+            return Err((RpcErrorResponse::InvalidRequest, "Request count is zero"));
+        }
 
+        let mut req = req;
+        let request_start_slot = Slot::from(req.start_slot);
+        let request_end_slot = Slot::from(req.start_slot + req.count - 1);
+        let request_end_epoch = request_end_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        // Check Deneb is enabled. Blobs are available since then.
         let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
             None => {
@@ -918,15 +925,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
         }
 
-        // Check Fulu/PeerDAS is enabled. Blobs are not stored since then.
-        // Only need to check if the last slot is a Fulu slot or above.
-        let request_end_slot = Slot::from(req.start_slot + req.count);
-        let request_end_epoch = request_end_slot.epoch(T::EthSpec::slots_per_epoch());
+        // Check Fulu/PeerDAS is in the range. Blobs are not served since then.
         if self.chain.spec.is_peer_das_enabled_for_epoch(request_end_epoch) {
-            return Err((
-                RpcErrorResponse::InvalidRequest,
-                "Req including Fulu slots",
-            ))
+            // Fulu epoch is Some type by the condition above.
+            let fulu_epoch = self.chain.spec.fulu_fork_epoch.unwrap();
+            let fulu_start_slot = fulu_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            // See the justification for the formula in PR https://github.com/sigp/lighthouse/pull/7328
+            req.count = fulu_start_slot.as_u64().saturating_sub(req.start_slot);
         }
 
         let block_roots =

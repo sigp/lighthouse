@@ -7146,6 +7146,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let end_slot = start_slot.saturating_add(count);
         let mut roots = vec![];
 
+        // let's explicitly check count = 0 since it's a public function for readabiilty purpose.
+        if count == 0 {
+            return roots;
+        }
+
         for (root, slot) in block_roots_iter {
             if slot < end_slot && slot >= start_slot {
                 roots.push(root);
