@@ -6,18 +6,19 @@ edition = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }
+clap = { workspace = true }
 eth2_config = { workspace = true }
 eth2_network_config = { workspace = true }
 futures = { workspace = true }
 logging = { workspace = true }
+logroller = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
-slog-async = { workspace = true }
-slog-json = "2.3.0"
-slog-term = { workspace = true }
-sloggers = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-log = { workspace = true }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }
 
 [target.'cfg(not(target_family = "unix"))'.dependencies]

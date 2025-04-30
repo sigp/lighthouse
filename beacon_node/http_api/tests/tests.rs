@@ -4,7 +4,6 @@ use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
 use either::Either;
-use eth2::lighthouse::StandardBlockReward;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
@@ -27,7 +26,6 @@ use http_api::{
     BlockId, StateId,
 };
 use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
-use logging::test_logger;
 use network::NetworkReceivers;
 use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
@@ -137,7 +135,6 @@ impl ApiTester {
                 reconstruct_historic_states: config.retain_historic_states,
                 ..ChainConfig::default()
             })
-            .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -279,8 +276,6 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let log = test_logger();
-
         let ApiServer {
             ctx,
             server,
@@ -288,7 +283,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -377,7 +372,6 @@ impl ApiTester {
         let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
-        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -386,7 +380,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -5845,19 +5839,6 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_lighthouse_database_info(self) -> Self {
-        let info = self.client.get_lighthouse_database_info().await.unwrap();
-
-        assert_eq!(info.anchor, self.chain.store.get_anchor_info());
-        assert_eq!(info.split, self.chain.store.get_split_info());
-        assert_eq!(
-            info.schema_version,
-            store::metadata::CURRENT_SCHEMA_VERSION.as_u64()
-        );
-
-        self
-    }
-
     pub async fn test_post_lighthouse_database_reconstruct(self) -> Self {
         let response = self
             .client
@@ -7499,8 +7480,6 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_eth1_deposit_cache()
         .await
         .test_get_lighthouse_staking()
-        .await
-        .test_get_lighthouse_database_info()
         .await
         .test_post_lighthouse_database_reconstruct()
         .await

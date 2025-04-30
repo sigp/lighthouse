@@ -6,12 +6,13 @@ mod metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::prometheus_client::registry::Registry;
 use lighthouse_version::version_with_platform;
+use logging::crit;
 use serde::{Deserialize, Serialize};
-use slog::{crit, info, Logger};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing::info;
 use warp::{http::Response, Filter};
 
 #[derive(Debug)]
@@ -41,7 +42,6 @@ pub struct Context<T: BeaconChainTypes> {
     pub db_path: Option<PathBuf>,
     pub freezer_db_path: Option<PathBuf>,
     pub gossipsub_registry: Option<std::sync::Mutex<Registry>>,
-    pub log: Logger,
 }
 
 /// Configuration for the HTTP server.
@@ -86,7 +86,6 @@ pub fn serve<T: BeaconChainTypes>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
-    let log = ctx.log.clone();
 
     // Configure CORS.
     let cors_builder = {
@@ -103,7 +102,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Sanity check.
     if !config.enabled {
-        crit!(log, "Cannot start disabled metrics HTTP server");
+        crit!("Cannot start disabled metrics HTTP server");
         return Err(Error::Other(
             "A disabled metrics server should not be started".to_string(),
         ));
@@ -144,9 +143,8 @@ pub fn serve<T: BeaconChainTypes>(
     )?;
 
     info!(
-        log,
-        "Metrics HTTP server started";
-        "listen_address" => listening_socket.to_string(),
+        listen_address = listening_socket.to_string(),
+        "Metrics HTTP server started"
     );
 
     Ok((listening_socket, server))

@@ -8,11 +8,12 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 beacon_node_fallback = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
+logging = { workspace = true }
 parking_lot = { workspace = true }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]

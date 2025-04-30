@@ -8,7 +8,6 @@ edition = { workspace = true }
 environment = { workspace = true }
 eth1_test_rig = { workspace = true }
 serde_yaml = { workspace = true }
-sloggers = { workspace = true }
 
 [dependencies]
 eth2 = { workspace = true }
@@ -22,10 +21,10 @@ metrics = { workspace = true }
 parking_lot = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
 state_processing = { workspace = true }
 superstruct = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }

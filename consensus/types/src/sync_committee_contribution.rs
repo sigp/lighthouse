@@ -9,6 +9,7 @@ use tree_hash_derive::TreeHash;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     AlreadySigned(usize),
 }
 
@@ -51,7 +52,7 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
     ) -> Result<Self, Error> {
         let mut bits = BitVector::new();
         bits.set(validator_sync_committee_index, true)
-            .map_err(Error::SszTypesError)?;
+            .map_err(Error::BitfieldError)?;
         Ok(Self {
             slot: message.slot,
             beacon_block_root: message.beacon_block_root,
