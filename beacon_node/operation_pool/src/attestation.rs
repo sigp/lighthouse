@@ -33,7 +33,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         if let BeaconState::Base(ref base_state) = state {
             Self::new_for_base(att, state, base_state, total_active_balance, spec)
         } else {
-            Self::new_for_altair_deneb(att, state, reward_cache, spec)
+            Self::new_for_altair_or_later(att, state, reward_cache, spec)
         }
     }
 
@@ -71,7 +71,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
     }
 
     /// Initialise an attestation cover object for Altair or later.
-    pub fn new_for_altair_deneb(
+    pub fn new_for_altair_or_later(
         att: CompactAttestationRef<'a, E>,
         state: &BeaconState<E>,
         reward_cache: &'a RewardCache,
