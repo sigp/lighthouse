@@ -1,3 +1,5 @@
+extern crate serde;
+
 use serde::de::{DeserializeSeed, Deserializer, SeqAccess, Visitor};
 use std::marker::PhantomData;
 use std::sync::Arc;
