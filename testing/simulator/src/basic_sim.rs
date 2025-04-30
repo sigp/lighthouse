@@ -183,24 +183,28 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .await?;
 
-        // Run extra node as a PeerDAS full node to cover full node code path and syncing.
-        let extra_node_beacon_config = {
-            let mut config = beacon_config.clone();
-            config.network.subscribe_all_data_column_subnets = true;
-            config
-        };
-
         // Add nodes to the network.
-        for _ in 0..node_count {
+        for i in 0..node_count {
+            let mut beacon_config = beacon_config.clone();
+            // Run one PeerDAS supernode.
+            if i == 0 {
+                beacon_config.network.subscribe_all_data_column_subnets = true;
+            }
             network
-                .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), false)
+                .add_beacon_node(beacon_config, mock_execution_config.clone(), false)
                 .await?;
         }
 
         /*
          * One by one, add proposer nodes to the network.
          */
-        for _ in 0..proposer_nodes {
+        for i in 0..proposer_nodes {
+            let mut beacon_config = beacon_config.clone();
+            // Run one PeerDAS proposer supernode.
+            if i == 0 {
+                beacon_config.network.subscribe_all_data_column_subnets = true;
+            }
+
             println!("Adding a proposer node");
             network
                 .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), true)
@@ -335,7 +339,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                 slot_duration
             ),
             network_1.add_beacon_node_with_delay(
-                extra_node_beacon_config,
+                beacon_config.clone(),
                 mock_execution_config.clone(),
                 END_EPOCH - 1,
                 slot_duration,
