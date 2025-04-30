@@ -249,7 +249,7 @@ impl<E: EthSpec> LocalExecutionNode<E> {
         if let Err(e) = std::fs::write(jwt_file_path, config.jwt_key.hex_string()) {
             panic!("Failed to write jwt file {}", e);
         }
-        let spec = Arc::new(E::default_spec());
+        let spec = context.eth2_config.spec.clone();
         Self {
             server: MockServer::new_with_config(
                 &context.executor.handle().unwrap(),
