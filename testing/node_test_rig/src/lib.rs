@@ -7,7 +7,6 @@ use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, Timeouts};
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::{Builder as TempBuilder, TempDir};
