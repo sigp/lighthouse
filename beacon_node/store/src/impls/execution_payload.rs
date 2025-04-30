@@ -2,7 +2,7 @@ use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
     EthSpec, ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
-    ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
+    ExecutionPayloadDeneb, ExecutionPayloadEip7805, ExecutionPayloadElectra, ExecutionPayloadFulu,
 };
 
 macro_rules! impl_store_item {
@@ -26,6 +26,7 @@ impl_store_item!(ExecutionPayloadBellatrix);
 impl_store_item!(ExecutionPayloadCapella);
 impl_store_item!(ExecutionPayloadDeneb);
 impl_store_item!(ExecutionPayloadElectra);
+impl_store_item!(ExecutionPayloadEip7805);
 impl_store_item!(ExecutionPayloadFulu);
 
 /// This fork-agnostic implementation should be only used for writing.
@@ -45,17 +46,21 @@ impl<E: EthSpec> StoreItem for ExecutionPayload<E> {
         ExecutionPayloadFulu::from_ssz_bytes(bytes)
             .map(Self::Fulu)
             .or_else(|_| {
-                ExecutionPayloadElectra::from_ssz_bytes(bytes)
-                    .map(Self::Electra)
+                ExecutionPayloadEip7805::from_ssz_bytes(bytes)
+                    .map(Self::Eip7805)
                     .or_else(|_| {
-                        ExecutionPayloadDeneb::from_ssz_bytes(bytes)
-                            .map(Self::Deneb)
+                        ExecutionPayloadElectra::from_ssz_bytes(bytes)
+                            .map(Self::Electra)
                             .or_else(|_| {
-                                ExecutionPayloadCapella::from_ssz_bytes(bytes)
-                                    .map(Self::Capella)
+                                ExecutionPayloadDeneb::from_ssz_bytes(bytes)
+                                    .map(Self::Deneb)
                                     .or_else(|_| {
-                                        ExecutionPayloadBellatrix::from_ssz_bytes(bytes)
-                                            .map(Self::Bellatrix)
+                                        ExecutionPayloadCapella::from_ssz_bytes(bytes)
+                                            .map(Self::Capella)
+                                            .or_else(|_| {
+                                                ExecutionPayloadBellatrix::from_ssz_bytes(bytes)
+                                                    .map(Self::Bellatrix)
+                                            })
                                     })
                             })
                     })

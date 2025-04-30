@@ -24,7 +24,7 @@ use state_processing::per_block_processing::{
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{debug, warn, info};
+use tracing::{debug, info, warn};
 use tree_hash::TreeHash;
 use types::payload::BlockProductionVersion;
 use types::*;

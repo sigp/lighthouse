@@ -12,10 +12,10 @@ use types::{
     LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedInclusionList, SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage,
-    SyncSubnetId,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockEip7805,
+    SignedBeaconBlockElectra, SignedBeaconBlockFulu, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedInclusionList, SignedVoluntaryExit, SingleAttestation,
+    SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -249,6 +249,10 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 ),
                                 Some(ForkName::Electra) => SignedBeaconBlock::<E>::Electra(
                                     SignedBeaconBlockElectra::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Eip7805) => SignedBeaconBlock::<E>::Eip7805(
+                                    SignedBeaconBlockEip7805::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 Some(ForkName::Fulu) => SignedBeaconBlock::<E>::Fulu(

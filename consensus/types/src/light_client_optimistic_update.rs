@@ -98,13 +98,15 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
-            ForkName::Electra => Self::Electra(LightClientOptimisticUpdateElectra {
-                attested_header: LightClientHeaderElectra::block_to_light_client_header(
-                    attested_block,
-                )?,
-                sync_aggregate,
-                signature_slot,
-            }),
+            ForkName::Electra | ForkName::Eip7805 => {
+                Self::Electra(LightClientOptimisticUpdateElectra {
+                    attested_header: LightClientHeaderElectra::block_to_light_client_header(
+                        attested_block,
+                    )?,
+                    sync_aggregate,
+                    signature_slot,
+                })
+            }
             ForkName::Fulu => Self::Fulu(LightClientOptimisticUpdateFulu {
                 attested_header: LightClientHeaderFulu::block_to_light_client_header(
                     attested_block,
@@ -163,7 +165,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Deneb => {
                 Self::Deneb(LightClientOptimisticUpdateDeneb::from_ssz_bytes(bytes)?)
             }
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Eip7805 => {
                 Self::Electra(LightClientOptimisticUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Fulu => Self::Fulu(LightClientOptimisticUpdateFulu::from_ssz_bytes(bytes)?),
@@ -186,7 +188,9 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             }
             ForkName::Capella => <LightClientOptimisticUpdateCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientOptimisticUpdateDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra => <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra | ForkName::Eip7805 => {
+                <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len()
+            }
             ForkName::Fulu => <LightClientOptimisticUpdateFulu<E> as Encode>::ssz_fixed_len(),
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)

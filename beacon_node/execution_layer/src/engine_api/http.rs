@@ -849,23 +849,23 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v5_fulu<E: EthSpec>(
+    pub async fn new_payload_v5_eip7805<E: EthSpec>(
         &self,
-        new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
+        new_payload_request_eip7805: NewPayloadRequestEip7805<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         // TODO(focil) clean this up?
         let mut il_transactions = vec![];
-        for transaction in new_payload_request_fulu.il_transactions {
+        for transaction in new_payload_request_eip7805.il_transactions {
             if let Ok(hex_tx) = String::from_utf8(transaction.into()).map(|v| format!("0x{}", v)) {
                 il_transactions.push(hex_tx);
             }
         }
 
         let params = json!([
-            JsonExecutionPayload::V5(new_payload_request_fulu.execution_payload.clone().into()),
-            new_payload_request_fulu.versioned_hashes,
-            new_payload_request_fulu.parent_beacon_block_root,
-            new_payload_request_fulu
+            JsonExecutionPayload::V5(new_payload_request_eip7805.execution_payload.clone().into()),
+            new_payload_request_eip7805.versioned_hashes,
+            new_payload_request_eip7805.parent_beacon_block_root,
+            new_payload_request_eip7805
                 .execution_requests
                 .get_execution_requests_list(),
             il_transactions
@@ -880,6 +880,40 @@ impl HttpJsonRpc {
             .await?;
 
         Ok(response.into())
+    }
+
+    pub async fn new_payload_v5_fulu<E: EthSpec>(
+        &self,
+        new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        unreachable!("new payload fulu");
+        // // TODO(focil) clean this up?
+        // let mut il_transactions = vec![];
+        // for transaction in new_payload_request_fulu.il_transactions {
+        //     if let Ok(hex_tx) = String::from_utf8(transaction.into()).map(|v| format!("0x{}", v)) {
+        //         il_transactions.push(hex_tx);
+        //     }
+        // }
+
+        // let params = json!([
+        //     JsonExecutionPayload::V5(new_payload_request_fulu.execution_payload.clone().into()),
+        //     new_payload_request_fulu.versioned_hashes,
+        //     new_payload_request_fulu.parent_beacon_block_root,
+        //     new_payload_request_fulu
+        //         .execution_requests
+        //         .get_execution_requests_list(),
+        //     il_transactions
+        // ]);
+
+        // let response: JsonPayloadStatusV1 = self
+        //     .rpc_request(
+        //         ENGINE_NEW_PAYLOAD_V5,
+        //         params,
+        //         ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+        //     )
+        //     .await?;
+
+        // Ok(response.into())
     }
 
     pub async fn get_payload_v1<E: EthSpec>(
@@ -1019,7 +1053,7 @@ impl HttpJsonRpc {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
-            ForkName::Fulu => {
+            ForkName::Fulu | ForkName::Eip7805 => {
                 let response: JsonGetPayloadResponseV5<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V5,
@@ -1305,6 +1339,14 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
             }
+            NewPayloadRequest::Eip7805(new_payload_request_eip7805) => {
+                if engine_capabilities.new_payload_v5 {
+                    self.new_payload_v5_eip7805(new_payload_request_eip7805)
+                        .await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
+                }
+            }
             NewPayloadRequest::Fulu(new_payload_request_fulu) => {
                 if engine_capabilities.new_payload_v5 {
                     self.new_payload_v5_fulu(new_payload_request_fulu).await
@@ -1345,6 +1387,13 @@ impl HttpJsonRpc {
                     self.get_payload_v4(fork_name, payload_id).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv4"))
+                }
+            }
+            ForkName::Eip7805 => {
+                if engine_capabilities.get_payload_v5 {
+                    self.get_payload_v5(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
                 }
             }
             ForkName::Fulu => {

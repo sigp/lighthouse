@@ -166,6 +166,7 @@ async fn light_client_bootstrap_test() {
         LightClientBootstrap::Capella(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Deneb(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Electra(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
+        LightClientBootstrap::Eip7805(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Fulu(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
     };
 

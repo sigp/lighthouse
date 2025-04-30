@@ -17,6 +17,7 @@ pub enum ForkName {
     Capella,
     Deneb,
     Electra,
+    Eip7805,
     Fulu,
 }
 
@@ -29,6 +30,7 @@ impl ForkName {
             ForkName::Capella,
             ForkName::Deneb,
             ForkName::Electra,
+            ForkName::Eip7805,
             ForkName::Fulu,
         ]
     }
@@ -65,6 +67,7 @@ impl ForkName {
                 spec.capella_fork_epoch = None;
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
+                spec.eip7805_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec
             }
@@ -74,6 +77,7 @@ impl ForkName {
                 spec.capella_fork_epoch = None;
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
+                spec.eip7805_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec
             }
@@ -83,6 +87,7 @@ impl ForkName {
                 spec.capella_fork_epoch = None;
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
+                spec.eip7805_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec
             }
@@ -92,6 +97,7 @@ impl ForkName {
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec.deneb_fork_epoch = None;
                 spec.electra_fork_epoch = None;
+                spec.eip7805_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec
             }
@@ -101,6 +107,7 @@ impl ForkName {
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec.electra_fork_epoch = None;
+                spec.eip7805_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec
             }
@@ -110,6 +117,17 @@ impl ForkName {
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec.electra_fork_epoch = Some(Epoch::new(0));
+                spec.eip7805_fork_epoch = None;
+                spec.fulu_fork_epoch = None;
+                spec
+            }
+            ForkName::Eip7805 => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = Some(Epoch::new(0));
+                spec.eip7805_fork_epoch = Some(Epoch::new(0));
                 spec.fulu_fork_epoch = None;
                 spec
             }
@@ -119,6 +137,7 @@ impl ForkName {
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec.deneb_fork_epoch = Some(Epoch::new(0));
                 spec.electra_fork_epoch = Some(Epoch::new(0));
+                spec.eip7805_fork_epoch = Some(Epoch::new(0));
                 spec.fulu_fork_epoch = Some(Epoch::new(0));
                 spec
             }
@@ -136,7 +155,8 @@ impl ForkName {
             ForkName::Capella => Some(ForkName::Bellatrix),
             ForkName::Deneb => Some(ForkName::Capella),
             ForkName::Electra => Some(ForkName::Deneb),
-            ForkName::Fulu => Some(ForkName::Electra),
+            ForkName::Eip7805 => Some(ForkName::Electra),
+            ForkName::Fulu => Some(ForkName::Eip7805),
         }
     }
 
@@ -150,7 +170,8 @@ impl ForkName {
             ForkName::Bellatrix => Some(ForkName::Capella),
             ForkName::Capella => Some(ForkName::Deneb),
             ForkName::Deneb => Some(ForkName::Electra),
-            ForkName::Electra => Some(ForkName::Fulu),
+            ForkName::Electra => Some(ForkName::Eip7805),
+            ForkName::Eip7805 => Some(ForkName::Fulu),
             ForkName::Fulu => None,
         }
     }
@@ -173,6 +194,10 @@ impl ForkName {
 
     pub fn electra_enabled(self) -> bool {
         self >= ForkName::Electra
+    }
+
+    pub fn eip7805_enabled(self) -> bool {
+        self >= ForkName::Eip7805
     }
 
     pub fn fulu_enabled(self) -> bool {
@@ -229,6 +254,10 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Electra(value), extra_data)
             }
+            ForkName::Eip7805 => {
+                let (value, extra_data) = $body;
+                ($t::Eip7805(value), extra_data)
+            }
             ForkName::Fulu => {
                 let (value, extra_data) = $body;
                 ($t::Fulu(value), extra_data)
@@ -248,6 +277,7 @@ impl FromStr for ForkName {
             "capella" => ForkName::Capella,
             "deneb" => ForkName::Deneb,
             "electra" => ForkName::Electra,
+            "eip7805" => ForkName::Eip7805,
             "fulu" => ForkName::Fulu,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
@@ -263,6 +293,7 @@ impl Display for ForkName {
             ForkName::Capella => "capella".fmt(f),
             ForkName::Deneb => "deneb".fmt(f),
             ForkName::Electra => "electra".fmt(f),
+            ForkName::Eip7805 => "eip7805".fmt(f),
             ForkName::Fulu => "fulu".fmt(f),
         }
     }

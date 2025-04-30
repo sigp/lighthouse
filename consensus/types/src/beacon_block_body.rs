@@ -28,7 +28,7 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu),
     variant_attributes(
         derive(
             Debug,
@@ -56,6 +56,7 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
         Capella(metastruct(mappings(beacon_block_body_capella_fields(groups(fields))))),
         Deneb(metastruct(mappings(beacon_block_body_deneb_fields(groups(fields))))),
         Electra(metastruct(mappings(beacon_block_body_electra_fields(groups(fields))))),
+        Eip7805(metastruct(mappings(beacon_block_body_eip7805_fields(groups(fields))))),
         Fulu(metastruct(mappings(beacon_block_body_fulu_fields(groups(fields)))))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
@@ -77,7 +78,7 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     )]
     pub attester_slashings: VariableList<AttesterSlashingBase<E>, E::MaxAttesterSlashings>,
     #[superstruct(
-        only(Electra, Fulu),
+        only(Electra, Eip7805, Fulu),
         partial_getter(rename = "attester_slashings_electra")
     )]
     pub attester_slashings:
@@ -87,11 +88,14 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         partial_getter(rename = "attestations_base")
     )]
     pub attestations: VariableList<AttestationBase<E>, E::MaxAttestations>,
-    #[superstruct(only(Electra, Fulu), partial_getter(rename = "attestations_electra"))]
+    #[superstruct(
+        only(Electra, Eip7805, Fulu),
+        partial_getter(rename = "attestations_electra")
+    )]
     pub attestations: VariableList<AttestationElectra<E>, E::MaxAttestationsElectra>,
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu))]
     pub sync_aggregate: SyncAggregate<E>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
@@ -111,15 +115,18 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     #[serde(flatten)]
     pub execution_payload: Payload::Electra,
+    #[superstruct(only(Eip7805), partial_getter(rename = "execution_payload_eip7805"))]
+    #[serde(flatten)]
+    pub execution_payload: Payload::Eip7805,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     #[serde(flatten)]
     pub execution_payload: Payload::Fulu,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Eip7805, Fulu))]
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    #[superstruct(only(Deneb, Electra, Eip7805, Fulu))]
     pub blob_kzg_commitments: KzgCommitments<E>,
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Eip7805, Fulu))]
     pub execution_requests: ExecutionRequests<E>,
     #[superstruct(only(Base, Altair))]
     #[metastruct(exclude_from(fields))]
@@ -149,6 +156,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Capella(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Deneb(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Electra(body) => Ok(Payload::Ref::from(&body.execution_payload)),
+            Self::Eip7805(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Fulu(body) => Ok(Payload::Ref::from(&body.execution_payload)),
         }
     }
@@ -178,6 +186,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             }
             Self::Electra(body) => {
                 beacon_block_body_electra_fields!(body, |_, field| leaves
+                    .push(field.tree_hash_root()));
+            }
+            Self::Eip7805(body) => {
+                beacon_block_body_eip7805_fields!(body, |_, field| leaves
                     .push(field.tree_hash_root()));
             }
             Self::Fulu(body) => {
@@ -212,7 +224,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Base(_) | Self::Altair(_) | Self::Bellatrix(_) | Self::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
-            Self::Deneb(_) | Self::Electra(_) | Self::Fulu(_) => {
+            Self::Deneb(_) | Self::Electra(_) | Self::Eip7805(_) | Self::Fulu(_) => {
                 // We compute the branches by generating 2 merkle trees:
                 // 1. Merkle tree for the `blob_kzg_commitments` List object
                 // 2. Merkle tree for the `BeaconBlockBody` container
@@ -304,6 +316,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Capella(body) => body.attestations.len(),
             Self::Deneb(body) => body.attestations.len(),
             Self::Electra(body) => body.attestations.len(),
+            Self::Eip7805(body) => body.attestations.len(),
             Self::Fulu(body) => body.attestations.len(),
         }
     }
@@ -316,6 +329,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Capella(body) => body.attester_slashings.len(),
             Self::Deneb(body) => body.attester_slashings.len(),
             Self::Electra(body) => body.attester_slashings.len(),
+            Self::Eip7805(body) => body.attester_slashings.len(),
             Self::Fulu(body) => body.attester_slashings.len(),
         }
     }
@@ -328,6 +342,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Capella(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
             Self::Deneb(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
             Self::Electra(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
+            Self::Eip7805(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
             Self::Fulu(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
         }
     }
@@ -364,6 +379,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                     .iter()
                     .map(AttesterSlashingRef::Electra),
             ),
+            Self::Eip7805(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Electra),
+            ),
             Self::Fulu(body) => Box::new(
                 body.attester_slashings
                     .iter()
@@ -394,6 +414,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
             Self::Electra(body) => {
                 Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
             }
+            Self::Eip7805(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
+            }
             Self::Fulu(body) => {
                 Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
             }
@@ -411,6 +434,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'_, E, Payl
             BeaconBlockBodyRef::Capella { .. } => ForkName::Capella,
             BeaconBlockBodyRef::Deneb { .. } => ForkName::Deneb,
             BeaconBlockBodyRef::Electra { .. } => ForkName::Electra,
+            BeaconBlockBodyRef::Eip7805 { .. } => ForkName::Eip7805,
             BeaconBlockBodyRef::Fulu { .. } => ForkName::Fulu,
         }
     }
@@ -726,6 +750,52 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
     }
 }
 
+impl<E: EthSpec> From<BeaconBlockBodyEip7805<E, FullPayload<E>>>
+    for (
+        BeaconBlockBodyEip7805<E, BlindedPayload<E>>,
+        Option<ExecutionPayloadEip7805<E>>,
+    )
+{
+    fn from(body: BeaconBlockBodyEip7805<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyEip7805 {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            execution_payload: FullPayloadEip7805 { execution_payload },
+            bls_to_execution_changes,
+            blob_kzg_commitments,
+            execution_requests,
+        } = body;
+
+        (
+            BeaconBlockBodyEip7805 {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                sync_aggregate,
+                execution_payload: BlindedPayloadEip7805 {
+                    execution_payload_header: From::from(&execution_payload),
+                },
+                bls_to_execution_changes,
+                blob_kzg_commitments: blob_kzg_commitments.clone(),
+                execution_requests,
+            },
+            Some(execution_payload),
+        )
+    }
+}
+
 impl<E: EthSpec> From<BeaconBlockBodyFulu<E, FullPayload<E>>>
     for (
         BeaconBlockBodyFulu<E, BlindedPayload<E>>,
@@ -918,6 +988,44 @@ impl<E: EthSpec> BeaconBlockBodyElectra<E, FullPayload<E>> {
             voluntary_exits: voluntary_exits.clone(),
             sync_aggregate: sync_aggregate.clone(),
             execution_payload: BlindedPayloadElectra {
+                execution_payload_header: execution_payload.into(),
+            },
+            bls_to_execution_changes: bls_to_execution_changes.clone(),
+            blob_kzg_commitments: blob_kzg_commitments.clone(),
+            execution_requests: execution_requests.clone(),
+        }
+    }
+}
+
+impl<E: EthSpec> BeaconBlockBodyEip7805<E, FullPayload<E>> {
+    pub fn clone_as_blinded(&self) -> BeaconBlockBodyEip7805<E, BlindedPayload<E>> {
+        let BeaconBlockBodyEip7805 {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            execution_payload: FullPayloadEip7805 { execution_payload },
+            bls_to_execution_changes,
+            blob_kzg_commitments,
+            execution_requests,
+        } = self;
+
+        BeaconBlockBodyEip7805 {
+            randao_reveal: randao_reveal.clone(),
+            eth1_data: eth1_data.clone(),
+            graffiti: *graffiti,
+            proposer_slashings: proposer_slashings.clone(),
+            attester_slashings: attester_slashings.clone(),
+            attestations: attestations.clone(),
+            deposits: deposits.clone(),
+            voluntary_exits: voluntary_exits.clone(),
+            sync_aggregate: sync_aggregate.clone(),
+            execution_payload: BlindedPayloadEip7805 {
                 execution_payload_header: execution_payload.into(),
             },
             bls_to_execution_changes: bls_to_execution_changes.clone(),

@@ -20,6 +20,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
     let shanghai_time = parse_required(matches, "shanghai-time")?;
     let cancun_time = parse_optional(matches, "cancun-time")?;
     let prague_time = parse_optional(matches, "prague-time")?;
+    let eip7805_time = parse_optional(matches, "eip7805-time")?;
     let osaka_time = parse_optional(matches, "osaka-time")?;
 
     let handle = env.core_context().executor.handle().unwrap();
@@ -37,6 +38,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
         terminal_block: DEFAULT_TERMINAL_BLOCK,
         terminal_block_hash: spec.terminal_block_hash,
         shanghai_time: Some(shanghai_time),
+        eip7805_time,
         cancun_time,
         prague_time,
         osaka_time,

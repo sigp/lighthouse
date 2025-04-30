@@ -131,17 +131,19 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
-            ForkName::Electra => Self::Electra(LightClientFinalityUpdateElectra {
-                attested_header: LightClientHeaderElectra::block_to_light_client_header(
-                    attested_block,
-                )?,
-                finalized_header: LightClientHeaderElectra::block_to_light_client_header(
-                    finalized_block,
-                )?,
-                finality_branch: finality_branch.into(),
-                sync_aggregate,
-                signature_slot,
-            }),
+            ForkName::Electra | ForkName::Eip7805 => {
+                Self::Electra(LightClientFinalityUpdateElectra {
+                    attested_header: LightClientHeaderElectra::block_to_light_client_header(
+                        attested_block,
+                    )?,
+                    finalized_header: LightClientHeaderElectra::block_to_light_client_header(
+                        finalized_block,
+                    )?,
+                    finality_branch: finality_branch.into(),
+                    sync_aggregate,
+                    signature_slot,
+                })
+            }
             ForkName::Fulu => Self::Fulu(LightClientFinalityUpdateFulu {
                 attested_header: LightClientHeaderFulu::block_to_light_client_header(
                     attested_block,
@@ -189,7 +191,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 Self::Capella(LightClientFinalityUpdateCapella::from_ssz_bytes(bytes)?)
             }
             ForkName::Deneb => Self::Deneb(LightClientFinalityUpdateDeneb::from_ssz_bytes(bytes)?),
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Eip7805 => {
                 Self::Electra(LightClientFinalityUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Fulu => Self::Fulu(LightClientFinalityUpdateFulu::from_ssz_bytes(bytes)?),
@@ -212,7 +214,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             }
             ForkName::Capella => <LightClientFinalityUpdateCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientFinalityUpdateDeneb<E> as Encode>::ssz_fixed_len(),
-            ForkName::Electra => <LightClientFinalityUpdateElectra<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra | ForkName::Eip7805 => {
+                <LightClientFinalityUpdateElectra<E> as Encode>::ssz_fixed_len()
+            }
             ForkName::Fulu => <LightClientFinalityUpdateFulu<E> as Encode>::ssz_fixed_len(),
         };
         // `2 *` because there are two headers in the update

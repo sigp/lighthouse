@@ -20,7 +20,7 @@ pub fn upgrade_state_to_fulu<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_electra_mut()?;
+    let pre = pre_state.as_eip7805_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //

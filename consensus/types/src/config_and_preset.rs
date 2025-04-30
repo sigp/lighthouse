@@ -12,7 +12,7 @@ use superstruct::superstruct;
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Deneb, Electra, Fulu),
+    variants(Deneb, Electra, Eip7805, Fulu),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -31,7 +31,7 @@ pub struct ConfigAndPreset {
     pub capella_preset: CapellaPreset,
     #[serde(flatten)]
     pub deneb_preset: DenebPreset,
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Eip7805, Fulu))]
     #[serde(flatten)]
     pub electra_preset: ElectraPreset,
     #[superstruct(only(Fulu))]

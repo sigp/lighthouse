@@ -25,7 +25,8 @@ pub use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionRequests, KzgProofs,
+    ExecutionPayloadEip7805, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionRequests,
+    KzgProofs,
 };
 use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
@@ -36,7 +37,8 @@ mod new_payload_request;
 
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
-    NewPayloadRequestDeneb, NewPayloadRequestElectra, NewPayloadRequestFulu,
+    NewPayloadRequestDeneb, NewPayloadRequestEip7805, NewPayloadRequestElectra,
+    NewPayloadRequestFulu,
 };
 
 pub const LATEST_TAG: &str = "latest";
@@ -269,7 +271,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -289,14 +291,16 @@ pub struct GetPayloadResponse<E: EthSpec> {
     pub execution_payload: ExecutionPayloadDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     pub execution_payload: ExecutionPayloadElectra<E>,
+    #[superstruct(only(Eip7805), partial_getter(rename = "execution_payload_eip7805"))]
+    pub execution_payload: ExecutionPayloadEip7805<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     pub execution_payload: ExecutionPayloadFulu<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    #[superstruct(only(Deneb, Electra, Eip7805, Fulu))]
     pub blobs_bundle: BlobsBundle<E>,
-    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Eip7805, Fulu), partial_getter(copy))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Eip7805, Fulu))]
     pub requests: ExecutionRequests<E>,
 }
 
@@ -360,6 +364,12 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
             ),
             GetPayloadResponse::Electra(inner) => (
                 ExecutionPayload::Electra(inner.execution_payload),
+                inner.block_value,
+                Some(inner.blobs_bundle),
+                Some(inner.requests),
+            ),
+            GetPayloadResponse::Eip7805(inner) => (
+                ExecutionPayload::Eip7805(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
                 Some(inner.requests),
@@ -478,6 +488,34 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
             ExecutionPayloadHeader::Electra(header) => {
                 if let Some(withdrawals) = self.withdrawals {
                     Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+            ExecutionPayloadHeader::Eip7805(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Eip7805(ExecutionPayloadEip7805 {
                         parent_hash: header.parent_hash,
                         fee_recipient: header.fee_recipient,
                         state_root: header.state_root,

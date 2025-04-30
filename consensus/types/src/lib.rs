@@ -131,13 +131,13 @@ pub use crate::attester_slashing::{
 };
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockCapella,
-    BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockFulu, BeaconBlockRef, BeaconBlockRefMut,
-    BlindedBeaconBlock, BlockImportSource, EmptyBlock,
+    BeaconBlockDeneb, BeaconBlockEip7805, BeaconBlockElectra, BeaconBlockFulu, BeaconBlockRef,
+    BeaconBlockRefMut, BlindedBeaconBlock, BlockImportSource, EmptyBlock,
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
-    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
-    BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyEip7805, BeaconBlockBodyElectra,
+    BeaconBlockBodyFulu, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
@@ -168,13 +168,13 @@ pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadRef, Transaction, Transactions,
-    Withdrawals,
+    ExecutionPayloadEip7805, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadRef,
+    Transaction, Transactions, Withdrawals,
 };
 pub use crate::execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+    ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderEip7805, ExecutionPayloadHeaderElectra,
+    ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use crate::execution_requests::{ExecutionRequests, RequestType};
 pub use crate::fork::Fork;
@@ -218,17 +218,18 @@ pub use crate::light_client_update::{
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
-    BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadRef, BlockType,
-    ExecPayload, FullPayload, FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb,
-    FullPayloadElectra, FullPayloadFulu, FullPayloadRef, OwnedExecPayload,
+    BlindedPayloadDeneb, BlindedPayloadEip7805, BlindedPayloadElectra, BlindedPayloadFulu,
+    BlindedPayloadRef, BlockType, ExecPayload, FullPayload, FullPayloadBellatrix,
+    FullPayloadCapella, FullPayloadDeneb, FullPayloadEip7805, FullPayloadElectra, FullPayloadFulu,
+    FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::pending_consolidation::PendingConsolidation;
 pub use crate::pending_deposit::PendingDeposit;
 pub use crate::pending_partial_withdrawal::PendingPartialWithdrawal;
 pub use crate::preset::{
-    AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, DenebPreset, ElectraPreset,
-    FuluPreset,
+    AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, DenebPreset, Eip7805Preset,
+    ElectraPreset, FuluPreset,
 };
 pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
@@ -243,8 +244,9 @@ pub use crate::signed_aggregate_and_proof::{
 pub use crate::signed_beacon_block::{
     ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockHash, SignedBlindedBeaconBlock,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockEip7805,
+    SignedBeaconBlockElectra, SignedBeaconBlockFulu, SignedBeaconBlockHash,
+    SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;

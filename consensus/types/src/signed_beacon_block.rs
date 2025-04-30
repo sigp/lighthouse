@@ -38,7 +38,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu),
     variant_attributes(
         derive(
             Debug,
@@ -81,6 +81,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockDeneb<E, Payload>,
     #[superstruct(only(Electra), partial_getter(rename = "message_electra"))]
     pub message: BeaconBlockElectra<E, Payload>,
+    #[superstruct(only(Eip7805), partial_getter(rename = "message_eip7805"))]
+    pub message: BeaconBlockEip7805<E, Payload>,
     #[superstruct(only(Fulu), partial_getter(rename = "message_fulu"))]
     pub message: BeaconBlockFulu<E, Payload>,
     pub signature: Signature,
@@ -165,6 +167,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             }
             BeaconBlock::Electra(message) => {
                 SignedBeaconBlock::Electra(SignedBeaconBlockElectra { message, signature })
+            }
+            BeaconBlock::Eip7805(message) => {
+                SignedBeaconBlock::Eip7805(SignedBeaconBlockEip7805 { message, signature })
             }
             BeaconBlock::Fulu(message) => {
                 SignedBeaconBlock::Fulu(SignedBeaconBlockFulu { message, signature })
@@ -576,6 +581,64 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
     }
 }
 
+impl<E: EthSpec> SignedBeaconBlockEip7805<E, BlindedPayload<E>> {
+    pub fn into_full_block(
+        self,
+        execution_payload: ExecutionPayloadEip7805<E>,
+    ) -> SignedBeaconBlockEip7805<E, FullPayload<E>> {
+        let SignedBeaconBlockEip7805 {
+            message:
+                BeaconBlockEip7805 {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body:
+                        BeaconBlockBodyEip7805 {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload: BlindedPayloadEip7805 { .. },
+                            bls_to_execution_changes,
+                            blob_kzg_commitments,
+                            execution_requests,
+                        },
+                },
+            signature,
+        } = self;
+        SignedBeaconBlockEip7805 {
+            message: BeaconBlockEip7805 {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root,
+                body: BeaconBlockBodyEip7805 {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload: FullPayloadEip7805 { execution_payload },
+                    bls_to_execution_changes,
+                    blob_kzg_commitments,
+                    execution_requests,
+                },
+            },
+            signature,
+        }
+    }
+}
+
 impl<E: EthSpec> SignedBeaconBlockFulu<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
@@ -654,6 +717,9 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Electra(block), Some(ExecutionPayload::Electra(payload))) => {
                 SignedBeaconBlock::Electra(block.into_full_block(payload))
             }
+            (SignedBeaconBlock::Eip7805(block), Some(ExecutionPayload::Eip7805(payload))) => {
+                SignedBeaconBlock::Eip7805(block.into_full_block(payload))
+            }
             (SignedBeaconBlock::Fulu(block), Some(ExecutionPayload::Fulu(payload))) => {
                 SignedBeaconBlock::Fulu(block.into_full_block(payload))
             }
@@ -663,6 +729,7 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Capella(_), _) => return None,
             (SignedBeaconBlock::Deneb(_), _) => return None,
             (SignedBeaconBlock::Electra(_), _) => return None,
+            (SignedBeaconBlock::Eip7805(_), _) => return None,
             (SignedBeaconBlock::Fulu(_), _) => return None,
         };
         Some(full_block)
@@ -806,6 +873,9 @@ pub mod ssz_tagged_signed_beacon_block {
                 ForkName::Deneb => Ok(SignedBeaconBlock::Deneb(
                     SignedBeaconBlockDeneb::from_ssz_bytes(body)?,
                 )),
+                ForkName::Eip7805 => Ok(SignedBeaconBlock::Eip7805(
+                    SignedBeaconBlockEip7805::from_ssz_bytes(body)?,
+                )),
                 ForkName::Electra => Ok(SignedBeaconBlock::Electra(
                     SignedBeaconBlockElectra::from_ssz_bytes(body)?,
                 )),
@@ -912,6 +982,10 @@ mod test {
             ),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Electra(BeaconBlockElectra::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Eip7805(BeaconBlockEip7805::empty(spec)),
                 sig.clone(),
             ),
             SignedBeaconBlock::from_block(BeaconBlock::Fulu(BeaconBlockFulu::empty(spec)), sig),

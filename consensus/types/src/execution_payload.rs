@@ -15,7 +15,7 @@ pub type Transactions<E> = VariableList<
 pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Eip7805, Fulu),
     variant_attributes(
         derive(
             Default,
@@ -82,12 +82,12 @@ pub struct ExecutionPayload<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Eip7805, Fulu))]
     pub withdrawals: Withdrawals<E>,
-    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Eip7805, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Eip7805, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
 }
@@ -115,6 +115,7 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
             ForkName::Capella => ExecutionPayloadCapella::from_ssz_bytes(bytes).map(Self::Capella),
             ForkName::Deneb => ExecutionPayloadDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
             ForkName::Electra => ExecutionPayloadElectra::from_ssz_bytes(bytes).map(Self::Electra),
+            ForkName::Eip7805 => ExecutionPayloadEip7805::from_ssz_bytes(bytes).map(Self::Eip7805),
             ForkName::Fulu => ExecutionPayloadFulu::from_ssz_bytes(bytes).map(Self::Fulu),
         }
     }
@@ -149,6 +150,7 @@ impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayload<E> {
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Eip7805 => Self::Eip7805(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Fulu => Self::Fulu(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
@@ -167,6 +169,7 @@ impl<E: EthSpec> ExecutionPayload<E> {
             ExecutionPayload::Capella(_) => ForkName::Capella,
             ExecutionPayload::Deneb(_) => ForkName::Deneb,
             ExecutionPayload::Electra(_) => ForkName::Electra,
+            ExecutionPayload::Eip7805(_) => ForkName::Eip7805,
             ExecutionPayload::Fulu(_) => ForkName::Fulu,
         }
     }

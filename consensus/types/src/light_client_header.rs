@@ -92,7 +92,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Deneb => LightClientHeader::Deneb(
                 LightClientHeaderDeneb::block_to_light_client_header(block)?,
             ),
-            ForkName::Electra => LightClientHeader::Electra(
+            ForkName::Electra | ForkName::Eip7805 => LightClientHeader::Electra(
                 LightClientHeaderElectra::block_to_light_client_header(block)?,
             ),
             ForkName::Fulu => {
@@ -113,7 +113,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Deneb => {
                 LightClientHeader::Deneb(LightClientHeaderDeneb::from_ssz_bytes(bytes)?)
             }
-            ForkName::Electra => {
+            ForkName::Electra | ForkName::Eip7805 => {
                 LightClientHeader::Electra(LightClientHeaderElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Fulu => {
@@ -349,7 +349,7 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
             ForkName::Deneb => serde_json::from_value(value)
                 .map(|light_client_header| Self::Deneb(light_client_header))
                 .map_err(serde::de::Error::custom),
-            ForkName::Electra => serde_json::from_value(value)
+            ForkName::Electra | ForkName::Eip7805 => serde_json::from_value(value)
                 .map(|light_client_header| Self::Electra(light_client_header))
                 .map_err(serde::de::Error::custom),
             ForkName::Fulu => serde_json::from_value(value)

@@ -55,8 +55,9 @@ use types::{
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
-    InclusionListTransactions, ProposerPreparationData, PublicKeyBytes, Signature, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadEip7805, ExecutionPayloadElectra,
+    ExecutionPayloadFulu, FullPayload, InclusionListTransactions, ProposerPreparationData,
+    PublicKeyBytes, Signature, Slot,
 };
 
 mod block_hash;
@@ -119,6 +120,13 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
             },
             BuilderBid::Electra(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Electra(builder_bid.header).into(),
+                block_value: builder_bid.value,
+                kzg_commitments: builder_bid.blob_kzg_commitments,
+                blobs_and_proofs: None,
+                requests: Some(builder_bid.execution_requests),
+            },
+            BuilderBid::Eip7805(builder_bid) => BlockProposalContents::PayloadAndBlobs {
+                payload: ExecutionPayloadHeader::Eip7805(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
@@ -1832,6 +1840,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
                 ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
                 ForkName::Electra => ExecutionPayloadElectra::default().into(),
+                ForkName::Eip7805 => ExecutionPayloadEip7805::default().into(),
                 ForkName::Fulu => ExecutionPayloadFulu::default().into(),
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);

@@ -214,8 +214,8 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadFulu<E>> for JsonExecutionPayloadV5<E> {
-    fn from(payload: ExecutionPayloadFulu<E>) -> Self {
+impl<E: EthSpec> From<ExecutionPayloadEip7805<E>> for JsonExecutionPayloadV5<E> {
+    fn from(payload: ExecutionPayloadEip7805<E>) -> Self {
         JsonExecutionPayloadV5 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -250,7 +250,8 @@ impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
             ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
             ExecutionPayload::Deneb(payload) => JsonExecutionPayload::V3(payload.into()),
             ExecutionPayload::Electra(payload) => JsonExecutionPayload::V4(payload.into()),
-            ExecutionPayload::Fulu(payload) => JsonExecutionPayload::V5(payload.into()),
+            ExecutionPayload::Eip7805(payload) => JsonExecutionPayload::V5(payload.into()),
+            ExecutionPayload::Fulu(_) => unreachable!("DONT USE FULU"),
         }
     }
 }
@@ -360,9 +361,9 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadV5<E>> for ExecutionPayloadFulu<E> {
+impl<E: EthSpec> From<JsonExecutionPayloadV5<E>> for ExecutionPayloadEip7805<E> {
     fn from(payload: JsonExecutionPayloadV5<E>) -> Self {
-        ExecutionPayloadFulu {
+        ExecutionPayloadEip7805 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -396,7 +397,7 @@ impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
             JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
             JsonExecutionPayload::V3(payload) => ExecutionPayload::Deneb(payload.into()),
             JsonExecutionPayload::V4(payload) => ExecutionPayload::Electra(payload.into()),
-            JsonExecutionPayload::V5(payload) => ExecutionPayload::Fulu(payload.into()),
+            JsonExecutionPayload::V5(payload) => ExecutionPayload::Eip7805(payload.into()),
         }
     }
 }
@@ -549,7 +550,7 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
                 }))
             }
             JsonGetPayloadResponse::V5(response) => {
-                Ok(GetPayloadResponse::Fulu(GetPayloadResponseFulu {
+                Ok(GetPayloadResponse::Eip7805(GetPayloadResponseEip7805 {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),

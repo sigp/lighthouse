@@ -5912,6 +5912,48 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     execution_payload_value,
                 )
             }
+            BeaconState::Eip7805(_) => {
+                let (
+                    payload,
+                    kzg_commitments,
+                    maybe_blobs_and_proofs,
+                    maybe_requests,
+                    execution_payload_value,
+                ) = block_contents
+                    .ok_or(BlockProductionError::MissingExecutionPayload)?
+                    .deconstruct();
+
+                (
+                    BeaconBlock::Eip7805(BeaconBlockEip7805 {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyEip7805 {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings_electra.into(),
+                            attestations: attestations_electra.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            blob_kzg_commitments: kzg_commitments
+                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                            execution_requests: maybe_requests
+                                .ok_or(BlockProductionError::MissingExecutionRequests)?,
+                        },
+                    }),
+                    maybe_blobs_and_proofs,
+                    execution_payload_value,
+                )
+            }
             BeaconState::Fulu(_) => {
                 let (
                     payload,

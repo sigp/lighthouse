@@ -6,11 +6,11 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use superstruct::superstruct;
+use tracing::info;
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
     FixedBytesExtended, Hash256, Slot,
 };
-use tracing::info;
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.

@@ -167,7 +167,7 @@ fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> R
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu => {
+        ForkName::Electra | ForkName::Eip7805 | ForkName::Fulu => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX)
         }
     }
@@ -187,7 +187,7 @@ fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> Rp
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu => {
+        ForkName::Electra | ForkName::Eip7805 | ForkName::Fulu => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
         }
     }
@@ -208,7 +208,7 @@ fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> 
         ForkName::Deneb => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
         }
-        ForkName::Electra | ForkName::Fulu => RpcLimits::new(
+        ForkName::Electra | ForkName::Eip7805 | ForkName::Fulu => RpcLimits::new(
             altair_fixed_len,
             *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
         ),
@@ -225,7 +225,7 @@ fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimit
         }
         ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
         ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
-        ForkName::Electra | ForkName::Fulu => {
+        ForkName::Electra | ForkName::Eip7805 | ForkName::Fulu => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX)
         }
     }

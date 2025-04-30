@@ -7420,6 +7420,7 @@ async fn create_signed_inclusion_lists() {
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
     config.spec.deneb_fork_epoch = Some(Epoch::new(0));
     config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.eip7805_fork_epoch = Some(Epoch::new(0));
     ApiTester::new_from_config(config)
         .await
         .test_create_inclusion_lists()
@@ -7434,6 +7435,7 @@ async fn test_post_validator_duties_inclusion_list() {
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
     config.spec.deneb_fork_epoch = Some(Epoch::new(0));
     config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.eip7805_fork_epoch = Some(Epoch::new(0));
     ApiTester::new_from_config(config)
         .await
         .test_post_validator_duties_inclusion_list()

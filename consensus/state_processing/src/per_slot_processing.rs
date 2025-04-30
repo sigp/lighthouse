@@ -1,6 +1,6 @@
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
-    upgrade_to_electra, upgrade_to_fulu,
+    upgrade_to_eip7805, upgrade_to_electra, upgrade_to_fulu,
 };
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
@@ -69,6 +69,10 @@ pub fn per_slot_processing<E: EthSpec>(
         // Electra.
         if spec.electra_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_electra(state, spec)?;
+        }
+        // Eip7805.
+        if spec.eip7805_fork_epoch == Some(state.current_epoch()) {
+            upgrade_to_eip7805(state, spec)?;
         }
 
         // Fulu.

@@ -229,6 +229,44 @@ pub async fn handle_rpc<E: EthSpec>(
                         ));
                     }
                 }
+                ForkName::Eip7805 => {
+                    if method == ENGINE_NEW_PAYLOAD_V1
+                        || method == ENGINE_NEW_PAYLOAD_V2
+                        || method == ENGINE_NEW_PAYLOAD_V3
+                    {
+                        return Err((
+                            format!("{} called after Electra fork!", method),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V1(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV1` after Electra fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V2(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV2` after Electra fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V3(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV3` after Electra fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                }
                 ForkName::Fulu => {
                     if method == ENGINE_NEW_PAYLOAD_V1
                         || method == ENGINE_NEW_PAYLOAD_V2
@@ -488,7 +526,23 @@ pub async fn handle_rpc<E: EthSpec>(
                         })
                         .unwrap()
                     }
-                    _ => unreachable!(),
+                    JsonExecutionPayload::V4(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV4 {
+                            execution_payload,
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                            blobs_bundle: maybe_blobs
+                                .ok_or((
+                                    "No blobs returned despite V4 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
+                                .into(),
+                            should_override_builder: false,
+                            // TODO(electra): add EL requests in mock el
+                            execution_requests: Default::default(),
+                        })
+                        .unwrap()
+                    }
+                    other => unreachable!("check {:?}", other),
                 }),
                 _ => unreachable!(),
             }
@@ -588,7 +642,7 @@ pub async fn handle_rpc<E: EthSpec>(
                             ));
                         }
                     }
-                    ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
+                    ForkName::Deneb | ForkName::Electra | ForkName::Eip7805 | ForkName::Fulu => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err((
                                 format!("{} called after Deneb fork!", method),

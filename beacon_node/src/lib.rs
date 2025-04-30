@@ -228,6 +228,7 @@ mod test {
         spec.bellatrix_fork_epoch = Some(Epoch::new(256));
         spec.deneb_fork_epoch = Some(Epoch::new(257));
         spec.electra_fork_epoch = None;
+        spec.eip7805_fork_epoch = None;
         spec.fulu_fork_epoch = None;
         let result = validator_fork_epochs(&spec);
         assert_eq!(

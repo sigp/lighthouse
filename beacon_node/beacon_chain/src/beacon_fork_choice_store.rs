@@ -15,11 +15,11 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
+use tracing::info;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
     FixedBytesExtended, Hash256, Slot,
 };
-use tracing::info;
 
 #[derive(Debug)]
 pub enum Error {

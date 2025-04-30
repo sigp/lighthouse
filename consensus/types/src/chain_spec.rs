@@ -199,6 +199,7 @@ pub struct ChainSpec {
     pub domain_inclusion_list_committee: u32,
     pub inclusion_list_committee_size: u64,
     pub eip7805_fork_epoch: Option<Epoch>,
+    pub eip7805_fork_version: [u8; 4],
 
     /*
      * Fulu hard fork params
@@ -334,17 +335,21 @@ impl ChainSpec {
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
         match self.fulu_fork_epoch {
             Some(fork_epoch) if epoch >= fork_epoch => ForkName::Fulu,
-            _ => match self.electra_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
-                _ => match self.deneb_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-                    _ => match self.capella_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                        _ => match self.bellatrix_fork_epoch {
-                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
-                            _ => match self.altair_fork_epoch {
-                                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                                _ => ForkName::Base,
+            _ => match self.eip7805_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Eip7805,
+
+                _ => match self.electra_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
+                    _ => match self.deneb_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
+                        _ => match self.capella_fork_epoch {
+                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                            _ => match self.bellatrix_fork_epoch {
+                                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
+                                _ => match self.altair_fork_epoch {
+                                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                                    _ => ForkName::Base,
+                                },
                             },
                         },
                     },
@@ -362,6 +367,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
+            ForkName::Eip7805 => self.eip7805_fork_version,
             ForkName::Fulu => self.fulu_fork_version,
         }
     }
@@ -375,6 +381,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
+            ForkName::Eip7805 => self.eip7805_fork_epoch,
             ForkName::Fulu => self.fulu_fork_epoch,
         }
     }
@@ -936,6 +943,7 @@ impl ChainSpec {
             domain_inclusion_list_committee: 13,
             inclusion_list_committee_size: 16,
             eip7805_fork_epoch: None,
+            eip7805_fork_version: [0x06, 0x00, 0x00, 0x00],
 
             /*
              * Fulu hard fork params
@@ -1064,6 +1072,7 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
             // FOCIL
             eip7805_fork_epoch: None,
+            eip7805_fork_version: [0x06, 0x00, 0x00, 0x00],
             // Fulu
             fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
             fulu_fork_epoch: None,
@@ -1275,6 +1284,7 @@ impl ChainSpec {
             domain_inclusion_list_committee: 13,
             inclusion_list_committee_size: 16,
             eip7805_fork_epoch: None,
+            eip7805_fork_version: [0x06, 0x00, 0x00, 0x00],
 
             /*
              * Fulu hard fork params
@@ -1429,6 +1439,9 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub fulu_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_eip7805_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    eip7805_fork_version: [u8; 4],
     #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
@@ -1577,6 +1590,11 @@ fn default_deneb_fork_version() -> [u8; 4] {
 }
 
 fn default_electra_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_eip7805_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1876,6 +1894,7 @@ impl Config {
                 .fulu_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            eip7805_fork_version: spec.eip7805_fork_version,
             eip7805_fork_epoch: spec
                 .eip7805_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
@@ -1964,6 +1983,7 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch,
             electra_fork_version,
+            eip7805_fork_version,
             eip7805_fork_epoch,
             fulu_fork_epoch,
             fulu_fork_version,
@@ -2034,6 +2054,7 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
             electra_fork_version,
+            eip7805_fork_version,
             eip7805_fork_epoch: eip7805_fork_epoch.map(|q| q.value),
             fulu_fork_epoch: fulu_fork_epoch.map(|q| q.value),
             fulu_fork_version,

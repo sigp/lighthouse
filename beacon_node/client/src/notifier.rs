@@ -3,6 +3,7 @@ use beacon_chain::{
     bellatrix_readiness::{BellatrixReadiness, GenesisExecutionPayloadStatus, MergeConfig},
     capella_readiness::CapellaReadiness,
     deneb_readiness::DenebReadiness,
+    eip7805_readiness::Eip7805Readiness,
     electra_readiness::ElectraReadiness,
     fulu_readiness::FuluReadiness,
     BeaconChain, BeaconChainTypes, ExecutionStatus,
@@ -314,6 +315,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             capella_readiness_logging(current_slot, &beacon_chain).await;
             deneb_readiness_logging(current_slot, &beacon_chain).await;
             electra_readiness_logging(current_slot, &beacon_chain).await;
+            eip7805_readiness_logging(current_slot, &beacon_chain).await;
             fulu_readiness_logging(current_slot, &beacon_chain).await;
         }
     };
@@ -562,6 +564,59 @@ async fn electra_readiness_logging<T: BeaconChainTypes>(
             hint = "try updating the execution endpoint",
             info = %readiness,
             "Not ready for Electra"
+        ),
+    }
+}
+
+/// Provides some helpful logging to users to indicate if their node is ready for Eip7805.
+async fn eip7805_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+) {
+    let eip7805_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_state
+        .fork_name_unchecked()
+        .eip7805_enabled();
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if eip7805_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_electra(current_slot)
+    {
+        return;
+    }
+
+    if eip7805_completed && !has_execution_layer {
+        // When adding a new fork, add a check for the next fork readiness here.
+        error!(
+            info = "you need a Eip7805 enabled execution engine to validate blocks.",
+            "Execution endpoint required"
+        );
+        return;
+    }
+
+    match beacon_chain.check_eip7805_readiness().await {
+        Eip7805Readiness::Ready => {
+            info!(
+                info =
+                    "ensure the execution endpoint is updated to the latest eip7805 release",
+                "Ready for Eip7805"
+            )
+        }
+        readiness @ Eip7805Readiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                hint = "the execution endpoint may be offline",
+                info = %readiness,
+                "Not ready for Eip7805Readiness"
+            )
+        }
+        readiness => warn!(
+            hint = "try updating the execution endpoint",
+            info = %readiness,
+            "Not ready for Eip7805Readiness"
         ),
     }
 }

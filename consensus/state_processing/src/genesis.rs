@@ -2,6 +2,7 @@ use super::per_block_processing::{
     errors::BlockProcessingError, process_operations::apply_deposit,
 };
 use crate::common::DepositDataTree;
+use crate::upgrade::eip7805::upgrade_state_to_eip7805;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
@@ -137,6 +138,34 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // See https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#testing
         if let Some(ExecutionPayloadHeader::Electra(ref header)) = execution_payload_header {
             *state.latest_execution_payload_header_electra_mut()? = header.clone();
+        }
+    }
+
+    // Upgrade to eip7805 if configured from genesis.
+    if spec
+        .eip7805_fork_epoch
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        let post = upgrade_state_to_eip7805(&mut state, Epoch::new(0), Epoch::new(0), spec)?;
+        state = post;
+
+        // Remove intermediate Deneb fork from `state.fork`.
+        state.fork_mut().previous_version = spec.electra_fork_version;
+
+        // TODO(electra): think about this more and determine the best way to
+        // do this. The spec tests will expect that the sync committees are
+        // calculated using the electra value for MAX_EFFECTIVE_BALANCE when
+        // calling `initialize_beacon_state_from_eth1()`. But the sync committees
+        // are actually calcuated back in `upgrade_to_altair()`. We need to
+        // re-calculate the sync committees here now that the state is `Electra`
+        let sync_committee = Arc::new(state.get_next_sync_committee(spec)?);
+        *state.current_sync_committee_mut()? = sync_committee.clone();
+        *state.next_sync_committee_mut()? = sync_committee;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#testing
+        if let Some(ExecutionPayloadHeader::Eip7805(ref header)) = execution_payload_header {
+            *state.latest_execution_payload_header_eip7805_mut()? = header.clone();
         }
     }
 

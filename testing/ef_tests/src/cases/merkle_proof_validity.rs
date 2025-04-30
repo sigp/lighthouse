@@ -4,7 +4,8 @@ use serde::Deserialize;
 use tree_hash::Hash256;
 use types::{
     light_client_update, BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb,
-    BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconState, FixedVector, FullPayload, Unsigned,
+    BeaconBlockBodyEip7805, BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconState, FixedVector,
+    FullPayload, Unsigned,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -168,6 +169,10 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
                 ssz_decode_file::<BeaconBlockBodyElectra<E>>(&path.join("object.ssz_snappy"))?
                     .into()
             }
+            ForkName::Eip7805 => {
+                ssz_decode_file::<BeaconBlockBodyEip7805<E>>(&path.join("object.ssz_snappy"))?
+                    .into()
+            }
             ForkName::Fulu => {
                 ssz_decode_file::<BeaconBlockBodyFulu<E>>(&path.join("object.ssz_snappy"))?.into()
             }
@@ -284,6 +289,10 @@ impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
             }
             ForkName::Electra => {
                 ssz_decode_file::<BeaconBlockBodyElectra<E>>(&path.join("object.ssz_snappy"))?
+                    .into()
+            }
+            ForkName::Eip7805 => {
+                ssz_decode_file::<BeaconBlockBodyEip7805<E>>(&path.join("object.ssz_snappy"))?
                     .into()
             }
             ForkName::Fulu => {
