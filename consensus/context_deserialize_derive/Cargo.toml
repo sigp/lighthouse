@@ -8,5 +8,4 @@ proc-macro = true
 
 [dependencies]
 quote = { workspace = true }
-serde = { workspace = true }
 syn = { workspace = true }

@@ -1677,7 +1677,6 @@ name = "context_deserialize_derive"
 version = "0.1.0"
 dependencies = [
  "quote",
- "serde",
  "syn 1.0.109",
 ]
 
