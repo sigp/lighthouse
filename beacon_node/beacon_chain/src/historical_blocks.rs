@@ -1,21 +1,20 @@
-use crate::blob_verification::verify_kzg_for_blob_list;
-use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
-use crate::data_column_verification::verify_kzg_for_data_column_list;
+use crate::block_verification_types::{AvailableBlock, MaybeAvailableBlock, RpcBlock};
+use crate::data_availability_checker::{AvailabilityCheckError, AvailableBlockData};
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
-use kzg::Error as KzgError;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
     signature_sets::{block_proposal_signature_set_from_parts, Error as SignatureSetError},
 };
 use std::borrow::Cow;
 use std::iter;
+use std::sync::Arc;
 use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::debug;
-use types::{FixedBytesExtended, Hash256, Slot};
+use types::{ColumnIndex, FixedBytesExtended, Hash256, SignedBeaconBlock, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -29,20 +28,22 @@ pub enum HistoricalBlockError {
         block_root: Hash256,
         expected_block_root: Hash256,
     },
-    /// Signed block header mismatch with a blob or data column sidecar.
-    MismatchedBlockHeader,
     /// Bad signature, caller should retry with different blocks.
-    SignatureSet(SignatureSetError),
-    /// Bad signature, caller should retry with different blocks.
-    InvalidSignature,
-    /// KZG verification for blobs or data columns failed.
-    BlobOrDataColumnKzgError(KzgError),
+    InvalidSignature(String),
+    /// One or more signatures in a BlobSidecar of an RpcBlock are invalid
+    InvalidBlobsSignature(Vec<u64>),
+    /// One or more signatures in a DataColumnSidecar of an RpcBlock are invalid
+    InvalidDataColumnsSignature(Vec<ColumnIndex>),
+    /// Unexpected error
+    Unexpected(String),
     /// Transitory error, caller should retry with the same blocks.
     ValidatorPubkeyCacheTimeout,
     /// Logic error: should never occur.
     IndexOutOfBounds,
     /// Internal store error
     StoreError(StoreError),
+    /// Faulty and internal AvailabilityCheckError
+    AvailabilityCheckError(AvailabilityCheckError),
 }
 
 impl From<StoreError> for HistoricalBlockError {
@@ -51,10 +52,136 @@ impl From<StoreError> for HistoricalBlockError {
     }
 }
 
+impl From<SignatureSetError> for HistoricalBlockError {
+    fn from(err: SignatureSetError) -> Self {
+        match err {
+            // The encoding of the signature is invalid, peer fault
+            e @ SignatureSetError::SignatureInvalid(_) => Self::InvalidSignature(format!("{e:?}")),
+            // All these variants are internal errors or unreachable for historical block paths,
+            // which only check the proposer signature.
+            // BadBlsBytes = Unreachable
+            e @ (SignatureSetError::BeaconStateError(_)
+            | SignatureSetError::ValidatorUnknown(_)
+            | SignatureSetError::ValidatorPubkeyUnknown(_)
+            | SignatureSetError::IncorrectBlockProposer { .. }
+            | SignatureSetError::MismatchedPublicKeyLen { .. }
+            | SignatureSetError::PublicKeyDecompressionFailed
+            | SignatureSetError::BadBlsBytes { .. }
+            | SignatureSetError::InconsistentBlockFork(_)) => Self::Unexpected(format!("{e:?}")),
+        }
+    }
+}
+
+impl From<AvailabilityCheckError> for HistoricalBlockError {
+    fn from(e: AvailabilityCheckError) -> Self {
+        Self::AvailabilityCheckError(e)
+    }
+}
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    fn verify_blobs_and_data_columns(
+        &self,
+        blocks: &Vec<RpcBlock<T::EthSpec>>,
+    ) -> Result<Vec<AvailableBlock<T::EthSpec>>, HistoricalBlockError> {
+        // Verify that blobs or data columns signatures match
+        let sig_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_TOTAL_TIMES);
+        let setup_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_SETUP_TIMES);
+        // TODO: this logic is redundant with one from range sync. Do we have a good place to make
+        // it as a common function?
+        blocks
+            .iter()
+            .map(|block| {
+                if let Some(indices) = block.non_matching_blobs_signed_headers() {
+                    if !indices.is_empty() {
+                        return Err(HistoricalBlockError::InvalidBlobsSignature(indices));
+                    }
+                }
+                if let Some(indices) = block.non_matching_custody_columns_signed_headers() {
+                    if !indices.is_empty() {
+                        return Err(HistoricalBlockError::InvalidDataColumnsSignature(indices));
+                    }
+                }
+                Ok(())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(setup_timer);
+
+        // Check that all data columns are present <- faulty failure if missing because we have
+        // checked the block root is correct first.
+        let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
+        let available_blocks = self
+            .data_availability_checker
+            .verify_kzg_for_rpc_blocks(blocks)
+            .map_err(HistoricalBlockError::AvailabilityCheckError)? // Map outer error
+            .into_iter()
+            .map(|maybe_block| match maybe_block {
+                MaybeAvailableBlock::Available(block) => Ok(block),
+                MaybeAvailableBlock::AvailabilityPending { .. } => {
+                    Err(HistoricalBlockError::AvailabilityCheckError(
+                        AvailabilityCheckError::Unexpected("block not available".to_string()),
+                    ))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?; // Map inner results
+
+        drop(verify_timer);
+        drop(sig_timer);
+
+        Ok(available_blocks)
+    }
+
+    fn verify_available_block_signatures(
+        &self,
+        signed_blocks: &[Arc<SignedBeaconBlock<T::EthSpec>>],
+    ) -> Result<(), HistoricalBlockError> {
+        // Verify signatures in one batch, holding the pubkey cache lock for the shortest duration
+        // possible. For each block fetch the parent root from its successor. Slicing from index 1
+        // is safe because we've already checked that `blocks_to_import` is non-empty.
+        let sig_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_TOTAL_TIMES);
+        let setup_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_SETUP_TIMES);
+        let anchor_info = self.store.get_anchor_info();
+        let pubkey_cache = self
+            .validator_pubkey_cache
+            .try_read_for(PUBKEY_CACHE_LOCK_TIMEOUT)
+            .ok_or(HistoricalBlockError::ValidatorPubkeyCacheTimeout)?;
+        let block_roots = signed_blocks
+            .get(1..)
+            .ok_or(HistoricalBlockError::IndexOutOfBounds)?
+            .iter()
+            .map(|block| block.parent_root())
+            .chain(iter::once(anchor_info.oldest_block_parent));
+        let signature_set = signed_blocks
+            .iter()
+            .zip_eq(block_roots)
+            .filter(|&(_block, block_root)| (block_root != self.genesis_block_root))
+            .map(|(block, block_root)| {
+                block_proposal_signature_set_from_parts(
+                    block,
+                    Some(block_root),
+                    block.message().proposer_index(),
+                    &self.spec.fork_at_epoch(block.message().epoch()),
+                    self.genesis_validators_root,
+                    |validator_index| pubkey_cache.get(validator_index).cloned().map(Cow::Owned),
+                    &self.spec,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(ParallelSignatureSets::from)?;
+        drop(pubkey_cache);
+        drop(setup_timer);
+
+        let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
+        if !signature_set.verify() {
+            return Err(HistoricalBlockError::InvalidSignature("invalid".to_owned()));
+        }
+        drop(verify_timer);
+        drop(sig_timer);
+
+        Ok(())
+    }
+
     /// Store a batch of historical blocks in the database.
     ///
-    /// TODO: the ascending order is never checked anywhere.
     /// The `blocks` should be given in slot-ascending order. One of the blocks should have a block
     /// root corresponding to the `oldest_block_parent` from the store's `AnchorInfo`.
     ///
@@ -62,7 +189,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// root listed in its successor, then the whole batch will be discarded and
     /// `MismatchedBlockRoot` will be returned. If any proposer signature is invalid then
     /// `SignatureSetError` or `InvalidSignature` will be returned.
-    /// 
+    ///
     /// The block's blob and data column sidecars are verified. The function checks their signed
     /// block headers equal to their block's block header. Then, it verifies their KZG commitments
     /// with proofs. KZG inclusion proof verification is not held here as it is already done by the
@@ -78,8 +205,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return the number of blocks successfully imported.
     pub fn import_historical_block_batch(
         &self,
-        mut blocks: Vec<AvailableBlock<T::EthSpec>>,
+        blocks: &Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
+        // Verify blobs and data columns (headers and signatures)
+        let mut blocks = self.verify_blobs_and_data_columns(blocks)?;
+
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
@@ -115,8 +245,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
-        let mut all_blobs = Vec::new();
-        let mut all_data_columns = Vec::new();
 
         for available_block in blocks_to_import.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
@@ -147,22 +275,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Also, update the oldest blob and data column slots.
             match &block_data {
                 AvailableBlockData::NoData => {}
-                AvailableBlockData::Blobs(blobs) => {
-                    for blob in blobs {
-                        if blob.signed_block_header != block.signed_block_header() {
-                            return Err(HistoricalBlockError::MismatchedBlockHeader);
-                        }
-                    }
-                    all_blobs.extend(blobs.clone());
+                AvailableBlockData::Blobs(..) => {
                     new_oldest_blob_slot = Some(block.slot());
                 }
-                AvailableBlockData::DataColumns(data_columns) => {
-                    for data_column in data_columns {
-                        if data_column.signed_block_header != block.signed_block_header() {
-                            return Err(HistoricalBlockError::MismatchedBlockHeader);
-                        }
-                    }
-                    all_data_columns.extend(data_columns.clone());
+                AvailableBlockData::DataColumns(_) => {
                     new_oldest_data_column_slot = Some(block.slot());
                 }
             }
@@ -209,55 +325,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 break;
             }
         }
-        // these were pushed in reverse order so we reverse again
+        // These were pushed in reverse order so we reverse again.
         signed_blocks.reverse();
 
-        // TODO: add metrics for blobs and column verification
-        // Verify signatures in one batch, holding the pubkey cache lock for the shortest duration
-        // possible. For each block fetch the parent root from its successor. Slicing from index 1
-        // is safe because we've already checked that `blocks_to_import` is non-empty.
-        let sig_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_TOTAL_TIMES);
-        let setup_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_SETUP_TIMES);
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(HistoricalBlockError::ValidatorPubkeyCacheTimeout)?;
-        let block_roots = signed_blocks
-            .get(1..)
-            .ok_or(HistoricalBlockError::IndexOutOfBounds)?
-            .iter()
-            .map(|block| block.parent_root())
-            .chain(iter::once(anchor_info.oldest_block_parent));
-        let signature_set = signed_blocks
-            .iter()
-            .zip_eq(block_roots)
-            .filter(|&(_block, block_root)| (block_root != self.genesis_block_root))
-            .map(|(block, block_root)| {
-                block_proposal_signature_set_from_parts(
-                    block,
-                    Some(block_root),
-                    block.message().proposer_index(),
-                    &self.spec.fork_at_epoch(block.message().epoch()),
-                    self.genesis_validators_root,
-                    |validator_index| pubkey_cache.get(validator_index).cloned().map(Cow::Owned),
-                    &self.spec,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(HistoricalBlockError::SignatureSet)
-            .map(ParallelSignatureSets::from)?;
-        drop(pubkey_cache);
-        drop(setup_timer);
-
-        let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
-        if !signature_set.verify() {
-            return Err(HistoricalBlockError::InvalidSignature);
-        }
-        drop(verify_timer);
-        drop(sig_timer);
-
-        verify_kzg_for_blob_list(all_blobs.iter(), self.kzg.as_ref()).map_err(|e| HistoricalBlockError::BlobOrDataColumnKzgError(e))?;
-        verify_kzg_for_data_column_list(all_data_columns.iter(), self.kzg.as_ref()).map_err(|e| HistoricalBlockError::BlobOrDataColumnKzgError(e))?;
+        // Verify signatures in a batch.
+        self.verify_available_block_signatures(&signed_blocks)?;
 
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that

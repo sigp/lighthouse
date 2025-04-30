@@ -391,7 +391,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ///          check if there are any missing blobs.
     pub fn verify_kzg_for_rpc_blocks(
         &self,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
+        blocks: &Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
         let mut results = Vec::with_capacity(blocks.len());
         let all_blobs = blocks
@@ -428,7 +428,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         for block in blocks {
             let custody_columns_count = block.custody_columns_count();
-            let (block_root, block, blobs, data_columns) = block.deconstruct();
+            let (block_root, block, blobs, data_columns) = block.clone().deconstruct();
 
             let maybe_available_block = if self.blobs_required_for_block(&block) {
                 if let Some(blobs) = blobs {
@@ -782,23 +782,6 @@ impl<E: EthSpec> AvailableBlock<E> {
             ..
         } = self;
         (block_root, block, blob_data)
-    }
-
-    /// Only used for testing
-    pub fn __clone_without_recv(&self) -> Result<Self, String> {
-        Ok(Self {
-            block_root: self.block_root,
-            block: self.block.clone(),
-            blob_data: match &self.blob_data {
-                AvailableBlockData::NoData => AvailableBlockData::NoData,
-                AvailableBlockData::Blobs(blobs) => AvailableBlockData::Blobs(blobs.clone()),
-                AvailableBlockData::DataColumns(data_columns) => {
-                    AvailableBlockData::DataColumns(data_columns.clone())
-                }
-            },
-            blobs_available_timestamp: self.blobs_available_timestamp,
-            spec: self.spec.clone(),
-        })
     }
 }
 

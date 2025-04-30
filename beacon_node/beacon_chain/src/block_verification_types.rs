@@ -9,8 +9,8 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
-    Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, ColumnIndex, Epoch,
+    EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// A block that has been received over RPC. It has 2 internal variants:
@@ -78,6 +78,38 @@ impl<E: EthSpec> RpcBlock<E> {
             RpcBlockInner::Block(_) => None,
             RpcBlockInner::BlockAndBlobs(_, _) => None,
             RpcBlockInner::BlockAndCustodyColumns(_, data_columns) => Some(data_columns),
+        }
+    }
+
+    /// Returns indices of blobs that have conflicting signature with block's signature.
+    pub fn non_matching_blobs_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+        match &self.block {
+            RpcBlockInner::Block(_) => None,
+            RpcBlockInner::BlockAndBlobs(block, blobs) => Some(
+                blobs
+                    .iter()
+                    .filter(|blob| &blob.signed_block_header.signature != block.signature())
+                    .map(|blob| blob.index)
+                    .collect(),
+            ),
+            RpcBlockInner::BlockAndCustodyColumns(..) => None,
+        }
+    }
+
+    /// Returns indices of custody columns that have conflicting signature with block's signature.
+    pub fn non_matching_custody_columns_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+        match &self.block {
+            RpcBlockInner::Block(_) => None,
+            RpcBlockInner::BlockAndBlobs(..) => None,
+            RpcBlockInner::BlockAndCustodyColumns(block, data_columns) => Some(
+                data_columns
+                    .iter()
+                    .filter(|column| {
+                        &column.as_data_column().signed_block_header.signature != block.signature()
+                    })
+                    .map(|column| column.index())
+                    .collect(),
+            ),
         }
     }
 }
@@ -186,6 +218,28 @@ impl<E: EthSpec> RpcBlock<E> {
         })
     }
 
+    /// Only used for testing
+    pub fn __new_for_testing(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E>>,
+        blobs: Option<BlobSidecarList<E>>,
+        custody_columns: Option<CustodyDataColumnList<E>>,
+        custody_columns_count: usize,
+    ) -> Self {
+        let inner = if let Some(blobs) = blobs {
+            RpcBlockInner::BlockAndBlobs(block, blobs)
+        } else if let Some(columns) = custody_columns {
+            RpcBlockInner::BlockAndCustodyColumns(block, columns)
+        } else {
+            RpcBlockInner::Block(block)
+        };
+        Self {
+            block_root,
+            block: inner,
+            custody_columns_count,
+        }
+    }
+
     #[allow(clippy::type_complexity)]
     pub fn deconstruct(
         self,
@@ -214,6 +268,23 @@ impl<E: EthSpec> RpcBlock<E> {
         match &self.block {
             RpcBlockInner::Block(_) | RpcBlockInner::BlockAndBlobs(_, _) => 0,
             RpcBlockInner::BlockAndCustodyColumns(_, data_columns) => data_columns.len(),
+        }
+    }
+
+    /// Only used for testing
+    pub fn __clone_without_recv(&self) -> Self {
+        Self {
+            block_root: self.block_root,
+            block: match &self.block {
+                RpcBlockInner::Block(block) => RpcBlockInner::Block(block.clone()),
+                RpcBlockInner::BlockAndBlobs(block, blobs) => {
+                    RpcBlockInner::BlockAndBlobs(block.clone(), blobs.clone())
+                }
+                RpcBlockInner::BlockAndCustodyColumns(block, cols) => {
+                    RpcBlockInner::BlockAndCustodyColumns(block.clone(), cols.clone())
+                }
+            },
+            custody_columns_count: self.custody_columns_count,
         }
     }
 }

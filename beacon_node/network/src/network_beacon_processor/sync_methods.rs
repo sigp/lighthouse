@@ -590,7 +590,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let available_blocks = match self
             .chain
             .data_availability_checker
-            .verify_kzg_for_rpc_blocks(downloaded_blocks)
+            .verify_kzg_for_rpc_blocks(&downloaded_blocks)
         {
             Ok(blocks) => blocks
                 .into_iter()
@@ -635,7 +635,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
         }
 
-        match self.chain.import_historical_block_batch(available_blocks) {
+        match self.chain.import_historical_block_batch(&downloaded_blocks) {
             Ok(imported_blocks) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
@@ -660,8 +660,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // The peer is faulty if they send blocks with bad roots.
                         Some(PeerAction::LowToleranceError)
                     }
-                    HistoricalBlockError::InvalidSignature
-                    | HistoricalBlockError::SignatureSet(_) => {
+                    HistoricalBlockError::InvalidSignature(e) => {
                         warn!(
                             error = ?e,
                             "Backfill batch processing error"
@@ -669,8 +668,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // The peer is faulty if they send bad signatures.
                         Some(PeerAction::LowToleranceError)
                     }
-                    HistoricalBlockError::MismatchedBlockHeader
-                    | HistoricalBlockError::BlobOrDataColumnKzgError(_) => {
+                    HistoricalBlockError::InvalidBlobsSignature(_)
+                    | HistoricalBlockError::InvalidDataColumnsSignature(_)
+                    | HistoricalBlockError::Unexpected(_)
+                    | HistoricalBlockError::AvailabilityCheckError(_) => {
                         warn!(
                             error = ?e,
                             "Backfill blob or data column verification error"
