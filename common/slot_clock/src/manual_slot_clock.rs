@@ -1,6 +1,6 @@
 use super::SlotClock;
 use parking_lot::RwLock;
-use std::convert::TryInto;
+use std::ops::Add;
 use std::sync::Arc;
 use std::time::Duration;
 use types::Slot;
@@ -40,6 +40,11 @@ impl ManualSlotClock {
 
     pub fn set_current_time(&self, duration: Duration) {
         *self.current_time.write() = duration;
+    }
+
+    pub fn advance_time(&self, duration: Duration) {
+        let current_time = *self.current_time.read();
+        *self.current_time.write() = current_time.add(duration);
     }
 
     pub fn advance_slot(&self) {

@@ -7,7 +7,7 @@ use itertools::Itertools;
 /// * `item`: something that implements this trait
 /// * `element`: something contained in a set, and covered by the covering set of an item
 /// * `object`: something extracted from an item in order to comprise a solution
-/// See: https://en.wikipedia.org/wiki/Maximum_coverage_problem
+///   See: https://en.wikipedia.org/wiki/Maximum_coverage_problem
 pub trait MaxCover: Clone {
     /// The result type, of which we would eventually like a collection of maximal quality.
     type Object: Clone;
@@ -118,7 +118,6 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::iter::FromIterator;
     use std::{collections::HashSet, hash::Hash};
 
     impl<T> MaxCover for HashSet<T>

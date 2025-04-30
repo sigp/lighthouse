@@ -1,5 +1,4 @@
-//! Provides tools for checking if a node is ready for the Capella upgrade and following merge
-//! transition.
+//! Provides tools for checking if a node is ready for the Capella upgrade.
 
 use crate::{BeaconChain, BeaconChainTypes};
 use execution_layer::http::{
@@ -11,7 +10,7 @@ use std::time::Duration;
 use types::*;
 
 /// The time before the Capella fork when we will start issuing warnings about preparation.
-use super::merge_readiness::SECONDS_IN_A_WEEK;
+use super::bellatrix_readiness::SECONDS_IN_A_WEEK;
 pub const CAPELLA_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 2;
 pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 

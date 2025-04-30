@@ -3,8 +3,7 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use state_processing::initialize_beacon_state_from_eth1;
-use std::path::PathBuf;
-use types::{BeaconState, Deposit, EthSpec, ExecutionPayloadHeader, ForkName, Hash256};
+use types::{BeaconState, Deposit, ExecutionPayloadHeader, Hash256};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -67,8 +66,7 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
 
 impl<E: EthSpec> Case for GenesisInitialization<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        // Altair genesis and later requires real crypto.
-        fork_name == ForkName::Base || cfg!(not(feature = "fake_crypto"))
+        fork_name == ForkName::Base
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {

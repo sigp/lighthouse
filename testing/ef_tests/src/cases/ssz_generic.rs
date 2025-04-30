@@ -1,16 +1,15 @@
 #![allow(non_snake_case)]
 
 use super::*;
-use crate::cases::common::{SszStaticType, TestU128, TestU256};
+use crate::cases::common::{DecimalU128, DecimalU256, SszStaticType};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
-use crate::decode::{snappy_decode_file, yaml_decode_file};
-use serde::Deserialize;
-use serde::{de::Error as SerdeError, Deserializer};
+use crate::decode::{log_file_access, snappy_decode_file, yaml_decode_file};
+use serde::{de::Error as SerdeError, Deserialize, Deserializer};
 use ssz_derive::{Decode, Encode};
-use std::path::{Path, PathBuf};
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
-use types::{BitList, BitVector, FixedVector, ForkName, VariableList};
+use types::{BitList, BitVector, FixedVector, ForkName, VariableList, Vector};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -57,8 +56,8 @@ macro_rules! type_dispatch {
             "uint16" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u16>, $($rest)*),
             "uint32" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u32>, $($rest)*),
             "uint64" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u64>, $($rest)*),
-            "uint128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* TestU128>, $($rest)*),
-            "uint256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* TestU256>, $($rest)*),
+            "uint128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* DecimalU128>, $($rest)*),
+            "uint256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* DecimalU256>, $($rest)*),
             _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };
@@ -127,6 +126,20 @@ impl Case for SszGeneric {
                 let elem_ty = parts[1];
                 let length = parts[2];
 
+                // Skip length 0 tests. Milhouse doesn't have any checks against 0-capacity lists.
+                if length == "0" {
+                    log_file_access(self.path.join("serialized.ssz_snappy"));
+                    return Ok(());
+                }
+
+                type_dispatch!(
+                    ssz_generic_test,
+                    (&self.path),
+                    Vector,
+                    <>,
+                    [elem_ty => primitive_type]
+                    [length => typenum]
+                )?;
                 type_dispatch!(
                     ssz_generic_test,
                     (&self.path),
@@ -194,7 +207,7 @@ impl Case for SszGeneric {
     }
 }
 
-fn ssz_generic_test<T: SszStaticType + ssz::Decode>(path: &Path) -> Result<(), Error> {
+fn ssz_generic_test<T: SszStaticType + TreeHash + ssz::Decode>(path: &Path) -> Result<(), Error> {
     let meta_path = path.join("meta.yaml");
     let meta: Option<Metadata> = if meta_path.is_file() {
         Some(yaml_decode_file(&meta_path)?)
@@ -218,7 +231,7 @@ fn ssz_generic_test<T: SszStaticType + ssz::Decode>(path: &Path) -> Result<(), E
         check_serialization(&value, &serialized, T::from_ssz_bytes)?;
 
         if let Some(ref meta) = meta {
-            check_tree_hash(&meta.root, value.tree_hash_root().as_bytes())?;
+            check_tree_hash(&meta.root, value.tree_hash_root().as_slice())?;
         }
     }
     // Invalid
@@ -265,8 +278,8 @@ struct ComplexTestStruct {
     #[serde(deserialize_with = "byte_list_from_hex_str")]
     D: VariableList<u8, U256>,
     E: VarTestStruct,
-    F: FixedVector<FixedTestStruct, U4>,
-    G: FixedVector<VarTestStruct, U2>,
+    F: Vector<FixedTestStruct, U4>,
+    G: Vector<VarTestStruct, U2>,
 }
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]

@@ -1,17 +1,21 @@
-use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
+use crate::discovery::enr::PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY;
+use crate::discovery::{peer_id_to_node_id, CombinedKey};
+use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId};
+use itertools::Itertools;
+use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
-use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
-use slog::{crit, debug, error, trace, warn};
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap, HashSet},
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
-use types::EthSpec;
+use tracing::{debug, error, trace, warn};
+use types::data_column_custody_group::compute_subnets_for_node;
+use types::{ChainSpec, DataColumnSubnetId, EthSpec};
 
 pub mod client;
 pub mod peer_info;
@@ -32,28 +36,25 @@ const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
 const DIAL_TIMEOUT: u64 = 15;
 
 /// Storage of known peers, their reputation and information
-pub struct PeerDB<TSpec: EthSpec> {
+pub struct PeerDB<E: EthSpec> {
     /// The collection of known connected peers, their status and reputation
-    peers: HashMap<PeerId, PeerInfo<TSpec>>,
+    peers: HashMap<PeerId, PeerInfo<E>>,
     /// The number of disconnected nodes in the database.
     disconnected_peers: usize,
     /// Counts banned peers in total and per ip
     banned_peers_count: BannedPeersCount,
     /// Specifies if peer scoring is disabled.
     disable_peer_scoring: bool,
-    /// PeerDB's logger
-    log: slog::Logger,
 }
 
-impl<TSpec: EthSpec> PeerDB<TSpec> {
-    pub fn new(trusted_peers: Vec<PeerId>, disable_peer_scoring: bool, log: &slog::Logger) -> Self {
+impl<E: EthSpec> PeerDB<E> {
+    pub fn new(trusted_peers: Vec<PeerId>, disable_peer_scoring: bool) -> Self {
         // Initialize the peers hashmap with trusted peers
         let peers = trusted_peers
             .into_iter()
             .map(|peer_id| (peer_id, PeerInfo::trusted_peer_info()))
             .collect();
         Self {
-            log: log.clone(),
             disconnected_peers: 0,
             banned_peers_count: BannedPeersCount::default(),
             disable_peer_scoring,
@@ -72,8 +73,35 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns an iterator over all peers in the db.
-    pub fn peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<TSpec>)> {
+    pub fn peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<E>)> {
         self.peers.iter()
+    }
+
+    pub fn set_trusted_peer(&mut self, enr: Enr) {
+        match self.peers.entry(enr.peer_id()) {
+            Entry::Occupied(mut info) => {
+                let entry = info.get_mut();
+                entry.score = Score::max_score();
+                entry.is_trusted = true;
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(PeerInfo::trusted_peer_info());
+            }
+        }
+    }
+
+    pub fn unset_trusted_peer(&mut self, enr: Enr) {
+        if let Some(info) = self.peers.get_mut(&enr.peer_id()) {
+            info.is_trusted = false;
+            info.score = Score::default();
+        }
+    }
+
+    pub fn trusted_peers(&self) -> Vec<PeerId> {
+        self.peers
+            .iter()
+            .filter_map(|(id, info)| if info.is_trusted { Some(*id) } else { None })
+            .collect()
     }
 
     /// Gives the ids of all known peers.
@@ -82,14 +110,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns a peer's info, if known.
-    pub fn peer_info(&self, peer_id: &PeerId) -> Option<&PeerInfo<TSpec>> {
+    pub fn peer_info(&self, peer_id: &PeerId) -> Option<&PeerInfo<E>> {
         self.peers.get(peer_id)
     }
 
     /// Returns a mutable reference to a peer's info if known.
     // VISIBILITY: The peer manager is able to modify some elements of the peer info, such as sync
     // status.
-    pub(super) fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo<TSpec>> {
+    pub(super) fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo<E>> {
         self.peers.get_mut(peer_id)
     }
 
@@ -125,7 +153,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         matches!(
             self.connection_status(peer_id),
             Some(PeerConnectionStatus::Disconnected { .. })
-                | Some(PeerConnectionStatus::Unknown { .. })
+                | Some(PeerConnectionStatus::Unknown)
                 | None
         ) && !self.score_state_banned_or_disconnected(peer_id)
     }
@@ -154,7 +182,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Checks if the peer's known addresses are currently banned.
-    fn ip_is_banned(&self, peer: &PeerInfo<TSpec>) -> Option<IpAddr> {
+    fn ip_is_banned(&self, peer: &PeerInfo<E>) -> Option<IpAddr> {
         peer.seen_ip_addresses()
             .find(|ip| self.banned_peers_count.ip_is_banned(ip))
     }
@@ -168,7 +196,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     fn score_state_banned_or_disconnected(&self, peer_id: &PeerId) -> bool {
         if let Some(peer) = self.peers.get(peer_id) {
             match peer.score_state() {
-                ScoreState::Banned | ScoreState::Disconnected => true,
+                ScoreState::Banned | ScoreState::ForcedDisconnect => true,
                 _ => self.ip_is_banned(peer).is_some(),
             }
         } else {
@@ -177,7 +205,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Gives the ids and info of all known connected peers.
-    pub fn connected_peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<TSpec>)> {
+    pub fn connected_peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<E>)> {
         self.peers.iter().filter(|(_, info)| info.is_connected())
     }
 
@@ -245,6 +273,22 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
+    /// the given subnet id.
+    pub fn good_custody_subnet_peer(
+        &self,
+        subnet: DataColumnSubnetId,
+    ) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(move |(_, info)| {
+                // The custody_subnets hashset can be populated via enr or metadata
+                let is_custody_subnet_peer = info.is_assigned_to_custody_subnet(&subnet);
+                info.is_connected() && info.is_good_gossipsub_peer() && is_custody_subnet_peer
+            })
+            .map(|(peer_id, _)| peer_id)
+    }
+
     /// Gives the ids of all known disconnected peers.
     pub fn disconnected_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
@@ -271,42 +315,36 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Returns a vector of all connected peers sorted by score beginning with the worst scores.
     /// Ties get broken randomly.
-    pub fn worst_connected_peers(&self) -> Vec<(&PeerId, &PeerInfo<TSpec>)> {
-        let mut connected = self
-            .peers
+    pub fn worst_connected_peers(&self) -> Vec<(&PeerId, &PeerInfo<E>)> {
+        self.peers
             .iter()
             .filter(|(_, info)| info.is_connected())
-            .collect::<Vec<_>>();
-
-        connected.shuffle(&mut rand::thread_rng());
-        connected.sort_by_key(|(_, info)| info.score());
-        connected
+            .sorted_by(|(_, info_a), (_, info_b)| info_a.score().total_cmp(info_b.score(), false))
+            .collect::<Vec<_>>()
     }
 
     /// Returns a vector containing peers (their ids and info), sorted by
     /// score from highest to lowest, and filtered using `is_status`
-    pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo<TSpec>)>
+    pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo<E>)>
     where
-        F: Fn(&PeerInfo<TSpec>) -> bool,
+        F: Fn(&PeerInfo<E>) -> bool,
     {
-        let mut by_status = self
-            .peers
+        self.peers
             .iter()
             .filter(|(_, info)| is_status(info))
-            .collect::<Vec<_>>();
-        by_status.sort_by_key(|(_, info)| info.score());
-        by_status.into_iter().rev().collect()
+            .sorted_by(|(_, info_a), (_, info_b)| info_a.score().total_cmp(info_b.score(), true))
+            .collect::<Vec<_>>()
     }
 
     /// Returns the peer with highest reputation that satisfies `is_status`
     pub fn best_by_status<F>(&self, is_status: F) -> Option<&PeerId>
     where
-        F: Fn(&PeerInfo<TSpec>) -> bool,
+        F: Fn(&PeerInfo<E>) -> bool,
     {
         self.peers
             .iter()
             .filter(|(_, info)| is_status(info))
-            .max_by_key(|(_, info)| info.score())
+            .max_by(|(_, info_a), (_, info_b)| info_a.score().total_cmp(info_b.score(), false))
             .map(|(id, _)| id)
     }
 
@@ -372,15 +410,15 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             // Update scores
             info.score_update();
 
-            match Self::handle_score_transition(previous_state, peer_id, info, &self.log) {
+            match Self::handle_score_transition(previous_state, peer_id, info) {
                 // A peer should not be able to be banned from a score update.
                 ScoreTransitionResult::Banned => {
-                    error!(self.log, "Peer has been banned in an update"; "peer_id" => %peer_id)
+                    error!(%peer_id, "Peer has been banned in an update");
                 }
                 // A peer should not be able to transition to a disconnected state from a healthy
                 // state in a score update.
                 ScoreTransitionResult::Disconnected => {
-                    error!(self.log, "Peer has been disconnected in an update"; "peer_id" => %peer_id)
+                    error!(%peer_id, "Peer has been disconnected in an update");
                 }
                 ScoreTransitionResult::Unbanned => {
                     peers_to_unban.push(*peer_id);
@@ -453,7 +491,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
             actions.push((
                 *peer_id,
-                Self::handle_score_transition(previous_state, peer_id, info, &self.log),
+                Self::handle_score_transition(previous_state, peer_id, info),
             ));
         }
 
@@ -524,15 +562,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
                     &[info.client().kind.as_ref(), action.as_ref(), source.into()],
                 );
-                let result =
-                    Self::handle_score_transition(previous_state, peer_id, info, &self.log);
+                let result = Self::handle_score_transition(previous_state, peer_id, info);
                 if previous_state == info.score_state() {
                     debug!(
-                        self.log,
-                        "Peer score adjusted";
-                        "msg" => %msg,
-                        "peer_id" => %peer_id,
-                        "score" => %info.score()
+                        %msg,
+                        %peer_id,
+                        score = %info.score(),
+                        "Peer score adjusted"
                     );
                 }
                 match result {
@@ -554,10 +590,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     ScoreTransitionResult::NoAction => ScoreUpdateResult::NoAction,
                     ScoreTransitionResult::Unbanned => {
                         error!(
-                            self.log,
-                            "Report peer action lead to an unbanning";
-                            "msg" => %msg,
-                            "peer_id" => %peer_id
+                            %msg,
+                            %peer_id,
+                            "Report peer action lead to an unbanning"
                         );
                         ScoreUpdateResult::NoAction
                     }
@@ -565,10 +600,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             }
             None => {
                 debug!(
-                    self.log,
-                    "Reporting a peer that doesn't exist";
-                    "msg" => %msg,
-                    "peer_id" =>%peer_id
+                    %msg,
+                    %peer_id,
+                    "Reporting a peer that doesn't exist"
                 );
                 ScoreUpdateResult::NoAction
             }
@@ -588,7 +622,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .checked_duration_since(Instant::now())
                 .map(|duration| duration.as_secs())
                 .unwrap_or_else(|| 0);
-            debug!(self.log, "Updating the time a peer is required for"; "peer_id" => %peer_id, "future_min_ttl_secs" => min_ttl_secs);
+            debug!(%peer_id, future_min_ttl_secs = min_ttl_secs, "Updating the time a peer is required for");
         }
     }
 
@@ -612,12 +646,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// min_ttl than what's given.
     // VISIBILITY: The behaviour is able to adjust subscriptions.
     pub(crate) fn extend_peers_on_subnet(&mut self, subnet: &Subnet, min_ttl: Instant) {
-        let log = &self.log;
-        self.peers.iter_mut()
+        self.peers
+            .iter_mut()
             .filter(move |(_, info)| {
-                info.is_connected() && info.on_subnet_metadata(subnet) && info.on_subnet_gossipsub(subnet)
+                info.is_connected()
+                    && info.on_subnet_metadata(subnet)
+                    && info.on_subnet_gossipsub(subnet)
             })
-            .for_each(|(peer_id,info)| {
+            .for_each(|(peer_id, info)| {
                 if info.min_ttl().is_none() || Some(&min_ttl) > info.min_ttl() {
                     info.set_min_ttl(min_ttl);
                 }
@@ -625,7 +661,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     .checked_duration_since(Instant::now())
                     .map(|duration| duration.as_secs())
                     .unwrap_or_else(|| 0);
-                trace!(log, "Updating minimum duration a peer is required for"; "peer_id" => %peer_id, "min_ttl" => min_ttl_secs);
+                trace!(%peer_id, min_ttl_secs, "Updating minimum duration a peer is required for");
             });
     }
 
@@ -671,6 +707,51 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         );
     }
 
+    /// Updates the connection state. MUST ONLY BE USED IN TESTS.
+    pub fn __add_connected_peer_testing_only(
+        &mut self,
+        supernode: bool,
+        spec: &ChainSpec,
+        enr_key: CombinedKey,
+    ) -> PeerId {
+        let mut enr = Enr::builder().build(&enr_key).unwrap();
+        let peer_id = enr.peer_id();
+
+        if supernode {
+            enr.insert(
+                PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY,
+                &spec.number_of_custody_groups,
+                &enr_key,
+            )
+            .expect("u64 can be encoded");
+        }
+
+        self.update_connection_state(
+            &peer_id,
+            NewConnectionState::Connected {
+                enr: Some(enr),
+                seen_address: Multiaddr::empty(),
+                direction: ConnectionDirection::Outgoing,
+            },
+        );
+
+        if supernode {
+            let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
+            let all_subnets = (0..spec.data_column_sidecar_subnet_count)
+                .map(|subnet_id| subnet_id.into())
+                .collect();
+            peer_info.set_custody_subnets(all_subnets);
+        } else {
+            let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
+            let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
+            let subnets = compute_subnets_for_node(node_id.raw(), spec.custody_requirement, spec)
+                .expect("should compute custody subnets");
+            peer_info.set_custody_subnets(subnets);
+        }
+
+        peer_id
+    }
+
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
     /// variables are in sync with libp2p.
     /// Updating the state can lead to a `BanOperation` which needs to be processed via the peer
@@ -682,7 +763,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         peer_id: &PeerId,
         new_state: NewConnectionState,
     ) -> Option<BanOperation> {
-        let log_ref = &self.log;
         let info = self.peers.entry(*peer_id).or_insert_with(|| {
             // If we are not creating a new connection (or dropping a current inbound connection) log a warning indicating we are updating a
             // connection state for an unknown peer.
@@ -691,11 +771,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 NewConnectionState::Connected { .. }          // We have established a new connection (peer may not have been seen before)
                     | NewConnectionState::Disconnecting { .. }// We are disconnecting from a peer that may not have been registered before
                     | NewConnectionState::Dialing { .. }      // We are dialing a potentially new peer
-                    | NewConnectionState::Disconnected { .. } // Dialing a peer that responds by a different ID can be immediately
-                                                              // disconnected without having being stored in the db before
+                    | NewConnectionState::Disconnected // Dialing a peer that responds by a different ID can be immediately
+                                                       // disconnected without having being stored in the db before
             ) {
-                warn!(log_ref, "Updating state of unknown peer";
-                    "peer_id" => %peer_id, "new_state" => ?new_state);
+                warn!(%peer_id, ?new_state, "Updating state of unknown peer");
             }
             if self.disable_peer_scoring {
                 PeerInfo::trusted_peer_info()
@@ -710,7 +789,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 ScoreState::Banned => {}
                 _ => {
                     // If score isn't low enough to ban, this function has been called incorrectly.
-                    error!(self.log, "Banning a peer with a good score"; "peer_id" => %peer_id);
+                    error!(%peer_id, "Banning a peer with a good score");
                     info.apply_peer_action_to_score(score::PeerAction::Fatal);
                 }
             }
@@ -731,7 +810,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     seen_address,
                 },
             ) => {
-                // Update the ENR if one exists
+                // Update the ENR if one exists, and compute the custody subnets
                 if let Some(enr) = enr {
                     info.set_enr(enr);
                 }
@@ -741,13 +820,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                         self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
                     }
                     PeerConnectionStatus::Banned { .. } => {
-                        error!(self.log, "Accepted a connection from a banned peer"; "peer_id" => %peer_id);
+                        error!(%peer_id, "Accepted a connection from a banned peer");
                         // TODO: check if this happens and report the unban back
                         self.banned_peers_count
                             .remove_banned_peer(info.seen_ip_addresses());
                     }
                     PeerConnectionStatus::Disconnecting { .. } => {
-                        warn!(self.log, "Connected to a disconnecting peer"; "peer_id" => %peer_id)
+                        warn!(%peer_id, "Connected to a disconnecting peer");
                     }
                     PeerConnectionStatus::Unknown
                     | PeerConnectionStatus::Connected { .. }
@@ -756,8 +835,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
                 // Update the connection state
                 match direction {
-                    ConnectionDirection::Incoming => info.connect_ingoing(Some(seen_address)),
-                    ConnectionDirection::Outgoing => info.connect_outgoing(Some(seen_address)),
+                    ConnectionDirection::Incoming => info.connect_ingoing(seen_address),
+                    ConnectionDirection::Outgoing => info.connect_outgoing(seen_address),
                 }
             }
 
@@ -769,7 +848,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             (old_state, NewConnectionState::Dialing { enr }) => {
                 match old_state {
                     PeerConnectionStatus::Banned { .. } => {
-                        warn!(self.log, "Dialing a banned peer"; "peer_id" => %peer_id);
+                        warn!(%peer_id, "Dialing a banned peer");
                         self.banned_peers_count
                             .remove_banned_peer(info.seen_ip_addresses());
                     }
@@ -777,13 +856,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                         self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
                     }
                     PeerConnectionStatus::Connected { .. } => {
-                        warn!(self.log, "Dialing an already connected peer"; "peer_id" => %peer_id)
+                        warn!(%peer_id, "Dialing an already connected peer");
                     }
                     PeerConnectionStatus::Dialing { .. } => {
-                        warn!(self.log, "Dialing an already dialing peer"; "peer_id" => %peer_id)
+                        warn!(%peer_id, "Dialing an already dialing peer");
                     }
                     PeerConnectionStatus::Disconnecting { .. } => {
-                        warn!(self.log, "Dialing a disconnecting peer"; "peer_id" => %peer_id)
+                        warn!(%peer_id, "Dialing a disconnecting peer");
                     }
                     PeerConnectionStatus::Unknown => {} // default behaviour
                 }
@@ -793,7 +872,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 }
 
                 if let Err(e) = info.set_dialing_peer() {
-                    error!(self.log, "{}", e; "peer_id" => %peer_id);
+                    error!(%peer_id, e);
                 }
             }
 
@@ -849,7 +928,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
              * Handles the transition to a disconnecting state
              */
             (PeerConnectionStatus::Banned { .. }, NewConnectionState::Disconnecting { to_ban }) => {
-                error!(self.log, "Disconnecting from a banned peer"; "peer_id" => %peer_id);
+                error!(%peer_id, "Disconnecting from a banned peer");
                 info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban });
             }
             (
@@ -893,13 +972,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             (PeerConnectionStatus::Disconnecting { .. }, NewConnectionState::Banned) => {
                 // NOTE: This can occur due a rapid downscore of a peer. It goes through the
                 // disconnection phase and straight into banning in a short time-frame.
-                debug!(log_ref, "Banning peer that is currently disconnecting"; "peer_id" => %peer_id);
+                debug!(%peer_id, "Banning peer that is currently disconnecting");
                 // Ban the peer once the disconnection process completes.
                 info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban: true });
                 return Some(BanOperation::PeerDisconnecting);
             }
             (PeerConnectionStatus::Banned { .. }, NewConnectionState::Banned) => {
-                error!(log_ref, "Banning already banned peer"; "peer_id" => %peer_id);
+                error!(%peer_id, "Banning already banned peer");
                 let known_banned_ips = self.banned_peers_count.banned_ips();
                 let banned_ips = info
                     .seen_ip_addresses()
@@ -917,7 +996,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             }
             (PeerConnectionStatus::Unknown, NewConnectionState::Banned) => {
                 // shift the peer straight to banned
-                warn!(log_ref, "Banning a peer of unknown connection state"; "peer_id" => %peer_id);
+                warn!(%peer_id, "Banning a peer of unknown connection state");
                 self.banned_peers_count
                     .add_banned_peer(info.seen_ip_addresses());
                 info.set_connection_status(PeerConnectionStatus::Banned {
@@ -938,15 +1017,15 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
              */
             (old_state, NewConnectionState::Unbanned) => {
                 if matches!(info.score_state(), ScoreState::Banned) {
-                    error!(self.log, "Unbanning a banned peer"; "peer_id" => %peer_id);
+                    error!(%peer_id, "Unbanning a banned peer");
                 }
                 match old_state {
                     PeerConnectionStatus::Unknown | PeerConnectionStatus::Connected { .. } => {
-                        error!(self.log, "Unbanning a connected peer"; "peer_id" => %peer_id);
+                        error!(%peer_id, "Unbanning a connected peer");
                     }
                     PeerConnectionStatus::Disconnected { .. }
                     | PeerConnectionStatus::Disconnecting { .. } => {
-                        debug!(self.log, "Unbanning disconnected or disconnecting peer"; "peer_id" => %peer_id);
+                        debug!(%peer_id, "Unbanning disconnected or disconnecting peer");
                     } // These are odd but fine.
                     PeerConnectionStatus::Dialing { .. } => {} // Also odd but acceptable
                     PeerConnectionStatus::Banned { since } => {
@@ -1015,15 +1094,12 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 Some((*id, unbanned_ips))
             } else {
                 // If there is no minimum, this is a coding error.
-                crit!(
-                    self.log,
-                    "banned_peers > MAX_BANNED_PEERS despite no banned peers in db!"
-                );
+                crit!("banned_peers > MAX_BANNED_PEERS despite no banned peers in db!");
                 // reset banned_peers this will also exit the loop
                 self.banned_peers_count = BannedPeersCount::default();
                 None
             } {
-                debug!(self.log, "Removing old banned peer"; "peer_id" => %to_drop);
+                debug!(peer_id = %to_drop, "Removing old banned peer");
                 self.peers.remove(&to_drop);
                 unbanned_peers.push((to_drop, unbanned_ips))
             }
@@ -1042,7 +1118,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 .min_by_key(|(_, age)| *age)
                 .map(|(id, _)| *id)
             {
-                debug!(self.log, "Removing old disconnected peer"; "peer_id" => %to_drop, "disconnected_size" => self.disconnected_peers.saturating_sub(1));
+                debug!(
+                    peer_id = %to_drop,
+                    disconnected_size = self.disconnected_peers.saturating_sub(1),
+                    "Removing old disconnected peer"
+                );
                 self.peers.remove(&to_drop);
             }
             // If there is no minimum, this is a coding error. For safety we decrease
@@ -1058,16 +1138,20 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     fn handle_score_transition(
         previous_state: ScoreState,
         peer_id: &PeerId,
-        info: &PeerInfo<TSpec>,
-        log: &slog::Logger,
+        info: &PeerInfo<E>,
     ) -> ScoreTransitionResult {
         match (info.score_state(), previous_state) {
-            (ScoreState::Banned, ScoreState::Healthy | ScoreState::Disconnected) => {
-                debug!(log, "Peer has been banned"; "peer_id" => %peer_id, "score" => %info.score());
+            (ScoreState::Banned, ScoreState::Healthy | ScoreState::ForcedDisconnect) => {
+                debug!(%peer_id, score = %info.score(), "Peer has been banned");
                 ScoreTransitionResult::Banned
             }
-            (ScoreState::Disconnected, ScoreState::Banned | ScoreState::Healthy) => {
-                debug!(log, "Peer transitioned to disconnect state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
+            (ScoreState::ForcedDisconnect, ScoreState::Banned | ScoreState::Healthy) => {
+                debug!(
+                    %peer_id,
+                    score = %info.score(),
+                    past_score_state = %previous_state,
+                    "Peer transitioned to forced disconnect score state"
+                );
                 // disconnect the peer if it's currently connected or dialing
                 if info.is_connected_or_dialing() {
                     ScoreTransitionResult::Disconnected
@@ -1079,18 +1163,30 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     ScoreTransitionResult::NoAction
                 }
             }
-            (ScoreState::Healthy, ScoreState::Disconnected) => {
-                debug!(log, "Peer transitioned to healthy state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
+            (ScoreState::Healthy, ScoreState::ForcedDisconnect) => {
+                debug!(
+                    %peer_id,
+                    score = %info.score(),
+                    past_score_state = %previous_state,
+                    "Peer transitioned to healthy score state"
+                );
                 ScoreTransitionResult::NoAction
             }
             (ScoreState::Healthy, ScoreState::Banned) => {
-                debug!(log, "Peer transitioned to healthy state"; "peer_id" => %peer_id, "score" => %info.score(), "past_state" => %previous_state);
+                debug!(
+                    %peer_id,
+                    score = %info.score(),
+                    past_score_state = %previous_state,
+                    "Peer transitioned to healthy score state"
+                );
                 // unban the peer if it was previously banned.
                 ScoreTransitionResult::Unbanned
             }
             // Explicitly ignore states that haven't transitioned.
             (ScoreState::Healthy, ScoreState::Healthy) => ScoreTransitionResult::NoAction,
-            (ScoreState::Disconnected, ScoreState::Disconnected) => ScoreTransitionResult::NoAction,
+            (ScoreState::ForcedDisconnect, ScoreState::ForcedDisconnect) => {
+                ScoreTransitionResult::NoAction
+            }
 
             (ScoreState::Banned, ScoreState::Banned) => ScoreTransitionResult::NoAction,
         }
@@ -1241,7 +1337,7 @@ impl BannedPeersCount {
     pub fn ip_is_banned(&self, ip: &IpAddr) -> bool {
         self.banned_peers_per_ip
             .get(ip)
-            .map_or(false, |count| *count > BANNED_PEERS_PER_IP_THRESHOLD)
+            .is_some_and(|count| *count > BANNED_PEERS_PER_IP_THRESHOLD)
     }
 }
 
@@ -1249,40 +1345,25 @@ impl BannedPeersCount {
 mod tests {
     use super::*;
     use libp2p::core::multiaddr::Protocol;
-    use libp2p::core::Multiaddr;
-    use slog::{o, Drain};
     use std::net::{Ipv4Addr, Ipv6Addr};
     use types::MinimalEthSpec;
 
     type M = MinimalEthSpec;
 
-    pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-
-        if enabled {
-            slog::Logger::root(drain.filter_level(level).fuse(), o!())
-        } else {
-            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
-        }
-    }
-
-    fn add_score<TSpec: EthSpec>(db: &mut PeerDB<TSpec>, peer_id: &PeerId, score: f64) {
+    fn add_score<E: EthSpec>(db: &mut PeerDB<E>, peer_id: &PeerId, score: f64) {
         if let Some(info) = db.peer_info_mut(peer_id) {
             info.add_to_score(score);
         }
     }
 
-    fn reset_score<TSpec: EthSpec>(db: &mut PeerDB<TSpec>, peer_id: &PeerId) {
+    fn reset_score<E: EthSpec>(db: &mut PeerDB<E>, peer_id: &PeerId) {
         if let Some(info) = db.peer_info_mut(peer_id) {
             info.reset_score();
         }
     }
 
     fn get_db() -> PeerDB<M> {
-        let log = build_log(slog::Level::Debug, false);
-        PeerDB::new(vec![], false, &log)
+        PeerDB::new(vec![], false)
     }
 
     #[test]
@@ -1980,8 +2061,7 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn test_trusted_peers_score() {
         let trusted_peer = PeerId::random();
-        let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false, &log);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false);
 
         pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
@@ -2004,8 +2084,7 @@ mod tests {
     #[test]
     fn test_disable_peer_scoring() {
         let peer = PeerId::random();
-        let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true, &log);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true);
 
         pdb.connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 

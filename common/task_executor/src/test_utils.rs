@@ -1,6 +1,4 @@
 use crate::TaskExecutor;
-use slog::Logger;
-use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
 use tokio::runtime;
 
@@ -14,9 +12,8 @@ use tokio::runtime;
 /// This struct should never be used in production, only testing.
 pub struct TestRuntime {
     runtime: Option<Arc<tokio::runtime::Runtime>>,
-    _runtime_shutdown: exit_future::Signal,
+    _runtime_shutdown: async_channel::Sender<()>,
     pub task_executor: TaskExecutor,
-    pub log: Logger,
 }
 
 impl Default for TestRuntime {
@@ -24,9 +21,8 @@ impl Default for TestRuntime {
     /// called *outside* any existing runtime, create a new `Runtime` and keep it alive until the
     /// `Self` is dropped.
     fn default() -> Self {
-        let (runtime_shutdown, exit) = exit_future::signal();
+        let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let log = null_logger().unwrap();
 
         let (runtime, handle) = if let Ok(handle) = runtime::Handle::try_current() {
             (None, handle)
@@ -41,13 +37,12 @@ impl Default for TestRuntime {
             (Some(runtime), handle)
         };
 
-        let task_executor = TaskExecutor::new(handle, exit, log.clone(), shutdown_tx);
+        let task_executor = TaskExecutor::new(handle, exit, shutdown_tx, "test".to_string());
 
         Self {
             runtime,
             _runtime_shutdown: runtime_shutdown,
             task_executor,
-            log,
         }
     }
 }
@@ -58,18 +53,4 @@ impl Drop for TestRuntime {
             Arc::try_unwrap(runtime).unwrap().shutdown_background()
         }
     }
-}
-
-impl TestRuntime {
-    pub fn set_logger(&mut self, log: Logger) {
-        self.log = log.clone();
-        self.task_executor.log = log;
-    }
-}
-
-pub fn null_logger() -> Result<Logger, String> {
-    let log_builder = NullLoggerBuilder;
-    log_builder
-        .build()
-        .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }

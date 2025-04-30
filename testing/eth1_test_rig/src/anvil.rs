@@ -1,7 +1,6 @@
 use ethers_core::utils::{Anvil, AnvilInstance};
 use ethers_providers::{Http, Middleware, Provider};
 use serde_json::json;
-use std::convert::TryFrom;
 use unused_port::unused_tcp4_port;
 
 /// Provides a dedicated `anvil` instance.

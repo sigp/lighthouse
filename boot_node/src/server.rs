@@ -5,30 +5,29 @@ use crate::config::BootNodeConfigSerialization;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{
-    discv5::{enr::NodeId, Discv5, Discv5Event},
+    discv5::{self, enr::NodeId, Discv5},
     EnrExt, Eth2Enr,
 };
-use slog::info;
+use tracing::{info, warn};
 use types::EthSpec;
 
-pub async fn run<T: EthSpec>(
-    lh_matches: &ArgMatches<'_>,
-    bn_matches: &ArgMatches<'_>,
+pub async fn run<E: EthSpec>(
+    lh_matches: &ArgMatches,
+    bn_matches: &ArgMatches,
     eth2_network_config: &Eth2NetworkConfig,
-    log: slog::Logger,
 ) -> Result<(), String> {
     // parse the CLI args into a useable config
-    let config: BootNodeConfig<T> = BootNodeConfig::new(bn_matches, eth2_network_config).await?;
+    let config: BootNodeConfig<E> = BootNodeConfig::new(bn_matches, eth2_network_config).await?;
 
     // Dump configs if `dump-config` or `dump-chain-config` flags are set
     let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
-    clap_utils::check_dump_configs::<_, T>(
+    clap_utils::check_dump_configs::<_, E>(
         lh_matches,
         &config_sz,
-        &eth2_network_config.chain_spec::<T>()?,
+        &eth2_network_config.chain_spec::<E>()?,
     )?;
 
-    if lh_matches.is_present("immediate-shutdown") {
+    if lh_matches.get_flag("immediate-shutdown") {
         return Ok(());
     }
 
@@ -52,19 +51,19 @@ pub async fn run<T: EthSpec>(
     let pretty_v4_socket = enr_v4_socket.as_ref().map(|addr| addr.to_string());
     let pretty_v6_socket = enr_v6_socket.as_ref().map(|addr| addr.to_string());
     info!(
-        log, "Configuration parameters";
-        "listening_address" => ?discv5_config.listen_config,
-        "advertised_v4_address" => ?pretty_v4_socket,
-        "advertised_v6_address" => ?pretty_v6_socket,
-        "eth2" => eth2_field
+        listening_address = ?discv5_config.listen_config,
+        advertised_v4_address = ?pretty_v4_socket,
+        advertised_v6_address = ?pretty_v6_socket,
+        eth2 = eth2_field,
+        "Configuration parameters"
     );
 
-    info!(log, "Identity established"; "peer_id" => %local_enr.peer_id(), "node_id" => %local_enr.node_id());
+    info!(peer_id = %local_enr.peer_id(), node_id = %local_enr.node_id(), "Identity established");
 
     // build the contactable multiaddr list, adding the p2p protocol
-    info!(log, "Contact information"; "enr" => local_enr.to_base64());
-    info!(log, "Enr details"; "enr" => ?local_enr);
-    info!(log, "Contact information"; "multiaddrs" => ?local_enr.multiaddr_p2p());
+    info!(enr = local_enr.to_base64(), "Contact information");
+    info!(enr = ?local_enr, "Enr details");
+    info!(multiaddrs = ?local_enr.multiaddr_p2p(), "Contact information");
 
     // construct the discv5 server
     let mut discv5: Discv5 = Discv5::new(local_enr.clone(), local_key, discv5_config).unwrap();
@@ -72,16 +71,15 @@ pub async fn run<T: EthSpec>(
     // If there are any bootnodes add them to the routing table
     for enr in boot_nodes {
         info!(
-            log,
-            "Adding bootnode";
-            "ipv4_address" => ?enr.udp4_socket(),
-            "ipv6_address" => ?enr.udp6_socket(),
-            "peer_id" => ?enr.peer_id(),
-            "node_id" => ?enr.node_id()
+            ipv4_address = ?enr.udp4_socket(),
+            ipv6_address = ?enr.udp6_socket(),
+            peer_id = ?enr.peer_id(),
+            node_id = ?enr.node_id(),
+            "Adding bootnode"
         );
         if enr != local_enr {
             if let Err(e) = discv5.add_enr(enr) {
-                slog::warn!(log, "Failed adding ENR"; "error" => ?e);
+                warn!(error = ?e, "Failed adding ENR");
             }
         }
     }
@@ -93,7 +91,7 @@ pub async fn run<T: EthSpec>(
 
     // if there are peers in the local routing table, establish a session by running a query
     if !discv5.table_entries_id().is_empty() {
-        info!(log, "Executing bootstrap query...");
+        info!("Executing bootstrap query...");
         let _ = discv5.find_node(NodeId::random()).await;
     }
 
@@ -131,30 +129,27 @@ pub async fn run<T: EthSpec>(
                 // display server metrics
                 let metrics = discv5.metrics();
                 info!(
-                    log, "Server metrics";
-                    "connected_peers" => discv5.connected_peers(),
-                    "active_sessions" => metrics.active_sessions,
-                    "requests/s" => format_args!("{:.2}", metrics.unsolicited_requests_per_second),
-                    "ipv4_nodes" => ipv4_only_reachable,
-                    "ipv6_nodes" => ipv6_only_reachable,
-                    "ipv6_and_ipv4_nodes" => ipv4_ipv6_reachable,
-                    "unreachable_nodes" => unreachable_nodes,
+                    connected_peers = discv5.connected_peers(),
+                    active_sessions = metrics.active_sessions,
+                    "requests/s" = format_args!("{:.2}", metrics.unsolicited_requests_per_second),
+                    ipv4_nodes = ipv4_only_reachable,
+                    ipv6_only_nodes = ipv6_only_reachable,
+                    dual_stack_nodes = ipv4_ipv6_reachable,
+                    unreachable_nodes,
+                    "Server metrics",
                 );
 
             }
             Some(event) = event_stream.recv() => {
                 match event {
-                    Discv5Event::Discovered(_enr) => {
-                        // An ENR has bee obtained by the server
+                    discv5::Event::Discovered(_enr) => {
+                        // An ENR has been obtained by the server
                         // Ignore these events here
                     }
-                    Discv5Event::EnrAdded { .. } => {}     // Ignore
-                    Discv5Event::TalkRequest(_) => {}     // Ignore
-                    Discv5Event::NodeInserted { .. } => {} // Ignore
-                    Discv5Event::SocketUpdated(socket_addr) => {
-                        info!(log, "Advertised socket address updated"; "socket_addr" => %socket_addr);
+                    discv5::Event::SocketUpdated(socket_addr) => {
+                        info!(%socket_addr, "Advertised socket address updated");
                     }
-                    Discv5Event::SessionEstablished{ .. } => {} // Ignore
+                    _ => {} // Ignore
                 }
             }
         }

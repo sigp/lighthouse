@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use slog::{debug, Logger};
-
 use oneshot_broadcast::{oneshot, Receiver, Sender};
+use tracing::debug;
 use types::{
     beacon_state::CommitteeCache, AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256,
     RelativeEpoch,
@@ -61,16 +60,14 @@ pub struct ShufflingCache {
     cache: HashMap<AttestationShufflingId, CacheItem>,
     cache_size: usize,
     head_shuffling_ids: BlockShufflingIds,
-    logger: Logger,
 }
 
 impl ShufflingCache {
-    pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds, logger: Logger) -> Self {
+    pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds) -> Self {
         Self {
             cache: HashMap::new(),
             cache_size,
             head_shuffling_ids,
-            logger,
         }
     }
 
@@ -138,7 +135,7 @@ impl ShufflingCache {
             .get(&key)
             // Replace the committee if it's not present or if it's a promise. A bird in the hand is
             // worth two in the promise-bush!
-            .map_or(true, CacheItem::is_promise)
+            .is_none_or(CacheItem::is_promise)
         {
             self.insert_cache_item(
                 key,
@@ -179,10 +176,9 @@ impl ShufflingCache {
 
             for shuffling_id in shuffling_ids_to_prune.iter() {
                 debug!(
-                    self.logger,
-                    "Removing old shuffling from cache";
-                    "shuffling_epoch" => shuffling_id.shuffling_epoch,
-                    "shuffling_decision_block" => ?shuffling_id.shuffling_decision_block
+                    shuffling_epoch = %shuffling_id.shuffling_epoch,
+                    shuffling_decision_block = ?shuffling_id.shuffling_decision_block,
+                    "Removing old shuffling from cache"
                 );
                 self.cache.remove(shuffling_id);
             }
@@ -253,7 +249,7 @@ impl BlockShufflingIds {
         } else if self
             .previous
             .as_ref()
-            .map_or(false, |id| id.shuffling_epoch == epoch)
+            .is_some_and(|id| id.shuffling_epoch == epoch)
         {
             self.previous.clone()
         } else if epoch == self.next.shuffling_epoch {
@@ -268,9 +264,9 @@ impl BlockShufflingIds {
         }
     }
 
-    pub fn try_from_head<T: EthSpec>(
+    pub fn try_from_head<E: EthSpec>(
         head_block_root: Hash256,
-        head_state: &BeaconState<T>,
+        head_state: &BeaconState<E>,
     ) -> Result<Self, String> {
         let get_shuffling_id = |relative_epoch| {
             AttestationShufflingId::new(head_block_root, head_state, relative_epoch).map_err(|e| {
@@ -294,10 +290,10 @@ impl BlockShufflingIds {
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
-    use task_executor::test_utils::null_logger;
     use types::*;
 
     use crate::test_utils::EphemeralHarnessType;
+    use logging::create_test_tracing_subscriber;
 
     use super::*;
 
@@ -308,6 +304,8 @@ mod test {
 
     // Creates a new shuffling cache for testing
     fn new_shuffling_cache() -> ShufflingCache {
+        create_test_tracing_subscriber();
+
         let current_epoch = 8;
         let head_shuffling_ids = BlockShufflingIds {
             current: shuffling_id(current_epoch),
@@ -315,8 +313,8 @@ mod test {
             previous: Some(shuffling_id(current_epoch - 1)),
             block_root: Hash256::from_low_u64_le(0),
         };
-        let logger = null_logger().unwrap();
-        ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids, logger)
+
+        ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids)
     }
 
     /// Returns two different committee caches for testing.
@@ -339,7 +337,7 @@ mod test {
             .clone();
         let committee_b = state.committee_cache(RelativeEpoch::Next).unwrap().clone();
         assert!(committee_a != committee_b);
-        (Arc::new(committee_a), Arc::new(committee_b))
+        (committee_a, committee_b)
     }
 
     /// Builds a deterministic but incoherent shuffling ID from a `u64`.
@@ -512,7 +510,7 @@ mod test {
         }
 
         assert!(
-            !cache.contains(&shuffling_id_and_committee_caches.get(0).unwrap().0),
+            !cache.contains(&shuffling_id_and_committee_caches.first().unwrap().0),
             "should not contain oldest epoch shuffling id"
         );
         assert_eq!(

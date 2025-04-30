@@ -31,14 +31,10 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
-use crate::beacon_chain::ATTESTATION_CACHE_LOCK_TIMEOUT;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
-    beacon_chain::{
-        BeaconForkChoice, BeaconStore, OverrideForkchoiceUpdate,
-        BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, FORK_CHOICE_DB_KEY,
-    },
+    beacon_chain::{BeaconForkChoice, BeaconStore, OverrideForkchoiceUpdate, FORK_CHOICE_DB_KEY},
     block_times_cache::BlockTimesCache,
     events::ServerSentEventHandler,
     metrics,
@@ -51,13 +47,15 @@ use fork_choice::{
     ResetPayloadStatuses,
 };
 use itertools::process_results;
+use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
+use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{iter::StateRootsIterator, KeyValueStoreOp, StoreItem};
+use store::{iter::StateRootsIterator, KeyValueStore, KeyValueStoreOp, StoreItem};
 use task_executor::{JoinHandle, ShutdownReason};
+use tracing::{debug, error, info, warn};
 use types::*;
 
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
@@ -239,12 +237,12 @@ impl<E: EthSpec> CachedHead<E> {
 pub struct CanonicalHead<T: BeaconChainTypes> {
     /// Provides an in-memory representation of the non-finalized block tree and is used to run the
     /// fork choice algorithm and determine the canonical head.
-    pub fork_choice: CanonicalHeadRwLock<BeaconForkChoice<T>>,
+    fork_choice: CanonicalHeadRwLock<BeaconForkChoice<T>>,
     /// Provides values cached from a previous execution of `self.fork_choice.get_head`.
     ///
     /// Although `self.fork_choice` might be slightly more advanced that this value, it is safe to
     /// consider that these values represent the "canonical head" of the beacon chain.
-    pub cached_head: CanonicalHeadRwLock<CachedHead<T::EthSpec>>,
+    cached_head: CanonicalHeadRwLock<CachedHead<T::EthSpec>>,
     /// A lock used to prevent concurrent runs of `BeaconChain::recompute_head`.
     ///
     /// This lock **should not be made public**, it should only be used inside this module.
@@ -289,10 +287,9 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         reset_payload_statuses: ResetPayloadStatuses,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<(), Error> {
         let fork_choice =
-            <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec, log)?
+            <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec)?
                 .ok_or(Error::MissingPersistedForkChoice)?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
@@ -386,11 +383,13 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 
     /// Access a read-lock for fork choice.
     pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_READ_LOCK_AQUIRE_TIMES);
         self.fork_choice.read()
     }
 
     /// Access a write-lock for fork choice.
     pub fn fork_choice_write_lock(&self) -> RwLockWriteGuard<BeaconForkChoice<T>> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES);
         self.fork_choice.write()
     }
 }
@@ -466,9 +465,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn head_beacon_state_cloned(&self) -> BeaconState<T::EthSpec> {
         // Don't clone whilst holding the read-lock, take an Arc-clone to reduce lock contention.
         let snapshot: Arc<_> = self.head_snapshot();
-        snapshot
-            .beacon_state
-            .clone_with(CloneConfig::committee_caches_only())
+        snapshot.beacon_state.clone()
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
@@ -478,9 +475,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match self.slot() {
             Ok(current_slot) => self.recompute_head_at_slot(current_slot).await,
             Err(e) => error!(
-                self.log,
-                "No slot when recomputing head";
-                "error" => ?e
+                error = ?e,
+                "No slot when recomputing head"
             ),
         }
     }
@@ -518,18 +514,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(Some(())) => (),
                 // The async task did not complete successfully since the runtime is shutting down.
                 Ok(None) => {
-                    debug!(
-                        self.log,
-                        "Did not update EL fork choice";
-                        "info" => "shutting down"
-                    );
+                    debug!(info = "shutting down", "Did not update EL fork choice");
                 }
                 // The async task did not complete successfully, tokio returned an error.
                 Err(e) => {
                     error!(
-                        self.log,
-                        "Did not update EL fork choice";
-                        "error" => ?e
+                        error = ?e,
+                        "Did not update EL fork choice"
                     );
                 }
             },
@@ -537,17 +528,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(Err(e)) => {
                 metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
                 error!(
-                    self.log,
-                    "Error whist recomputing head";
-                    "error" => ?e
+                    error = ?e,
+                    "Error whist recomputing head"
                 );
             }
             // There was an error spawning the task.
             Err(e) => {
                 error!(
-                    self.log,
-                    "Failed to spawn recompute head task";
-                    "error" => ?e
+                    error = ?e,
+                    "Failed to spawn recompute head task"
                 );
             }
         }
@@ -630,9 +619,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // nothing to do.
         if new_view == old_view {
             debug!(
-                self.log,
-                "No change in canonical head";
-                "head" => ?new_view.head_block_root
+                head = ?new_view.head_block_root,
+                "No change in canonical head"
             );
             return Ok(None);
         }
@@ -642,7 +630,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let new_forkchoice_update_parameters =
             fork_choice_read_lock.get_forkchoice_update_parameters();
 
-        perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock, &self.log);
+        perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock);
 
         // Drop the read lock, it's no longer required and holding it any longer than necessary
         // will just cause lock contention.
@@ -652,48 +640,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let new_cached_head = if new_view.head_block_root != old_view.head_block_root {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
-            // Try and obtain the snapshot for `beacon_block_root` from the snapshot cache, falling
-            // back to a database read if that fails.
-            let new_snapshot = self
-                .snapshot_cache
-                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .and_then(|snapshot_cache| {
-                    snapshot_cache.get_cloned(
+            let mut new_snapshot = {
+                let beacon_block = self
+                    .store
+                    .get_full_block(&new_view.head_block_root)?
+                    .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
+
+                let (_, beacon_state) = self
+                    .store
+                    .get_advanced_hot_state(
                         new_view.head_block_root,
-                        CloneConfig::committee_caches_only(),
-                    )
-                })
-                .map::<Result<_, Error>, _>(Ok)
-                .unwrap_or_else(|| {
-                    let beacon_block = self
-                        .store
-                        .get_full_block(&new_view.head_block_root)?
-                        .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
+                        current_slot,
+                        beacon_block.state_root(),
+                    )?
+                    .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
-                    let (_, beacon_state) = self
-                        .store
-                        .get_advanced_hot_state(
-                            new_view.head_block_root,
-                            current_slot,
-                            beacon_block.state_root(),
-                        )?
-                        .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
+                BeaconSnapshot {
+                    beacon_block: Arc::new(beacon_block),
+                    beacon_block_root: new_view.head_block_root,
+                    beacon_state,
+                }
+            };
 
-                    Ok(BeaconSnapshot {
-                        beacon_block: Arc::new(beacon_block),
-                        beacon_block_root: new_view.head_block_root,
-                        beacon_state,
-                    })
-                })
-                .and_then(|mut snapshot| {
-                    // Regardless of where we got the state from, attempt to build the committee
-                    // caches.
-                    snapshot
-                        .beacon_state
-                        .build_all_committee_caches(&self.spec)
-                        .map_err(Into::into)
-                        .map(|()| snapshot)
-                })?;
+            // Regardless of where we got the state from, attempt to build all the
+            // caches except the tree hash cache.
+            new_snapshot.beacon_state.build_all_caches(&self.spec)?;
 
             let new_cached_head = CachedHead {
                 snapshot: Arc::new(new_snapshot),
@@ -752,9 +723,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.after_new_head(&old_cached_head, &new_cached_head, new_head_proto_block)
             {
                 crit!(
-                    self.log,
-                    "Error updating canonical head";
-                    "error" => ?e
+                    error = ?e,
+                    "Error updating canonical head"
                 );
             }
         }
@@ -771,9 +741,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.after_finalization(&new_cached_head, new_view, finalized_proto_block)
             {
                 crit!(
-                    self.log,
-                    "Error updating finalization";
-                    "error" => ?e
+                    error = ?e,
+                    "Error updating finalization"
                 );
             }
         }
@@ -804,6 +773,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_status
             .is_optimistic_or_invalid();
 
+        // Update the state cache so it doesn't mistakenly prune the new head.
+        self.store
+            .state_cache
+            .lock()
+            .update_head_block_root(new_cached_head.head_block_root());
+
         // Detect and potentially report any re-orgs.
         let reorg_distance = detect_reorg(
             &old_snapshot.beacon_state,
@@ -811,7 +786,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &new_snapshot.beacon_state,
             new_snapshot.beacon_block_root,
             &self.spec,
-            &self.log,
         );
 
         // Determine if the new head is in a later epoch to the previous head.
@@ -834,50 +808,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
-        // Update the snapshot cache with the latest head value.
-        //
-        // This *could* be done inside `recompute_head`, however updating the head on the snapshot
-        // cache is not critical so we avoid placing it on a critical path. Note that this function
-        // will not return an error if the update fails, it will just log an error.
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.update_head(new_snapshot.beacon_block_root);
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "update head"
-                );
-            });
-
         match BlockShufflingIds::try_from_head(
             new_snapshot.beacon_block_root,
             &new_snapshot.beacon_state,
         ) {
-            Ok(head_shuffling_ids) => {
-                self.shuffling_cache
-                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                    .map(|mut shuffling_cache| {
-                        shuffling_cache.update_head_shuffling_ids(head_shuffling_ids)
-                    })
-                    .unwrap_or_else(|| {
-                        error!(
-                            self.log,
-                            "Failed to obtain cache write lock";
-                            "lock" => "shuffling_cache",
-                            "task" => "update head shuffling decision root"
-                        );
-                    });
-            }
+            Ok(head_shuffling_ids) => self
+                .shuffling_cache
+                .write()
+                .update_head_shuffling_ids(head_shuffling_ids),
             Err(e) => {
                 error!(
-                    self.log,
-                    "Failed to get head shuffling ids";
-                    "error" => ?e,
-                    "head_block_root" => ?new_snapshot.beacon_block_root
+                    error = ?e,
+                    head_block_root = ?new_snapshot.beacon_block_root,
+                    "Failed to get head shuffling ids"
                 );
             }
         }
@@ -894,11 +837,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .as_utf8_lossy(),
             &self.slot_clock,
             self.event_handler.as_ref(),
-            &self.log,
         );
 
         if is_epoch_transition || reorg_distance.is_some() {
-            self.persist_head_and_fork_choice()?;
+            self.persist_fork_choice()?;
             self.op_pool.prune_attestations(self.epoch()?);
         }
 
@@ -922,9 +864,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 (Err(e), _) | (_, Err(e)) => {
                     warn!(
-                        self.log,
-                        "Unable to find dependent roots, cannot register head event";
-                        "error" => ?e
+                        error = ?e,
+                        "Unable to find dependent roots, cannot register head event"
                     );
                 }
             }
@@ -998,26 +939,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
 
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.prune(new_view.finalized_checkpoint.epoch);
-                debug!(
-                    self.log,
-                    "Snapshot cache pruned";
-                    "new_len" => snapshot_cache.len(),
-                    "remaining_roots" => ?snapshot_cache.beacon_block_roots(),
-                );
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "prune"
-                );
-            });
-
         self.attester_cache
             .prune_below(new_view.finalized_checkpoint.epoch);
 
@@ -1062,7 +983,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store_migrator.process_finalization(
             new_finalized_state_root.into(),
             new_view.finalized_checkpoint,
-            self.head_tracker.clone(),
         )?;
 
         // Prune blobs in the background.
@@ -1074,6 +994,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;
 
+        Ok(())
+    }
+
+    /// Persist fork choice to disk, writing immediately.
+    pub fn persist_fork_choice(&self) -> Result<(), Error> {
+        let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
+        let batch = vec![self.persist_fork_choice_in_batch()];
+        self.store.hot_db.do_atomically(batch)?;
         Ok(())
     }
 
@@ -1107,11 +1035,10 @@ fn check_finalized_payload_validity<T: BeaconChainTypes>(
 ) -> Result<(), Error> {
     if let ExecutionStatus::Invalid(block_hash) = finalized_proto_block.execution_status {
         crit!(
-            chain.log,
-            "Finalized block has an invalid payload";
-            "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
+            ?block_hash,
+            msg = "You must use the `--purge-db` flag to clear the database and restart sync. \
             You may be on a hostile network.",
-            "block_hash" => ?block_hash
+            "Finalized block has an invalid payload"
         );
         let mut shutdown_sender = chain.shutdown_sender();
         shutdown_sender
@@ -1153,38 +1080,34 @@ fn perform_debug_logging<T: BeaconChainTypes>(
     old_view: &ForkChoiceView,
     new_view: &ForkChoiceView,
     fork_choice: &BeaconForkChoice<T>,
-    log: &Logger,
 ) {
     if new_view.head_block_root != old_view.head_block_root {
         debug!(
-            log,
-            "Fork choice updated head";
-            "new_head_weight" => ?fork_choice
-                .get_block_weight(&new_view.head_block_root),
-            "new_head" => ?new_view.head_block_root,
-            "old_head_weight" => ?fork_choice
-                .get_block_weight(&old_view.head_block_root),
-            "old_head" => ?old_view.head_block_root,
+            new_head_weight = ?fork_choice
+            .get_block_weight(&new_view.head_block_root),
+        new_head = ?new_view.head_block_root,
+        old_head_weight = ?fork_choice
+            .get_block_weight(&old_view.head_block_root),
+        old_head = ?old_view.head_block_root,
+            "Fork choice updated head"
         )
     }
     if new_view.justified_checkpoint != old_view.justified_checkpoint {
         debug!(
-            log,
-            "Fork choice justified";
-            "new_root" => ?new_view.justified_checkpoint.root,
-            "new_epoch" => new_view.justified_checkpoint.epoch,
-            "old_root" => ?old_view.justified_checkpoint.root,
-            "old_epoch" => old_view.justified_checkpoint.epoch,
+            new_root = ?new_view.justified_checkpoint.root,
+            new_epoch = %new_view.justified_checkpoint.epoch,
+            old_root = ?old_view.justified_checkpoint.root,
+            old_epoch = %old_view.justified_checkpoint.epoch,
+            "Fork choice justified"
         )
     }
     if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
         debug!(
-            log,
-            "Fork choice finalized";
-            "new_root" => ?new_view.finalized_checkpoint.root,
-            "new_epoch" => new_view.finalized_checkpoint.epoch,
-            "old_root" => ?old_view.finalized_checkpoint.root,
-            "old_epoch" => old_view.finalized_checkpoint.epoch,
+            new_root = ?new_view.finalized_checkpoint.root,
+            new_epoch = %new_view.finalized_checkpoint.epoch,
+            old_root = ?old_view.finalized_checkpoint.root,
+            old_epoch = %old_view.finalized_checkpoint.epoch,
+            "Fork choice finalized"
         )
     }
 }
@@ -1219,9 +1142,8 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
                     .await
                 {
                     crit!(
-                        chain.log,
-                        "Failed to update execution head";
-                        "error" => ?e
+                        error = ?e,
+                        "Failed to update execution head"
                     );
                 }
 
@@ -1235,9 +1157,8 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
                 // know.
                 if let Err(e) = chain.prepare_beacon_proposer(current_slot).await {
                     crit!(
-                        chain.log,
-                        "Failed to prepare proposers after fork choice";
-                        "error" => ?e
+                        error = ?e,
+                        "Failed to prepare proposers after fork choice"
                     );
                 }
             },
@@ -1258,7 +1179,6 @@ fn detect_reorg<E: EthSpec>(
     new_state: &BeaconState<E>,
     new_block_root: Hash256,
     spec: &ChainSpec,
-    log: &Logger,
 ) -> Option<Slot> {
     let is_reorg = new_state
         .get_block_root(old_state.slot())
@@ -1269,11 +1189,7 @@ fn detect_reorg<E: EthSpec>(
             match find_reorg_slot(old_state, old_block_root, new_state, new_block_root, spec) {
                 Ok(slot) => old_state.slot().saturating_sub(slot),
                 Err(e) => {
-                    warn!(
-                        log,
-                        "Could not find re-org depth";
-                        "error" => format!("{:?}", e),
-                    );
+                    warn!(error = ?e, "Could not find re-org depth");
                     return None;
                 }
             };
@@ -1284,14 +1200,13 @@ fn detect_reorg<E: EthSpec>(
             &metrics::FORK_CHOICE_REORG_DISTANCE,
             reorg_distance.as_u64() as i64,
         );
-        warn!(
-            log,
-            "Beacon chain re-org";
-            "previous_head" => ?old_block_root,
-            "previous_slot" => old_state.slot(),
-            "new_head" => ?new_block_root,
-            "new_slot" => new_state.slot(),
-            "reorg_distance" => reorg_distance,
+        info!(
+            previous_head = ?old_block_root,
+            previous_slot = %old_state.slot(),
+            new_head = ?new_block_root,
+            new_slot = %new_state.slot(),
+            %reorg_distance,
+            "Beacon chain re-org"
         );
 
         Some(reorg_distance)
@@ -1324,11 +1239,7 @@ pub fn find_reorg_slot<E: EthSpec>(
         ($state: ident, $block_root: ident) => {
             std::iter::once(Ok(($state.slot(), $block_root)))
                 .chain($state.rev_iter_block_roots(spec))
-                .skip_while(|result| {
-                    result
-                        .as_ref()
-                        .map_or(false, |(slot, _)| *slot > lowest_slot)
-                })
+                .skip_while(|result| result.as_ref().is_ok_and(|(slot, _)| *slot > lowest_slot))
         };
     }
 
@@ -1375,7 +1286,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     head_block_graffiti: String,
     slot_clock: &S,
     event_handler: Option<&ServerSentEventHandler<E>>,
-    log: &Logger,
 ) {
     let block_time_set_as_head = timestamp_now();
     let head_block_root = head_block.root;
@@ -1405,13 +1315,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
     // sync.
     if !block_from_sync {
-        // Observe the total block delay. This is the delay between the time the slot started
-        // and when the block was set as head.
-        metrics::observe_duration(
-            &metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME,
-            block_delay_total,
-        );
-
         // Observe the delay between when we imported the block and when we set the block as
         // head.
         let block_delays = block_times_cache.get_block_delays(
@@ -1421,34 +1324,129 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
 
-        metrics::observe_duration(
-            &metrics::BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME,
-            block_delays
-                .observed
-                .unwrap_or_else(|| Duration::from_secs(0)),
+        // Update all the metrics
+
+        // Convention here is to use "Time" to indicate the duration of the event and "Delay"
+        // to indicate the time since the start of the slot.
+        //
+        // Observe the total block delay. This is the delay between the time the slot started
+        // and when the block was set as head.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_TOTAL,
+            block_delay_total.as_millis() as i64,
         );
 
-        metrics::observe_duration(
-            &metrics::BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME,
+        // The time at which the beacon block was first observed to be processed
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_OBSERVED_SLOT_START,
+            block_delays
+                .observed
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time from the start of the slot when all blobs have been observed. Technically this
+        // is the time we last saw a blob related to this block/slot.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOB_DELAY_ALL_OBSERVED_SLOT_START,
+            block_delays
+                .all_blobs_observed
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time it took to check the validity within Lighthouse
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_CONSENSUS_VERIFICATION_TIME,
+            block_delays
+                .consensus_verification_time
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time it took to check the validity with the EL
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_EXECUTION_TIME,
+            block_delays
+                .execution_time
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time the block became available after the start of the slot. Available here means
+        // that all the blobs have arrived and the block has been verified by the execution layer.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_AVAILABLE_SLOT_START,
+            block_delays
+                .available
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time the block became attestable after the start of the slot.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_ATTESTABLE_SLOT_START,
+            block_delays
+                .attestable
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time the block was imported since becoming available.
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_IMPORTED_TIME,
+            block_delays
+                .imported
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
+        // The time the block was imported and setting it as head
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_HEAD_IMPORTED_TIME,
             block_delays
                 .set_as_head
-                .unwrap_or_else(|| Duration::from_secs(0)),
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
         );
 
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.
+        let format_delay = |delay: &Option<Duration>| {
+            delay.map_or("unknown".to_string(), |d| format!("{}", d.as_millis()))
+        };
         if late_head {
-            metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
+            metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_HEAD_SLOT_START_EXCEEDED_TOTAL);
             debug!(
-                log,
-                "Delayed head block";
-                "block_root" => ?head_block_root,
-                "proposer_index" => head_block_proposer_index,
-                "slot" => head_block_slot,
-                "block_delay" => ?block_delay_total,
-                "observed_delay" => ?block_delays.observed,
-                "imported_delay" => ?block_delays.imported,
-                "set_as_head_delay" => ?block_delays.set_as_head,
+                block_root = ?head_block_root,
+                proposer_index = head_block_proposer_index,
+                slot = %head_block_slot,
+                total_delay_ms = block_delay_total.as_millis(),
+                observed_delay_ms = format_delay(&block_delays.observed),
+                blob_delay_ms = format_delay(&block_delays.all_blobs_observed),
+                consensus_time_ms = format_delay(&block_delays.consensus_verification_time),
+                execution_time_ms = format_delay(&block_delays.execution_time),
+                available_delay_ms = format_delay(&block_delays.available),
+                attestable_delay_ms = format_delay(&block_delays.attestable),
+                imported_time_ms = format_delay(&block_delays.imported),
+                set_as_head_time_ms = format_delay(&block_delays.set_as_head),
+                "Delayed head block"
+            );
+        } else {
+            debug!(
+                block_root = ?head_block_root,
+                proposer_index = head_block_proposer_index,
+                slot = %head_block_slot,
+                total_delay_ms = block_delay_total.as_millis(),
+                observed_delay_ms = format_delay(&block_delays.observed),
+                blob_delay_ms = format_delay(&block_delays.all_blobs_observed),
+                consensus_time_ms = format_delay(&block_delays.consensus_verification_time),
+                execution_time_ms = format_delay(&block_delays.execution_time),
+                available_delay_ms = format_delay(&block_delays.available),
+                attestable_delay_ms = format_delay(&block_delays.attestable),
+                imported_time_ms = format_delay(&block_delays.imported),
+                set_as_head_time_ms = format_delay(&block_delays.set_as_head),
+                "On-time head block"
             );
         }
     }

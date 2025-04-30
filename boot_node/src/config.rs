@@ -1,8 +1,8 @@
 use beacon_node::{get_data_dir, set_network_config};
+use bytes::Bytes;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
-use lighthouse_network::discovery::create_enr_builder_from_config;
-use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
+use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
 use lighthouse_network::{
     discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
@@ -15,22 +15,21 @@ use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
-pub struct BootNodeConfig<T: EthSpec> {
+pub struct BootNodeConfig<E: EthSpec> {
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
     pub local_key: CombinedKey,
-    pub discv5_config: Discv5Config,
-    phantom: PhantomData<T>,
+    pub discv5_config: discv5::Config,
+    phantom: PhantomData<E>,
 }
 
-impl<T: EthSpec> BootNodeConfig<T> {
+impl<E: EthSpec> BootNodeConfig<E> {
     pub async fn new(
-        matches: &ArgMatches<'_>,
+        matches: &ArgMatches,
         eth2_network_config: &Eth2NetworkConfig,
     ) -> Result<Self, String> {
         let data_dir = get_data_dir(matches);
-
         // Try and obtain bootnodes
 
         let boot_nodes = {
@@ -40,7 +39,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
                 boot_nodes.extend_from_slice(enr);
             }
 
-            if let Some(nodes) = matches.value_of("boot-nodes") {
+            if let Some(nodes) = matches.get_one::<String>("boot-nodes") {
                 boot_nodes.extend_from_slice(
                     &nodes
                         .split(',')
@@ -54,9 +53,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         let mut network_config = NetworkConfig::default();
 
-        let logger = slog_scope::logger();
-
-        set_network_config(&mut network_config, matches, &data_dir, &logger)?;
+        set_network_config(&mut network_config, matches, &data_dir)?;
 
         // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
@@ -82,20 +79,20 @@ impl<T: EthSpec> BootNodeConfig<T> {
         };
 
         // By default this is enabled. If it is not set, revert to false.
-        if !matches.is_present("enable-enr-auto-update") {
+        if !matches.get_flag("enable-enr-auto-update") {
             network_config.discv5_config.enr_update = false;
         }
 
-        let private_key = load_private_key(&network_config, &logger);
+        let private_key = load_private_key(&network_config);
         let local_key = CombinedKey::from_libp2p(private_key)?;
 
-        let local_enr = if let Some(dir) = matches.value_of("network-dir") {
+        let local_enr = if let Some(dir) = matches.get_one::<String>("network-dir") {
             let network_dir: PathBuf = dir.into();
             load_enr_from_disk(&network_dir)?
         } else {
             // build the enr_fork_id and add it to the local_enr if it exists
             let enr_fork = {
-                let spec = eth2_network_config.chain_spec::<T>()?;
+                let spec = eth2_network_config.chain_spec::<E>()?;
 
                 let genesis_state_url: Option<String> =
                     clap_utils::parse_optional(matches, "genesis-state-url")?;
@@ -104,25 +101,25 @@ impl<T: EthSpec> BootNodeConfig<T> {
                         .map(Duration::from_secs)?;
 
                 if eth2_network_config.genesis_state_is_known() {
-                    let genesis_state = eth2_network_config
-                        .genesis_state::<T>(genesis_state_url.as_deref(), genesis_state_url_timeout, &logger).await?
+                    let mut genesis_state = eth2_network_config
+                        .genesis_state::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout).await?
                         .ok_or_else(|| {
                             "The genesis state for this network is not known, this is an unsupported mode"
                                 .to_string()
                         })?;
 
-                    slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
-                    let enr_fork = spec.enr_fork_id::<T>(
+                    let genesis_state_root = genesis_state
+                        .canonical_root()
+                        .map_err(|e| format!("Error hashing genesis state: {e:?}"))?;
+                    tracing::info!(root = ?genesis_state_root, "Genesis state found");
+                    let enr_fork = spec.enr_fork_id::<E>(
                         types::Slot::from(0u64),
                         genesis_state.genesis_validators_root(),
                     );
 
                     Some(enr_fork.as_ssz_bytes())
                 } else {
-                    slog::warn!(
-                        logger,
-                        "No genesis state provided. No Eth2 field added to the ENR"
-                    );
+                    tracing::warn!("No genesis state provided. No Eth2 field added to the ENR");
                     None
                 }
             };
@@ -130,18 +127,35 @@ impl<T: EthSpec> BootNodeConfig<T> {
             // Build the local ENR
 
             let mut local_enr = {
-                let enable_tcp = false;
-                let mut builder = create_enr_builder_from_config(&network_config, enable_tcp);
+                let (maybe_ipv4_address, maybe_ipv6_address) = network_config.enr_address;
+                let mut builder = discv5::Enr::builder();
+
+                if let Some(ip) = maybe_ipv4_address {
+                    builder.ip4(ip);
+                }
+
+                if let Some(ip) = maybe_ipv6_address {
+                    builder.ip6(ip);
+                }
+
+                if let Some(udp4_port) = network_config.enr_udp4_port {
+                    builder.udp4(udp4_port.get());
+                }
+
+                if let Some(udp6_port) = network_config.enr_udp6_port {
+                    builder.udp6(udp6_port.get());
+                }
+
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
-                    builder.add_value("eth2", &enr_fork_bytes);
+                    builder.add_value::<Bytes>("eth2", &enr_fork_bytes.into());
                 }
                 builder
                     .build(&local_key)
                     .map_err(|e| format!("Failed to build ENR: {:?}", e))?
             };
 
-            use_or_load_enr(&local_key, &mut local_enr, &network_config, &logger)?;
+            use_or_load_enr(&local_key, &mut local_enr, &network_config)?;
             local_enr
         };
 
@@ -157,7 +171,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
 /// The set of configuration parameters that can safely be (de)serialized.
 ///
-/// Its fields are a subset of the fields of `BootNodeConfig`, some of them are copied from `Discv5Config`.
+/// Its fields are a subset of the fields of `BootNodeConfig`, some of them are copied from `discv5::Config`.
 #[derive(Serialize, Deserialize)]
 pub struct BootNodeConfigSerialization {
     pub ipv4_listen_socket: Option<SocketAddrV4>,
@@ -172,7 +186,7 @@ pub struct BootNodeConfigSerialization {
 impl BootNodeConfigSerialization {
     /// Returns a `BootNodeConfigSerialization` obtained from copying resp. cloning the
     /// relevant fields of `config`
-    pub fn from_config_ref<T: EthSpec>(config: &BootNodeConfig<T>) -> Self {
+    pub fn from_config_ref<E: EthSpec>(config: &BootNodeConfig<E>) -> Self {
         let BootNodeConfig {
             boot_nodes,
             local_enr,

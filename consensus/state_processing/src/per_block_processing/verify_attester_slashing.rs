@@ -13,18 +13,17 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
 /// Indicates if an `AttesterSlashing` is valid to be included in a block in the current epoch of
 /// the given state.
 ///
-/// Returns `Ok(())` if the `AttesterSlashing` is valid, otherwise indicates the reason for
+/// Returns `Ok(indices)` with `indices` being a non-empty vec of validator indices in ascending
+/// order if the `AttesterSlashing` is valid. Otherwise returns `Err(e)` with the reason for
 /// invalidity.
-///
-/// Spec v0.12.1
-pub fn verify_attester_slashing<T: EthSpec>(
-    state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing<T>,
+pub fn verify_attester_slashing<E: EthSpec>(
+    state: &BeaconState<E>,
+    attester_slashing: AttesterSlashingRef<'_, E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
-) -> Result<()> {
-    let attestation_1 = &attester_slashing.attestation_1;
-    let attestation_2 = &attester_slashing.attestation_2;
+) -> Result<Vec<u64>> {
+    let attestation_1 = attester_slashing.attestation_1();
+    let attestation_2 = attester_slashing.attestation_2();
 
     // Spec: is_slashable_attestation_data
     verify!(
@@ -38,17 +37,15 @@ pub fn verify_attester_slashing<T: EthSpec>(
     is_valid_indexed_attestation(state, attestation_2, verify_signatures, spec)
         .map_err(|e| error(Invalid::IndexedAttestation2Invalid(e)))?;
 
-    Ok(())
+    get_slashable_indices(state, attester_slashing)
 }
 
 /// For a given attester slashing, return the indices able to be slashed in ascending order.
 ///
-/// Returns Ok(indices) if `indices.len() > 0`.
-///
-/// Spec v0.12.1
-pub fn get_slashable_indices<T: EthSpec>(
-    state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing<T>,
+/// Returns Ok(indices) if `indices.len() > 0`
+pub fn get_slashable_indices<E: EthSpec>(
+    state: &BeaconState<E>,
+    attester_slashing: AttesterSlashingRef<'_, E>,
 ) -> Result<Vec<u64>> {
     get_slashable_indices_modular(state, attester_slashing, |_, validator| {
         validator.is_slashable_at(state.current_epoch())
@@ -57,25 +54,24 @@ pub fn get_slashable_indices<T: EthSpec>(
 
 /// Same as `gather_attester_slashing_indices` but allows the caller to specify the criteria
 /// for determining whether a given validator should be considered slashable.
-pub fn get_slashable_indices_modular<F, T: EthSpec>(
-    state: &BeaconState<T>,
-    attester_slashing: &AttesterSlashing<T>,
+pub fn get_slashable_indices_modular<F, E: EthSpec>(
+    state: &BeaconState<E>,
+    attester_slashing: AttesterSlashingRef<'_, E>,
     is_slashable: F,
 ) -> Result<Vec<u64>>
 where
     F: Fn(u64, &Validator) -> bool,
 {
-    let attestation_1 = &attester_slashing.attestation_1;
-    let attestation_2 = &attester_slashing.attestation_2;
+    let attestation_1 = attester_slashing.attestation_1();
+    let attestation_2 = attester_slashing.attestation_2();
 
     let attesting_indices_1 = attestation_1
-        .attesting_indices
-        .iter()
+        .attesting_indices_iter()
         .cloned()
         .collect::<BTreeSet<_>>();
+
     let attesting_indices_2 = attestation_2
-        .attesting_indices
-        .iter()
+        .attesting_indices_iter()
         .cloned()
         .collect::<BTreeSet<_>>();
 

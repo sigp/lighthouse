@@ -11,11 +11,11 @@ use beacon_chain::{
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::max;
 use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
+use tracing::{debug, error, warn};
 use types::{
     slot_data::SlotData, BeaconStateError, Epoch, EthSpec, SignedContributionAndProof,
     SyncCommitteeMessage, SyncDuty, SyncSubnetId,
@@ -39,18 +39,23 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     // still dependent on the head. So using `is_optimistic_head` is fine for both cases.
     let execution_optimistic = chain
         .is_optimistic_or_invalid_head()
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     // Try using the head's sync committees to satisfy the request. This should be sufficient for
     // the vast majority of requests. Rather than checking if we think the request will succeed in a
     // way prone to data races, we attempt the request immediately and check the error code.
     match chain.sync_committee_duties_from_head(request_epoch, request_indices) {
-        Ok(duties) => return Ok(convert_to_response(duties, execution_optimistic)),
+        Ok(duties) => {
+            return Ok(convert_to_response(
+                verify_unknown_validators(duties, request_epoch, chain)?,
+                execution_optimistic,
+            ))
+        }
         Err(BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
             ..
         }))
         | Err(BeaconChainError::SyncDutiesError(BeaconStateError::IncorrectStateVariant)) => (),
-        Err(e) => return Err(warp_utils::reject::beacon_chain_error(e)),
+        Err(e) => return Err(warp_utils::reject::unhandled_error(e)),
     }
 
     let duties = duties_from_state_load(request_epoch, request_indices, altair_fork_epoch, chain)
@@ -62,9 +67,12 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
             "invalid epoch: {}, current epoch: {}",
             request_epoch, current_epoch
         )),
-        e => warp_utils::reject::beacon_chain_error(e),
+        e => warp_utils::reject::unhandled_error(e),
     })?;
-    Ok(convert_to_response(duties, execution_optimistic))
+    Ok(convert_to_response(
+        verify_unknown_validators(duties, request_epoch, chain)?,
+        execution_optimistic,
+    ))
 }
 
 /// Slow path for duties: load a state and use it to compute the duties.
@@ -73,7 +81,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     request_indices: &[u64],
     altair_fork_epoch: Epoch,
     chain: &BeaconChain<T>,
-) -> Result<Vec<Option<SyncDuty>>, BeaconChainError> {
+) -> Result<Vec<Result<Option<SyncDuty>, BeaconStateError>>, BeaconChainError> {
     // Determine what the current epoch would be if we fast-forward our system clock by
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
     //
@@ -121,6 +129,45 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     }
 }
 
+fn verify_unknown_validators<T: BeaconChainTypes>(
+    duties: Vec<Result<Option<SyncDuty>, BeaconStateError>>,
+    request_epoch: Epoch,
+    chain: &BeaconChain<T>,
+) -> Result<Vec<Option<SyncDuty>>, warp::reject::Rejection> {
+    // Lazily load the request_epoch_state, as it is only needed if there are any UnknownValidator
+    let mut request_epoch_state = None;
+
+    duties
+        .into_iter()
+        .map(|res| {
+            res.or_else(|err| {
+                // Make sure the validator is really unknown w.r.t. the request_epoch
+                if let BeaconStateError::UnknownValidator(idx) = err {
+                    let request_epoch_state = match &mut request_epoch_state {
+                        Some(state) => state,
+                        None => request_epoch_state.insert(chain.state_at_slot(
+                            request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                            StateSkipConfig::WithoutStateRoots,
+                        )?),
+                    };
+                    request_epoch_state
+                        .get_validator(idx)
+                        .map_err(BeaconChainError::SyncDutiesError)
+                        .map(|_| None)
+                } else {
+                    Err(BeaconChainError::SyncDutiesError(err))
+                }
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| match err {
+            BeaconChainError::SyncDutiesError(BeaconStateError::UnknownValidator(idx)) => {
+                warp_utils::reject::custom_bad_request(format!("invalid validator index: {idx}"))
+            }
+            e => warp_utils::reject::unhandled_error(e),
+        })
+}
+
 fn convert_to_response(duties: Vec<Option<SyncDuty>>, execution_optimistic: bool) -> SyncDuties {
     api_types::GenericResponse::from(duties.into_iter().flatten().collect::<Vec<_>>())
         .add_execution_optimistic(execution_optimistic)
@@ -131,7 +178,6 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
     sync_committee_signatures: Vec<SyncCommitteeMessage>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     chain: &BeaconChain<T>,
-    log: Logger,
 ) -> Result<(), warp::reject::Rejection> {
     let mut failures = vec![];
 
@@ -145,10 +191,9 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
             Ok(positions) => positions,
             Err(e) => {
                 error!(
-                    log,
-                    "Unable to compute subnet positions for sync message";
-                    "error" => ?e,
-                    "slot" => sync_committee_signature.slot,
+                    error = ?e,
+                    slot = %sync_committee_signature.slot,
+                    "Unable to compute subnet positions for sync message"
                 );
                 failures.push(api_types::Failure::new(i, format!("Verification: {:?}", e)));
                 continue;
@@ -201,22 +246,20 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                     new_root,
                 }) => {
                     debug!(
-                        log,
-                        "Ignoring already-known sync message";
-                        "new_root" => ?new_root,
-                        "prev_root" => ?prev_root,
-                        "slot" => slot,
-                        "validator_index" => validator_index,
+                        ?new_root,
+                        ?prev_root,
+                        %slot,
+                        validator_index,
+                        "Ignoring already-known sync message"
                     );
                 }
                 Err(e) => {
                     error!(
-                        log,
-                        "Failure verifying sync committee signature for gossip";
-                        "error" => ?e,
-                        "request_index" => i,
-                        "slot" => sync_committee_signature.slot,
-                        "validator_index" => sync_committee_signature.validator_index,
+                        error = ?e,
+                        request_index = i,
+                        slot = %sync_committee_signature.slot,
+                        validator_index = sync_committee_signature.validator_index,
+                        "Failure verifying sync committee signature for gossip"
                     );
                     failures.push(api_types::Failure::new(i, format!("Verification: {:?}", e)));
                 }
@@ -226,11 +269,10 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
         if let Some(verified) = verified_for_pool {
             if let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified) {
                 error!(
-                    log,
-                    "Unable to add sync committee signature to pool";
-                    "error" => ?e,
-                    "slot" => sync_committee_signature.slot,
-                    "validator_index" => sync_committee_signature.validator_index,
+                    error = ?e,
+                    slot = %sync_committee_signature.slot,
+                    validator_index = sync_committee_signature.validator_index,
+                    "Unable to add sync committee signature to pool"
                 );
             }
         }
@@ -265,7 +307,6 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
     signed_contribution_and_proofs: Vec<SignedContributionAndProof<T::EthSpec>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     chain: &BeaconChain<T>,
-    log: Logger,
 ) -> Result<(), warp::reject::Rejection> {
     let mut verified_contributions = Vec::with_capacity(signed_contribution_and_proofs.len());
     let mut failures = vec![];
@@ -315,13 +356,12 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
             Err(SyncVerificationError::AggregatorAlreadyKnown(_)) => continue,
             Err(e) => {
                 error!(
-                    log,
-                    "Failure verifying signed contribution and proof";
-                    "error" => ?e,
-                    "request_index" => index,
-                    "aggregator_index" => aggregator_index,
-                    "subcommittee_index" => subcommittee_index,
-                    "contribution_slot" => contribution_slot,
+                    error = ?e,
+                    request_index = index,
+                    aggregator_index = aggregator_index,
+                    subcommittee_index = subcommittee_index,
+                    contribution_slot = %contribution_slot,
+                    "Failure verifying signed contribution and proof"
                 );
                 failures.push(api_types::Failure::new(
                     index,
@@ -335,10 +375,9 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
     for (index, verified_contribution) in verified_contributions {
         if let Err(e) = chain.add_contribution_to_block_inclusion_pool(verified_contribution) {
             warn!(
-                log,
-                "Could not add verified sync contribution to the inclusion pool";
-                "error" => ?e,
-                "request_index" => index,
+                error = ?e,
+                request_index = index,
+                "Could not add verified sync contribution to the inclusion pool"
             );
             failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
         }

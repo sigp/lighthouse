@@ -7,8 +7,8 @@ use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use superstruct::superstruct;
 use types::{
-    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
+    FixedBytesExtended, Hash256, Slot,
 };
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
@@ -70,7 +70,7 @@ impl InvalidationOperation {
 pub type ProtoNode = ProtoNodeV17;
 
 #[superstruct(
-    variants(V16, V17),
+    variants(V17),
     variant_attributes(derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)),
     no_enum
 )]
@@ -92,12 +92,6 @@ pub struct ProtoNode {
     pub root: Hash256,
     #[ssz(with = "four_byte_option_usize")]
     pub parent: Option<usize>,
-    #[superstruct(only(V16))]
-    #[ssz(with = "four_byte_option_checkpoint")]
-    pub justified_checkpoint: Option<Checkpoint>,
-    #[superstruct(only(V16))]
-    #[ssz(with = "four_byte_option_checkpoint")]
-    pub finalized_checkpoint: Option<Checkpoint>,
     #[superstruct(only(V17))]
     pub justified_checkpoint: Checkpoint,
     #[superstruct(only(V17))]
@@ -114,57 +108,6 @@ pub struct ProtoNode {
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     #[ssz(with = "four_byte_option_checkpoint")]
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
-}
-
-impl TryInto<ProtoNode> for ProtoNodeV16 {
-    type Error = Error;
-
-    fn try_into(self) -> Result<ProtoNode, Error> {
-        let result = ProtoNode {
-            slot: self.slot,
-            state_root: self.state_root,
-            target_root: self.target_root,
-            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
-            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
-            root: self.root,
-            parent: self.parent,
-            justified_checkpoint: self
-                .justified_checkpoint
-                .ok_or(Error::MissingJustifiedCheckpoint)?,
-            finalized_checkpoint: self
-                .finalized_checkpoint
-                .ok_or(Error::MissingFinalizedCheckpoint)?,
-            weight: self.weight,
-            best_child: self.best_child,
-            best_descendant: self.best_descendant,
-            execution_status: self.execution_status,
-            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
-        };
-        Ok(result)
-    }
-}
-
-impl Into<ProtoNodeV16> for ProtoNode {
-    fn into(self) -> ProtoNodeV16 {
-        ProtoNodeV16 {
-            slot: self.slot,
-            state_root: self.state_root,
-            target_root: self.target_root,
-            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
-            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
-            root: self.root,
-            parent: self.parent,
-            justified_checkpoint: Some(self.justified_checkpoint),
-            finalized_checkpoint: Some(self.finalized_checkpoint),
-            weight: self.weight,
-            best_child: self.best_child,
-            best_descendant: self.best_descendant,
-            execution_status: self.execution_status,
-            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
-        }
-    }
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -206,7 +149,7 @@ impl ProtoArray {
     /// - Update the node's weight with the corresponding delta.
     /// - Back-propagate each node's delta to its parents delta.
     /// - Compare the current node with the parents best-child, updating it if the current node
-    /// should become the best child.
+    ///   should become the best child.
     /// - If required, update the parents best-descendant with the current node or its best-descendant.
     #[allow(clippy::too_many_arguments)]
     pub fn apply_score_changes<E: EthSpec>(
@@ -525,7 +468,7 @@ impl ProtoArray {
         // 1. The `head_block_root` is a descendant of `latest_valid_ancestor_hash`
         // 2. The `latest_valid_ancestor_hash` is equal to or a descendant of the finalized block.
         let latest_valid_ancestor_is_descendant =
-            latest_valid_ancestor_root.map_or(false, |ancestor_root| {
+            latest_valid_ancestor_root.is_some_and(|ancestor_root| {
                 self.is_descendant(ancestor_root, head_block_root)
                     && self.is_finalized_checkpoint_or_descendant::<E>(ancestor_root)
             });
@@ -562,13 +505,13 @@ impl ProtoArray {
                         // head.
                         if node
                             .best_child
-                            .map_or(false, |i| invalidated_indices.contains(&i))
+                            .is_some_and(|i| invalidated_indices.contains(&i))
                         {
                             node.best_child = None
                         }
                         if node
                             .best_descendant
-                            .map_or(false, |i| invalidated_indices.contains(&i))
+                            .is_some_and(|i| invalidated_indices.contains(&i))
                         {
                             node.best_descendant = None
                         }
@@ -817,7 +760,7 @@ impl ProtoArray {
     ///
     /// - The child is already the best child but it's now invalid due to a FFG change and should be removed.
     /// - The child is already the best child and the parent is updated with the new
-    ///     best-descendant.
+    ///   best-descendant.
     /// - The child is not the best child but becomes the best child.
     /// - The child is not the best child and does not become the best child.
     fn maybe_update_best_child_and_descendant<E: EthSpec>(
@@ -961,16 +904,9 @@ impl ProtoArray {
             node_justified_checkpoint
         };
 
-        let mut correct_justified = self.justified_checkpoint.epoch == genesis_epoch
-            || voting_source.epoch == self.justified_checkpoint.epoch;
-
-        if let Some(node_unrealized_justified_checkpoint) = node.unrealized_justified_checkpoint {
-            if !correct_justified && self.justified_checkpoint.epoch + 1 == current_epoch {
-                correct_justified = node_unrealized_justified_checkpoint.epoch
-                    >= self.justified_checkpoint.epoch
-                    && voting_source.epoch + 2 >= current_epoch;
-            }
-        }
+        let correct_justified = self.justified_checkpoint.epoch == genesis_epoch
+            || voting_source.epoch == self.justified_checkpoint.epoch
+            || voting_source.epoch + 2 >= current_epoch;
 
         let correct_finalized = self.finalized_checkpoint.epoch == genesis_epoch
             || self.is_finalized_checkpoint_or_descendant::<E>(node.root);
@@ -1063,7 +999,7 @@ impl ProtoArray {
             node.unrealized_finalized_checkpoint,
             node.unrealized_justified_checkpoint,
         ] {
-            if checkpoint.map_or(false, |cp| cp == self.finalized_checkpoint) {
+            if checkpoint.is_some_and(|cp| cp == self.finalized_checkpoint) {
                 return true;
             }
         }
@@ -1101,9 +1037,24 @@ impl ProtoArray {
             .find(|node| {
                 node.execution_status
                     .block_hash()
-                    .map_or(false, |node_block_hash| node_block_hash == *block_hash)
+                    .is_some_and(|node_block_hash| node_block_hash == *block_hash)
             })
             .map(|node| node.root)
+    }
+
+    /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
+    ///
+    /// For informational purposes like the beacon HTTP API, we use this as the list of known heads,
+    /// even though some of them might not be viable. We do this to maintain consistency between the
+    /// definition of "head" used by pruning (which does not consider viability) and fork choice.
+    pub fn heads_descended_from_finalization<E: EthSpec>(&self) -> Vec<&ProtoNode> {
+        self.nodes
+            .iter()
+            .filter(|node| {
+                node.best_child.is_none()
+                    && self.is_finalized_checkpoint_or_descendant::<E>(node.root)
+            })
+            .collect()
     }
 }
 

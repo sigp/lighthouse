@@ -1,16 +1,20 @@
 use crate::metrics;
 use beacon_chain::{
+    bellatrix_readiness::{BellatrixReadiness, GenesisExecutionPayloadStatus, MergeConfig},
     capella_readiness::CapellaReadiness,
-    merge_readiness::{GenesisExecutionPayloadStatus, MergeConfig, MergeReadiness},
+    deneb_readiness::DenebReadiness,
+    electra_readiness::ElectraReadiness,
+    fulu_readiness::FuluReadiness,
     BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
 use lighthouse_network::{types::SyncState, NetworkGlobals};
-use slog::{crit, debug, error, info, warn, Logger};
+use logging::crit;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
+use tracing::{debug, error, info, warn};
 use types::*;
 
 /// Create a warning log whenever the peer count is at or below this value.
@@ -36,17 +40,13 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let slot_duration = Duration::from_secs(seconds_per_slot);
 
     let speedo = Mutex::new(Speedo::default());
-    let log = executor.log().clone();
 
     // Keep track of sync state and reset the speedo on specific sync state changes.
     // Specifically, if we switch between a sync and a backfill sync, reset the speedo.
     let mut current_sync_state = network.sync_state();
 
     // Store info if we are required to do a backfill sync.
-    let original_anchor_slot = beacon_chain
-        .store
-        .get_anchor_info()
-        .map(|ai| ai.oldest_block_slot);
+    let original_oldest_block_slot = beacon_chain.store.get_anchor_info().oldest_block_slot;
 
     let interval_future = async move {
         // Perform pre-genesis logging.
@@ -56,15 +56,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 // waiting for genesis.
                 Some(next_slot) if next_slot > slot_duration => {
                     info!(
-                        log,
-                        "Waiting for genesis";
-                        "peers" => peer_count_pretty(network.connected_peers()),
-                        "wait_time" => estimated_time_pretty(Some(next_slot.as_secs() as f64)),
+                        peers = peer_count_pretty(network.connected_peers()),
+                        wait_time = estimated_time_pretty(Some(next_slot.as_secs() as f64)),
+                        "Waiting for genesis"
                     );
-                    eth1_logging(&beacon_chain, &log);
-                    merge_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
-                    capella_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
-                    genesis_execution_payload_logging(&beacon_chain, &log).await;
+                    eth1_logging(&beacon_chain);
+                    bellatrix_readiness_logging(Slot::new(0), &beacon_chain).await;
+                    capella_readiness_logging(Slot::new(0), &beacon_chain).await;
+                    genesis_execution_payload_logging(&beacon_chain).await;
                     sleep(slot_duration).await;
                 }
                 _ => break,
@@ -82,7 +81,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             let wait = match beacon_chain.slot_clock.duration_to_next_slot() {
                 Some(duration) => duration + slot_duration / 2,
                 None => {
-                    warn!(log, "Unable to read current slot");
+                    warn!("Unable to read current slot");
                     sleep(slot_duration).await;
                     continue;
                 }
@@ -120,11 +119,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             let current_slot = match beacon_chain.slot() {
                 Ok(slot) => slot,
                 Err(e) => {
-                    error!(
-                        log,
-                        "Unable to read current slot";
-                        "error" => format!("{:?}", e)
-                    );
+                    error!(error = ?e, "Unable to read current slot");
                     break;
                 }
             };
@@ -139,22 +134,17 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             match current_sync_state {
                 SyncState::BackFillSyncing { .. } => {
                     // Observe backfilling sync info.
-                    if let Some(oldest_slot) = original_anchor_slot {
-                        if let Some(current_anchor_slot) = beacon_chain
-                            .store
-                            .get_anchor_info()
-                            .map(|ai| ai.oldest_block_slot)
-                        {
-                            sync_distance = current_anchor_slot
-                                .saturating_sub(beacon_chain.genesis_backfill_slot);
-                            speedo
-                                // For backfill sync use a fake slot which is the distance we've progressed from the starting `oldest_block_slot`.
-                                .observe(
-                                    oldest_slot.saturating_sub(current_anchor_slot),
-                                    Instant::now(),
-                                );
-                        }
-                    }
+                    let current_oldest_block_slot =
+                        beacon_chain.store.get_anchor_info().oldest_block_slot;
+                    sync_distance = current_oldest_block_slot
+                        .saturating_sub(beacon_chain.genesis_backfill_slot);
+                    speedo
+                        // For backfill sync use a fake slot which is the distance we've progressed
+                        // from the starting `original_oldest_block_slot`.
+                        .observe(
+                            original_oldest_block_slot.saturating_sub(current_oldest_block_slot),
+                            Instant::now(),
+                        );
                 }
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
@@ -173,26 +163,28 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             );
 
             if connected_peer_count <= WARN_PEER_COUNT {
-                warn!(log, "Low peer count"; "peer_count" => peer_count_pretty(connected_peer_count));
+                warn!(
+                    peer_count = peer_count_pretty(connected_peer_count),
+                    "Low peer count"
+                );
             }
 
             debug!(
-                log,
-                "Slot timer";
-                "peers" => peer_count_pretty(connected_peer_count),
-                "finalized_root" => format!("{}", finalized_checkpoint.root),
-                "finalized_epoch" => finalized_checkpoint.epoch,
-                "head_block" => format!("{}", head_root),
-                "head_slot" => head_slot,
-                "current_slot" => current_slot,
-                "sync_state" =>format!("{}", current_sync_state)
+                peers = peer_count_pretty(connected_peer_count),
+                finalized_root = %finalized_checkpoint.root,
+                finalized_epoch = %finalized_checkpoint.epoch,
+                head_block = %head_root,
+                %head_slot,
+                %current_slot,
+                sync_state = %current_sync_state,
+                "Slot timer"
             );
 
             // Log if we are backfilling.
             let is_backfilling = matches!(current_sync_state, SyncState::BackFillSyncing { .. });
             if is_backfilling
                 && last_backfill_log_slot
-                    .map_or(true, |slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
+                    .is_none_or(|slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
             {
                 last_backfill_log_slot = Some(current_slot);
 
@@ -203,30 +195,35 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
 
                 let speed = speedo.slots_per_second();
-                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
 
                 if display_speed {
                     info!(
-                        log,
-                        "Downloading historical blocks";
-                        "distance" => distance,
-                        "speed" => sync_speed_pretty(speed),
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(beacon_chain.genesis_backfill_slot))),
+                        distance,
+                        speed = sync_speed_pretty(speed),
+                        est_time = estimated_time_pretty(
+                            speedo.estimated_time_till_slot(
+                                original_oldest_block_slot
+                                    .saturating_sub(beacon_chain.genesis_backfill_slot)
+                            )
+                        ),
+                        "Downloading historical blocks"
                     );
                 } else {
                     info!(
-                        log,
-                        "Downloading historical blocks";
-                        "distance" => distance,
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(original_anchor_slot.unwrap_or(current_slot).saturating_sub(beacon_chain.genesis_backfill_slot))),
+                        distance,
+                        est_time = estimated_time_pretty(
+                            speedo.estimated_time_till_slot(
+                                original_oldest_block_slot
+                                    .saturating_sub(beacon_chain.genesis_backfill_slot)
+                            )
+                        ),
+                        "Downloading historical blocks"
                     );
                 }
             } else if !is_backfilling && last_backfill_log_slot.is_some() {
                 last_backfill_log_slot = None;
-                info!(
-                    log,
-                    "Historical block download complete";
-                );
+                info!("Historical block download complete");
             }
 
             // Log if we are syncing
@@ -239,24 +236,24 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
 
                 let speed = speedo.slots_per_second();
-                let display_speed = speed.map_or(false, |speed| speed != 0.0);
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
 
                 if display_speed {
                     info!(
-                        log,
-                        "Syncing";
-                        "peers" => peer_count_pretty(connected_peer_count),
-                        "distance" => distance,
-                        "speed" => sync_speed_pretty(speed),
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                        peers = peer_count_pretty(connected_peer_count),
+                        distance,
+                        speed = sync_speed_pretty(speed),
+                        est_time =
+                            estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                        "Syncing"
                     );
                 } else {
                     info!(
-                        log,
-                        "Syncing";
-                        "peers" => peer_count_pretty(connected_peer_count),
-                        "distance" => distance,
-                        "est_time" => estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                        peers = peer_count_pretty(connected_peer_count),
+                        distance,
+                        est_time =
+                            estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                        "Syncing"
                     );
                 }
             } else if current_sync_state.is_synced() {
@@ -272,20 +269,18 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     Ok(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
                     Ok(ExecutionStatus::Optimistic(hash)) => {
                         warn!(
-                            log,
-                            "Head is optimistic";
-                            "info" => "chain not fully verified, \
-                                block and attestation production disabled until execution engine syncs",
-                            "execution_block_hash" => ?hash,
+                            info = "chain not fully verified, \
+                            block and attestation production disabled until execution engine syncs",
+                        execution_block_hash = ?hash,
+                            "Head is optimistic"
                         );
                         format!("{} (unverified)", hash)
                     }
                     Ok(ExecutionStatus::Invalid(hash)) => {
                         crit!(
-                            log,
-                            "Head execution payload is invalid";
-                            "msg" => "this scenario may be unrecoverable",
-                            "execution_block_hash" => ?hash,
+                            msg = "this scenario may be unrecoverable",
+                            execution_block_hash = ?hash,
+                            "Head execution payload is invalid"
                         );
                         format!("{} (invalid)", hash)
                     }
@@ -293,32 +288,33 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 };
 
                 info!(
-                    log,
-                    "Synced";
-                    "peers" => peer_count_pretty(connected_peer_count),
-                    "exec_hash" => block_hash,
-                    "finalized_root" => format!("{}", finalized_checkpoint.root),
-                    "finalized_epoch" => finalized_checkpoint.epoch,
-                    "epoch" => current_epoch,
-                    "block" => block_info,
-                    "slot" => current_slot,
+                    peers = peer_count_pretty(connected_peer_count),
+                    exec_hash = block_hash,
+                    finalized_root = %finalized_checkpoint.root,
+                    finalized_epoch = %finalized_checkpoint.epoch,
+                    epoch = %current_epoch,
+                    block = block_info,
+                    slot = %current_slot,
+                    "Synced"
                 );
             } else {
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
-                    log,
-                    "Searching for peers";
-                    "peers" => peer_count_pretty(connected_peer_count),
-                    "finalized_root" => format!("{}", finalized_checkpoint.root),
-                    "finalized_epoch" => finalized_checkpoint.epoch,
-                    "head_slot" => head_slot,
-                    "current_slot" => current_slot,
+                    peers = peer_count_pretty(connected_peer_count),
+                    finalized_root = %finalized_checkpoint.root,
+                    finalized_epoch = %finalized_checkpoint.epoch,
+                    %head_slot,
+                    %current_slot,
+                    "Searching for peers"
                 );
             }
 
-            eth1_logging(&beacon_chain, &log);
-            merge_readiness_logging(current_slot, &beacon_chain, &log).await;
-            capella_readiness_logging(current_slot, &beacon_chain, &log).await;
+            eth1_logging(&beacon_chain);
+            bellatrix_readiness_logging(current_slot, &beacon_chain).await;
+            capella_readiness_logging(current_slot, &beacon_chain).await;
+            deneb_readiness_logging(current_slot, &beacon_chain).await;
+            electra_readiness_logging(current_slot, &beacon_chain).await;
+            fulu_readiness_logging(current_slot, &beacon_chain).await;
         }
     };
 
@@ -330,10 +326,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
 /// Provides some helpful logging to users to indicate if their node is ready for the Bellatrix
 /// fork and subsequent merge transition.
-async fn merge_readiness_logging<T: BeaconChainTypes>(
+async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
-    log: &Logger,
 ) {
     let merge_completed = beacon_chain
         .canonical_head
@@ -343,9 +338,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
         .message()
         .body()
         .execution_payload()
-        .map_or(false, |payload| {
-            payload.parent_hash() != ExecutionBlockHash::zero()
-        });
+        .is_ok_and(|payload| payload.parent_hash() != ExecutionBlockHash::zero());
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -356,20 +349,19 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
     }
 
     if merge_completed && !has_execution_layer {
+        // Logging of the EE being offline is handled in the other readiness logging functions.
         if !beacon_chain.is_time_to_prepare_for_capella(current_slot) {
-            // logging of the EE being offline is handled in `capella_readiness_logging()`
             error!(
-                log,
-                "Execution endpoint required";
-                "info" => "you need an execution engine to validate blocks, see: \
-                           https://lighthouse-book.sigmaprime.io/merge-migration.html"
+                info = "you need an execution engine to validate blocks, see: \
+                https://lighthouse-book.sigmaprime.io/archived_merge_migration.html",
+                "Execution endpoint required"
             );
         }
         return;
     }
 
-    match beacon_chain.check_merge_readiness(current_slot).await {
-        MergeReadiness::Ready {
+    match beacon_chain.check_bellatrix_readiness(current_slot).await {
+        BellatrixReadiness::Ready {
             config,
             current_difficulty,
         } => match config {
@@ -379,12 +371,11 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                 terminal_block_hash_epoch: None,
             } => {
                 info!(
-                    log,
-                    "Ready for the merge";
-                    "terminal_total_difficulty" => %ttd,
-                    "current_difficulty" => current_difficulty
+                    terminal_total_difficulty = %ttd,
+                    current_difficulty = current_difficulty
                         .map(|d| d.to_string())
                         .unwrap_or_else(|| "??".into()),
+                    "Ready for Bellatrix"
                 )
             }
             MergeConfig {
@@ -393,29 +384,25 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                 terminal_block_hash_epoch: Some(terminal_block_hash_epoch),
             } => {
                 info!(
-                    log,
-                    "Ready for the merge";
-                    "info" => "you are using override parameters, please ensure that you \
-                        understand these parameters and their implications.",
-                    "terminal_block_hash" => ?terminal_block_hash,
-                    "terminal_block_hash_epoch" => ?terminal_block_hash_epoch,
+                    info = "you are using override parameters, please ensure that you \
+                    understand these parameters and their implications.",
+                    ?terminal_block_hash,
+                    ?terminal_block_hash_epoch,
+                    "Ready for Bellatrix"
                 )
             }
             other => error!(
-                log,
-                "Inconsistent merge configuration";
-                "config" => ?other
+                config = ?other,
+                "Inconsistent merge configuration"
             ),
         },
-        readiness @ MergeReadiness::NotSynced => warn!(
-            log,
-            "Not ready for merge";
-            "info" => %readiness,
+        readiness @ BellatrixReadiness::NotSynced => warn!(
+            info = %readiness,
+            "Not ready Bellatrix"
         ),
-        readiness @ MergeReadiness::NoExecutionEndpoint => warn!(
-            log,
-            "Not ready for merge";
-            "info" => %readiness,
+        readiness @ BellatrixReadiness::NoExecutionEndpoint => warn!(
+            info = %readiness,
+            "Not ready for Bellatrix"
         ),
     }
 }
@@ -424,17 +411,14 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
 async fn capella_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
-    log: &Logger,
 ) {
     let capella_completed = beacon_chain
         .canonical_head
         .cached_head()
         .snapshot
-        .beacon_block
-        .message()
-        .body()
-        .execution_payload()
-        .map_or(false, |payload| payload.withdrawals_root().is_ok());
+        .beacon_state
+        .fork_name_unchecked()
+        .capella_enabled();
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -445,114 +429,255 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
     }
 
     if capella_completed && !has_execution_layer {
-        error!(
-            log,
-            "Execution endpoint required";
-            "info" => "you need a Capella enabled execution engine to validate blocks, see: \
-                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
-        );
+        // Logging of the EE being offline is handled in the other readiness logging functions.
+        if !beacon_chain.is_time_to_prepare_for_deneb(current_slot) {
+            error!(
+                info = "you need a Capella enabled execution engine to validate blocks, see: \
+                           https://lighthouse-book.sigmaprime.io/archived_merge_migration.html",
+                "Execution endpoint required"
+            );
+        }
         return;
     }
 
     match beacon_chain.check_capella_readiness().await {
         CapellaReadiness::Ready => {
             info!(
-                log,
-                "Ready for Capella";
-                "info" => "ensure the execution endpoint is updated to the latest Capella/Shanghai release"
+                info = "ensure the execution endpoint is updated to the latest Capella/Shanghai release",
+                "Ready for Capella"
             )
         }
         readiness @ CapellaReadiness::ExchangeCapabilitiesFailed { error: _ } => {
             error!(
-                log,
-                "Not ready for Capella";
-                "hint" => "the execution endpoint may be offline",
-                "info" => %readiness,
+                hint = "the execution endpoint may be offline",
+                info = %readiness,
+                "Not ready for Capella"
             )
         }
         readiness => warn!(
-            log,
-            "Not ready for Capella";
-            "hint" => "try updating the execution endpoint",
-            "info" => %readiness,
+            hint = "try updating the execution endpoint",
+            info = %readiness,
+            "Not ready for Capella"
         ),
     }
 }
 
-async fn genesis_execution_payload_logging<T: BeaconChainTypes>(
+/// Provides some helpful logging to users to indicate if their node is ready for Deneb
+async fn deneb_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
-    log: &Logger,
 ) {
+    let deneb_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_state
+        .fork_name_unchecked()
+        .deneb_enabled();
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if deneb_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_deneb(current_slot)
+    {
+        return;
+    }
+
+    if deneb_completed && !has_execution_layer {
+        error!(
+            info = "you need a Deneb enabled execution engine to validate blocks.",
+            "Execution endpoint required"
+        );
+        return;
+    }
+
+    match beacon_chain.check_deneb_readiness().await {
+        DenebReadiness::Ready => {
+            info!(
+                info =
+                    "ensure the execution endpoint is updated to the latest Deneb/Cancun release",
+                "Ready for Deneb"
+            )
+        }
+        readiness @ DenebReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                hint = "the execution endpoint may be offline",
+                info = %readiness,
+                "Not ready for Deneb"
+            )
+        }
+        readiness => warn!(
+            hint = "try updating the execution endpoint",
+            info = %readiness,
+            "Not ready for Deneb"
+        ),
+    }
+}
+/// Provides some helpful logging to users to indicate if their node is ready for Electra.
+async fn electra_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+) {
+    let electra_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_state
+        .fork_name_unchecked()
+        .electra_enabled();
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if electra_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_electra(current_slot)
+    {
+        return;
+    }
+
+    if electra_completed && !has_execution_layer {
+        // When adding a new fork, add a check for the next fork readiness here.
+        error!(
+            info = "you need a Electra enabled execution engine to validate blocks.",
+            "Execution endpoint required"
+        );
+        return;
+    }
+
+    match beacon_chain.check_electra_readiness().await {
+        ElectraReadiness::Ready => {
+            info!(
+                info =
+                    "ensure the execution endpoint is updated to the latest Electra/Prague release",
+                "Ready for Electra"
+            )
+        }
+        readiness @ ElectraReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                hint = "the execution endpoint may be offline",
+                info = %readiness,
+                "Not ready for Electra"
+            )
+        }
+        readiness => warn!(
+            hint = "try updating the execution endpoint",
+            info = %readiness,
+            "Not ready for Electra"
+        ),
+    }
+}
+
+/// Provides some helpful logging to users to indicate if their node is ready for Fulu.
+async fn fulu_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+) {
+    let fulu_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_state
+        .fork_name_unchecked()
+        .fulu_enabled();
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if fulu_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_fulu(current_slot)
+    {
+        return;
+    }
+
+    if fulu_completed && !has_execution_layer {
+        error!(
+            info = "you need a Fulu enabled execution engine to validate blocks.",
+            "Execution endpoint required"
+        );
+        return;
+    }
+
+    match beacon_chain.check_fulu_readiness().await {
+        FuluReadiness::Ready => {
+            info!(
+                info = "ensure the execution endpoint is updated to the latest Fulu release",
+                "Ready for Fulu"
+            )
+        }
+        readiness @ FuluReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                hint = "the execution endpoint may be offline",
+                info = %readiness,
+                "Not ready for Fulu"
+            )
+        }
+        readiness => warn!(
+            hint = "try updating the execution endpoint",
+            info = %readiness,
+            "Not ready for Fulu"
+        ),
+    }
+}
+
+async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     match beacon_chain
         .check_genesis_execution_payload_is_correct()
         .await
     {
         Ok(GenesisExecutionPayloadStatus::Correct(block_hash)) => {
             info!(
-                log,
-                "Execution enabled from genesis";
-                "genesis_payload_block_hash" => ?block_hash,
+                genesis_payload_block_hash = ?block_hash,
+                "Execution enabled from genesis"
             );
         }
         Ok(GenesisExecutionPayloadStatus::BlockHashMismatch { got, expected }) => {
             error!(
-                log,
-                "Genesis payload block hash mismatch";
-                "info" => "genesis is misconfigured and likely to fail",
-                "consensus_node_block_hash" => ?expected,
-                "execution_node_block_hash" => ?got,
+                info = "genesis is misconfigured and likely to fail",
+                consensus_node_block_hash = ?expected,
+                execution_node_block_hash = ?got,
+                "Genesis payload block hash mismatch"
             );
         }
         Ok(GenesisExecutionPayloadStatus::TransactionsRootMismatch { got, expected }) => {
             error!(
-                log,
-                "Genesis payload transactions root mismatch";
-                "info" => "genesis is misconfigured and likely to fail",
-                "consensus_node_transactions_root" => ?expected,
-                "execution_node_transactions_root" => ?got,
+                info = "genesis is misconfigured and likely to fail",
+                consensus_node_transactions_root = ?expected,
+                execution_node_transactions_root = ?got,
+                "Genesis payload transactions root mismatch"
             );
         }
         Ok(GenesisExecutionPayloadStatus::WithdrawalsRootMismatch { got, expected }) => {
             error!(
-                log,
-                "Genesis payload withdrawals root mismatch";
-                "info" => "genesis is misconfigured and likely to fail",
-                "consensus_node_withdrawals_root" => ?expected,
-                "execution_node_withdrawals_root" => ?got,
+                info = "genesis is misconfigured and likely to fail",
+                consensus_node_withdrawals_root = ?expected,
+                execution_node_withdrawals_root = ?got,
+                "Genesis payload withdrawals root mismatch"
             );
         }
         Ok(GenesisExecutionPayloadStatus::OtherMismatch) => {
             error!(
-                log,
-                "Genesis payload header mismatch";
-                "info" => "genesis is misconfigured and likely to fail",
-                "detail" => "see debug logs for payload headers"
+                info = "genesis is misconfigured and likely to fail",
+                detail = "see debug logs for payload headers",
+                "Genesis payload header mismatch"
             );
         }
         Ok(GenesisExecutionPayloadStatus::Irrelevant) => {
-            info!(
-                log,
-                "Execution is not enabled from genesis";
-            );
+            info!("Execution is not enabled from genesis");
         }
         Ok(GenesisExecutionPayloadStatus::AlreadyHappened) => {
             warn!(
-                log,
-                "Unable to check genesis which has already occurred";
-                "info" => "this is probably a race condition or a bug"
+                info = "this is probably a race condition or a bug",
+                "Unable to check genesis which has already occurred"
             );
         }
         Err(e) => {
             error!(
-                log,
-                "Unable to check genesis execution payload";
-                "error" => ?e
+                error = ?e,
+                "Unable to check genesis execution payload"
             );
         }
     }
 }
 
-fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
+fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     let current_slot_opt = beacon_chain.slot().ok();
 
     // Perform some logging about the eth1 chain
@@ -568,13 +693,12 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
             &beacon_chain.spec,
         ) {
             debug!(
-                log,
-                "Eth1 cache sync status";
-                "eth1_head_block" => status.head_block_number,
-                "latest_cached_block_number" => status.latest_cached_block_number,
-                "latest_cached_timestamp" => status.latest_cached_block_timestamp,
-                "voting_target_timestamp" => status.voting_target_timestamp,
-                "ready" => status.lighthouse_is_cached_and_ready
+                eth1_head_block = status.head_block_number,
+                latest_cached_block_number = status.latest_cached_block_number,
+                latest_cached_timestamp = status.latest_cached_block_timestamp,
+                voting_target_timestamp = status.voting_target_timestamp,
+                ready = status.lighthouse_is_cached_and_ready,
+                "Eth1 cache sync status"
             );
 
             if !status.lighthouse_is_cached_and_ready {
@@ -590,24 +714,20 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
                     .unwrap_or_else(|| "initializing deposits".to_string());
 
                 warn!(
-                    log,
-                    "Syncing deposit contract block cache";
-                    "est_blocks_remaining" => distance,
+                    est_blocks_remaining = distance,
+                    "Syncing deposit contract block cache"
                 );
             }
         } else {
-            error!(
-                log,
-                "Unable to determine deposit contract sync status";
-            );
+            error!("Unable to determine deposit contract sync status");
         }
     }
 }
 
-/// Returns the peer count, returning something helpful if it's `usize::max_value` (effectively a
+/// Returns the peer count, returning something helpful if it's `usize::MAX` (effectively a
 /// `None` value).
 fn peer_count_pretty(peer_count: usize) -> String {
-    if peer_count == usize::max_value() {
+    if peer_count == usize::MAX {
         String::from("--")
     } else {
         format!("{}", peer_count)
@@ -707,7 +827,7 @@ impl Speedo {
 
     /// Returns the average of the speeds between each observation.
     ///
-    /// Does not gracefully handle slots that are above `u32::max_value()`.
+    /// Does not gracefully handle slots that are above `u32::MAX`.
     pub fn slots_per_second(&self) -> Option<f64> {
         let speeds = self
             .0

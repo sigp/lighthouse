@@ -7,13 +7,13 @@
 //! The scoring algorithms are currently experimental.
 use crate::service::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
 use serde::Serialize;
+use std::cmp::Ordering;
+use std::sync::LazyLock;
 use std::time::Instant;
 use strum::AsRefStr;
 use tokio::time::Duration;
 
-lazy_static! {
-    static ref HALFLIFE_DECAY: f64 = -(2.0f64.ln()) / SCORE_HALFLIFE;
-}
+static HALFLIFE_DECAY: LazyLock<f64> = LazyLock::new(|| -(2.0f64.ln()) / SCORE_HALFLIFE);
 
 /// The default score for new peers.
 pub(crate) const DEFAULT_SCORE: f64 = 0.0;
@@ -104,7 +104,7 @@ pub(crate) enum ScoreState {
     /// We are content with the peers performance. We permit connections and messages.
     Healthy,
     /// The peer should be disconnected. We allow re-connections if the peer is persistent.
-    Disconnected,
+    ForcedDisconnect,
     /// The peer is banned. We disallow new connections until it's score has decayed into a
     /// tolerable threshold.
     Banned,
@@ -115,7 +115,7 @@ impl std::fmt::Display for ScoreState {
         match self {
             ScoreState::Healthy => write!(f, "Healthy"),
             ScoreState::Banned => write!(f, "Banned"),
-            ScoreState::Disconnected => write!(f, "Disconnected"),
+            ScoreState::ForcedDisconnect => write!(f, "Disconnected"),
         }
     }
 }
@@ -261,7 +261,7 @@ impl RealScore {
     }
 }
 
-#[derive(PartialEq, Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub enum Score {
     Max,
     Real(RealScore),
@@ -313,7 +313,7 @@ impl Score {
     pub(crate) fn state(&self) -> ScoreState {
         match self.score() {
             x if x <= MIN_SCORE_BEFORE_BAN => ScoreState::Banned,
-            x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::Disconnected,
+            x if x <= MIN_SCORE_BEFORE_DISCONNECT => ScoreState::ForcedDisconnect,
             _ => ScoreState::Healthy,
         }
     }
@@ -324,21 +324,25 @@ impl Score {
             Self::Real(score) => score.is_good_gossipsub_peer(),
         }
     }
-}
 
-impl Eq for Score {}
-
-impl PartialOrd for Score {
-    fn partial_cmp(&self, other: &Score) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Score {
-    fn cmp(&self, other: &Score) -> std::cmp::Ordering {
-        self.score()
-            .partial_cmp(&other.score())
-            .unwrap_or(std::cmp::Ordering::Equal)
+    /// Instead of implementing `Ord` for `Score`, as we are underneath dealing with f64,
+    /// follow std convention and impl `Score::total_cmp` similar to `f64::total_cmp`.
+    pub fn total_cmp(&self, other: &Score, reverse: bool) -> Ordering {
+        match self.score().partial_cmp(&other.score()) {
+            Some(v) => {
+                // Only reverse when none of the items is NAN,
+                // so that NAN's are never considered.
+                if reverse {
+                    v.reverse()
+                } else {
+                    v
+                }
+            }
+            None if self.score().is_nan() && !other.score().is_nan() => Ordering::Less,
+            None if !self.score().is_nan() && other.score().is_nan() => Ordering::Greater,
+            // Both are NAN.
+            None => Ordering::Equal,
+        }
     }
 }
 
@@ -407,7 +411,7 @@ mod tests {
         assert!(score.score() < 0.0);
         assert_eq!(score.state(), ScoreState::Healthy);
         score.test_add(-1.0001);
-        assert_eq!(score.state(), ScoreState::Disconnected);
+        assert_eq!(score.state(), ScoreState::ForcedDisconnect);
     }
 
     #[test]

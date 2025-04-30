@@ -1,14 +1,16 @@
-use ssz_types::VariableList;
 use std::mem;
-use types::{BeaconState, BeaconStateCapella, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
+use types::{
+    BeaconState, BeaconStateCapella, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
+    Fork, List,
+};
 
-/// Transform a `Merge` state into an `Capella` state.
+/// Transform a `Bellatrix` state into an `Capella` state.
 pub fn upgrade_to_capella<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_merge_mut()?;
+    let pre = pre_state.as_bellatrix_mut()?;
 
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
@@ -59,14 +61,15 @@ pub fn upgrade_to_capella<E: EthSpec>(
         // Capella
         next_withdrawal_index: 0,
         next_withdrawal_validator_index: 0,
-        historical_summaries: VariableList::default(),
+        historical_summaries: List::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
-        tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
+        slashings_cache: mem::take(&mut pre.slashings_cache),
+        epoch_cache: EpochCache::default(),
     });
 
     *pre_state = post;

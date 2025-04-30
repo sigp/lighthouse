@@ -366,9 +366,7 @@ mod tests {
         let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
-        let enr = discv5::enr::EnrBuilder::new("v4")
-            .build(&secret_key)
-            .unwrap();
+        let enr = discv5::enr::Enr::builder().build(&secret_key).unwrap();
         let node_id = peer_id_to_node_id(&peer_id).unwrap();
 
         assert_eq!(enr.node_id(), node_id);
@@ -387,9 +385,7 @@ mod tests {
         let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
-        let enr = discv5::enr::EnrBuilder::new("v4")
-            .build(&secret_key)
-            .unwrap();
+        let enr = discv5::enr::Enr::builder().build(&secret_key).unwrap();
         let node_id = peer_id_to_node_id(&peer_id).unwrap();
 
         assert_eq!(enr.node_id(), node_id);

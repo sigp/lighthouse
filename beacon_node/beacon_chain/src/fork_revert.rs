@@ -1,19 +1,16 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
-use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
     per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,
-    StateProcessingStrategy, VerifyBlockRoot,
+    VerifyBlockRoot,
 };
 use std::sync::Arc;
 use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
-use types::{
-    BeaconState, ChainSpec, EthSpec, ForkName, Hash256, ProgressiveBalancesMode, SignedBeaconBlock,
-    Slot,
-};
+use tracing::{info, warn};
+use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 
 const CORRUPT_DB_MESSAGE: &str = "The database could be corrupt. Check its file permissions or \
                                   consider deleting it by running with the --purge-db flag.";
@@ -30,7 +27,6 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
     head_block_root: Hash256,
     store: Arc<HotColdDB<E, Hot, Cold>>,
     spec: &ChainSpec,
-    log: &Logger,
 ) -> Result<(Hash256, SignedBeaconBlock<E>), String> {
     let current_fork = spec.fork_name_at_slot::<E>(current_slot);
     let fork_epoch = spec
@@ -45,10 +41,9 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
     }
 
     warn!(
-        log,
-        "Reverting invalid head block";
-        "target_fork" => %current_fork,
-        "fork_epoch" => fork_epoch,
+        target_fork = %current_fork,
+        %fork_epoch,
+        "Reverting invalid head block"
     );
     let block_iter = ParentRootBlockIterator::fork_tolerant(&store, head_block_root);
 
@@ -58,10 +53,9 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
                 Some((block_root, block))
             } else {
                 info!(
-                    log,
-                    "Reverting block";
-                    "block_root" => ?block_root,
-                    "slot" => block.slot(),
+                    ?block_root,
+                    slot = %block.slot(),
+                    "Reverting block"
                 );
                 None
             }
@@ -103,8 +97,6 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     store: Arc<HotColdDB<E, Hot, Cold>>,
     current_slot: Option<Slot>,
     spec: &ChainSpec,
-    progressive_balances_mode: ProgressiveBalancesMode,
-    log: &Logger,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
@@ -121,8 +113,9 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
 
     // Advance finalized state to finalized epoch (to handle skipped slots).
     let finalized_state_root = finalized_block.state_root();
+    // The enshrined finalized state should be in the state cache.
     let mut finalized_state = store
-        .get_state(&finalized_state_root, Some(finalized_block.slot()))
+        .get_state(&finalized_state_root, Some(finalized_block.slot()), true)
         .map_err(|e| format!("Error loading finalized state: {:?}", e))?
         .ok_or_else(|| {
             format!(
@@ -180,7 +173,6 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
             &mut state,
             &block,
             BlockSignatureStrategy::NoVerification,
-            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut ctxt,
             spec,
@@ -202,9 +194,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 Duration::from_secs(0),
                 &state,
                 payload_verification_status,
-                progressive_balances_mode,
                 spec,
-                log,
             )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }

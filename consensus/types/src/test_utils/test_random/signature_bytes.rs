@@ -1,7 +1,6 @@
-use bls::{SignatureBytes, SIGNATURE_BYTES_LEN};
+use bls::SIGNATURE_BYTES_LEN;
 
 use super::*;
-use std::convert::From;
 
 impl TestRandom for SignatureBytes {
     fn random_for_test(rng: &mut impl RngCore) -> Self {

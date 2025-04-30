@@ -2,13 +2,9 @@
 /// all required libp2p functionality.
 ///
 /// This crate builds and manages the libp2p services required by the beacon node.
-#[macro_use]
-extern crate lazy_static;
-
 mod config;
 pub mod service;
 
-#[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod discovery;
 pub mod listen_addr;
 pub mod metrics;
@@ -16,7 +12,6 @@ pub mod peer_manager;
 pub mod rpc;
 pub mod types;
 
-pub use config::gossip_max_size;
 use libp2p::swarm::DialError;
 pub use listen_addr::*;
 
@@ -67,7 +62,7 @@ impl<'de> Deserialize<'de> for PeerIdSerialized {
 // A wrapper struct that prints a dial error nicely.
 struct ClearDialError<'a>(&'a DialError);
 
-impl<'a> ClearDialError<'a> {
+impl ClearDialError<'_> {
     fn most_inner_error(err: &(dyn std::error::Error)) -> &(dyn std::error::Error) {
         let mut current = err;
         while let Some(source) = current.source() {
@@ -77,7 +72,7 @@ impl<'a> ClearDialError<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for ClearDialError<'a> {
+impl std::fmt::Display for ClearDialError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match &self.0 {
             DialError::Transport(errors) => {
@@ -105,7 +100,7 @@ impl<'a> std::fmt::Display for ClearDialError<'a> {
 }
 
 pub use crate::types::{
-    error, Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
+    Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
     SubnetDiscovery,
 };
 
@@ -114,8 +109,8 @@ pub use prometheus_client;
 pub use config::Config as NetworkConfig;
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
 pub use discv5;
+pub use gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p;
-pub use libp2p::gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use metrics::scrape_discovery_metrics;
@@ -126,6 +121,6 @@ pub use peer_manager::{
     ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
 };
 // pub use service::{load_private_key, Context, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
-pub use service::api_types::{PeerRequestId, Request, Response};
+pub use service::api_types::Response;
 pub use service::utils::*;
 pub use service::{Gossipsub, NetworkEvent};

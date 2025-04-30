@@ -37,9 +37,9 @@ impl From<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
     }
 }
 
-impl Into<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
-    fn into(self) -> [u8; GRAFFITI_BYTES_LEN] {
-        self.0
+impl From<Graffiti> for [u8; GRAFFITI_BYTES_LEN] {
+    fn from(from: Graffiti) -> [u8; GRAFFITI_BYTES_LEN] {
+        from.0
     }
 }
 
@@ -47,11 +47,17 @@ impl Into<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
 #[serde(transparent)]
 pub struct GraffitiString(String);
 
+impl GraffitiString {
+    pub fn empty() -> Self {
+        Self(String::new())
+    }
+}
+
 impl FromStr for GraffitiString {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.as_bytes().len() > GRAFFITI_BYTES_LEN {
+        if s.len() > GRAFFITI_BYTES_LEN {
             return Err(format!(
                 "Graffiti exceeds max length {}",
                 GRAFFITI_BYTES_LEN
@@ -71,9 +77,9 @@ impl<'de> Deserialize<'de> for GraffitiString {
     }
 }
 
-impl Into<Graffiti> for GraffitiString {
-    fn into(self) -> Graffiti {
-        let graffiti_bytes = self.0.as_bytes();
+impl From<GraffitiString> for Graffiti {
+    fn from(from: GraffitiString) -> Graffiti {
+        let graffiti_bytes = from.0.as_bytes();
         let mut graffiti = [0; GRAFFITI_BYTES_LEN];
 
         let graffiti_len = std::cmp::min(graffiti_bytes.len(), GRAFFITI_BYTES_LEN);
@@ -84,7 +90,11 @@ impl Into<Graffiti> for GraffitiString {
         graffiti
             .get_mut(..graffiti_len)
             .expect("graffiti_len <= GRAFFITI_BYTES_LEN")
-            .copy_from_slice(graffiti_bytes);
+            .copy_from_slice(
+                graffiti_bytes
+                    .get(..graffiti_len)
+                    .expect("graffiti_len <= GRAFFITI_BYTES_LEN"),
+            );
         graffiti.into()
     }
 }
@@ -174,6 +184,6 @@ impl TreeHash for Graffiti {
 
 impl TestRandom for Graffiti {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        Self::from(Hash256::random_for_test(rng).to_fixed_bytes())
+        Self::from(Hash256::random_for_test(rng).0)
     }
 }

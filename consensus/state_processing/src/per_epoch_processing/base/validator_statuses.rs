@@ -1,4 +1,4 @@
-use crate::common::get_attesting_indices;
+use crate::common::attesting_indices_base::get_attesting_indices;
 use safe_arith::SafeArith;
 use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, PendingAttestation};
 
@@ -30,7 +30,7 @@ impl Default for InclusionInfo {
     /// Defaults to `delay` at its maximum value and `proposer_index` at zero.
     fn default() -> Self {
         Self {
-            delay: u64::max_value(),
+            delay: u64::MAX,
             proposer_index: 0,
         }
     }
@@ -53,6 +53,8 @@ impl InclusionInfo {
 pub struct ValidatorStatus {
     /// True if the validator has been slashed, ever.
     pub is_slashed: bool,
+    /// True if the validator is eligible.
+    pub is_eligible: bool,
     /// True if the validator can withdraw in the current epoch.
     pub is_withdrawable_in_current_epoch: bool,
     /// True if the validator was active in the state's _current_ epoch.
@@ -92,6 +94,7 @@ impl ValidatorStatus {
         // Update all the bool fields, only updating `self` if `other` is true (never setting
         // `self` to false).
         set_self_if_other_is_true!(self, other, is_slashed);
+        set_self_if_other_is_true!(self, other, is_eligible);
         set_self_if_other_is_true!(self, other, is_withdrawable_in_current_epoch);
         set_self_if_other_is_true!(self, other, is_active_in_current_epoch);
         set_self_if_other_is_true!(self, other, is_active_in_previous_epoch);
@@ -188,31 +191,34 @@ impl ValidatorStatuses {
     /// - Total balances for the current and previous epochs.
     ///
     /// Spec v0.12.1
-    pub fn new<T: EthSpec>(
-        state: &BeaconState<T>,
+    pub fn new<E: EthSpec>(
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
         let mut statuses = Vec::with_capacity(state.validators().len());
         let mut total_balances = TotalBalances::new(spec);
 
-        for (i, validator) in state.validators().iter().enumerate() {
-            let effective_balance = state.get_effective_balance(i)?;
+        let current_epoch = state.current_epoch();
+        let previous_epoch = state.previous_epoch();
+
+        for validator in state.validators().iter() {
+            let effective_balance = validator.effective_balance;
             let mut status = ValidatorStatus {
                 is_slashed: validator.slashed,
-                is_withdrawable_in_current_epoch: validator
-                    .is_withdrawable_at(state.current_epoch()),
+                is_eligible: state.is_eligible_validator(previous_epoch, validator)?,
+                is_withdrawable_in_current_epoch: validator.is_withdrawable_at(current_epoch),
                 current_epoch_effective_balance: effective_balance,
                 ..ValidatorStatus::default()
             };
 
-            if validator.is_active_at(state.current_epoch()) {
+            if validator.is_active_at(current_epoch) {
                 status.is_active_in_current_epoch = true;
                 total_balances
                     .current_epoch
                     .safe_add_assign(effective_balance)?;
             }
 
-            if validator.is_active_at(state.previous_epoch()) {
+            if validator.is_active_at(previous_epoch) {
                 status.is_active_in_previous_epoch = true;
                 total_balances
                     .previous_epoch
@@ -232,9 +238,9 @@ impl ValidatorStatuses {
     /// `total_balances` fields.
     ///
     /// Spec v0.12.1
-    pub fn process_attestations<T: EthSpec>(
+    pub fn process_attestations<E: EthSpec>(
         &mut self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
     ) -> Result<(), BeaconStateError> {
         let base_state = state.as_base()?;
         for a in base_state
@@ -244,7 +250,7 @@ impl ValidatorStatuses {
         {
             let committee = state.get_beacon_committee(a.data.slot, a.data.index)?;
             let attesting_indices =
-                get_attesting_indices::<T>(committee.committee, &a.aggregation_bits)?;
+                get_attesting_indices::<E>(committee.committee, &a.aggregation_bits)?;
 
             let mut status = ValidatorStatus::default();
 
@@ -285,10 +291,10 @@ impl ValidatorStatuses {
         }
 
         // Compute the total balances
-        for (index, v) in self.statuses.iter().enumerate() {
+        for v in self.statuses.iter() {
             // According to the spec, we only count unslashed validators towards the totals.
             if !v.is_slashed {
-                let validator_balance = state.get_effective_balance(index)?;
+                let validator_balance = v.current_epoch_effective_balance;
 
                 if v.is_current_epoch_attester {
                     self.total_balances
@@ -326,12 +332,12 @@ impl ValidatorStatuses {
 /// beacon block in the given `epoch`.
 ///
 /// Spec v0.12.1
-fn target_matches_epoch_start_block<T: EthSpec>(
-    a: &PendingAttestation<T>,
-    state: &BeaconState<T>,
+fn target_matches_epoch_start_block<E: EthSpec>(
+    a: &PendingAttestation<E>,
+    state: &BeaconState<E>,
     epoch: Epoch,
 ) -> Result<bool, BeaconStateError> {
-    let slot = epoch.start_slot(T::slots_per_epoch());
+    let slot = epoch.start_slot(E::slots_per_epoch());
     let state_boundary_root = *state.get_block_root(slot)?;
 
     Ok(a.data.target.root == state_boundary_root)
@@ -341,9 +347,9 @@ fn target_matches_epoch_start_block<T: EthSpec>(
 /// the current slot of the `PendingAttestation`.
 ///
 /// Spec v0.12.1
-fn has_common_beacon_block_root<T: EthSpec>(
-    a: &PendingAttestation<T>,
-    state: &BeaconState<T>,
+fn has_common_beacon_block_root<E: EthSpec>(
+    a: &PendingAttestation<E>,
+    state: &BeaconState<E>,
 ) -> Result<bool, BeaconStateError> {
     let state_block_root = *state.get_block_root(a.data.slot)?;
 

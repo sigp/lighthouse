@@ -12,11 +12,11 @@ write_to_file() {
     local file="$2"
     local program="$3"
 
-    # Remove first line of cmd to get rid of commit specific numbers.
-    cmd=${cmd#*$'\n'}
-
     # We need to add the header and the backticks to create the code block.
     printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
+
+    # Adjust the width of the help text and append to the end of file
+    printf "\n\n%s\n" "<style> .content main {max-width:88%;} </style>" >> "$file"
 }
 
 CMD=./target/release/lighthouse
@@ -40,7 +40,7 @@ vm_import=./help_vm_import.md
 vm_move=./help_vm_move.md
 
 # create .md files
-write_to_file "$general_cli" "$general" "Lighthouse General Commands"
+write_to_file "$general_cli" "$general" "Lighthouse CLI Reference"
 write_to_file "$bn_cli" "$bn" "Beacon Node"
 write_to_file "$vc_cli" "$vc" "Validator Client"
 write_to_file "$vm_cli" "$vm" "Validator Manager"
@@ -90,7 +90,7 @@ rm -f help_general.md help_bn.md help_vc.md help_am.md help_vm.md help_vm_create
 
 # only exit at the very end
 if [[ $changes == true ]]; then
-    echo "Exiting with error to indicate changes occurred. To fix, run `make cli-local` or `make cli` and commit the changes."
+    echo "Exiting with error to indicate changes occurred. To fix, run 'make cli-local' or 'make cli' and commit the changes."
     exit 1
 else
     echo "CLI help texts are up to date."

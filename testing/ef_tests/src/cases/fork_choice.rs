@@ -3,8 +3,10 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+    DisallowedReOrgOffsets, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
 };
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
@@ -23,10 +25,13 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlobSidecar, BlobsList, Checkpoint,
-    EthSpec, ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, KzgProof,
-    ProgressiveBalancesMode, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
+    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, ExecutionBlockHash, Hash256,
+    IndexedAttestation, KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
+
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
 #[serde(deny_unknown_fields)]
@@ -139,7 +144,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let description = path
             .iter()
-            .last()
+            .next_back()
             .expect("path must be non-empty")
             .to_str()
             .expect("path must be valid OsStr")
@@ -179,12 +184,32 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     })
                 }
                 Step::Attestation { attestation } => {
-                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation)))
-                        .map(|attestation| Step::Attestation { attestation })
+                    if fork_name.electra_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
+                            |attestation| Step::Attestation {
+                                attestation: Attestation::Electra(attestation),
+                            },
+                        )
+                    } else {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation))).map(
+                            |attestation| Step::Attestation {
+                                attestation: Attestation::Base(attestation),
+                            },
+                        )
+                    }
                 }
                 Step::AttesterSlashing { attester_slashing } => {
-                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
-                        .map(|attester_slashing| Step::AttesterSlashing { attester_slashing })
+                    if fork_name.electra_enabled() {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Electra(attester_slashing),
+                            })
+                    } else {
+                        ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                            .map(|attester_slashing| Step::AttesterSlashing {
+                                attester_slashing: AttesterSlashing::Base(attester_slashing),
+                            })
+                    }
                 }
                 Step::PowBlock { pow_block } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
@@ -248,7 +273,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 } => tester.process_block(block.clone(), blobs.clone(), proofs.clone(), *valid)?,
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::AttesterSlashing { attester_slashing } => {
-                    tester.process_attester_slashing(attester_slashing)
+                    tester.process_attester_slashing(attester_slashing.to_ref())
                 }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
                 Step::OnPayloadInfo {
@@ -329,11 +354,12 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 /// A testing rig used to execute a test case.
 struct Tester<E: EthSpec> {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> Tester<E> {
     pub fn new(case: &ForkChoiceTest<E>, spec: ChainSpec) -> Result<Self, Error> {
+        let spec = Arc::new(spec);
         let genesis_time = case.anchor_state.genesis_time();
 
         if case.anchor_state.slot() != spec.genesis_slot {
@@ -349,7 +375,6 @@ impl<E: EthSpec> Tester<E> {
         }
 
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            .logger(logging::test_logger())
             .spec(spec.clone())
             .keypairs(vec![])
             .chain_config(ChainConfig {
@@ -495,12 +520,13 @@ impl<E: EthSpec> Tester<E> {
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
-                block.clone(),
+                RpcBlock::new_without_blobs(Some(block_root), block.clone(), 0),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        let success = blob_success && result.as_ref().map_or(false, |inner| inner.is_ok());
+        let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
@@ -523,10 +549,15 @@ impl<E: EthSpec> Tester<E> {
                 .unwrap()
             {
                 let parent_state_root = parent_block.state_root();
+
                 let mut state = self
                     .harness
                     .chain
-                    .get_state(&parent_state_root, Some(parent_block.slot()))
+                    .get_state(
+                        &parent_state_root,
+                        Some(parent_block.slot()),
+                        CACHE_STATE_IN_TESTS,
+                    )
                     .unwrap()
                     .unwrap();
 
@@ -557,9 +588,7 @@ impl<E: EthSpec> Tester<E> {
                         block_delay,
                         &state,
                         PayloadVerificationStatus::Irrelevant,
-                        ProgressiveBalancesMode::Strict,
                         &self.harness.chain.spec,
-                        self.harness.logger(),
                     );
 
                 if result.is_ok() {
@@ -575,11 +604,11 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn process_attestation(&self, attestation: &Attestation<E>) -> Result<(), Error> {
-        let (indexed_attestation, _) =
-            obtain_indexed_attestation_and_committees_per_slot(&self.harness.chain, attestation)
-                .map_err(|e| {
-                    Error::InternalError(format!("attestation indexing failed with {:?}", e))
-                })?;
+        let (indexed_attestation, _) = obtain_indexed_attestation_and_committees_per_slot(
+            &self.harness.chain,
+            attestation.to_ref(),
+        )
+        .map_err(|e| Error::InternalError(format!("attestation indexing failed with {:?}", e)))?;
         let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
             ManuallyVerifiedAttestation {
                 attestation,
@@ -592,7 +621,7 @@ impl<E: EthSpec> Tester<E> {
             .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
     }
 
-    pub fn process_attester_slashing(&self, attester_slashing: &AttesterSlashing<E>) {
+    pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashingRef<E>) {
         self.harness
             .chain
             .canonical_head
@@ -748,7 +777,8 @@ impl<E: EthSpec> Tester<E> {
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
-            DEFAULT_RE_ORG_THRESHOLD,
+            DEFAULT_RE_ORG_HEAD_THRESHOLD,
+            DEFAULT_RE_ORG_PARENT_THRESHOLD,
             &DisallowedReOrgOffsets::default(),
             DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
         );
@@ -787,10 +817,13 @@ impl<E: EthSpec> Tester<E> {
             if expected_should_override_fcu.validator_is_connected {
                 el.update_proposer_preparation(
                     next_slot_epoch,
-                    &[ProposerPreparationData {
-                        validator_index: dbg!(proposer_index) as u64,
-                        fee_recipient: Default::default(),
-                    }],
+                    [(
+                        &ProposerPreparationData {
+                            validator_index: dbg!(proposer_index) as u64,
+                            fee_recipient: Default::default(),
+                        },
+                        &None,
+                    )],
                 )
                 .await;
             } else {
@@ -849,9 +882,9 @@ pub struct ManuallyVerifiedAttestation<'a, T: BeaconChainTypes> {
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
-impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for ManuallyVerifiedAttestation<'a, T> {
-    fn attestation(&self) -> &Attestation<T::EthSpec> {
-        self.attestation
+impl<T: BeaconChainTypes> VerifiedAttestation<T> for ManuallyVerifiedAttestation<'_, T> {
+    fn attestation(&self) -> AttestationRef<T::EthSpec> {
+        self.attestation.to_ref()
     }
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {

@@ -1,8 +1,6 @@
 use super::signature_sets::Error as SignatureSetError;
-use crate::per_epoch_processing::altair::participation_cache;
 use crate::ContextError;
 use merkle_proof::MerkleTreeError;
-use participation_cache::Error as ParticipationCacheError;
 use safe_arith::ArithError;
 use ssz::DecodeError;
 use types::*;
@@ -62,6 +60,7 @@ pub enum BlockProcessingError {
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
     SszDecodeError(DecodeError),
+    BitfieldError(ssz::BitfieldError),
     MerkleTreeError(MerkleTreeError),
     ArithError(ArithError),
     InconsistentBlockFork(InconsistentFork),
@@ -84,12 +83,14 @@ pub enum BlockProcessingError {
     },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    MilhouseError(milhouse::Error),
+    EpochCacheError(EpochCacheError),
     WithdrawalsRootMismatch {
         expected: Hash256,
         found: Hash256,
     },
     WithdrawalCredentialsInvalid,
-    ParticipationCacheError(ParticipationCacheError),
+    PendingAttestationInElectra,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -134,6 +135,18 @@ impl From<ContextError> for BlockProcessingError {
     }
 }
 
+impl From<EpochCacheError> for BlockProcessingError {
+    fn from(e: EpochCacheError) -> Self {
+        BlockProcessingError::EpochCacheError(e)
+    }
+}
+
+impl From<milhouse::Error> for BlockProcessingError {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
+    }
+}
+
 impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
     fn from(e: BlockOperationError<HeaderInvalid>) -> BlockProcessingError {
         match e {
@@ -141,15 +154,10 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+            BlockOperationError::BitfieldError(e) => BlockProcessingError::BitfieldError(e),
             BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
-    }
-}
-
-impl From<ParticipationCacheError> for BlockProcessingError {
-    fn from(e: ParticipationCacheError) -> Self {
-        BlockProcessingError::ParticipationCacheError(e)
     }
 }
 
@@ -175,6 +183,7 @@ macro_rules! impl_into_block_processing_error_with_index {
                         BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
                         BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
                         BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+                        BlockOperationError::BitfieldError(e) => BlockProcessingError::BitfieldError(e),
                         BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
                         BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
                     }
@@ -209,6 +218,7 @@ pub enum BlockOperationError<T> {
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     ConsensusContext(ContextError),
     ArithError(ArithError),
 }
@@ -233,6 +243,12 @@ impl<T> From<SignatureSetError> for BlockOperationError<T> {
 impl<T> From<ssz_types::Error> for BlockOperationError<T> {
     fn from(error: ssz_types::Error) -> Self {
         BlockOperationError::SszTypesError(error)
+    }
+}
+
+impl<T> From<ssz::BitfieldError> for BlockOperationError<T> {
+    fn from(error: ssz::BitfieldError) -> Self {
+        BlockOperationError::BitfieldError(error)
     }
 }
 
@@ -328,9 +344,11 @@ pub enum AttestationInvalid {
     ///
     /// `is_current` is `true` if the attestation was compared to the
     /// `state.current_justified_checkpoint`, `false` if compared to `state.previous_justified_checkpoint`.
+    ///
+    /// Checkpoints have been boxed to keep the error size down and prevent clippy failures.
     WrongJustifiedCheckpoint {
-        state: Checkpoint,
-        attestation: Checkpoint,
+        state: Box<Checkpoint>,
+        attestation: Box<Checkpoint>,
         is_current: bool,
     },
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.
@@ -359,6 +377,7 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
             BlockOperationError::BeaconStateError(e) => BlockOperationError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockOperationError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockOperationError::SszTypesError(e),
+            BlockOperationError::BitfieldError(e) => BlockOperationError::BitfieldError(e),
             BlockOperationError::ConsensusContext(e) => BlockOperationError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockOperationError::ArithError(e),
         }
@@ -404,7 +423,10 @@ pub enum ExitInvalid {
     /// The specified validator has already initiated exit.
     AlreadyInitiatedExit(u64),
     /// The exit is for a future epoch.
-    FutureEpoch { state: Epoch, exit: Epoch },
+    FutureEpoch {
+        state: Epoch,
+        exit: Epoch,
+    },
     /// The validator has not been active for long enough.
     TooYoungToExit {
         current_epoch: Epoch,
@@ -415,6 +437,7 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
+    PendingWithdrawalInQueue(u64),
 }
 
 #[derive(Debug, PartialEq, Clone)]

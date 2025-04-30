@@ -4,7 +4,7 @@ use safe_arith::SafeArith;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
-use types::{BeaconState, EthSpec, ForkName, Slot, Withdrawals};
+use types::{BeaconState, EthSpec, Slot, Withdrawals};
 
 const MAX_EPOCH_LOOKAHEAD: u64 = 2;
 
@@ -33,7 +33,7 @@ pub fn get_next_withdrawals<T: BeaconChainTypes>(
     }
 
     match get_expected_withdrawals(&state, &chain.spec) {
-        Ok(withdrawals) => Ok(withdrawals),
+        Ok((withdrawals, _)) => Ok(withdrawals),
         Err(e) => Err(warp_utils::reject::custom_server_error(format!(
             "failed to get expected withdrawal: {:?}",
             e
@@ -53,7 +53,8 @@ fn get_next_withdrawals_sanity_checks<T: BeaconChainTypes>(
     }
 
     let fork = chain.spec.fork_name_at_slot::<T::EthSpec>(proposal_slot);
-    if let ForkName::Base | ForkName::Altair | ForkName::Merge = fork {
+
+    if !fork.capella_enabled() {
         return Err(warp_utils::reject::custom_bad_request(
             "the specified state is a pre-capella state.".to_string(),
         ));

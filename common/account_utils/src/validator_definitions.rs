@@ -3,20 +3,18 @@
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
-use crate::{
-    default_keystore_password_path, read_password_string, write_file_via_temporary, ZeroizeString,
-};
-use directory::ensure_dir_exists;
+use crate::{default_keystore_password_path, read_password_string, write_file_via_temporary};
 use eth2_keystore::Keystore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use slog::{error, Logger};
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs::{self, create_dir_all, File};
 use std::io;
 use std::path::{Path, PathBuf};
+use tracing::error;
 use types::{graffiti::GraffitiString, Address, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
+use zeroize::Zeroizing;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
 pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
@@ -52,7 +50,7 @@ pub enum Error {
 /// Defines how a password for a validator keystore will be persisted.
 pub enum PasswordStorage {
     /// Store the password in the `validator_definitions.yml` file.
-    ValidatorDefinitions(ZeroizeString),
+    ValidatorDefinitions(Zeroizing<String>),
     /// Store the password in a separate, dedicated file (likely in the "secrets" directory).
     File(PathBuf),
     /// Don't store the password at all.
@@ -93,7 +91,7 @@ pub enum SigningDefinition {
         #[serde(skip_serializing_if = "Option::is_none")]
         voting_keystore_password_path: Option<PathBuf>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        voting_keystore_password: Option<ZeroizeString>,
+        voting_keystore_password: Option<Zeroizing<String>>,
     },
     /// A validator that defers to a Web3Signer HTTP server for signing.
     ///
@@ -107,7 +105,7 @@ impl SigningDefinition {
         matches!(self, SigningDefinition::LocalKeystore { .. })
     }
 
-    pub fn voting_keystore_password(&self) -> Result<Option<ZeroizeString>, Error> {
+    pub fn voting_keystore_password(&self) -> Result<Option<Zeroizing<String>>, Error> {
         match self {
             SigningDefinition::LocalKeystore {
                 voting_keystore_password: Some(password),
@@ -117,7 +115,6 @@ impl SigningDefinition {
                 voting_keystore_password_path: Some(path),
                 ..
             } => read_password_string(path)
-                .map(Into::into)
                 .map(Option::Some)
                 .map_err(Error::UnableToReadKeystorePassword),
             SigningDefinition::LocalKeystore { .. } => Err(Error::KeystoreWithoutPassword),
@@ -157,6 +154,12 @@ pub struct ValidatorDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_builder_proposals: Option<bool>,
+    #[serde(default)]
     pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
@@ -169,6 +172,7 @@ impl ValidatorDefinition {
     /// ## Notes
     ///
     /// This function does not check the password against the keystore.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_keystore_with_password<P: AsRef<Path>>(
         voting_keystore_path: P,
         voting_keystore_password_storage: PasswordStorage,
@@ -176,6 +180,8 @@ impl ValidatorDefinition {
         suggested_fee_recipient: Option<Address>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_boost_factor: Option<u64>,
+        prefer_builder_proposals: Option<bool>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
@@ -196,6 +202,8 @@ impl ValidatorDefinition {
             suggested_fee_recipient,
             gas_limit,
             builder_proposals,
+            builder_boost_factor,
+            prefer_builder_proposals,
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path,
@@ -219,7 +227,7 @@ impl From<Vec<ValidatorDefinition>> for ValidatorDefinitions {
 impl ValidatorDefinitions {
     /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
-        ensure_dir_exists(validators_dir.as_ref()).map_err(|_| {
+        create_dir_all(validators_dir.as_ref()).map_err(|_| {
             Error::UnableToCreateValidatorDir(PathBuf::from(validators_dir.as_ref()))
         })?;
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
@@ -258,7 +266,6 @@ impl ValidatorDefinitions {
         &mut self,
         validators_dir: P,
         secrets_dir: P,
-        log: &Logger,
     ) -> Result<usize, Error> {
         let mut keystore_paths = vec![];
         recursively_find_voting_keystores(validators_dir, &mut keystore_paths)
@@ -303,10 +310,9 @@ impl ValidatorDefinitions {
                     Ok(keystore) => keystore,
                     Err(e) => {
                         error!(
-                            log,
-                            "Unable to read validator keystore";
-                            "error" => e,
-                            "keystore" => format!("{:?}", voting_keystore_path)
+                            error = ?e,
+                            keystore = ?voting_keystore_path,
+                            "Unable to read validator keystore"
                         );
                         return None;
                     }
@@ -328,9 +334,8 @@ impl ValidatorDefinitions {
                     }
                     None => {
                         error!(
-                            log,
-                            "Invalid keystore public key";
-                            "keystore" => format!("{:?}", voting_keystore_path)
+                            keystore = ?voting_keystore_path,
+                            "Invalid keystore public key"
                         );
                         return None;
                     }
@@ -344,6 +349,8 @@ impl ValidatorDefinitions {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
@@ -423,7 +430,7 @@ pub fn recursively_find_voting_keystores<P: AsRef<Path>>(
             && dir_entry
                 .file_name()
                 .to_str()
-                .map_or(false, is_voting_keystore)
+                .is_some_and(is_voting_keystore)
         {
             matches.push(dir_entry.path())
         }

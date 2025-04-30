@@ -7,17 +7,16 @@ use ssz_types::typenum::Unsigned;
 use std::collections::HashSet;
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
+use std::sync::LazyLock;
 
-lazy_static! {
-    static ref SYNC_SUBNET_ID_TO_STRING: Vec<String> = {
-        let mut v = Vec::with_capacity(SYNC_COMMITTEE_SUBNET_COUNT as usize);
+static SYNC_SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut v = Vec::with_capacity(SYNC_COMMITTEE_SUBNET_COUNT as usize);
 
-        for i in 0..SYNC_COMMITTEE_SUBNET_COUNT {
-            v.push(i.to_string());
-        }
-        v
-    };
-}
+    for i in 0..SYNC_COMMITTEE_SUBNET_COUNT {
+        v.push(i.to_string());
+    }
+    v
+});
 
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -39,10 +38,10 @@ impl SyncSubnetId {
     }
 
     /// Compute required subnets to subscribe to given the sync committee indices.
-    pub fn compute_subnets_for_sync_committee<T: EthSpec>(
+    pub fn compute_subnets_for_sync_committee<E: EthSpec>(
         sync_committee_indices: &[u64],
     ) -> Result<HashSet<Self>, ArithError> {
-        let subcommittee_size = T::SyncSubcommitteeSize::to_u64();
+        let subcommittee_size = E::SyncSubcommitteeSize::to_u64();
 
         sync_committee_indices
             .iter()
@@ -77,15 +76,15 @@ impl From<u64> for SyncSubnetId {
     }
 }
 
-impl Into<u64> for SyncSubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<SyncSubnetId> for u64 {
+    fn from(from: SyncSubnetId) -> u64 {
+        from.0
     }
 }
 
-impl Into<u64> for &SyncSubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<&SyncSubnetId> for u64 {
+    fn from(from: &SyncSubnetId) -> u64 {
+        from.0
     }
 }
 

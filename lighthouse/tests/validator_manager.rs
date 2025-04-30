@@ -9,7 +9,9 @@ use tempfile::{tempdir, TempDir};
 use types::*;
 use validator_manager::{
     create_validators::CreateConfig,
+    delete_validators::DeleteConfig,
     import_validators::ImportConfig,
+    list_validators::ListConfig,
     move_validators::{MoveConfig, PasswordSource, Validators},
 };
 
@@ -55,7 +57,12 @@ impl<T> CommandLineTest<T> {
     }
 
     fn run(mut cmd: Command, should_succeed: bool) {
-        let output = cmd.output().expect("process should complete");
+        let output = cmd
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("process should complete");
         if output.status.success() != should_succeed {
             let stdout = String::from_utf8(output.stdout).unwrap();
             let stderr = String::from_utf8(output.stderr).unwrap();
@@ -100,6 +107,18 @@ impl CommandLineTest<MoveConfig> {
     }
 }
 
+impl CommandLineTest<ListConfig> {
+    fn validators_list() -> Self {
+        Self::default().flag("list", None)
+    }
+}
+
+impl CommandLineTest<DeleteConfig> {
+    fn validators_delete() -> Self {
+        Self::default().flag("delete", None)
+    }
+}
+
 #[test]
 pub fn validator_create_without_output_path() {
     CommandLineTest::validators_create().assert_failed();
@@ -117,11 +136,13 @@ pub fn validator_create_defaults() {
                 count: 1,
                 deposit_gwei: MainnetEthSpec::default_spec().max_effective_balance,
                 mnemonic_path: None,
-                stdin_inputs: cfg!(windows) || false,
+                stdin_inputs: cfg!(windows),
                 disable_deposits: false,
                 specify_voting_keystore_password: false,
                 eth1_withdrawal_address: None,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 bn_url: None,
@@ -143,6 +164,8 @@ pub fn validator_create_misc_flags() {
         .flag("--specify-voting-keystore-password", None)
         .flag("--eth1-withdrawal-address", Some(EXAMPLE_ETH1_ADDRESS))
         .flag("--builder-proposals", Some("true"))
+        .flag("--prefer-builder-proposals", Some("true"))
+        .flag("--builder-boost-factor", Some("150"))
         .flag("--suggested-fee-recipient", Some(EXAMPLE_ETH1_ADDRESS))
         .flag("--gas-limit", Some("1337"))
         .flag("--beacon-node", Some("http://localhost:1001"))
@@ -159,6 +182,8 @@ pub fn validator_create_misc_flags() {
                 specify_voting_keystore_password: true,
                 eth1_withdrawal_address: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
                 builder_proposals: Some(true),
+                builder_boost_factor: Some(150),
+                prefer_builder_proposals: Some(true),
                 fee_recipient: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
                 gas_limit: Some(1337),
                 bn_url: Some(SensitiveUrl::parse("http://localhost:1001").unwrap()),
@@ -176,7 +201,7 @@ pub fn validator_create_disable_deposits() {
         .flag("--disable-deposits", None)
         .flag("--builder-proposals", Some("false"))
         .assert_success(|config| {
-            assert_eq!(config.disable_deposits, true);
+            assert!(config.disable_deposits);
             assert_eq!(config.builder_proposals, Some(false));
         });
 }
@@ -188,10 +213,18 @@ pub fn validator_import_defaults() {
         .flag("--vc-token", Some("./token.json"))
         .assert_success(|config| {
             let expected = ImportConfig {
-                validators_file_path: PathBuf::from("./vals.json"),
+                validators_file_path: Some(PathBuf::from("./vals.json")),
+                keystore_file_path: None,
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: false,
+                password: None,
+                fee_recipient: None,
+                builder_boost_factor: None,
+                gas_limit: None,
+                builder_proposals: None,
+                enabled: None,
+                prefer_builder_proposals: None,
             };
             assert_eq!(expected, config);
         });
@@ -205,10 +238,18 @@ pub fn validator_import_misc_flags() {
         .flag("--ignore-duplicates", None)
         .assert_success(|config| {
             let expected = ImportConfig {
-                validators_file_path: PathBuf::from("./vals.json"),
+                validators_file_path: Some(PathBuf::from("./vals.json")),
+                keystore_file_path: None,
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: true,
+                password: None,
+                fee_recipient: None,
+                builder_boost_factor: None,
+                gas_limit: None,
+                builder_proposals: None,
+                enabled: None,
+                prefer_builder_proposals: None,
             };
             assert_eq!(expected, config);
         });
@@ -222,7 +263,17 @@ pub fn validator_import_missing_token() {
 }
 
 #[test]
-pub fn validator_import_missing_validators_file() {
+pub fn validator_import_using_both_file_flags() {
+    CommandLineTest::validators_import()
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--validators-file", Some("./vals.json"))
+        .flag("--keystore-file", Some("./keystore.json"))
+        .flag("--password", Some("abcd"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_import_missing_both_file_flags() {
     CommandLineTest::validators_import()
         .flag("--vc-token", Some("./token.json"))
         .assert_failed();
@@ -244,10 +295,12 @@ pub fn validator_move_defaults() {
                 dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::All,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);
@@ -280,6 +333,8 @@ pub fn validator_move_misc_flags_0() {
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
                 ]),
                 builder_proposals: Some(true),
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
                 gas_limit: Some(1337),
                 password_source: PasswordSource::Interactive { stdin_inputs: true },
@@ -295,8 +350,9 @@ pub fn validator_move_misc_flags_1() {
         .flag("--src-vc-token", Some("./1.json"))
         .flag("--dest-vc-url", Some("http://localhost:2"))
         .flag("--dest-vc-token", Some("./2.json"))
-        .flag("--validators", Some(&format!("{}", EXAMPLE_PUBKEY_0)))
+        .flag("--validators", Some(EXAMPLE_PUBKEY_0))
         .flag("--builder-proposals", Some("false"))
+        .flag("--prefer-builder-proposals", Some("false"))
         .assert_success(|config| {
             let expected = MoveConfig {
                 src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
@@ -307,10 +363,44 @@ pub fn validator_move_misc_flags_1() {
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
                 ]),
                 builder_proposals: Some(false),
+                builder_boost_factor: None,
+                prefer_builder_proposals: Some(false),
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
+                },
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_move_misc_flags_2() {
+    CommandLineTest::validators_move()
+        .flag("--src-vc-url", Some("http://localhost:1"))
+        .flag("--src-vc-token", Some("./1.json"))
+        .flag("--dest-vc-url", Some("http://localhost:2"))
+        .flag("--dest-vc-token", Some("./2.json"))
+        .flag("--validators", Some(EXAMPLE_PUBKEY_0))
+        .flag("--builder-proposals", Some("false"))
+        .flag("--builder-boost-factor", Some("100"))
+        .assert_success(|config| {
+            let expected = MoveConfig {
+                src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
+                src_vc_token_path: PathBuf::from("./1.json"),
+                dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
+                dest_vc_token_path: PathBuf::from("./2.json"),
+                validators: Validators::Specific(vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
+                ]),
+                builder_proposals: Some(false),
+                builder_boost_factor: Some(100),
+                prefer_builder_proposals: None,
+                fee_recipient: None,
+                gas_limit: None,
+                password_source: PasswordSource::Interactive {
+                    stdin_inputs: cfg!(windows),
                 },
             };
             assert_eq!(expected, config);
@@ -333,11 +423,47 @@ pub fn validator_move_count() {
                 dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Count(42),
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 password_source: PasswordSource::Interactive {
-                    stdin_inputs: cfg!(windows) || false,
+                    stdin_inputs: cfg!(windows),
                 },
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_list_defaults() {
+    CommandLineTest::validators_list()
+        .flag("--vc-token", Some("./token.json"))
+        .assert_success(|config| {
+            let expected = ListConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_delete_defaults() {
+    CommandLineTest::validators_delete()
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--vc-token", Some("./token.json"))
+        .assert_success(|config| {
+            let expected = DeleteConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                validators_to_delete: vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
+                ],
             };
             assert_eq!(expected, config);
         });

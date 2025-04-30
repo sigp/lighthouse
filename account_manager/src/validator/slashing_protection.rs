@@ -1,4 +1,4 @@
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use environment::Environment;
 use slashing_protection::{
     interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
@@ -18,44 +18,48 @@ pub const EXPORT_FILE_ARG: &str = "EXPORT-FILE";
 
 pub const PUBKEYS_FLAG: &str = "pubkeys";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about("Import or export slashing protection data to or from another client")
+        .display_order(0)
         .subcommand(
-            App::new(IMPORT_CMD)
+            Command::new(IMPORT_CMD)
                 .about("Import an interchange file")
                 .arg(
-                    Arg::with_name(IMPORT_FILE_ARG)
-                        .takes_value(true)
+                    Arg::new(IMPORT_FILE_ARG)
+                        .action(ArgAction::Set)
                         .value_name("FILE")
+                         .display_order(0)
                         .help("The slashing protection interchange file to import (.json)"),
                 )
         )
         .subcommand(
-            App::new(EXPORT_CMD)
+            Command::new(EXPORT_CMD)
                 .about("Export an interchange file")
                 .arg(
-                    Arg::with_name(EXPORT_FILE_ARG)
-                        .takes_value(true)
+                    Arg::new(EXPORT_FILE_ARG)
+                        .action(ArgAction::Set)
                         .value_name("FILE")
-                        .help("The filename to export the interchange file to"),
+                        .help("The filename to export the interchange file to")
+                        .display_order(0)
                 )
                 .arg(
-                    Arg::with_name(PUBKEYS_FLAG)
+                    Arg::new(PUBKEYS_FLAG)
                         .long(PUBKEYS_FLAG)
-                        .takes_value(true)
+                        .action(ArgAction::Set)
                         .value_name("PUBKEYS")
                         .help(
                             "List of public keys to export history for. Keys should be 0x-prefixed, \
                              comma-separated. All known keys will be exported if omitted",
-                        ),
+                        )
+                        .display_order(0)
                 )
         )
 }
 
-pub fn cli_run<T: EthSpec>(
-    matches: &ArgMatches<'_>,
-    env: Environment<T>,
+pub fn cli_run<E: EthSpec>(
+    matches: &ArgMatches,
+    env: Environment<E>,
     validator_base_dir: PathBuf,
 ) -> Result<(), String> {
     let slashing_protection_db_path = validator_base_dir.join(SLASHING_PROTECTION_FILENAME);
@@ -64,11 +68,11 @@ pub fn cli_run<T: EthSpec>(
         .ok_or("Unable to get testnet configuration from the environment")?;
 
     let genesis_validators_root = eth2_network_config
-        .genesis_validators_root::<T>()?
+        .genesis_validators_root::<E>()?
         .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?;
 
     match matches.subcommand() {
-        (IMPORT_CMD, Some(matches)) => {
+        Some((IMPORT_CMD, matches)) => {
             let import_filename: PathBuf = clap_utils::parse_required(matches, IMPORT_FILE_ARG)?;
             let import_file = File::open(&import_filename).map_err(|e| {
                 format!(
@@ -168,7 +172,7 @@ pub fn cli_run<T: EthSpec>(
 
             Ok(())
         }
-        (EXPORT_CMD, Some(matches)) => {
+        Some((EXPORT_CMD, matches)) => {
             let export_filename: PathBuf = clap_utils::parse_required(matches, EXPORT_FILE_ARG)?;
 
             let selected_pubkeys = if let Some(pubkeys) =
@@ -215,7 +219,7 @@ pub fn cli_run<T: EthSpec>(
 
             Ok(())
         }
-        ("", _) => Err("No subcommand provided, see --help for options".to_string()),
-        (command, _) => Err(format!("No such subcommand `{}`", command)),
+        Some((command, _)) => Err(format!("No such subcommand `{}`", command)),
+        _ => Err("No subcommand provided, see --help for options".to_string()),
     }
 }

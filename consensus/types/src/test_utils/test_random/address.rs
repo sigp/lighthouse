@@ -1,5 +1,4 @@
 use super::*;
-use crate::Address;
 
 impl TestRandom for Address {
     fn random_for_test(rng: &mut impl RngCore) -> Self {

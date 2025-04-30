@@ -1,5 +1,4 @@
-use crate::per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError;
-use types::{BeaconStateError, InconsistentFork};
+use types::{milhouse, BeaconStateError, EpochCacheError, InconsistentFork};
 
 #[derive(Debug, PartialEq)]
 pub enum EpochProcessingError {
@@ -20,11 +19,17 @@ pub enum EpochProcessingError {
     BeaconStateError(BeaconStateError),
     InclusionError(InclusionError),
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     ArithError(safe_arith::ArithError),
     InconsistentStateFork(InconsistentFork),
-    InvalidJustificationBit(ssz_types::Error),
+    InvalidJustificationBit(ssz::BitfieldError),
     InvalidFlagIndex(usize),
-    ParticipationCache(ParticipationCacheError),
+    MilhouseError(milhouse::Error),
+    EpochCache(EpochCacheError),
+    SinglePassMissingActivationQueue,
+    MissingEarliestExitEpoch,
+    MissingExitBalanceToConsume,
+    PendingDepositsLogicError,
 }
 
 impl From<InclusionError> for EpochProcessingError {
@@ -45,15 +50,27 @@ impl From<ssz_types::Error> for EpochProcessingError {
     }
 }
 
+impl From<ssz::BitfieldError> for EpochProcessingError {
+    fn from(e: ssz::BitfieldError) -> EpochProcessingError {
+        EpochProcessingError::BitfieldError(e)
+    }
+}
+
 impl From<safe_arith::ArithError> for EpochProcessingError {
     fn from(e: safe_arith::ArithError) -> EpochProcessingError {
         EpochProcessingError::ArithError(e)
     }
 }
 
-impl From<ParticipationCacheError> for EpochProcessingError {
-    fn from(e: ParticipationCacheError) -> EpochProcessingError {
-        EpochProcessingError::ParticipationCache(e)
+impl From<milhouse::Error> for EpochProcessingError {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
+    }
+}
+
+impl From<EpochCacheError> for EpochProcessingError {
+    fn from(e: EpochCacheError) -> Self {
+        EpochProcessingError::EpochCache(e)
     }
 }
 
