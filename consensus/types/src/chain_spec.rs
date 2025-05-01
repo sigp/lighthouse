@@ -243,7 +243,7 @@ pub struct ChainSpec {
     /*
      * Networking Fulu
      */
-    max_blobs_per_block_fulu: u64,
+    pub max_blobs_per_block_fulu: u64,
 
     /*
      * Networking Derived

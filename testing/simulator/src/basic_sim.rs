@@ -153,6 +153,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
     spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
     spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
+    spec.max_blobs_per_block_fulu = 9;
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
@@ -185,29 +186,30 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
 
         // Add nodes to the network.
         for i in 0..node_count {
-            let mut beacon_config = beacon_config.clone();
-            // Run one PeerDAS supernode.
-            if i == 0 {
-                beacon_config.network.subscribe_all_data_column_subnets = true;
-            }
+            // Run two PeerDAS supernodes.
+            let is_supernode = i < 2;
             network
-                .add_beacon_node(beacon_config, mock_execution_config.clone(), false)
+                .add_beacon_node(
+                    beacon_config.clone(),
+                    mock_execution_config.clone(),
+                    false,
+                    is_supernode,
+                )
                 .await?;
         }
 
         /*
          * One by one, add proposer nodes to the network.
          */
-        for i in 0..proposer_nodes {
-            let mut beacon_config = beacon_config.clone();
-            // Run one PeerDAS proposer supernode.
-            if i == 0 {
-                beacon_config.network.subscribe_all_data_column_subnets = true;
-            }
-
+        for _ in 0..proposer_nodes {
             println!("Adding a proposer node");
             network
-                .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), true)
+                .add_beacon_node(
+                    beacon_config.clone(),
+                    mock_execution_config.clone(),
+                    true,
+                    false,
+                )
                 .await?;
         }
 
