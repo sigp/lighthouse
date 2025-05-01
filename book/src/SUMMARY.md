@@ -30,7 +30,6 @@
   * [Validator Client API](./api-vc.md)
     * [Endpoints](./api-vc-endpoints.md)
     * [Authorization Header](./api-vc-auth-header.md)
-    * [Signature Header](./api-vc-sig-header.md)
   * [Prometheus Metrics](./advanced_metrics.md)
 * [Lighthouse UI (Siren)](./lighthouse-ui.md)
   * [Configuration](./ui-configuration.md)
