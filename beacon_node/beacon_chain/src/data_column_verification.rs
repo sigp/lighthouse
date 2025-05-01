@@ -1,3 +1,4 @@
+use crate::beacon_proposer_cache::EpochBlockProposers;
 use crate::block_verification::{
     cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
     BlockSlashInfo,
@@ -602,14 +603,19 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
             parent_block.root
         };
 
-    let proposer_opt = chain
+    // We lock the cache briefly to get or insert a OnceCell, then drop the lock
+    // before doing proposer shuffling calculation via `OnceCell::get_or_try_init`. This avoids
+    // holding the lock during the computation, while still ensuring the result is cached and
+    // initialised only once.
+    //
+    // This approach exposes the cache internals (`OnceCell` & `EpochBlockProposers`)
+    //  as a trade-off for avoiding lock contention.
+    let epoch_proposers_cell = chain
         .beacon_proposer_cache
         .lock()
-        .get_slot::<T::EthSpec>(proposer_shuffling_root, column_slot);
+        .get_or_insert_key(column_epoch, proposer_shuffling_root);
 
-    let (proposer_index, fork) = if let Some(proposer) = proposer_opt {
-        (proposer.index, proposer.fork)
-    } else {
+    let epoch_proposers = epoch_proposers_cell.get_or_try_init(move || {
         debug!(
             %block_root,
             index = %column_index,
@@ -633,19 +639,20 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
         )?;
 
         let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
-        let proposer_index = *proposers
-            .get(column_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
-            .ok_or_else(|| BeaconChainError::NoProposerForSlot(column_slot))?;
-
         // Prime the proposer shuffling cache with the newly-learned value.
-        chain.beacon_proposer_cache.lock().insert(
-            column_epoch,
-            proposer_shuffling_root,
-            proposers,
-            state.fork(),
-        )?;
-        (proposer_index, state.fork())
-    };
+        Ok::<_, GossipDataColumnError>(EpochBlockProposers {
+            epoch: column_epoch,
+            fork: state.fork(),
+            proposers: proposers.into(),
+        })
+    })?;
+
+    let proposer_index = *epoch_proposers
+        .proposers
+        .get(column_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
+        .ok_or_else(|| BeaconChainError::NoProposerForSlot(column_slot))?;
+
+    let fork = epoch_proposers.fork;
 
     // Signature verify the signed block header.
     let signature_is_valid = {

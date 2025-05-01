@@ -11,10 +11,12 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use fork_choice::ExecutionStatus;
 use lru::LruCache;
+use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot, Unsigned,
@@ -39,21 +41,21 @@ pub struct Proposer {
 /// their signatures.
 pub struct EpochBlockProposers {
     /// The epoch to which the proposers pertain.
-    epoch: Epoch,
+    pub(crate) epoch: Epoch,
     /// The fork that should be used to verify proposer signatures.
-    fork: Fork,
+    pub(crate) fork: Fork,
     /// A list of length `T::EthSpec::slots_per_epoch()`, representing the proposers for each slot
     /// in that epoch.
     ///
     /// E.g., if `self.epoch == 1`, then `self.proposers[0]` contains the proposer for slot `32`.
-    proposers: SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>,
+    pub(crate) proposers: SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>,
 }
 
 /// A cache to store the proposers for some epoch.
 ///
 /// See the module-level documentation for more information.
 pub struct BeaconProposerCache {
-    cache: LruCache<(Epoch, Hash256), EpochBlockProposers>,
+    cache: LruCache<(Epoch, Hash256), Arc<OnceCell<EpochBlockProposers>>>,
 }
 
 impl Default for BeaconProposerCache {
@@ -74,7 +76,8 @@ impl BeaconProposerCache {
     ) -> Option<Proposer> {
         let epoch = slot.epoch(E::slots_per_epoch());
         let key = (epoch, shuffling_decision_block);
-        if let Some(cache) = self.cache.get(&key) {
+        let cache_opt = self.cache.get(&key).and_then(|cell| cell.get());
+        if let Some(cache) = cache_opt {
             // This `if` statement is likely unnecessary, but it feels like good practice.
             if epoch == cache.epoch {
                 cache
@@ -103,7 +106,26 @@ impl BeaconProposerCache {
         epoch: Epoch,
     ) -> Option<&SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>> {
         let key = (epoch, shuffling_decision_block);
-        self.cache.get(&key).map(|cache| &cache.proposers)
+        self.cache
+            .get(&key)
+            .and_then(|cache_once_cell| cache_once_cell.get().map(|proposers| &proposers.proposers))
+    }
+
+    /// Returns the `OnceCell` for the given `(epoch, shuffling_decision_block)` key,
+    /// inserting an empty one if it doesn't exist.
+    ///
+    /// The returned `OnceCell` allows the caller to initialise the value externally
+    /// using `get_or_try_init`, enabling deferred computation without holding a mutable
+    /// reference to the cache.
+    pub fn get_or_insert_key(
+        &mut self,
+        epoch: Epoch,
+        shuffling_decision_block: Hash256,
+    ) -> Arc<OnceCell<EpochBlockProposers>> {
+        let key = (epoch, shuffling_decision_block);
+        self.cache
+            .get_or_insert(key, || Arc::new(OnceCell::new()))
+            .clone()
     }
 
     /// Insert the proposers into the cache.
@@ -120,14 +142,13 @@ impl BeaconProposerCache {
     ) -> Result<(), BeaconStateError> {
         let key = (epoch, shuffling_decision_block);
         if !self.cache.contains(&key) {
-            self.cache.put(
-                key,
-                EpochBlockProposers {
-                    epoch,
-                    fork,
-                    proposers: proposers.into(),
-                },
-            );
+            let epoch_proposers = EpochBlockProposers {
+                epoch,
+                fork,
+                proposers: proposers.into(),
+            };
+            self.cache
+                .put(key, Arc::new(OnceCell::with_value(epoch_proposers)));
         }
 
         Ok(())
