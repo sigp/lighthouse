@@ -331,7 +331,7 @@ impl<E: EthSpec> PendingComponents<E> {
             format!(
                 "block {} blobs {}/{}",
                 block_count,
-                self.verified_blobs.len(),
+                self.verified_blobs.iter().flatten().count(),
                 num_expected_blobs
             )
         }
