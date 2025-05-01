@@ -153,7 +153,7 @@ impl<E: EthSpec> PeerDB<E> {
         matches!(
             self.connection_status(peer_id),
             Some(PeerConnectionStatus::Disconnected { .. })
-                | Some(PeerConnectionStatus::Unknown { .. })
+                | Some(PeerConnectionStatus::Unknown)
                 | None
         ) && !self.score_state_banned_or_disconnected(peer_id)
     }
@@ -771,8 +771,8 @@ impl<E: EthSpec> PeerDB<E> {
                 NewConnectionState::Connected { .. }          // We have established a new connection (peer may not have been seen before)
                     | NewConnectionState::Disconnecting { .. }// We are disconnecting from a peer that may not have been registered before
                     | NewConnectionState::Dialing { .. }      // We are dialing a potentially new peer
-                    | NewConnectionState::Disconnected { .. } // Dialing a peer that responds by a different ID can be immediately
-                                                              // disconnected without having being stored in the db before
+                    | NewConnectionState::Disconnected // Dialing a peer that responds by a different ID can be immediately
+                                                       // disconnected without having being stored in the db before
             ) {
                 warn!(%peer_id, ?new_state, "Updating state of unknown peer");
             }

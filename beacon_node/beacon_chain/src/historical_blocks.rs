@@ -132,7 +132,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 AvailableBlockData::Blobs(..) => {
                     new_oldest_blob_slot = Some(block.slot());
                 }
-                AvailableBlockData::DataColumns(_) | AvailableBlockData::DataColumnsRecv(_) => {
+                AvailableBlockData::DataColumns(_) => {
                     new_oldest_data_column_slot = Some(block.slot());
                 }
             }

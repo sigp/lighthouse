@@ -74,8 +74,8 @@ const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 
 /// Currently used as the default gas limit in execution clients.
 ///
-/// https://github.com/ethereum/builder-specs/issues/17
-pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
+/// https://ethresear.ch/t/on-increasing-the-block-gas-limit-technical-considerations-path-forward/21225.
+pub const DEFAULT_GAS_LIMIT: u64 = 36_000_000;
 
 pub struct ValidatorStore<T, E: EthSpec> {
     validators: Arc<RwLock<InitializedValidators>>,
@@ -263,9 +263,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// are two primary functions used here:
     ///
     /// - `DoppelgangerStatus::only_safe`: only returns pubkeys which have passed doppelganger
-    ///     protection and are safe-enough to sign messages.
+    ///   protection and are safe-enough to sign messages.
     /// - `DoppelgangerStatus::ignored`: returns all the pubkeys from `only_safe` *plus* those still
-    ///     undergoing protection. This is useful for collecting duties or other non-signing tasks.
+    ///   undergoing protection. This is useful for collecting duties or other non-signing tasks.
     #[allow(clippy::needless_collect)] // Collect is required to avoid holding a lock.
     pub fn voting_pubkeys<I, F>(&self, filter_func: F) -> I
     where

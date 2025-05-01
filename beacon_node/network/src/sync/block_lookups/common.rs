@@ -6,7 +6,6 @@ use crate::sync::block_lookups::{
 };
 use crate::sync::manager::BlockProcessType;
 use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
-use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::service::api_types::Id;
 use parking_lot::RwLock;
@@ -97,13 +96,8 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
             seen_timestamp,
             ..
         } = download_result;
-        cx.send_block_for_processing(
-            id,
-            block_root,
-            RpcBlock::new_without_blobs(Some(block_root), value),
-            seen_timestamp,
-        )
-        .map_err(LookupRequestError::SendFailedProcessor)
+        cx.send_block_for_processing(id, block_root, value, seen_timestamp)
+            .map_err(LookupRequestError::SendFailedProcessor)
     }
 
     fn response_type() -> ResponseType {
