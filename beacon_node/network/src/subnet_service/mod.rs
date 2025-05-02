@@ -134,7 +134,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             // We are subscribed to all subnets, set all the bits to true.
             for index in 0..beacon_chain.spec.attestation_subnet_count {
                 let index_usize = index as usize;
-                // Instead of using expect, handle any potential error and log it
                 if let Err(e) = permanent_attestation_subscriptions.set(index_usize, true) {
                     // This should never happen, but log it if it does
                     warn!(
