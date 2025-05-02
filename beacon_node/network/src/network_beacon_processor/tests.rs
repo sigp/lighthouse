@@ -26,11 +26,12 @@ use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
 };
 use slot_clock::SlotClock;
+use tracing::debug;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::{blob_sidecar::FixedBlobSidecarList, ChainSpec};
 use types::{
     Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, DataColumnSidecarList,
     DataColumnSubnetId, Epoch, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof,
@@ -91,11 +92,28 @@ impl TestRig {
     }
 
     pub async fn new_parametric(chain_length: u64, enable_backfill_rate_limiting: bool) -> Self {
-        // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
         let spec = Arc::new(spec);
 
+        Self::new_parametric_inner(spec, chain_length, enable_backfill_rate_limiting).await
+    }
+
+    pub async fn new_parametric_with_custom_fulu_epoch(
+        chain_length: u64,
+        enable_backfill_rate_limiting: bool,
+        fulu_epoch: Epoch
+    ) -> Self {
+        let mut spec = test_spec::<E>();
+        spec.shard_committee_period = 2;
+        spec.fulu_fork_epoch = Some(fulu_epoch);
+        let spec = Arc::new(spec);
+        
+        Self::new_parametric_inner(spec, chain_length, enable_backfill_rate_limiting).await
+    }
+
+    async fn new_parametric_inner(spec: Arc<ChainSpec>, chain_length: u64, enable_backfill_rate_limiting: bool) -> Self {
+        // This allows for testing voluntary exits without building out a massive chain.
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
@@ -1211,94 +1229,96 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     .await;
 }
 
+async fn test_blobs_by_range(
+    rig: &mut TestRig,
+    start_slot: u64,
+    slot_count: u64,
+    //blob_count_expected: usize,
+) {
+    rig.enqueue_blobs_by_range_request(start_slot, slot_count);
+
+    let mut blob_count = 0;
+    for slot in start_slot..slot_count {
+        let root = rig
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap();
+        debug!("slot and root {} {:?}", slot, root);
+        blob_count += root
+            .map(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .map(|list| list.len())
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+    }
+    let mut actual_count = 0;
+    while let Some(next) = rig._network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    debug!("{} {} {} {}", start_slot, slot_count, blob_count, actual_count);
+    assert_eq!(blob_count, actual_count);
+}
+
 #[tokio::test]
-async fn test_blobs_by_range() {
+async fn test_blobs_by_range_pre_fulu() {
     if test_spec::<E>().deneb_fork_epoch.is_none() {
         return;
     };
     let rig_slot = 64;
     let mut rig = TestRig::new(rig_slot).await;
     let slot_count = 32;
-    // can I use slots_per_epoch from types::EthSpec?
-    rig.enqueue_blobs_by_range_request(0, slot_count);
-
-    let mut blob_count = 0;
-    for slot in 0..slot_count {
-        let root = rig
-            .chain
-            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
-            .unwrap();
-        blob_count += root
-            .map(|root| {
-                rig.chain
-                    .get_blobs(&root)
-                    .map(|list| list.len())
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0);
-    }
-    let mut actual_count = 0;
-    while let Some(next) = rig._network_rx.recv().await {
-        if let NetworkMessage::SendResponse {
-            peer_id: _,
-            response: Response::BlobsByRange(blob),
-            inbound_request_id: _,
-        } = next
-        {
-            if blob.is_some() {
-                actual_count += 1;
-            } else {
-                break;
-            }
-        } else {
-            panic!("unexpected message {:?}", next);
-        }
-    }
-    assert_eq!(blob_count, actual_count);
+    test_blobs_by_range(&mut rig, 0, slot_count).await;
+    test_blobs_by_range(&mut rig, 0, slot_count).await;
+    test_blobs_by_range(&mut rig, 0, 16).await;
+    test_blobs_by_range(&mut rig, 8, 16).await;
+    test_blobs_by_range(&mut rig, 32, slot_count).await;
 }
 
 #[tokio::test]
 async fn test_blobs_by_range_fulu() {
-    if !test_spec::<E>().is_peer_das_scheduled() {
-        return;
-    };
-    let mut rig = TestRig::new(64).await;
-    let slot_count = 32;
-    rig.enqueue_blobs_by_range_request(0, slot_count);
+    //if !test_spec::<E>().is_peer_das_scheduled() {
+    //    return;
+    //}
 
-    let mut blob_count = 0;
-    for slot in 0..slot_count {
-        let root = rig
-            .chain
-            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
-            .unwrap();
-        blob_count += root
-            .map(|root| {
-                rig.chain
-                    .get_blobs(&root)
-                    .map(|list| list.len())
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0);
+    let fulu_epoch = Slot::new(SLOTS_PER_EPOCH * 4).epoch(SLOTS_PER_EPOCH);
+
+    let pre_fulu_start_slot = 0;//SLOTS_PER_EPOCH;// + (3 % SLOTS_PER_EPOCH);
+    let fulu_start_slot = SLOTS_PER_EPOCH * 6;// + (7 % SLOTS_PER_EPOCH);
+    let slot_count = SLOTS_PER_EPOCH;// + 1;
+    let slot_count_long = SLOTS_PER_EPOCH * 5;// + (2 % SLOTS_PER_EPOCH);
+
+    let test_cases = vec![
+        (0, slot_count_long),
+        //(pre_fulu_start_slot, slot_count),
+        //(pre_fulu_start_slot, 0),
+        //(pre_fulu_start_slot, slot_count_long),
+        //(fulu_start_slot, slot_count),
+        //(fulu_start_slot, 0),
+    ];
+
+    for (start_slot, count) in test_cases {
+        let mut rig = TestRig::new_parametric_with_custom_fulu_epoch(
+            SLOTS_PER_EPOCH * 8,
+            BeaconProcessorConfig::default().enable_backfill_rate_limiting,
+            fulu_epoch,
+        )
+        .await;
+
+        test_blobs_by_range(&mut rig, start_slot, count).await;
     }
-    let mut actual_count = 0;
-    while let Some(next) = rig._network_rx.recv().await {
-        if let NetworkMessage::SendResponse {
-            peer_id: _,
-            response: Response::BlobsByRange(blob),
-            inbound_request_id: _,
-        } = next
-        {
-            if blob.is_some() {
-                actual_count += 1;
-            } else {
-                break;
-            }
-        } else {
-            panic!("unexpected message {:?}", next);
-        }
-    }
-    assert_eq!(blob_count, 0);
-    assert_eq!(actual_count, 0);
-    assert_eq!(blob_count, actual_count);
 }
