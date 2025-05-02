@@ -152,7 +152,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                 SubnetId::compute_attestation_subnets(node_id.raw(), &beacon_chain.spec)
             {
                 let index = subnet_id.into();
-                // Instead of using expect, handle any potential error and log it
                 if let Err(e) = permanent_attestation_subscriptions.set(index, true) {
                     // This should never happen, but log it if it does
                     warn!(
