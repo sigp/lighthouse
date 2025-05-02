@@ -403,7 +403,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
                 BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
                     // these are all inconsistent states:
-                    // - Failed -> non recoverable batch. Chain should have beee removed
+                    // - Failed -> non recoverable batch. Chain should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
                     //   re-requested.
                     // - Processing -> `self.current_processing_batch` is None
@@ -434,12 +434,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // target when there is no sampling peers available. This is a valid state and should not
             // return an error.
             return Ok(KeepChain);
-        } else {
-            return Err(RemoveChain::WrongChainState(format!(
-                "Batch not found for current processing target {}",
-                self.processing_target
-            )));
         }
+
+        // NOTE: It is possible that the batch doesn't exist for the processing id. This can happen
+        // when we complete a batch and attempt do download a new batch but there are:
+        // 1. No idle peers to download from
+        // 2. No good peers on sampling subnets
+        //
+        // In these cases, a batch will not yet exist.
+
         Ok(KeepChain)
     }
 
@@ -552,7 +555,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 imported_blocks,
                 penalty,
             } => {
-                // Penalize the peer appropiately.
+                // Penalize the peer appropriately.
                 network.report_peer(peer, *penalty, "faulty_batch");
 
                 // Check if this batch is allowed to continue
@@ -594,7 +597,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
             BatchProcessResult::NonFaultyFailure => {
                 batch.processing_completed(BatchProcessingResult::NonFaultyFailure)?;
-                // Simply redownload the batch.
+                // Simply re-download the batch.
                 self.retry_batch_download(network, batch_id)
             }
         }
