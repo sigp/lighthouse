@@ -61,6 +61,12 @@ pub fn cli_app() -> Command {
                         .long("continue_after_checks")
                         .action(ArgAction::SetTrue)
                         .help("Continue after checks (default false)"),
+                )
+                .arg(
+                    Arg::new("log-dir")
+                        .long("log-dir")
+                        .action(ArgAction::Set)
+                        .help("Set a path for logs of beacon nodes that run in this simulation."),
                 ),
         )
         .subcommand(
