@@ -64,9 +64,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing debug-level");
 
     let continue_after_checks = matches.get_flag("continue-after-checks");
-    let log_dir = matches
-        .get_one::<String>("log-dir")
-        .map(|dir| PathBuf::from(dir));
+    let log_dir = matches.get_one::<String>("log-dir").map(PathBuf::from);
 
     println!("Basic Simulator:");
     println!(" nodes: {}", node_count);

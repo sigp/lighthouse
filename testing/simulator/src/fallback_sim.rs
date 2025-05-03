@@ -70,9 +70,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let continue_after_checks = matches.get_flag("continue-after-checks");
 
-    let log_dir = matches
-        .get_one::<String>("log-dir")
-        .map(|dir| PathBuf::from(dir));
+    let log_dir = matches.get_one::<String>("log-dir").map(PathBuf::from);
 
     println!("Fallback Simulator:");
     println!(" vc-count: {}", vc_count);
