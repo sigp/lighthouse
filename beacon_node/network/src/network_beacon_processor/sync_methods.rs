@@ -672,7 +672,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | HistoricalBlockError::InvalidDataColumnsSignature(_)
                     | HistoricalBlockError::Unexpected(_)
                     | HistoricalBlockError::AvailabilityCheckError(_) => {
-                        warn!(
+                        debug!(
                             error = ?e,
                             "Backfill blob or data column verification error"
                         );

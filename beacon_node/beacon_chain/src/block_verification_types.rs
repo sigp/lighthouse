@@ -270,23 +270,6 @@ impl<E: EthSpec> RpcBlock<E> {
             RpcBlockInner::BlockAndCustodyColumns(_, data_columns) => data_columns.len(),
         }
     }
-
-    /// Only used for testing
-    pub fn __clone_without_recv(&self) -> Self {
-        Self {
-            block_root: self.block_root,
-            block: match &self.block {
-                RpcBlockInner::Block(block) => RpcBlockInner::Block(block.clone()),
-                RpcBlockInner::BlockAndBlobs(block, blobs) => {
-                    RpcBlockInner::BlockAndBlobs(block.clone(), blobs.clone())
-                }
-                RpcBlockInner::BlockAndCustodyColumns(block, cols) => {
-                    RpcBlockInner::BlockAndCustodyColumns(block.clone(), cols.clone())
-                }
-            },
-            custody_columns_count: self.custody_columns_count,
-        }
-    }
 }
 
 /// A block that has gone through all pre-deneb block processing checks including block processing

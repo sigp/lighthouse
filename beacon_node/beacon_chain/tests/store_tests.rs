@@ -2494,11 +2494,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
     let mut batch_with_invalid_first_block = rpc_blocks
         .iter()
-        .map(|block| block.__clone_without_recv())
+        .map(|block| block.clone())
         .collect::<Vec<_>>();
     batch_with_invalid_first_block[0] = {
-        let (block_root, mut block, blobs, columns) =
-            rpc_blocks[0].__clone_without_recv().deconstruct();
+        let (block_root, mut block, blobs, columns) = rpc_blocks[0].clone().deconstruct();
         let custody_columns_count = rpc_blocks[0].custody_columns_count();
         let block_mut = Arc::make_mut(&mut block);
         *block_mut.signature_mut() = Signature::empty();
@@ -2507,11 +2506,11 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
 
     // Corrupt the signature and KZG commitments on the 1st blocks with blob sidecar and data
     // column sidecar to ensure that the backfill processor is checking signatures correctly.
-    if is_deneb || is_fulu {
+    if is_deneb {
         let first_blob_or_col_index = rpc_blocks
             .iter()
             .position(|block| {
-                let (_, _, blobs, columns) = block.__clone_without_recv().deconstruct();
+                let (_, _, blobs, columns) = block.clone().deconstruct();
                 if blobs.is_some() {
                     is_deneb && !is_fulu
                 } else if columns.is_some() {
@@ -2524,27 +2523,17 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
 
         let mut batch_with_invalid_header = rpc_blocks
             .iter()
-            .map(|block| block.__clone_without_recv())
+            .map(|block| block.clone())
             .collect::<Vec<_>>();
         batch_with_invalid_header[first_blob_or_col_index] = {
             let (block_root, block, blobs, cols) = batch_with_invalid_header
                 [first_blob_or_col_index]
-                .__clone_without_recv()
+                .clone()
                 .deconstruct();
             let custody_columns_count =
                 batch_with_invalid_header[first_blob_or_col_index].custody_columns_count();
-            if let Some(mut sidecars) = blobs {
-                assert!(!sidecars.is_empty(), "blob sidecars shouldn't be empty");
-                let mut_sidecar = Arc::make_mut(&mut sidecars[0]);
-                mut_sidecar.signed_block_header.signature = Signature::empty();
-                RpcBlock::__new_for_testing(
-                    block_root,
-                    block,
-                    Some(sidecars),
-                    cols,
-                    custody_columns_count,
-                )
-            } else if let Some(mut sidecars) = cols {
+            if is_fulu {
+                let mut sidecars = cols.unwrap();
                 assert!(
                     !sidecars.is_empty(),
                     "data column sidecars shouldn't be empty"
@@ -2561,24 +2550,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                     custody_columns_count,
                 )
             } else {
-                panic!("should get blobs or data columns")
-            }
-        };
-
-        let mut batch_with_invalid_kzg = rpc_blocks
-            .iter()
-            .map(|block| block.__clone_without_recv())
-            .collect::<Vec<_>>();
-        batch_with_invalid_kzg[first_blob_or_col_index] = {
-            let (block_root, block, blobs, cols) = batch_with_invalid_kzg[first_blob_or_col_index]
-                .__clone_without_recv()
-                .deconstruct();
-            let custody_columns_count =
-                batch_with_invalid_kzg[first_blob_or_col_index].custody_columns_count();
-            if let Some(mut sidecars) = blobs {
+                let mut sidecars = blobs.unwrap();
                 assert!(!sidecars.is_empty(), "blob sidecars shouldn't be empty");
                 let mut_sidecar = Arc::make_mut(&mut sidecars[0]);
-                mut_sidecar.kzg_commitment = KzgCommitment::empty_for_testing();
+                mut_sidecar.signed_block_header.signature = Signature::empty();
                 RpcBlock::__new_for_testing(
                     block_root,
                     block,
@@ -2586,7 +2561,21 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                     cols,
                     custody_columns_count,
                 )
-            } else if let Some(mut sidecars) = cols {
+            }
+        };
+
+        let mut batch_with_invalid_kzg = rpc_blocks
+            .iter()
+            .map(|block| block.clone())
+            .collect::<Vec<_>>();
+        batch_with_invalid_kzg[first_blob_or_col_index] = {
+            let (block_root, block, blobs, cols) = batch_with_invalid_kzg[first_blob_or_col_index]
+                .clone()
+                .deconstruct();
+            let custody_columns_count =
+                batch_with_invalid_kzg[first_blob_or_col_index].custody_columns_count();
+            if is_fulu {
+                let mut sidecars = cols.unwrap();
                 assert!(
                     !sidecars.is_empty(),
                     "data column sidecars shouldn't be empty"
@@ -2603,7 +2592,17 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                     custody_columns_count,
                 )
             } else {
-                panic!("should get blobs or data columns")
+                let mut sidecars = blobs.unwrap();
+                assert!(!sidecars.is_empty(), "blob sidecars shouldn't be empty");
+                let mut_sidecar = Arc::make_mut(&mut sidecars[0]);
+                mut_sidecar.kzg_commitment = KzgCommitment::empty_for_testing();
+                RpcBlock::__new_for_testing(
+                    block_root,
+                    block,
+                    Some(sidecars),
+                    cols,
+                    custody_columns_count,
+                )
             }
         };
 
@@ -2638,7 +2637,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // Importing the batch with valid signatures should succeed.
     let rpc_blocks_dup = rpc_blocks
         .iter()
-        .map(|block| block.__clone_without_recv())
+        .map(|block| block.clone())
         .collect::<Vec<_>>();
     beacon_chain
         .import_historical_block_batch(&rpc_blocks_dup)

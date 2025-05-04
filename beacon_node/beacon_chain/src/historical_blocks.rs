@@ -8,18 +8,20 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use std::iter;
-use std::sync::Arc;
 use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::debug;
-use types::{ColumnIndex, FixedBytesExtended, Hash256, SignedBeaconBlock, Slot};
+use types::{ColumnIndex, FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
 /// It's ok if historical sync is stalled due to writes from forwards block processing.
 const PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
+
+type RpcBlockBatchResult<E> = Result<(usize, Vec<RpcBlock<E>>), HistoricalBlockError>;
+type AvailableBlockBatchResult<E> = Result<(usize, Vec<AvailableBlock<E>>), HistoricalBlockError>;
 
 #[derive(Debug, IntoStaticStr)]
 pub enum HistoricalBlockError {
@@ -56,7 +58,10 @@ impl From<SignatureSetError> for HistoricalBlockError {
     fn from(err: SignatureSetError) -> Self {
         match err {
             // The encoding of the signature is invalid, peer fault
-            e @ SignatureSetError::SignatureInvalid(_) => Self::InvalidSignature(format!("{e:?}")),
+            e
+            @ (SignatureSetError::SignatureInvalid(_) | SignatureSetError::BadBlsBytes { .. }) => {
+                Self::InvalidSignature(format!("{e:?}"))
+            }
             // All these variants are internal errors or unreachable for historical block paths,
             // which only check the proposer signature.
             // BadBlsBytes = Unreachable
@@ -66,7 +71,6 @@ impl From<SignatureSetError> for HistoricalBlockError {
             | SignatureSetError::IncorrectBlockProposer { .. }
             | SignatureSetError::MismatchedPublicKeyLen { .. }
             | SignatureSetError::PublicKeyDecompressionFailed
-            | SignatureSetError::BadBlsBytes { .. }
             | SignatureSetError::InconsistentBlockFork(_)) => Self::Unexpected(format!("{e:?}")),
         }
     }
@@ -79,60 +83,58 @@ impl From<AvailabilityCheckError> for HistoricalBlockError {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    fn verify_blobs_and_data_columns(
+    fn get_correct_historical_block_chain(
         &self,
-        blocks: &Vec<RpcBlock<T::EthSpec>>,
-    ) -> Result<Vec<AvailableBlock<T::EthSpec>>, HistoricalBlockError> {
-        // Verify that blobs or data columns signatures match
-        let sig_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_TOTAL_TIMES);
-        let setup_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_SETUP_TIMES);
-        // TODO: this logic is redundant with one from range sync. Do we have a good place to make
-        // it as a common function?
-        blocks
-            .iter()
-            .map(|block| {
-                if let Some(indices) = block.non_matching_blobs_signed_headers() {
-                    if !indices.is_empty() {
-                        return Err(HistoricalBlockError::InvalidBlobsSignature(indices));
-                    }
-                }
-                if let Some(indices) = block.non_matching_custody_columns_signed_headers() {
-                    if !indices.is_empty() {
-                        return Err(HistoricalBlockError::InvalidDataColumnsSignature(indices));
-                    }
-                }
-                Ok(())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        drop(setup_timer);
+        blocks: &[RpcBlock<T::EthSpec>],
+    ) -> RpcBlockBatchResult<T::EthSpec> {
+        let anchor_info = self.store.get_anchor_info();
 
-        // Check that all data columns are present <- faulty failure if missing because we have
-        // checked the block root is correct first.
-        let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
-        let available_blocks = self
-            .data_availability_checker
-            .verify_kzg_for_rpc_blocks(blocks)
-            .map_err(HistoricalBlockError::AvailabilityCheckError)? // Map outer error
-            .into_iter()
-            .map(|maybe_block| match maybe_block {
-                MaybeAvailableBlock::Available(block) => Ok(block),
-                MaybeAvailableBlock::AvailabilityPending { .. } => {
-                    Err(HistoricalBlockError::AvailabilityCheckError(
-                        AvailabilityCheckError::Unexpected("block not available".to_string()),
-                    ))
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?; // Map inner results
+        // Take all blocks with slots less than the oldest block slot.
+        let num_relevant = blocks.partition_point(|available_block| {
+            available_block.as_block().slot() < anchor_info.oldest_block_slot
+        });
 
-        drop(verify_timer);
-        drop(sig_timer);
+        let total_blocks = blocks.len();
+        let mut blocks_to_import = blocks.to_vec();
+        blocks_to_import.truncate(num_relevant);
 
-        Ok(available_blocks)
+        if blocks_to_import.len() != total_blocks {
+            debug!(
+                oldest_block_slot = %anchor_info.oldest_block_slot,
+                total_blocks,
+                ignored = total_blocks.saturating_sub(blocks_to_import.len()),
+                "Ignoring some historic blocks"
+            );
+        }
+
+        // Validate that the blocks are chaining ascending order.
+        let mut expected_block_root = anchor_info.oldest_block_parent;
+        let mut num_to_include = blocks_to_import.len();
+
+        for (i, block) in blocks_to_import.iter().enumerate().rev() {
+            if block.block_root() != expected_block_root {
+                return Err(HistoricalBlockError::MismatchedBlockRoot {
+                    block_root: block.block_root(),
+                    expected_block_root,
+                });
+            }
+
+            expected_block_root = block.as_block().message().parent_root();
+
+            if expected_block_root == self.genesis_block_root {
+                num_to_include = i;
+                break;
+            }
+        }
+
+        // Truncate when we reach the gensis block.
+        blocks_to_import.drain(..num_to_include);
+        Ok((num_relevant, blocks_to_import))
     }
 
-    fn verify_available_block_signatures(
+    fn verify_rpc_block_signatures(
         &self,
-        signed_blocks: &[Arc<SignedBeaconBlock<T::EthSpec>>],
+        signed_blocks: &[RpcBlock<T::EthSpec>],
     ) -> Result<(), HistoricalBlockError> {
         // Verify signatures in one batch, holding the pubkey cache lock for the shortest duration
         // possible. For each block fetch the parent root from its successor. Slicing from index 1
@@ -148,13 +150,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get(1..)
             .ok_or(HistoricalBlockError::IndexOutOfBounds)?
             .iter()
-            .map(|block| block.parent_root())
+            .map(|block| block.as_block().parent_root())
             .chain(iter::once(anchor_info.oldest_block_parent));
         let signature_set = signed_blocks
             .iter()
             .zip_eq(block_roots)
             .filter(|&(_block, block_root)| (block_root != self.genesis_block_root))
             .map(|(block, block_root)| {
+                let block = block.as_block();
                 block_proposal_signature_set_from_parts(
                     block,
                     Some(block_root),
@@ -180,61 +183,76 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Store a batch of historical blocks in the database.
-    ///
-    /// The `blocks` should be given in slot-ascending order. One of the blocks should have a block
-    /// root corresponding to the `oldest_block_parent` from the store's `AnchorInfo`.
-    ///
-    /// The block roots and proposer signatures are verified. If any block doesn't match the parent
-    /// root listed in its successor, then the whole batch will be discarded and
-    /// `MismatchedBlockRoot` will be returned. If any proposer signature is invalid then
-    /// `SignatureSetError` or `InvalidSignature` will be returned.
-    ///
-    /// The block's blob and data column sidecars are verified. The function checks their signed
-    /// block headers equal to their block's block header. Then, it verifies their KZG commitments
-    /// with proofs. KZG inclusion proof verification is not held here as it is already done by the
-    /// network crate.
-    ///
-    /// To align with sync we allow some excess blocks with slots greater than or equal to
-    /// `oldest_block_slot` to be provided. They will be ignored without being checked.
-    ///
-    /// This function should not be called concurrently with any other function that mutates
-    /// the anchor info (including this function itself). If a concurrent mutation occurs that
-    /// would violate consistency then an `AnchorInfoConcurrentMutation` error will be returned.
-    ///
-    /// Return the number of blocks successfully imported.
-    pub fn import_historical_block_batch(
+    fn verify_blobs_and_data_columns(
         &self,
-        blocks: &Vec<RpcBlock<T::EthSpec>>,
-    ) -> Result<usize, HistoricalBlockError> {
-        // Verify blobs and data columns (headers and signatures)
-        let mut blocks = self.verify_blobs_and_data_columns(blocks)?;
+        blocks: &[RpcBlock<T::EthSpec>],
+    ) -> Result<Vec<AvailableBlock<T::EthSpec>>, HistoricalBlockError> {
+        // Verify that blobs or data columns signatures match
+        // TODO: this logic is redundant with one from range sync. Do we have a good place to make
+        // it as a common function?
+        blocks
+            .iter()
+            .map(|block| {
+                if let Some(indices) = block.non_matching_blobs_signed_headers() {
+                    if !indices.is_empty() {
+                        return Err(HistoricalBlockError::InvalidBlobsSignature(indices));
+                    }
+                }
+                if let Some(indices) = block.non_matching_custody_columns_signed_headers() {
+                    if !indices.is_empty() {
+                        return Err(HistoricalBlockError::InvalidDataColumnsSignature(indices));
+                    }
+                }
+                Ok(())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
+        // Check that all data columns are present <- faulty failure if missing because we have
+        // checked the block root is correct first.
+        let sig_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_TOTAL_TIMES);
+        let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
+        let available_blocks = self
+            .data_availability_checker
+            .verify_kzg_for_rpc_blocks(blocks)
+            .map_err(HistoricalBlockError::AvailabilityCheckError)? // Map outer error
+            .into_iter()
+            .map(|maybe_block| match maybe_block {
+                MaybeAvailableBlock::Available(block) => Ok(block),
+                MaybeAvailableBlock::AvailabilityPending { .. } => {
+                    Err(HistoricalBlockError::AvailabilityCheckError(
+                        AvailabilityCheckError::Unexpected("block not available".to_string()),
+                    ))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?; // Map inner results
+
+        drop(verify_timer);
+        drop(sig_timer);
+
+        Ok(available_blocks)
+    }
+
+    fn verify_historical_block_batch(
+        &self,
+        blocks: &[RpcBlock<T::EthSpec>],
+    ) -> AvailableBlockBatchResult<T::EthSpec> {
+        let (num_relevant, importing_blocks) = self.get_correct_historical_block_chain(blocks)?;
+
+        if num_relevant == 0 {
+            return Ok((num_relevant, vec![]));
+        }
+        self.verify_rpc_block_signatures(&importing_blocks)?;
+        let verified_blocks = self.verify_blobs_and_data_columns(&importing_blocks)?;
+        Ok((num_relevant, verified_blocks))
+    }
+
+    fn store_historical_block_batch(
+        &self,
+        blocks: Vec<AvailableBlock<T::EthSpec>>,
+    ) -> Result<(), HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
-
-        // Take all blocks with slots less than the oldest block slot.
-        let num_relevant = blocks.partition_point(|available_block| {
-            available_block.block().slot() < anchor_info.oldest_block_slot
-        });
-
-        let total_blocks = blocks.len();
-        blocks.truncate(num_relevant);
-        let blocks_to_import = blocks;
-
-        if blocks_to_import.len() != total_blocks {
-            debug!(
-                oldest_block_slot = %anchor_info.oldest_block_slot,
-                total_blocks,
-                ignored = total_blocks.saturating_sub(blocks_to_import.len()),
-                "Ignoring some historic blocks"
-            );
-        }
-
-        if blocks_to_import.is_empty() {
-            return Ok(0);
-        }
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
@@ -242,19 +260,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
         let mut blob_batch = Vec::<KeyValueStoreOp>::new();
-        let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
-        let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
-        let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
+        let mut cold_batch = Vec::with_capacity(blocks.len());
+        let mut hot_batch = Vec::with_capacity(blocks.len());
 
-        for available_block in blocks_to_import.into_iter().rev() {
+        for available_block in blocks.into_iter().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
-
-            if block_root != expected_block_root {
-                return Err(HistoricalBlockError::MismatchedBlockRoot {
-                    block_root,
-                    expected_block_root,
-                });
-            }
 
             if !self.store.get_config().prune_payloads {
                 // If prune-payloads is set to false, store the block which includes the execution payload
@@ -306,7 +316,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             prev_block_slot = block.slot();
             expected_block_root = block.message().parent_root();
-            signed_blocks.push(block);
 
             // If we've reached genesis, add the genesis block root to the batch for all slots
             // between 0 and the first block slot, and set the anchor slot to 0 to indicate
@@ -325,11 +334,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 break;
             }
         }
-        // These were pushed in reverse order so we reverse again.
-        signed_blocks.reverse();
-
-        // Verify signatures in a batch.
-        self.verify_available_block_signatures(&signed_blocks)?;
 
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
@@ -390,6 +394,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.store_migrator.process_reconstruction();
         }
 
+        Ok(())
+    }
+
+    /// Verify and store a batch of historical blocks in the database.
+    ///
+    /// The `blocks` should be given in slot-ascending order. One of the blocks should have a block
+    /// root corresponding to the `oldest_block_parent` from the store's `AnchorInfo`.
+    ///
+    /// The block roots and proposer signatures are verified. If any block doesn't match the parent
+    /// root listed in its successor, then the whole batch will be discarded and
+    /// `MismatchedBlockRoot` will be returned. If any proposer signature is invalid then
+    /// `SignatureSetError` or `InvalidSignature` will be returned.
+    ///
+    /// The block's blob and data column sidecars are verified. The function checks their signed
+    /// block headers equal to their block's block header. Then, it verifies their KZG commitments
+    /// with proofs. KZG inclusion proof verification is not held here as it is already done by the
+    /// network crate.
+    ///
+    /// To align with sync we allow some excess blocks with slots greater than or equal to
+    /// `oldest_block_slot` to be provided. They will be ignored without being checked.
+    ///
+    /// This function should not be called concurrently with any other function that mutates
+    /// the anchor info (including this function itself). If a concurrent mutation occurs that
+    /// would violate consistency then an `AnchorInfoConcurrentMutation` error will be returned.
+    ///
+    /// Return the number of blocks successfully imported.
+    pub fn import_historical_block_batch(
+        &self,
+        blocks: &[RpcBlock<T::EthSpec>],
+    ) -> Result<usize, HistoricalBlockError> {
+        let (num_relevant, verified_blocks) = self.verify_historical_block_batch(blocks)?;
+        self.store_historical_block_batch(verified_blocks)?;
         Ok(num_relevant)
     }
 }

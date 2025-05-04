@@ -391,7 +391,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ///          check if there are any missing blobs.
     pub fn verify_kzg_for_rpc_blocks(
         &self,
-        blocks: &Vec<RpcBlock<T::EthSpec>>,
+        blocks: &[RpcBlock<T::EthSpec>],
     ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
         let mut results = Vec::with_capacity(blocks.len());
         let all_blobs = blocks
