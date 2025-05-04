@@ -161,7 +161,7 @@ In order to request a partial withdrawal you must have access to the wallet set 
 
 If your validator's `EFFECTIVE_BALANCE` drops, or you've upgraded to `0x02` compounding withdrawal credentials, you can add additional funds. Simply connect any wallet to Siren and transfer the desired amount directly to your validators.
 
-![partial-withdrawal](imgs/deposit-funds.png)
+![deposit-funds](imgs/deposit-funds.png)
 
 ________________________________________________________________________________________________________________________________
 
