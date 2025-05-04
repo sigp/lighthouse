@@ -151,6 +151,8 @@ pub struct AnchorInfo {
     /// When full block backfill completes (`oldest_block_slot == 0`) state reconstruction starts and
     /// this value will progressively increase until reaching `state_upper_limit`.
     pub state_lower_limit: Slot,
+    pub genesis_block_root: Hash256,
+    pub genesis_state_root: Hash256,
 }
 
 impl AnchorInfo {
@@ -163,7 +165,7 @@ impl AnchorInfo {
 
     /// Return true if all historic states are stored, i.e. if state reconstruction is complete.
     pub fn all_historic_states_stored(&self) -> bool {
-        self.state_lower_limit == self.state_upper_limit
+        self.state_lower_limit == 0
     }
 
     /// Return true if no historic states other than genesis are stored in the database.
@@ -204,6 +206,7 @@ pub struct BlobInfo {
     pub oldest_blob_slot: Option<Slot>,
     /// A separate blobs database is in use (deprecated, always `true`).
     pub blobs_db: bool,
+    pub prune_checkpoint: Option<Epoch>,
 }
 
 impl StoreItem for BlobInfo {

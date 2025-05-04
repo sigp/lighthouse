@@ -17,6 +17,8 @@
 use self::UpdatePattern::*;
 use crate::*;
 use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
+use types::{Hash256, Slot};
 use types::historical_summary::HistoricalSummary;
 
 /// Description of how a `BeaconState` field is updated during state processing.

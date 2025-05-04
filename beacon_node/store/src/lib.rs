@@ -12,32 +12,55 @@ pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
 pub mod consensus_context;
+pub mod database;
 pub mod errors;
-mod forwards_iter;
-mod garbage_collection;
+pub mod forwards_iter;
+pub mod garbage_collection;
 pub mod hdiff;
 pub mod historic_state_cache;
 pub mod hot_cold_store;
-mod impls;
-mod memory_store;
+pub mod impls;
+pub mod iter;
+pub mod memory_store;
 pub mod metadata;
 pub mod metrics;
 pub mod partial_beacon_state;
+pub mod persisted_beacon_state;
+pub mod pruning_buffer;
 pub mod reconstruct;
+pub mod restore_point;
+pub mod snapshot_cache;
 pub mod state_cache;
+pub mod store_migrator;
+pub mod utils;
 
-pub mod database;
-pub mod iter;
+pub use self::config::StoreConfig;
+pub use self::database::{BeaconNodeBackend, LevelDB};
+pub use self::errors::{Error as StoreError, Result};
+pub use self::hot_cold_store::{HotColdDB, ItemStore, KeyValueStore, KeyValueStoreOp};
+pub use self::metadata::{AnchorInfo, BlobInfo, DataColumnInfo, SchemaVersion};
+pub use self::partial_beacon_state::PartialBeaconState;
+pub use self::persisted_beacon_state::PersistedBeaconState;
+pub use self::pruning_buffer::PruningBuffer;
+pub use self::restore_point::RestorePoint;
+pub use self::snapshot_cache::SnapshotCache;
+pub use self::state_cache::StateCache;
+pub use self::store_migrator::{StoreMigrator, MigratorState};
 
-pub mod background_io;
+use types::{BeaconState, EthSpec, Hash256, Slot};
 
+const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
+
+pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>)>> + 'a>;
+pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K>> + 'a>;
+
+pub type RawEntryIter<'a> =
 pub use self::blob_sidecar_list_from_root::BlobSidecarListFromRoot;
 pub use self::config::StoreConfig;
 pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;
-pub use errors::Error;
 pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
@@ -442,16 +465,88 @@ pub trait StoreItem: Sized {
 }
 
 #[derive(Debug)]
-pub enum Error {
-    // ... existing variants ...
-    
-    /// Background I/O queue is full
+pub enum StoreError {
     QueueFull,
-    
-    /// Background thread error
     BackgroundThreadError,
-    
-    // ... rest of existing variants ...
+    InvalidKey,
+    BlockNotFound(Hash256),
+    SszDecodeError(DecodeError),
+    RandaoMixOutOfBounds,
+    PartialBeaconStateError,
+    MissingHistoricBlocks { start_slot: Slot, end_slot: Slot },
+    StateShouldNotBeRequired(Slot),
+    StateReconstructionRootMismatch { expected: Hash256, found: Hash256 },
+    StateReconstructionLogicError,
+    SplitPointModified(Slot, Slot),
+    FinalizedStateUnaligned,
+    FinalizedStateDecreasingSlot,
+    StateForCacheHasPendingUpdates { slot: Slot },
+    HistoryUnavailable,
+    BeaconStateError(BeaconStateError),
+    HotColdDBError(HotColdDBError),
+    DBError(String),
+    HdiffError(hdiff::Error),
+    StoreError(errors::Error),
+    Compression(io::Error),
+    MissingSnapshot(Slot),
+    MissingBlock(Hash256),
+    AnchorInfoConcurrentMutation,
+    BlobInfoConcurrentMutation,
+    DataColumnInfoConcurrentMutation,
+    AddPayloadLogicError,
+    ForwardsIterGap(DBColumn, Slot, Slot),
+    InvalidBytes,
+}
+
+impl From<DecodeError> for StoreError {
+    fn from(e: DecodeError) -> Self {
+        StoreError::SszDecodeError(e)
+    }
+}
+
+impl From<BeaconStateError> for StoreError {
+    fn from(e: BeaconStateError) -> Self {
+        StoreError::BeaconStateError(e)
+    }
+}
+
+impl From<HotColdDBError> for StoreError {
+    fn from(e: HotColdDBError) -> Self {
+        StoreError::HotColdDBError(e)
+    }
+}
+
+impl From<leveldb::error::Error> for StoreError {
+    fn from(e: leveldb::error::Error) -> Self {
+        StoreError::DBError(e.to_string())
+    }
+}
+
+impl From<hdiff::Error> for StoreError {
+    fn from(e: hdiff::Error) -> Self {
+        StoreError::HdiffError(e)
+    }
+}
+
+impl From<errors::Error> for StoreError {
+    fn from(e: errors::Error) -> Self {
+        StoreError::StoreError(e)
+    }
+}
+
+impl From<io::Error> for StoreError {
+    fn from(e: io::Error) -> Self {
+        StoreError::Compression(e)
+    }
+}
+
+impl From<StoreError> for errors::Error {
+    fn from(e: StoreError) -> Self {
+        match e {
+            StoreError::DBError(s) => errors::Error::DBError(s),
+            _ => errors::Error::DBError(format!("{:?}", e)),
+        }
+    }
 }
 
 #[cfg(test)]

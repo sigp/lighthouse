@@ -3,6 +3,12 @@ pub use metrics::{set_gauge, try_create_int_gauge, *};
 use directory::size_of_dir;
 use std::path::Path;
 use std::sync::LazyLock;
+use crate::StoreError as Error;
+use lazy_static::lazy_static;
+use lighthouse_metrics::{
+    exponential_buckets, histogram_vec, linear_buckets, register_histogram_vec, Histogram,
+    HistogramVec,
+};
 
 /*
  * General
@@ -406,6 +412,43 @@ pub static BEACON_DATA_COLUMNS_CACHE_HIT_COUNT: LazyLock<Result<IntCounter>> =
             "Number of hits to the store's data column cache",
         )
     });
+
+lazy_static! {
+    pub static ref BEACON_BLOCK_LOAD_TIMES: HistogramVec = register_histogram_vec!(
+        "store_beacon_block_load_seconds",
+        "Time to load a block from the store",
+        &["source"],
+        exponential_buckets(0.001, 2.0, 8).unwrap()
+    )
+    .unwrap();
+    pub static ref BEACON_STATE_LOAD_TIMES: HistogramVec = register_histogram_vec!(
+        "store_beacon_state_load_seconds",
+        "Time to load a state from the store",
+        &["source"],
+        exponential_buckets(0.001, 2.0, 8).unwrap()
+    )
+    .unwrap();
+    pub static ref STORE_BEACON_RECONSTRUCTION_TIME: Histogram = register_histogram!(
+        "store_beacon_reconstruction_seconds",
+        "Time to reconstruct historic states",
+        linear_buckets(0.0, 1.0, 24).unwrap()
+    )
+    .unwrap();
+}
+
+pub fn start_timer(histogram: &Histogram) -> Option<HistogramTimer> {
+    Some(histogram.start_timer())
+}
+
+pub fn stop_timer(timer: Option<HistogramTimer>) {
+    if let Some(timer) = timer {
+        timer.observe_duration();
+    }
+}
+
+pub fn scrape_for_metrics() -> String {
+    lighthouse_metrics::scrape_for_metrics()
+}
 
 /// Updates the global metrics registry with store-related information.
 pub fn scrape_for_metrics(db_path: &Path, freezer_db_path: &Path) {

@@ -15,7 +15,7 @@ use crate::metadata::{
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
     get_data_column_key, metrics, parse_data_column_key, BlobSidecarListFromRoot, ColumnKeyIter,
-    DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+    DBColumn, DatabaseBlock, StoreError as Error, ItemStore, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use itertools::{process_results, Itertools};
 use lru::LruCache;

@@ -1,4 +1,4 @@
-use crate::{Error, HotColdDB, ItemStore, KeyValueStoreOp, StoreOp};
+use crate::{StoreError as Error, HotColdDB, ItemStore, KeyValueStoreOp, StoreOp};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use parking_lot::Mutex;
 use slog::{debug, error, Logger};
@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use types::*;
+use alloy_primitives::FixedBytes;
 
 /// Maximum number of pending operations in the queue
 const MAX_QUEUE_SIZE: usize = 1000;
@@ -140,6 +141,25 @@ impl<E: EthSpec> Drop for BackgroundIO<E> {
                 );
             }
         }
+    }
+}
+
+impl<E: EthSpec> PendingCache<E> {
+    pub fn get_pending_op(&self, key: &Hash256) -> Option<StoreOp<E>> {
+        for batch in self.queue.iter().rev() {
+            for op in batch.iter().rev() {
+                match op {
+                    StoreOp::PutBlock(k, v) if k == key => {
+                        return Some(StoreOp::PutBlock(*k, Arc::clone(v)));
+                    }
+                    StoreOp::PutState(k, v) if k == key => {
+                        return Some(StoreOp::PutState(*k, *v));
+                    }
+                    _ => continue,
+                }
+            }
+        }
+        None
     }
 }
 

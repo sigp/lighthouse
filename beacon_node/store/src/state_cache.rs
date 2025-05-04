@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::StoreError as Error;
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;

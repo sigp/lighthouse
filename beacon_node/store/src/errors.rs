@@ -7,6 +7,7 @@ use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
 use types::{milhouse, BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
+use crate::StoreError as Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -17,9 +18,7 @@ pub enum Error {
     BeaconStateError(BeaconStateError),
     PartialBeaconStateError,
     HotColdDBError(HotColdDBError),
-    DBError {
-        message: String,
-    },
+    DBError(String),
     RlpError(String),
     BlockNotFound(Hash256),
     NoContinuationData,
@@ -36,16 +35,16 @@ pub enum Error {
     HistoryUnavailable,
     /// State reconstruction cannot commence because not all historic blocks are known.
     MissingHistoricBlocks {
-        oldest_block_slot: Slot,
+        start_slot: Slot,
+        end_slot: Slot,
     },
     /// State reconstruction failed because it didn't reach the upper limit slot.
     ///
     /// This should never happen (it's a logic error).
     StateReconstructionLogicError,
     StateReconstructionRootMismatch {
-        slot: Slot,
         expected: Hash256,
-        computed: Hash256,
+        found: Hash256,
     },
     MissingGenesisState,
     MissingSnapshot(Slot),
@@ -65,7 +64,6 @@ pub enum Error {
     FinalizedStateDecreasingSlot,
     FinalizedStateUnaligned,
     StateForCacheHasPendingUpdates {
-        state_root: Hash256,
         slot: Slot,
     },
     Hdiff(hdiff::Error),
@@ -75,6 +73,9 @@ pub enum Error {
     MissingBlock(Hash256),
     GenesisStateUnknown,
     ArithError(safe_arith::ArithError),
+    StoreError(String),
+    QueueFull,
+    BackgroundThreadError,
 }
 
 pub trait HandleUnavailable<T> {
@@ -117,7 +118,7 @@ impl From<BeaconStateError> for Error {
 
 impl From<DBError> for Error {
     fn from(e: DBError) -> Error {
-        Error::DBError { message: e.message }
+        Error::DBError(e.message)
     }
 }
 
@@ -219,13 +220,39 @@ impl From<safe_arith::ArithError> for Error {
     }
 }
 
-#[derive(Debug)]
-pub struct DBError {
-    pub message: String,
-}
-
-impl DBError {
-    pub fn new(message: String) -> Self {
-        Self { message }
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::DBError(s) => write!(f, "Database error: {}", s),
+            Error::InvalidKey => write!(f, "Invalid key"),
+            Error::BlockNotFound(hash) => write!(f, "Block not found: {}", hash),
+            Error::HistoryUnavailable => write!(f, "History unavailable"),
+            Error::SplitPointModified(a, b) => write!(f, "Split point modified: {} -> {}", a, b),
+            Error::StateReconstructionLogicError => write!(f, "State reconstruction logic error"),
+            Error::StateReconstructionRootMismatch { expected, found } => {
+                write!(f, "State reconstruction root mismatch: expected {}, found {}", expected, found)
+            }
+            Error::FinalizedStateUnaligned => write!(f, "Finalized state unaligned"),
+            Error::FinalizedStateDecreasingSlot => write!(f, "Finalized state decreasing slot"),
+            Error::StateForCacheHasPendingUpdates { slot } => {
+                write!(f, "State for cache has pending updates at slot {}", slot)
+            }
+            Error::RandaoMixOutOfBounds => write!(f, "Randao mix out of bounds"),
+            Error::PartialBeaconStateError => write!(f, "Partial beacon state error"),
+            Error::MissingHistoricBlocks { start_slot, end_slot } => {
+                write!(f, "Missing historic blocks from slot {} to {}", start_slot, end_slot)
+            }
+            Error::StateShouldNotBeRequired(slot) => {
+                write!(f, "State should not be required at slot {}", slot)
+            }
+            Error::BeaconStateError(e) => write!(f, "Beacon state error: {:?}", e),
+            Error::HotColdDBError(s) => write!(f, "Hot/cold DB error: {}", s),
+            Error::Hdiff(e) => write!(f, "HDiff error: {:?}", e),
+            Error::StoreError(s) => write!(f, "Store error: {}", s),
+            Error::QueueFull => write!(f, "Queue full"),
+            Error::BackgroundThreadError => write!(f, "Background thread error"),
+        }
     }
 }
+
+impl std::error::Error for Error {}

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use types::historical_summary::HistoricalSummary;
 use types::superstruct;
 use types::*;
+use crate::StoreError as Error;
 
 /// DEPRECATED Lightweight variant of the `BeaconState` that is stored in the database.
 ///

@@ -1,3 +1,5 @@
+use crate::StoreError as Error;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::ConsensusContext;
 use std::collections::HashMap;
@@ -11,11 +13,11 @@ use types::{EthSpec, Hash256, IndexedAttestation, Slot};
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct OnDiskConsensusContext<E: EthSpec> {
     /// Slot to act as an identifier/safeguard
-    slot: Slot,
+    pub slot: Slot,
     /// Proposer index of the block at `slot`.
-    proposer_index: Option<u64>,
+    pub proposer_index: Option<u64>,
     /// Block root of the block at `slot`.
-    current_block_root: Option<Hash256>,
+    pub current_block_root: Option<Hash256>,
     /// We keep the indexed attestations in the *in-memory* version of this struct so that we don't
     /// need to regenerate them if roundtripping via this type *without* going to disk.
     ///
@@ -61,5 +63,16 @@ impl<E: EthSpec> OnDiskConsensusContext<E> {
             ctxt = ctxt.set_current_block_root(block_root);
         }
         ctxt.set_indexed_attestations(indexed_attestations)
+    }
+}
+
+impl OnDiskConsensusContext<E> {
+    pub fn new(slot: Slot, current_block_root: Hash256, proposer_index: u64) -> Self {
+        Self {
+            slot,
+            current_block_root: Some(current_block_root),
+            proposer_index: Some(proposer_index),
+            indexed_attestations: HashMap::new(),
+        }
     }
 }

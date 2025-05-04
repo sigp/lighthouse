@@ -14,6 +14,7 @@ use superstruct::superstruct;
 use types::historical_summary::HistoricalSummary;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, List, Slot, Validator};
 use zstd::{Decoder, Encoder};
+use crate::StoreError as Error;
 
 static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);
 

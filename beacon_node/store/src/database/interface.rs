@@ -7,6 +7,11 @@ use crate::{metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key,
 use std::collections::HashSet;
 use std::path::Path;
 use types::EthSpec;
+use leveldb::database::Database;
+use leveldb::iterator::LevelDBIterator;
+use leveldb::options::{Options, ReadOptions, WriteOptions};
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 pub enum BeaconNodeBackend<E: EthSpec> {
     #[cfg(feature = "leveldb")]

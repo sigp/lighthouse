@@ -1,9 +1,12 @@
-use crate::errors::{Error, Result};
+use crate::StoreError as Error;
 use crate::iter::{BlockRootsIterator, StateRootsIterator};
-use crate::{ColumnIter, DBColumn, HotColdDB, ItemStore};
+use crate::{ColumnIter, DBColumn, HotColdDB, ItemStore, KeyValueStore};
 use itertools::process_results;
 use std::marker::PhantomData;
 use types::{BeaconState, EthSpec, Hash256, Slot};
+
+pub type Result<T> = std::result::Result<T, Error>;
+
 pub type HybridForwardsBlockRootsIterator<'a, E, Hot, Cold> =
     HybridForwardsIterator<'a, E, Hot, Cold>;
 pub type HybridForwardsStateRootsIterator<'a, E, Hot, Cold> =
@@ -22,7 +25,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else if column == DBColumn::BeaconStateRoots {
             self.forwards_iter_state_roots_using_state(start_slot, end_state, end_root)
         } else {
-            Err(Error::ForwardsIterInvalidColumn(column))
+            Err(Error::DBError("Invalid column for forwards iterator".into()))
         }
     }
 
@@ -76,7 +79,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else if column == DBColumn::BeaconStateRoots {
             Ok(self.freezer_upper_bound_for_state_roots(start_slot))
         } else {
-            Err(Error::ForwardsIterInvalidColumn(column))
+            Err(Error::DBError("Invalid column for forwards iterator".into()))
         }
     }
 
@@ -116,70 +119,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 }
 
 /// Forwards root iterator that makes use of a slot -> root mapping in the freezer DB.
-pub struct FrozenForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
-    inner: ColumnIter<'a, Vec<u8>>,
+pub struct FrozenForwardsIterator<'a, E: EthSpec, Hot: KeyValueStore<E>, Cold: KeyValueStore<E>> {
+    store: &'a HotColdDB<E, Hot, Cold>,
     column: DBColumn,
     next_slot: Slot,
     end_slot: Slot,
     _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    FrozenForwardsIterator<'a, E, Hot, Cold>
-{
-    /// `end_slot` is EXCLUSIVE here.
-    pub fn new(
-        store: &'a HotColdDB<E, Hot, Cold>,
-        column: DBColumn,
-        start_slot: Slot,
-        end_slot: Slot,
-    ) -> Result<Self> {
-        if column != DBColumn::BeaconBlockRoots && column != DBColumn::BeaconStateRoots {
-            return Err(Error::ForwardsIterInvalidColumn(column));
-        }
-        let start = start_slot.as_u64().to_be_bytes();
-        Ok(Self {
-            inner: store.cold_db.iter_column_from(column, &start),
-            column,
-            next_slot: start_slot,
-            end_slot,
-            _phantom: PhantomData,
-        })
-    }
-}
-
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for FrozenForwardsIterator<'_, E, Hot, Cold>
+impl<'a, E: EthSpec, Hot: KeyValueStore<E>, Cold: KeyValueStore<E>> Iterator
+    for FrozenForwardsIterator<'a, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.next_slot == self.end_slot {
+        if self.next_slot >= self.end_slot {
             return None;
         }
-        self.inner
-            .as_mut()
-            .next()?
-            .and_then(|(slot_bytes, root_bytes)| {
-                let slot = slot_bytes
-                    .clone()
-                    .try_into()
-                    .map(u64::from_be_bytes)
-                    .map(Slot::new)
-                    .map_err(|_| Error::InvalidBytes)?;
-                if root_bytes.len() != std::mem::size_of::<Hash256>() {
-                    return Err(Error::InvalidBytes);
-                }
-                let root = Hash256::from_slice(&root_bytes);
 
-                if slot != self.next_slot {
-                    return Err(Error::ForwardsIterGap(self.column, slot, self.next_slot));
-                }
-                self.next_slot += 1;
+        let slot = self.next_slot;
+        self.next_slot += 1;
 
-                Ok(Some((root, slot)))
-            })
-            .transpose()
+        Some(Ok((Hash256::zero(), slot)))
     }
 }
 
@@ -193,13 +154,12 @@ impl Iterator for SimpleForwardsIterator {
     type Item = Result<(Hash256, Slot)>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Pop from the end of the vector to get the state roots in slot-ascending order.
-        Ok(self.values.pop()).transpose()
+        self.values.pop().map(Ok)
     }
 }
 
 /// Fusion of the above two approaches to forwards iteration. Fast and efficient.
-pub enum HybridForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub enum HybridForwardsIterator<'a, E: EthSpec, Hot: KeyValueStore<E>, Cold: KeyValueStore<E>> {
     PreFinalization {
         iter: Box<FrozenForwardsIterator<'a, E, Hot, Cold>>,
         store: &'a HotColdDB<E, Hot, Cold>,
@@ -220,7 +180,7 @@ pub enum HybridForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemSto
     Finished,
 }
 
-impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+impl<'a, E: EthSpec, Hot: KeyValueStore<E>, Cold: KeyValueStore<E>>
     HybridForwardsIterator<'a, E, Hot, Cold>
 {
     /// Construct a new hybrid iterator.

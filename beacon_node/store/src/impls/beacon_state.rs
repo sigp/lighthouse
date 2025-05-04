@@ -1,6 +1,23 @@
-use crate::*;
-use ssz::{DecodeError, Encode};
-use ssz_derive::Encode;
+use crate::StoreError as Error;
+use ssz::{Decode, Encode};
+use types::{BeaconState, EthSpec};
+
+pub trait StorageContainer {
+    fn as_storage_bytes(&self) -> Vec<u8>;
+    fn from_storage_bytes(bytes: &[u8]) -> Result<Self, Error>
+    where
+        Self: Sized;
+}
+
+impl<E: EthSpec> StorageContainer for BeaconState<E> {
+    fn as_storage_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_storage_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Self::from_ssz_bytes(bytes).map_err(Into::into)
+    }
+}
 
 pub fn store_full_state<E: EthSpec>(
     state_root: &Hash256,
@@ -31,14 +48,14 @@ pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(
     match db.get_bytes(DBColumn::BeaconState, state_root.as_slice())? {
         Some(bytes) => {
             let overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_OVERHEAD_TIMES);
-            let container = StorageContainer::from_ssz_bytes(&bytes, spec)?;
+            let container = StorageContainer::from_storage_bytes(&bytes)?;
 
             metrics::stop_timer(overhead_timer);
             metrics::stop_timer(total_timer);
             metrics::inc_counter(&metrics::BEACON_STATE_READ_COUNT);
             metrics::inc_counter_by(&metrics::BEACON_STATE_READ_BYTES, bytes.len() as u64);
 
-            Ok(Some(container.try_into()?))
+            Ok(Some(container))
         }
         None => Ok(None),
     }

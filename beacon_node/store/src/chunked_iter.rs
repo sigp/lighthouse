@@ -2,6 +2,10 @@ use crate::chunked_vector::{chunk_key, Chunk, Field};
 use crate::{HotColdDB, ItemStore};
 use slog::error;
 use types::{ChainSpec, EthSpec, Slot};
+use crate::StoreError as Error;
+use crate::{DBColumn, KeyValueStore};
+use ssz::{Decode, Encode};
+use types::{Hash256};
 
 /// Iterator over the values of a `BeaconState` vector field (like `block_roots`).
 ///
@@ -119,5 +123,87 @@ where
             self.next_cindex += 1;
             self.next()
         }
+    }
+}
+
+pub struct ChunkedIter<'a, E, Store: KeyValueStore<E>> {
+    store: &'a Store,
+    column: DBColumn,
+    current_chunk: Option<Vec<Hash256>>,
+    current_index: usize,
+    chunk_size: usize,
+    total_size: usize,
+    _phantom: std::marker::PhantomData<E>,
+}
+
+impl<'a, E, Store: KeyValueStore<E>> ChunkedIter<'a, E, Store> {
+    pub fn new(
+        store: &'a Store,
+        column: DBColumn,
+        chunk_size: usize,
+        total_size: usize,
+    ) -> Result<Self, Error> {
+        let mut iter = Self {
+            store,
+            column,
+            current_chunk: None,
+            current_index: 0,
+            chunk_size,
+            total_size,
+            _phantom: std::marker::PhantomData,
+        };
+        
+        iter.load_next_chunk()?;
+        Ok(iter)
+    }
+    
+    fn load_next_chunk(&mut self) -> Result<(), Error> {
+        let chunk_index = self.current_index / self.chunk_size;
+        if chunk_index * self.chunk_size >= self.total_size {
+            self.current_chunk = None;
+            return Ok(());
+        }
+        
+        let key = chunk_index.to_le_bytes();
+        let chunk_bytes = self.store.get_bytes(self.column, &key)?
+            .ok_or_else(|| Error::DBError("Missing chunk".into()))?;
+            
+        self.current_chunk = Some(Vec::<Hash256>::from_ssz_bytes(&chunk_bytes)?);
+        Ok(())
+    }
+}
+
+impl<'a, E, Store: KeyValueStore<E>> Iterator for ChunkedIter<'a, E, Store> {
+    type Item = Result<Hash256, Error>;
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_index >= self.total_size {
+            return None;
+        }
+        
+        let chunk = match &self.current_chunk {
+            Some(chunk) => chunk,
+            None => return Some(Err(Error::DBError("No current chunk".into()))),
+        };
+        
+        let item_index = self.current_index % self.chunk_size;
+        let result = chunk.get(item_index)
+            .cloned()
+            .ok_or_else(|| Error::DBError("Invalid chunk index".into()));
+            
+        self.current_index += 1;
+        
+        if item_index + 1 == chunk.len() {
+            if let Err(e) = self.load_next_chunk() {
+                return Some(Err(e));
+            }
+        }
+        
+        Some(result)
+    }
+    
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.total_size.saturating_sub(self.current_index);
+        (remaining, Some(remaining))
     }
 }
