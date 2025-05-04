@@ -29,6 +29,8 @@ pub mod state_cache;
 pub mod database;
 pub mod iter;
 
+pub mod background_io;
+
 pub use self::blob_sidecar_list_from_root::BlobSidecarListFromRoot;
 pub use self::config::StoreConfig;
 pub use self::consensus_context::OnDiskConsensusContext;
@@ -437,6 +439,19 @@ pub trait StoreItem: Sized {
             self.as_store_bytes(),
         )
     }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    // ... existing variants ...
+    
+    /// Background I/O queue is full
+    QueueFull,
+    
+    /// Background thread error
+    BackgroundThreadError,
+    
+    // ... rest of existing variants ...
 }
 
 #[cfg(test)]

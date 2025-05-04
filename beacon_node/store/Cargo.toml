@@ -39,6 +39,7 @@ superstruct = { workspace = true }
 types = { workspace = true }
 xdelta3 = { workspace = true }
 zstd = { workspace = true }
+crossbeam-channel = "0.5"
 
 [[bench]]
 name = "hdiff"

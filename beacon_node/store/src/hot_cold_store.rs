@@ -40,6 +40,7 @@ use std::time::Duration;
 use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 use zstd::{Decoder, Encoder};
+use crate::background_io::BackgroundIO;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -85,6 +86,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pub log: Logger,
     /// Mere vessel for E.
     _phantom: PhantomData<E>,
+    /// Background I/O processor
+    background_io: BackgroundIO<E>,
 }
 
 #[derive(Debug)]
@@ -231,6 +234,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             spec,
             log,
             _phantom: PhantomData,
+            background_io: BackgroundIO::new(),
         };
 
         Ok(db)
@@ -280,6 +284,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
             spec,
             log,
             _phantom: PhantomData,
+            background_io: BackgroundIO::new(),
         };
 
         // Load the config from disk but don't error on a failed read because the config itself may
@@ -3119,6 +3124,46 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "num_deleted_states" => num_deleted_states,
         );
         Ok(())
+    }
+
+    pub fn do_atomically_with_background(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
+        // Try background processing first
+        match self.background_io.submit(batch.clone()) {
+            Ok(()) => Ok(()),
+            Err(Error::QueueFull) => {
+                // Fall back to synchronous processing if queue is full
+                debug!(
+                    self.log,
+                    "Background queue full, processing synchronously";
+                );
+                self.do_atomically_with_block_and_blobs_cache(batch)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn get_block_with_pending(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+        // Check pending cache first
+        if let Some(StoreOp::PutBlock(_, block)) = self.background_io.get_pending(block_root) {
+            return Ok(Some((*block).clone()));
+        }
+        
+        // Fall back to database
+        self.get_full_block(block_root)
+    }
+
+    pub fn get_state_with_pending(
+        &self,
+        state_root: &Hash256,
+        slot: Option<Slot>,
+    ) -> Result<Option<BeaconState<E>>, Error> {
+        // Check pending cache first  
+        if let Some(StoreOp::PutState(_, state)) = self.background_io.get_pending(state_root) {
+            return Ok(Some(state.clone()));
+        }
+
+        // Fall back to database
+        self.get_state(state_root, slot, true)
     }
 }
 
