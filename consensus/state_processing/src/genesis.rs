@@ -123,8 +123,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // Remove intermediate Deneb fork from `state.fork`.
         state.fork_mut().previous_version = spec.electra_fork_version;
 
-        // TODO(electra): think about this more and determine the best way to
-        // do this. The spec tests will expect that the sync committees are
+        // The spec tests will expect that the sync committees are
         // calculated using the electra value for MAX_EFFECTIVE_BALANCE when
         // calling `initialize_beacon_state_from_eth1()`. But the sync committees
         // are actually calcuated back in `upgrade_to_altair()`. We need to

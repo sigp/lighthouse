@@ -4,7 +4,7 @@ use crate::version::{
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{
     self as api_types, ChainSpec, ForkVersionedResponse, LightClientUpdate,
-    LightClientUpdateResponseChunk, LightClientUpdateSszResponse, LightClientUpdatesQuery,
+    LightClientUpdateResponseChunk, LightClientUpdateResponseChunkInner, LightClientUpdatesQuery,
 };
 use ssz::Encode;
 use std::sync::Arc;
@@ -37,15 +37,9 @@ pub fn get_light_client_updates<T: BeaconChainTypes>(
                 .map(|update| map_light_client_update_to_ssz_chunk::<T>(&chain, update))
                 .collect::<Vec<LightClientUpdateResponseChunk>>();
 
-            let ssz_response = LightClientUpdateSszResponse {
-                response_chunk_len: (light_client_updates.len() as u64).to_le_bytes().to_vec(),
-                response_chunk: response_chunks.as_ssz_bytes(),
-            }
-            .as_ssz_bytes();
-
             Response::builder()
                 .status(200)
-                .body(ssz_response)
+                .body(response_chunks.as_ssz_bytes())
                 .map(|res: Response<Vec<u8>>| add_ssz_content_type_header(res))
                 .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
@@ -159,16 +153,24 @@ fn map_light_client_update_to_ssz_chunk<T: BeaconChainTypes>(
 ) -> LightClientUpdateResponseChunk {
     let fork_name = chain
         .spec
-        .fork_name_at_slot::<T::EthSpec>(*light_client_update.signature_slot());
+        .fork_name_at_slot::<T::EthSpec>(light_client_update.attested_header_slot());
 
     let fork_digest = ChainSpec::compute_fork_digest(
         chain.spec.fork_version_for_name(fork_name),
         chain.genesis_validators_root,
     );
 
-    LightClientUpdateResponseChunk {
+    let payload = light_client_update.as_ssz_bytes();
+    let response_chunk_len = fork_digest.len() + payload.len();
+
+    let response_chunk = LightClientUpdateResponseChunkInner {
         context: fork_digest,
-        payload: light_client_update.as_ssz_bytes(),
+        payload,
+    };
+
+    LightClientUpdateResponseChunk {
+        response_chunk_len: response_chunk_len as u64,
+        response_chunk,
     }
 }
 

@@ -2,7 +2,7 @@ use crate::metrics;
 use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
-use beacon_chain::block_verification_types::AsBlock;
+use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
@@ -302,7 +302,11 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             );
             let import_result = Box::pin(chain.process_block(
                 block_root,
-                block.clone(),
+                RpcBlock::new_without_blobs(
+                    Some(block_root),
+                    block.clone(),
+                    network_globals.custody_columns_count() as usize,
+                ),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
@@ -521,7 +525,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             .len()
             .saturating_sub(malicious_withhold_count);
         // Randomize columns before dropping the last malicious_withhold_count items
-        data_column_sidecars.shuffle(&mut rand::thread_rng());
+        data_column_sidecars.shuffle(&mut **chain.rng.lock());
         data_column_sidecars.truncate(columns_to_keep);
     }
     let pubsub_messages = data_column_sidecars

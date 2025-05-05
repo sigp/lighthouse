@@ -38,8 +38,7 @@ use kzg::{Kzg, TrustedSetup};
 use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
-use parking_lot::Mutex;
-use parking_lot::RwLockWriteGuard;
+use parking_lot::{Mutex, RwLockWriteGuard};
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -588,7 +587,8 @@ where
             .chain_config(chain_config)
             .import_all_data_columns(self.import_all_data_columns)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
-            .validator_monitor_config(validator_monitor_config);
+            .validator_monitor_config(validator_monitor_config)
+            .rng(Box::new(StdRng::seed_from_u64(42)));
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
@@ -2366,7 +2366,7 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new_without_blobs(Some(block_root), block);
+            return RpcBlock::new_without_blobs(Some(block_root), block, 0);
         }
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
@@ -2417,7 +2417,7 @@ where
                     &self.spec,
                 )?
             } else {
-                RpcBlock::new_without_blobs(Some(block_root), block)
+                RpcBlock::new_without_blobs(Some(block_root), block, 0)
             }
         } else {
             let blobs = blob_items

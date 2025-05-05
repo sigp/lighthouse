@@ -45,7 +45,7 @@ WARNING: WARNING: THIS IS AN IRREVERSIBLE OPERATION
 
 
 
-PLEASE VISIT https://lighthouse-book.sigmaprime.io/voluntary-exit.html
+PLEASE VISIT https://lighthouse-book.sigmaprime.io/validator_voluntary_exit.html
 TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.
 
 Enter the exit phrase from the above URL to confirm the voluntary exit:
@@ -57,6 +57,10 @@ Current epoch: 29946, Exit epoch: 29951, Withdrawable epoch: 30207
 Please keep your validator running till exit epoch
 Exit epoch in approximately 1920 secs
 ```
+
+## Exit via the execution layer
+
+The voluntary exit above is via the consensus layer. With the [Pectra](https://ethereum.org/en/history/#pectra) upgrade, validators with 0x01 and 0x02 withdrawal credentials can also exit their validators via the execution layer by sending a transaction using the withdrawal address. You can use [Siren](./ui.md) or the [staking launchpad](https://launchpad.ethereum.org/en/) to send an exit transaction.
 
 ## Full withdrawal of staked fund
 
