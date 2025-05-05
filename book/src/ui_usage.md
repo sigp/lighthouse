@@ -89,7 +89,7 @@ Siren provides the ability to exit/withdraw your validators via the validator ma
 
 ### Deposit and Import new Validators
 
-Siren's deposit flow aims to create a smooth and easy process for depositing and importing a new Lighthouse validator. The process is seperated into 6 main steps:
+Siren's deposit flow aims to create a smooth and easy process for depositing and importing a new Lighthouse validator. The process is separated into 6 main steps:
 
 #### Validator Setup
 
