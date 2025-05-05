@@ -13,7 +13,6 @@ use logging::crit;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
-use std::fmt;
 use strum::IntoStaticStr;
 use tracing::{debug, instrument, warn};
 use types::{Epoch, EthSpec, Hash256, Slot};
@@ -116,16 +115,6 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     current_processing_batch: Option<BatchId>,
 }
 
-impl<T: BeaconChainTypes> fmt::Display for SyncingChain<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.chain_type {
-            SyncingChainType::Head => write!(f, "Head"),
-            SyncingChainType::Finalized => write!(f, "Finalized"),
-            SyncingChainType::Backfill => write!(f, "Backfill"),
-        }
-    }
-}
-
 #[derive(PartialEq, Debug)]
 pub enum ChainSyncingState {
     /// The chain is not being synced.
@@ -177,7 +166,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Get the chain's id.
     #[instrument(parent = None,level = "info", fields(chain = self.id , service = "range_sync"), skip_all)]
-    pub fn get_id(&self) -> ChainId {
+    pub fn id(&self) -> ChainId {
         self.id
     }
 
