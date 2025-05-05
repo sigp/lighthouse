@@ -1,7 +1,9 @@
 use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::test_utils::TestRandom;
-use crate::BeaconStateError;
-use crate::{BeaconBlockHeader, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
+use crate::{
+    BeaconBlockHeader, BeaconStateError, Epoch, EthSpec, Hash256, RuntimeVariableList,
+    SignedBeaconBlockHeader, Slot,
+};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::Error as KzgError;
@@ -9,7 +11,7 @@ use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
-use ssz::Encode;
+use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
@@ -30,6 +32,47 @@ pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitment
 pub struct DataColumnIdentifier {
     pub block_root: Hash256,
     pub index: ColumnIndex,
+}
+
+#[derive(Serialize, Deserialize, Encode, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct DataColumnsByRootIdentifier {
+    pub block_root: Hash256,
+    pub indices: RuntimeVariableList<ColumnIndex>,
+}
+
+// TODO testing
+impl RuntimeVariableList<DataColumnsByRootIdentifier> {
+    pub fn from_ssz_bytes_with_nested(
+        bytes: &[u8],
+        max_len: usize,
+        num_columns: usize,
+    ) -> Result<Self, DecodeError> {
+        if bytes.is_empty() {
+            return Ok(RuntimeVariableList::empty(max_len));
+        }
+
+        let vec = ssz::decode_list_of_variable_length_items::<Vec<u8>, Vec<Vec<u8>>>(
+            bytes,
+            Some(max_len),
+        )?
+        .into_iter()
+        .map(|bytes| {
+            // Split manually: first 32 bytes = block_root
+            if bytes.len() < 32 {
+                return Err(DecodeError::BytesInvalid("Bytes invalid".into()));
+            }
+            let (block_root_bytes, rest) = bytes.split_at(32);
+            let block_root = Hash256::from_ssz_bytes(block_root_bytes)?;
+            let indices = RuntimeVariableList::<ColumnIndex>::from_ssz_bytes(rest, num_columns)?;
+            Ok(DataColumnsByRootIdentifier {
+                block_root,
+                indices,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(RuntimeVariableList::from_vec(vec, max_len))
+    }
 }
 
 pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;

@@ -1,6 +1,9 @@
 use lighthouse_network::rpc::methods::DataColumnsByRootRequest;
 use std::sync::Arc;
-use types::{ChainSpec, DataColumnIdentifier, DataColumnSidecar, EthSpec, Hash256};
+use types::{
+    ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, Hash256,
+    RuntimeVariableList,
+};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 
@@ -12,14 +15,16 @@ pub struct DataColumnsByRootSingleBlockRequest {
 
 impl DataColumnsByRootSingleBlockRequest {
     pub fn into_request(self, spec: &ChainSpec) -> DataColumnsByRootRequest {
+        let number_of_columns = spec.number_of_columns as usize;
+        // TODO we aren't handling the case where self.indices > NUMBER_OF_COLUMNS defined by the
+        // spec. Do we do this else where? I think we shall use RuntimeVariableList::new() and
+        // handle errors.
+        let indices = RuntimeVariableList::from_vec(self.indices, number_of_columns);
         DataColumnsByRootRequest::new(
-            self.indices
-                .into_iter()
-                .map(|index| DataColumnIdentifier {
-                    block_root: self.block_root,
-                    index,
-                })
-                .collect(),
+            vec![DataColumnsByRootIdentifier {
+                block_root: self.block_root,
+                indices,
+            }],
             spec,
         )
     }
