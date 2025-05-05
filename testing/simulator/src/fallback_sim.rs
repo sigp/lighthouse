@@ -181,12 +181,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         // Add nodes to the network.
         for _ in 0..node_count {
             network
-                .add_beacon_node(
-                    beacon_config.clone(),
-                    mock_execution_config.clone(),
-                    false,
-                    false,
-                )
+                .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), false)
                 .await?;
         }
 

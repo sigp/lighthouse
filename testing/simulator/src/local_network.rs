@@ -43,7 +43,6 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
     beacon_config.network.enable_light_client_server = true;
     beacon_config.network.discv5_config.enable_packet_filter = false;
-    beacon_config.network.subscribe_all_data_column_subnets = false;
     beacon_config.chain.enable_light_client_server = true;
     beacon_config.chain.optimistic_finalized_sync = false;
     beacon_config.trusted_setup = serde_json::from_reader(get_trusted_setup().as_slice())
@@ -195,7 +194,6 @@ impl<E: EthSpec> LocalNetwork<E> {
         &self,
         mut beacon_config: ClientConfig,
         mock_execution_config: MockExecutionConfig,
-        is_supernode: bool,
     ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
         beacon_config.network.set_ipv4_listening_address(
             std::net::Ipv4Addr::UNSPECIFIED,
@@ -207,7 +205,6 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.discv5_config.table_filter = |_| true;
-        beacon_config.network.subscribe_all_data_column_subnets = is_supernode;
 
         let execution_node = LocalExecutionNode::new(
             self.context.service_context("boot_node_el".into()),
@@ -235,7 +232,6 @@ impl<E: EthSpec> LocalNetwork<E> {
         mut beacon_config: ClientConfig,
         mut mock_execution_config: MockExecutionConfig,
         is_proposer: bool,
-        is_supernode: bool,
     ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
         let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
 
@@ -252,7 +248,6 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_config.network.enr_tcp4_port = Some(libp2p_tcp_port.try_into().unwrap());
         beacon_config.network.discv5_config.table_filter = |_| true;
         beacon_config.network.proposer_only = is_proposer;
-        beacon_config.network.subscribe_all_data_column_subnets = is_supernode;
 
         mock_execution_config.server_config.listen_port = EXECUTION_PORT + count;
 
@@ -286,7 +281,6 @@ impl<E: EthSpec> LocalNetwork<E> {
         mut beacon_config: ClientConfig,
         mock_execution_config: MockExecutionConfig,
         is_proposer: bool,
-        is_supernode: bool,
     ) -> Result<(), String> {
         let first_bn_exists: bool;
         {
@@ -306,16 +300,11 @@ impl<E: EthSpec> LocalNetwork<E> {
         }
         let (beacon_node, execution_node) = if first_bn_exists {
             // Network already exists. We construct a new node.
-            self.construct_beacon_node(
-                beacon_config,
-                mock_execution_config,
-                is_proposer,
-                is_supernode,
-            )
-            .await?
+            self.construct_beacon_node(beacon_config, mock_execution_config, is_proposer)
+                .await?
         } else {
             // Network does not exist. We construct a boot node.
-            self.construct_boot_node(beacon_config, mock_execution_config, is_supernode)
+            self.construct_boot_node(beacon_config, mock_execution_config)
                 .await?
         };
         // Add nodes to the network.
@@ -340,7 +329,7 @@ impl<E: EthSpec> LocalNetwork<E> {
     ) -> Result<(), String> {
         epoch_delay(Epoch::new(wait_until_epoch), slot_duration, slots_per_epoch).await;
 
-        self.add_beacon_node(beacon_config, mock_execution_config, false, false)
+        self.add_beacon_node(beacon_config, mock_execution_config, false)
             .await?;
 
         Ok(())

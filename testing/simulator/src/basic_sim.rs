@@ -28,12 +28,7 @@ const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 0;
 const DENEB_FORK_EPOCH: u64 = 0;
-const ELECTRA_FORK_EPOCH: u64 = 1;
-// Set Fulu fork epoch half way through the test, so that:
-// 1. We run the simulator for a few electra epochs to cover electra testing;
-// 2. The Fulu fork epoch is not too close to Electra fork epoch, so we're not subscribed to topics
-//    across 3 forks simultaneously.
-const FULU_FORK_EPOCH: u64 = 8;
+const ELECTRA_FORK_EPOCH: u64 = 2;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
@@ -139,8 +134,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let genesis_delay = GENESIS_DELAY;
 
     // Convenience variables. Update these values when adding a newer fork.
-    let latest_fork_version = spec.fulu_fork_version;
-    let latest_fork_start_epoch = FULU_FORK_EPOCH;
+    let latest_fork_version = spec.electra_fork_version;
+    let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
 
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
@@ -152,8 +147,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
     spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
-    spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
-    spec.max_blobs_per_block_fulu = 9;
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
@@ -185,16 +178,9 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .await?;
 
         // Add nodes to the network.
-        for i in 0..node_count {
-            // Run two PeerDAS supernodes.
-            let is_supernode = i < 2;
+        for _ in 0..node_count {
             network
-                .add_beacon_node(
-                    beacon_config.clone(),
-                    mock_execution_config.clone(),
-                    false,
-                    is_supernode,
-                )
+                .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), false)
                 .await?;
         }
 
@@ -204,12 +190,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         for _ in 0..proposer_nodes {
             println!("Adding a proposer node");
             network
-                .add_beacon_node(
-                    beacon_config.clone(),
-                    mock_execution_config.clone(),
-                    true,
-                    false,
-                )
+                .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), true)
                 .await?;
         }
 
