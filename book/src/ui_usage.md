@@ -105,7 +105,7 @@ Siren's deposit flow aims to create a smooth and easy process for depositing and
 
 #### Mnemonic Indexing
 
-- The mnemonic index is as important as the mnemonic phrase; reusing existing or exited indices may result in invalid deposits. Each index combined with the mnemonic phrase generates a deterministic public key, which Siren validates by checking against the Beacon Node. Since newly submitted deposits may not immediately appear on the Beacon Node, Siren provides BeaconCha links for secondary confirmation.
+- The mnemonic index is as important as the mnemonic phrase; reusing existing or exited indices may result in invalid deposits. Each index combined with the mnemonic phrase generates a deterministic public key, which Siren validates by checking against the Beacon Node. Since newly submitted deposits may not immediately appear on the Beacon Node, Siren provides [Beaconcha.in](https://beaconcha.in) links for secondary confirmation.
 
 ![deposit-step-3](imgs/ui-dep-3.png)
 
@@ -135,7 +135,7 @@ Siren's deposit flow aims to create a smooth and easy process for depositing and
 
 #### Eligibility requirements for consolidation
 
-- Validators must have at least `0x01` withdrawal credentials. Validators with `0x00` credentials must first perform a BLS Execution Change.
+- Validators must have at least `0x01` withdrawal credentials. Validators with `0x00` credentials must first perform a [BLS Execution Change](./ui_usage.md#validator-bls-withdrawal-credentials).
 
 - Target validators with `0x01` withdrawal credentials must initiate a self-consolidation request to upgrade credentials to `0x02`, enabling them to accept funds and benefit from the increased balance cap.
 
@@ -151,7 +151,7 @@ Siren's deposit flow aims to create a smooth and easy process for depositing and
 
 ### Partial Validator Withdrawal
 
-`EIP-7002` enables partial withdrawals from validators with `0x02` withdrawal credentials and balances exceeding the `MIN_ACTIVATION_BALANCE`. Additionally, validators with upgraded `0x02` credentials will no longer participate in the automatic withdrawal sweeps, making this tool is very valuable for Lighthouse validators.
+`EIP-7002` enables partial withdrawals from validators with `0x02` withdrawal credentials and balances exceeding the `MIN_ACTIVATION_BALANCE`. Additionally, validators with upgraded `0x02` credentials will no longer participate in the automatic withdrawal sweeps, making this tool very valuable for Lighthouse validators.
 
 In order to request a partial withdrawal you must have access to the wallet set in the validator's withdrawal credentials and enough ETH to cover the withdrawal request and gas fees. Connect this wallet to the Siren dashboard to start withdrawing funds. All pending withdrawals will be visible in the same view for your convenience.
 
