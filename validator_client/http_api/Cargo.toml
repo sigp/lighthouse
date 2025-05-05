@@ -33,7 +33,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 signing_method = { workspace = true }
 slashing_protection = { workspace = true }
-
 slot_clock = { workspace = true }
 sysinfo = { workspace = true }
 system_health = { workspace = true }
