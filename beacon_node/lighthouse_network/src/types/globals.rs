@@ -206,7 +206,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             .collect::<Vec<_>>()
     }
 
-    /// Returns true if the peer is known and is a custodial of `column_index`
+    /// Returns true if the peer is known and is a custodian of `column_index`
     pub fn is_custody_peer_of(&self, column_index: ColumnIndex, peer_id: &PeerId) -> bool {
         self.peers
             .read()
