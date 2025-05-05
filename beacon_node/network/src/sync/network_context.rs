@@ -9,6 +9,8 @@ use super::range_sync::ByRangeRequestType;
 use super::SyncMessage;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
+#[cfg(test)]
+use crate::network_beacon_processor::TestBeaconChainType;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::SingleLookupId;
@@ -32,11 +34,15 @@ use requests::{
     ActiveRequests, BlobsByRangeRequestItems, BlobsByRootRequestItems, BlocksByRangeRequestItems,
     BlocksByRootRequestItems, DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
 };
+#[cfg(test)]
+use slot_clock::SlotClock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(test)]
+use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{debug, error, span, warn, Level};
 use types::blob_sidecar::FixedBlobSidecarList;
@@ -222,6 +228,35 @@ pub enum RangeBlockComponent<E: EthSpec> {
         DataColumnsByRangeRequestId,
         RpcResponseResult<Vec<Arc<DataColumnSidecar<E>>>>,
     ),
+}
+
+#[cfg(test)]
+impl<E: EthSpec> SyncNetworkContext<TestBeaconChainType<E>> {
+    pub fn new_for_testing(
+        beacon_chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
+        network_globals: Arc<NetworkGlobals<E>>,
+        task_executor: TaskExecutor,
+    ) -> Self {
+        let fork_context = Arc::new(ForkContext::new::<E>(
+            beacon_chain.slot_clock.now().unwrap_or(Slot::new(0)),
+            beacon_chain.genesis_validators_root,
+            &beacon_chain.spec,
+        ));
+        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        let (beacon_processor, _) = NetworkBeaconProcessor::null_for_testing(
+            network_globals,
+            mpsc::unbounded_channel().0,
+            beacon_chain.clone(),
+            task_executor,
+        );
+
+        SyncNetworkContext::new(
+            network_tx,
+            Arc::new(beacon_processor),
+            beacon_chain,
+            fork_context,
+        )
+    }
 }
 
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
