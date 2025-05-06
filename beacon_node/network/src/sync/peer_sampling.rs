@@ -12,11 +12,11 @@ use lighthouse_network::service::api_types::{
 };
 use lighthouse_network::{PeerAction, PeerId};
 use rand::{seq::SliceRandom, thread_rng};
-use slog::{debug, error, warn};
 use std::{
     collections::hash_map::Entry, collections::HashMap, marker::PhantomData, sync::Arc,
     time::Duration,
 };
+use tracing::{debug, error, instrument, warn};
 use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash256};
 
 pub type SamplingResult = Result<(), SamplingError>;
@@ -26,24 +26,35 @@ type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 pub struct Sampling<T: BeaconChainTypes> {
     requests: HashMap<SamplingRequester, ActiveSamplingRequest<T>>,
     sampling_config: SamplingConfig,
-    log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> Sampling<T> {
-    pub fn new(sampling_config: SamplingConfig, log: slog::Logger) -> Self {
+    #[instrument(parent = None,level = "info", fields(service = "sampling"), name = "sampling")]
+    pub fn new(sampling_config: SamplingConfig) -> Self {
         Self {
             requests: <_>::default(),
             sampling_config,
-            log,
         }
     }
 
     #[cfg(test)]
+    #[instrument(parent = None,
+        level = "info",
+        fields(service = "sampling"),
+        name = "sampling",
+        skip_all
+    )]
     pub fn active_sampling_requests(&self) -> Vec<Hash256> {
         self.requests.values().map(|r| r.block_root).collect()
     }
 
     #[cfg(test)]
+    #[instrument(parent = None,
+        level = "info",
+        fields(service = "sampling"),
+        name = "sampling",
+        skip_all
+    )]
     pub fn get_request_status(
         &self,
         block_root: Hash256,
@@ -61,6 +72,12 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ///
     /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
     /// - `None`: Request still active, requester should do no action
+    #[instrument(parent = None,
+        level = "info",
+        fields(service = "sampling"),
+        name = "sampling",
+        skip_all
+    )]
     pub fn on_new_sample_request(
         &mut self,
         block_root: Hash256,
@@ -73,7 +90,6 @@ impl<T: BeaconChainTypes> Sampling<T> {
                 block_root,
                 id,
                 &self.sampling_config,
-                self.log.clone(),
                 &cx.chain.spec,
             )),
             Entry::Occupied(_) => {
@@ -82,15 +98,15 @@ impl<T: BeaconChainTypes> Sampling<T> {
                 // TODO(das): Should track failed sampling request for some time? Otherwise there's
                 // a risk of a loop with multiple triggers creating the request, then failing,
                 // and repeat.
-                debug!(self.log, "Ignoring duplicate sampling request"; "id" => ?id);
+                debug!(?id, "Ignoring duplicate sampling request");
                 return None;
             }
         };
 
-        debug!(self.log,
-            "Created new sample request";
-            "id" => ?id,
-            "column_selection" => ?request.column_selection()
+        debug!(
+            ?id,
+            column_selection = ?request.column_selection(),
+            "Created new sample request"
         );
 
         // TOOD(das): If a node has very little peers, continue_sampling() will attempt to find enough
@@ -107,6 +123,12 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ///
     /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
     /// - `None`: Request still active, requester should do no action
+    #[instrument(parent = None,
+        level = "info",
+        fields(service = "sampling"),
+        name = "sampling",
+        skip_all
+    )]
     pub fn on_sample_downloaded(
         &mut self,
         id: SamplingId,
@@ -116,7 +138,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ) -> Option<(SamplingRequester, SamplingResult)> {
         let Some(request) = self.requests.get_mut(&id.id) else {
             // TOOD(das): This log can happen if the request is error'ed early and dropped
-            debug!(self.log, "Sample downloaded event for unknown request"; "id" => ?id);
+            debug!(?id, "Sample downloaded event for unknown request");
             return None;
         };
 
@@ -131,6 +153,12 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ///
     /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
     /// - `None`: Request still active, requester should do no action
+    #[instrument(parent = None,
+        level = "info",
+        fields(service = "sampling"),
+        name = "sampling",
+        skip_all
+    )]
     pub fn on_sample_verified(
         &mut self,
         id: SamplingId,
@@ -139,7 +167,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ) -> Option<(SamplingRequester, SamplingResult)> {
         let Some(request) = self.requests.get_mut(&id.id) else {
             // TOOD(das): This log can happen if the request is error'ed early and dropped
-            debug!(self.log, "Sample verified event for unknown request"; "id" => ?id);
+            debug!(?id, "Sample verified event for unknown request");
             return None;
         };
 
@@ -150,6 +178,12 @@ impl<T: BeaconChainTypes> Sampling<T> {
     /// Converts a result from the internal format of `ActiveSamplingRequest` (error first to use ?
     /// conveniently), to an Option first format to use an `if let Some() { act on result }` pattern
     /// in the sync manager.
+    #[instrument(parent = None,
+        level = "info",
+        fields(service = "sampling"),
+        name = "sampling",
+        skip_all
+    )]
     fn handle_sampling_result(
         &mut self,
         result: Result<Option<()>, SamplingError>,
@@ -157,7 +191,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ) -> Option<(SamplingRequester, SamplingResult)> {
         let result = result.transpose();
         if let Some(result) = result {
-            debug!(self.log, "Sampling request completed, removing"; "id" => ?id, "result" => ?result);
+            debug!(?id, ?result, "Sampling request completed, removing");
             metrics::inc_counter_vec(
                 &metrics::SAMPLING_REQUEST_RESULT,
                 &[metrics::from_result(&result)],
@@ -180,8 +214,6 @@ pub struct ActiveSamplingRequest<T: BeaconChainTypes> {
     current_sampling_request_id: SamplingRequestId,
     column_shuffle: Vec<ColumnIndex>,
     required_successes: Vec<usize>,
-    /// Logger for the `SyncNetworkContext`.
-    pub log: slog::Logger,
     _phantom: PhantomData<T>,
 }
 
@@ -212,7 +244,6 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         block_root: Hash256,
         requester_id: SamplingRequester,
         sampling_config: &SamplingConfig,
-        log: slog::Logger,
         spec: &ChainSpec,
     ) -> Self {
         // Select ahead of time the full list of to-sample columns
@@ -232,7 +263,6 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 SamplingConfig::Default => REQUIRED_SUCCESSES.to_vec(),
                 SamplingConfig::Custom { required_successes } => required_successes.clone(),
             },
-            log,
             _phantom: PhantomData,
         }
     }
@@ -275,9 +305,9 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
             .column_indexes_by_sampling_request
             .get(&sampling_request_id)
         else {
-            error!(self.log,
-                "Column indexes for the sampling request ID not found";
-                "sampling_request_id" => ?sampling_request_id
+            error!(
+                ?sampling_request_id,
+                "Column indexes for the sampling request ID not found"
             );
             return Ok(None);
         };
@@ -288,11 +318,11 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     .iter()
                     .map(|r| r.index)
                     .collect::<Vec<_>>();
-                debug!(self.log,
-                    "Sample download success";
-                    "block_root" => %self.block_root,
-                    "column_indexes" => ?resp_column_indexes,
-                    "count" => resp_data_columns.len()
+                debug!(
+                    block_root = %self.block_root,
+                    column_indexes = ?resp_column_indexes,
+                    count = resp_data_columns.len(),
+                    "Sample download success"
                 );
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::SUCCESS]);
 
@@ -300,10 +330,10 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 let mut data_columns = vec![];
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
-                        warn!(self.log,
-                            "Active column sample request not found";
-                            "block_root" => %self.block_root,
-                            "column_index" => column_index
+                        warn!(
+                            block_root = %self.block_root,
+                            column_index,
+                            "Active column sample request not found"
                         );
                         continue;
                     };
@@ -314,10 +344,10 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     else {
                         // Peer does not have the requested data, mark peer as "dont have" and try
                         // again with a different peer.
-                        debug!(self.log,
-                            "Sampling peer claims to not have the data";
-                            "block_root" => %self.block_root,
-                            "column_index" => column_index
+                        debug!(
+                            block_root = %self.block_root,
+                            column_index,
+                            "Sampling peer claims to not have the data"
                         );
                         request.on_sampling_error()?;
                         continue;
@@ -331,16 +361,16 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                         .iter()
                         .map(|d| d.index)
                         .collect::<Vec<_>>();
-                    debug!(self.log,
-                        "Received data that was not requested";
-                        "block_root" => %self.block_root,
-                        "column_indexes" => ?resp_column_indexes
+                    debug!(
+                        block_root = %self.block_root,
+                        column_indexes = ?resp_column_indexes,
+                        "Received data that was not requested"
                     );
                 }
 
                 // Handle the downloaded data columns.
                 if data_columns.is_empty() {
-                    debug!(self.log, "Received empty response"; "block_root" => %self.block_root);
+                    debug!(block_root = %self.block_root, "Received empty response");
                     self.column_indexes_by_sampling_request
                         .remove(&sampling_request_id);
                 } else {
@@ -351,17 +381,17 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     // Peer has data column, send to verify
                     let Some(beacon_processor) = cx.beacon_processor_if_enabled() else {
                         // If processor is not available, error the entire sampling
-                        debug!(self.log,
-                            "Dropping sampling";
-                            "block" => %self.block_root,
-                            "reason" => "beacon processor unavailable"
+                        debug!(
+                            block = %self.block_root,
+                            reason = "beacon processor unavailable",
+                            "Dropping sampling"
                         );
                         return Err(SamplingError::ProcessorUnavailable);
                     };
-                    debug!(self.log,
-                        "Sending data_column for verification";
-                        "block" => ?self.block_root,
-                        "column_indexes" => ?column_indexes
+                    debug!(
+                        block = ?self.block_root,
+                        ?column_indexes,
+                        "Sending data_column for verification"
                     );
                     if let Err(e) = beacon_processor.send_rpc_validate_data_columns(
                         self.block_root,
@@ -375,20 +405,21 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                         // Beacon processor is overloaded, drop sampling attempt. Failing to sample
                         // is not a permanent state so we should recover once the node has capacity
                         // and receives a descendant block.
-                        error!(self.log,
-                            "Dropping sampling";
-                            "block" => %self.block_root,
-                            "reason" => e.to_string()
+                        error!(
+                            block = %self.block_root,
+                            reason = e.to_string(),
+                            "Dropping sampling"
                         );
                         return Err(SamplingError::SendFailed("beacon processor send failure"));
                     }
                 }
             }
             Err(err) => {
-                debug!(self.log, "Sample download error";
-                    "block_root" => %self.block_root,
-                    "column_indexes" => ?column_indexes,
-                    "error" => ?err
+                debug!(
+                    block_root = %self.block_root,
+                    ?column_indexes,
+                    error = ?err,
+                    "Sample download error"
                 );
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::FAILURE]);
 
@@ -396,10 +427,10 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 // reaching this function. Mark the peer as failed and try again with another.
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
-                        warn!(self.log,
-                            "Active column sample request not found";
-                            "block_root" => %self.block_root,
-                            "column_index" => column_index
+                        warn!(
+                            block_root = %self.block_root,
+                            column_index,
+                            "Active column sample request not found"
                         );
                         continue;
                     };
@@ -429,21 +460,24 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
             .column_indexes_by_sampling_request
             .get(&sampling_request_id)
         else {
-            error!(self.log, "Column indexes for the sampling request ID not found"; "sampling_request_id" => ?sampling_request_id);
+            error!(
+                ?sampling_request_id,
+                "Column indexes for the sampling request ID not found"
+            );
             return Ok(None);
         };
 
         match result {
             Ok(_) => {
-                debug!(self.log, "Sample verification success"; "block_root" => %self.block_root, "column_indexes" => ?column_indexes);
+                debug!(block_root = %self.block_root,?column_indexes, "Sample verification success");
                 metrics::inc_counter_vec(&metrics::SAMPLE_VERIFY_RESULT, &[metrics::SUCCESS]);
 
                 // Valid, continue_sampling will maybe consider sampling succees
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
                         warn!(
-                            self.log,
-                            "Active column sample request not found"; "block_root" => %self.block_root, "column_index" => column_index
+                            block_root = %self.block_root, column_index,
+                            "Active column sample request not found"
                         );
                         continue;
                     };
@@ -451,7 +485,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 }
             }
             Err(err) => {
-                debug!(self.log, "Sample verification failure"; "block_root" => %self.block_root, "column_indexes" => ?column_indexes, "reason" => ?err);
+                debug!(block_root = %self.block_root, ?column_indexes, reason = ?err, "Sample verification failure");
                 metrics::inc_counter_vec(&metrics::SAMPLE_VERIFY_RESULT, &[metrics::FAILURE]);
 
                 // Peer sent invalid data, penalize and try again from different peer
@@ -459,8 +493,9 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
                         warn!(
-                            self.log,
-                            "Active column sample request not found"; "block_root" => %self.block_root, "column_index" => column_index
+                            block_root = %self.block_root,
+                            column_index,
+                            "Active column sample request not found"
                         );
                         continue;
                     };
@@ -570,7 +605,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         // request was sent, loop to increase the required_successes until the sampling fails if
         // there are no peers.
         if ongoings == 0 && !sent_request {
-            debug!(self.log, "Sampling request stalled"; "block_root" => %self.block_root);
+            debug!(block_root = %self.block_root, "Sampling request stalled");
         }
 
         Ok(None)

@@ -1,7 +1,7 @@
 //! Provides tools for checking if a node is ready for the Fulu upgrade.
 
 use crate::{BeaconChain, BeaconChainTypes};
-use execution_layer::http::{ENGINE_GET_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V4};
+use execution_layer::http::{ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V4};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -87,12 +87,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(capabilities) => {
                     let mut missing_methods = String::from("Required Methods Unsupported:");
                     let mut all_good = true;
-                    // TODO(fulu) switch to v5 when the EL is ready
-                    if !capabilities.get_payload_v4 {
+                    if !capabilities.get_payload_v5 {
                         missing_methods.push(' ');
-                        missing_methods.push_str(ENGINE_GET_PAYLOAD_V4);
+                        missing_methods.push_str(ENGINE_GET_PAYLOAD_V5);
                         all_good = false;
                     }
+                    // TODO(fulu) switch to v5 when the EL is ready
                     if !capabilities.new_payload_v4 {
                         missing_methods.push(' ');
                         missing_methods.push_str(ENGINE_NEW_PAYLOAD_V4);

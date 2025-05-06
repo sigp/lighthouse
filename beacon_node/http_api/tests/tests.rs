@@ -26,8 +26,8 @@ use http_api::{
     BlockId, StateId,
 };
 use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
-use logging::test_logger;
 use network::NetworkReceivers;
+use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
@@ -135,7 +135,6 @@ impl ApiTester {
                 reconstruct_historic_states: config.retain_historic_states,
                 ..ChainConfig::default()
             })
-            .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -277,8 +276,6 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let log = test_logger();
-
         let ApiServer {
             ctx,
             server,
@@ -286,7 +283,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -375,7 +372,6 @@ impl ApiTester {
         let bls_to_execution_change = harness.make_bls_to_execution_change(4, Address::zero());
 
         let chain = harness.chain.clone();
-        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -384,7 +380,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -1187,6 +1183,87 @@ impl ApiTester {
                 .unwrap();
 
             assert_eq!(result.unwrap().randao, *randao_mix);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_pending_deposits(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = self
+                .client
+                .get_beacon_states_pending_deposits(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let expected = state.pending_deposits().unwrap();
+
+            assert_eq!(result.unwrap(), expected.to_vec());
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_pending_partial_withdrawals(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = self
+                .client
+                .get_beacon_states_pending_partial_withdrawals(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let expected = state.pending_partial_withdrawals().unwrap();
+
+            assert_eq!(result.unwrap(), expected.to_vec());
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_pending_consolidations(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = self
+                .client
+                .get_beacon_states_pending_consolidations(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let expected = state.pending_consolidations().unwrap();
+
+            assert_eq!(result.unwrap(), expected.to_vec());
         }
 
         self
@@ -2038,7 +2115,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_beacon_pool_attestations(self) -> Self {
+    pub async fn test_get_beacon_pool_attestations(self) {
         let result = self
             .client
             .get_beacon_pool_attestations_v1(None, None)
@@ -2057,9 +2134,80 @@ impl ApiTester {
             .await
             .unwrap()
             .data;
+
         assert_eq!(result, expected);
 
-        self
+        let result_committee_index_filtered = self
+            .client
+            .get_beacon_pool_attestations_v1(None, Some(0))
+            .await
+            .unwrap()
+            .data;
+
+        let expected_committee_index_filtered = expected
+            .clone()
+            .into_iter()
+            .filter(|att| att.get_committee_indices_map().contains(&0))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            result_committee_index_filtered,
+            expected_committee_index_filtered
+        );
+
+        let result_committee_index_filtered = self
+            .client
+            .get_beacon_pool_attestations_v1(None, Some(1))
+            .await
+            .unwrap()
+            .data;
+
+        let expected_committee_index_filtered = expected
+            .clone()
+            .into_iter()
+            .filter(|att| att.get_committee_indices_map().contains(&1))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            result_committee_index_filtered,
+            expected_committee_index_filtered
+        );
+
+        let fork_name = self
+            .harness
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(self.harness.chain.slot().unwrap());
+
+        // aggregate electra attestations
+        if fork_name.electra_enabled() {
+            // Take and drop the lock in a block to avoid clippy complaining
+            // about taking locks across await points
+            {
+                let mut all_attestations = self.chain.op_pool.attestations.write();
+                let (prev_epoch_key, curr_epoch_key) =
+                    CheckpointKey::keys_for_state(&self.harness.get_current_state());
+                all_attestations.aggregate_across_committees(prev_epoch_key);
+                all_attestations.aggregate_across_committees(curr_epoch_key);
+            }
+            let result_committee_index_filtered = self
+                .client
+                .get_beacon_pool_attestations_v2(None, Some(0))
+                .await
+                .unwrap()
+                .data;
+            let mut expected = self.chain.op_pool.get_all_attestations();
+            expected.extend(self.chain.naive_aggregation_pool.read().iter().cloned());
+            let expected_committee_index_filtered = expected
+                .clone()
+                .into_iter()
+                .filter(|att| att.get_committee_indices_map().contains(&0))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                result_committee_index_filtered,
+                expected_committee_index_filtered
+            );
+        }
     }
 
     pub async fn test_post_beacon_pool_attester_slashings_valid_v1(mut self) -> Self {
@@ -2450,8 +2598,8 @@ impl ApiTester {
                 };
 
                 let state_match =
-                    states.map_or(true, |states| states.contains(&PeerState::Connected));
-                let dir_match = dirs.map_or(true, |dirs| dirs.contains(&PeerDirection::Inbound));
+                    states.is_none_or(|states| states.contains(&PeerState::Connected));
+                let dir_match = dirs.is_none_or(|dirs| dirs.contains(&PeerDirection::Inbound));
 
                 let mut expected_peers = Vec::new();
                 if state_match && dir_match {
@@ -5691,19 +5839,6 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_lighthouse_database_info(self) -> Self {
-        let info = self.client.get_lighthouse_database_info().await.unwrap();
-
-        assert_eq!(info.anchor, self.chain.store.get_anchor_info());
-        assert_eq!(info.split, self.chain.store.get_split_info());
-        assert_eq!(
-            info.schema_version,
-            store::metadata::CURRENT_SCHEMA_VERSION.as_u64()
-        );
-
-        self
-    }
-
     pub async fn test_post_lighthouse_database_reconstruct(self) -> Self {
         let response = self
             .client
@@ -5711,6 +5846,27 @@ impl ApiTester {
             .await
             .unwrap();
         assert_eq!(response, "success");
+        self
+    }
+
+    pub async fn test_post_lighthouse_add_remove_peer(self) -> Self {
+        let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
+        // Check that there aren't any trusted peers on startup
+        assert!(trusted_peers.is_empty());
+        let enr = AdminPeer {enr: "enr:-QESuEDpVVjo8dmDuneRhLnXdIGY3e9NQiaG4sJR3GS-VMQCQDsmBYoQhJRaPeZzPlTsZj2F8v-iV4lKJEYIRIyztqexHodhdHRuZXRziAwAAAAAAAAAhmNsaWVudNiKTGlnaHRob3VzZYw3LjAuMC1iZXRhLjSEZXRoMpDS8Zl_YAAJEAAIAAAAAAAAgmlkgnY0gmlwhIe11XmDaXA2kCoBBPkAOitZAAAAAAAAAAKEcXVpY4IjKYVxdWljNoIjg4lzZWNwMjU2azGhA43ihEr9BUVVnIHIfFqBR3Izs4YRHHPsTqIbUgEb3Hc8iHN5bmNuZXRzD4N0Y3CCIyiEdGNwNoIjgoN1ZHCCIyiEdWRwNoIjgg".to_string()};
+        self.client
+            .post_lighthouse_add_peer(enr.clone())
+            .await
+            .unwrap();
+        let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
+        // Should have 1 trusted peer
+        assert_eq!(trusted_peers.len(), 1);
+
+        self.client.post_lighthouse_remove_peer(enr).await.unwrap();
+        let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
+        // Should be empty after removing
+        assert!(trusted_peers.is_empty());
+
         self
     }
 
@@ -6207,6 +6363,34 @@ impl ApiTester {
 
         assert_eq!(result.execution_optimistic, Some(true));
     }
+
+    async fn test_get_beacon_rewards_blocks_at_head(&self) -> StandardBlockReward {
+        self.client
+            .get_beacon_rewards_blocks(CoreBlockId::Head)
+            .await
+            .unwrap()
+            .data
+    }
+
+    async fn test_beacon_block_rewards_electra(self) -> Self {
+        for _ in 0..E::slots_per_epoch() {
+            let state = self.harness.get_current_state();
+            let slot = state.slot() + Slot::new(1);
+            // calculate beacon block rewards / penalties
+            let ((signed_block, _maybe_blob_sidecars), mut state) =
+                self.harness.make_block_return_pre_state(state, slot).await;
+
+            let beacon_block_reward = self
+                .harness
+                .chain
+                .compute_beacon_block_reward(signed_block.message(), &mut state)
+                .unwrap();
+            self.harness.extend_slots(1).await;
+            let api_beacon_block_reward = self.test_get_beacon_rewards_blocks_at_head().await;
+            assert_eq!(beacon_block_reward, api_beacon_block_reward);
+        }
+        self
+    }
 }
 
 async fn poll_events<S: Stream<Item = Result<EventKind<E>, eth2::Error>> + Unpin, E: EthSpec>(
@@ -6317,6 +6501,24 @@ async fn beacon_get_state_info() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_get_state_info_electra() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_states_pending_deposits()
+        .await
+        .test_beacon_states_pending_partial_withdrawals()
+        .await
+        .test_beacon_states_pending_consolidations()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_get_blocks() {
     ApiTester::new()
         .await
@@ -6343,10 +6545,30 @@ async fn beacon_get_blocks() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn beacon_get_pools() {
+async fn test_beacon_pool_attestations_electra() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_pool_attestations()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_beacon_pool_attestations_base() {
     ApiTester::new()
         .await
         .test_get_beacon_pool_attestations()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_get_pools() {
+    ApiTester::new()
         .await
         .test_get_beacon_pool_attester_slashings()
         .await
@@ -7259,11 +7481,11 @@ async fn lighthouse_endpoints() {
         .await
         .test_get_lighthouse_staking()
         .await
-        .test_get_lighthouse_database_info()
-        .await
         .test_post_lighthouse_database_reconstruct()
         .await
         .test_post_lighthouse_liveness()
+        .await
+        .test_post_lighthouse_add_remove_peer()
         .await;
 }
 
@@ -7306,5 +7528,19 @@ async fn expected_withdrawals_valid_capella() {
     ApiTester::new_from_config(config)
         .await
         .test_get_expected_withdrawals_capella()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_rewards_blocks_electra() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_block_rewards_electra()
         .await;
 }

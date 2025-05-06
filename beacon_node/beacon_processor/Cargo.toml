@@ -13,12 +13,12 @@ metrics = { workspace = true }
 num_cpus = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 strum = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+tracing = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]

@@ -14,9 +14,22 @@ use tree_hash::TreeHash;
 /// The byte-length of a BLS signature when serialized in compressed form.
 pub const SIGNATURE_BYTES_LEN: usize = 96;
 
+/// The byte-length of a BLS signature when serialized in uncompressed form.
+pub const SIGNATURE_UNCOMPRESSED_BYTES_LEN: usize = 192;
+
 /// Represents the signature at infinity.
 pub const INFINITY_SIGNATURE: [u8; SIGNATURE_BYTES_LEN] = [
     0xc0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0,
+];
+
+pub const INFINITY_SIGNATURE_UNCOMPRESSED: [u8; SIGNATURE_UNCOMPRESSED_BYTES_LEN] = [
+    0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0,
@@ -31,8 +44,14 @@ pub trait TSignature<GenericPublicKey>: Sized + Clone {
     /// Serialize `self` as compressed bytes.
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN];
 
+    /// Serialize `self` as uncompressed bytes.
+    fn serialize_uncompressed(&self) -> [u8; SIGNATURE_UNCOMPRESSED_BYTES_LEN];
+
     /// Deserialize `self` from compressed bytes.
     fn deserialize(bytes: &[u8]) -> Result<Self, Error>;
+
+    /// Serialize `self` from uncompressed bytes.
+    fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error>;
 
     /// Returns `true` if `self` is a signature across `msg` by `pubkey`.
     fn verify(&self, pubkey: &GenericPublicKey, msg: Hash256) -> bool;
@@ -93,12 +112,12 @@ where
     }
 
     /// Returns a reference to the underlying BLS point.
-    pub(crate) fn point(&self) -> Option<&Sig> {
+    pub fn point(&self) -> Option<&Sig> {
         self.point.as_ref()
     }
 
     /// Instantiates `Self` from a `point`.
-    pub(crate) fn from_point(point: Sig, is_infinity: bool) -> Self {
+    pub fn from_point(point: Sig, is_infinity: bool) -> Self {
         Self {
             point: Some(point),
             is_infinity,
@@ -115,6 +134,13 @@ where
         }
     }
 
+    /// Serialize `self` as compressed bytes.
+    pub fn serialize_uncompressed(&self) -> Option<[u8; SIGNATURE_UNCOMPRESSED_BYTES_LEN]> {
+        self.point
+            .as_ref()
+            .map(|point| point.serialize_uncompressed())
+    }
+
     /// Deserialize `self` from compressed bytes.
     pub fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         let point = if bytes == &NONE_SIGNATURE[..] {
@@ -126,6 +152,17 @@ where
         Ok(Self {
             point,
             is_infinity: bytes == &INFINITY_SIGNATURE[..],
+            _phantom: PhantomData,
+        })
+    }
+
+    /// Deserialize `self` from uncompressed bytes.
+    pub fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
+        // The "none signature" is a beacon chain concept. As we never directly deal with
+        // uncompressed signatures on the beacon chain, it does not apply here.
+        Ok(Self {
+            point: Some(Sig::deserialize_uncompressed(bytes)?),
+            is_infinity: bytes == &INFINITY_SIGNATURE_UNCOMPRESSED[..],
             _phantom: PhantomData,
         })
     }

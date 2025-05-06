@@ -4,6 +4,11 @@ pre-build = ["apt-get install -y cmake clang-5.0"]
 [target.aarch64-unknown-linux-gnu]
 pre-build = ["apt-get install -y cmake clang-5.0"]
 
+[target.riscv64gc-unknown-linux-gnu]
+pre-build = ["apt-get install -y cmake clang"]
+# Use the most recent Cross image for RISCV because the stable 0.2.5 image doesn't work
+image = "ghcr.io/cross-rs/riscv64gc-unknown-linux-gnu:main"
+
 # Allow setting page size limits for jemalloc at build time:
 # For certain architectures (like aarch64), we must compile
 # jemalloc with support for large page sizes, otherwise the host's

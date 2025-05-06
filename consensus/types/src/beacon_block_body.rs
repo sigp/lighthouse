@@ -277,9 +277,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                 // https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#beaconblockbody
                 generalized_index
                     .checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
-                    .ok_or(Error::IndexNotSupported(generalized_index))?
+                    .ok_or(Error::GeneralizedIndexNotSupported(generalized_index))?
             }
-            _ => return Err(Error::IndexNotSupported(generalized_index)),
+            _ => return Err(Error::GeneralizedIndexNotSupported(generalized_index)),
         };
 
         let leaves = self.body_merkle_leaves();
@@ -971,6 +971,7 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
         Option<ExecutionPayload<E>>,
     )
 {
+    #[allow(clippy::useless_conversion)] // Not a useless conversion
     fn from(body: BeaconBlockBody<E, FullPayload<E>>) -> Self {
         map_beacon_block_body!(body, |inner, cons| {
             let (block, payload) = inner.into();

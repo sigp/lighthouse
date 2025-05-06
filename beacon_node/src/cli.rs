@@ -777,6 +777,15 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("state-cache-headroom")
+                .long("state-cache-headroom")
+                .value_name("N")
+                .help("Minimum number of states to cull from the state cache when it gets full")
+                .default_value("1")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("block-cache-size")
                 .long("block-cache-size")
                 .value_name("SIZE")
@@ -812,7 +821,7 @@ pub fn cli_app() -> Command {
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the state cache")
-                .default_value("128")
+                .default_value("32")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1009,7 +1018,7 @@ pub fn cli_app() -> Command {
                        database when they are older than the data availability boundary \
                        relative to the current epoch.")
                 .action(ArgAction::Set)
-                .default_value("1")
+                .default_value("256")
                 .display_order(0)
         )
         .arg(
@@ -1461,6 +1470,15 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("builder-disable-ssz")
+                .long("builder-disable-ssz")
+                .value_name("BOOLEAN")
+                .help("Disables sending requests using SSZ over the builder API.")
+                .requires("builder")
+                .action(ArgAction::SetTrue)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("reset-payload-statuses")
                 .long("reset-payload-statuses")
                 .help("When present, Lighthouse will forget the payload statuses of any \
@@ -1507,6 +1525,19 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
 
                 .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("sync-tolerance-epochs")
+                .long("sync-tolerance-epochs")
+                .help("Overrides the default SYNC_TOLERANCE_EPOCHS. This flag is not intended \
+                    for production and MUST only be used in TESTING only. This is primarily used \
+                    for testing range sync, to prevent the node from producing a block before the \
+                    node is synced with the network which may result in the node getting \
+                    disconnected from peers immediately.")
+                .hide(true)
+                .requires("enable_http")
+                .action(ArgAction::Set)
                 .display_order(0)
         )
         .arg(
@@ -1598,6 +1629,39 @@ pub fn cli_app() -> Command {
                 .help("Set the database backend to be used by the beacon node.")
                 .action(ArgAction::Set)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("delay-block-publishing")
+                .long("delay-block-publishing")
+                .value_name("SECONDS")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY: Artificially delay block publishing by the specified number of seconds. \
+                        This only works for if `BroadcastValidation::Gossip` is used (default). \
+                        DO NOT USE IN PRODUCTION.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("delay-data-column-publishing")
+                .long("delay-data-column-publishing")
+                .value_name("SECONDS") 
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY: Artificially delay data column publishing by the specified number of seconds. \
+                       Limitation: If `delay-block-publishing` is also used, data columns will be delayed for a \
+                       minimum of `delay-block-publishing` seconds.
+                       DO NOT USE IN PRODUCTION.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("invalid-block-roots")
+                .long("invalid-block-roots")
+                .value_name("FILE")
+                .help("Path to a comma separated file containing block roots that should be treated as invalid during block verification.")
+                .action(ArgAction::Set)
+                .hide(true)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))
 }

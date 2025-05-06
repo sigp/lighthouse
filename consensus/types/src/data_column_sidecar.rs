@@ -1,7 +1,7 @@
 use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::test_utils::TestRandom;
 use crate::BeaconStateError;
-use crate::{BeaconBlockHeader, Epoch, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot};
+use crate::{BeaconBlockHeader, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::Error as KzgError;
@@ -56,7 +56,7 @@ pub struct DataColumnSidecar<E: EthSpec> {
     pub column: DataColumn<E>,
     /// All the KZG commitments and proofs associated with the block, used for verifying sample cells.
     pub kzg_commitments: KzgCommitments<E>,
-    pub kzg_proofs: KzgProofs<E>,
+    pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     pub signed_block_header: SignedBeaconBlockHeader,
     /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
     pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,

@@ -1,17 +1,13 @@
 use crate::rpc::{
     methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage},
-    MetaData, SubstreamId,
+    MetaData,
 };
-use libp2p::swarm::ConnectionId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
-
-/// Identifier of requests sent by a peer.
-pub type PeerRequestId = (ConnectionId, SubstreamId);
 
 pub type Id = u32;
 
@@ -130,12 +126,6 @@ pub struct CustodyRequester(pub SingleLookupReqId);
 pub enum AppRequestId {
     Sync(SyncRequestId),
     Router,
-}
-
-/// Global identifier of a request.
-#[derive(Debug, Clone, Copy)]
-pub enum RequestId {
-    Application(AppRequestId),
     Internal,
 }
 
@@ -148,7 +138,7 @@ pub enum RequestId {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Response<E: EthSpec> {
     /// A Metadata message.
-    MetaData(MetaData<E>, /* updated_cgc */ bool),
+    MetaData(Arc<MetaData<E>>, /* updated_cgc */ bool),
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
@@ -217,22 +207,6 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
                     RpcResponse::StreamTermination(ResponseTermination::LightClientUpdatesByRange)
                 }
             },
-        }
-    }
-}
-
-impl slog::Value for RequestId {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        match self {
-            RequestId::Internal => slog::Value::serialize("Behaviour", record, key, serializer),
-            RequestId::Application(ref id) => {
-                slog::Value::serialize(&format_args!("{:?}", id), record, key, serializer)
-            }
         }
     }
 }

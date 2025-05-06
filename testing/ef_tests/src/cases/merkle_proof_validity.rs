@@ -20,12 +20,51 @@ pub struct MerkleProof {
     pub branch: Vec<Hash256>,
 }
 
+#[derive(Debug)]
+pub enum GenericMerkleProofValidity<E: EthSpec> {
+    BeaconState(BeaconStateMerkleProofValidity<E>),
+    BeaconBlockBody(Box<BeaconBlockBodyMerkleProofValidity<E>>),
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct BeaconStateMerkleProofValidity<E: EthSpec> {
     pub metadata: Option<Metadata>,
     pub state: BeaconState<E>,
     pub merkle_proof: MerkleProof,
+}
+
+impl<E: EthSpec> LoadCase for GenericMerkleProofValidity<E> {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        let path_components = path.iter().collect::<Vec<_>>();
+
+        // The "suite" name is the 2nd last directory in the path.
+        assert!(
+            path_components.len() >= 2,
+            "path should have at least 2 components"
+        );
+        let suite_name = path_components[path_components.len() - 2];
+
+        if suite_name == "BeaconState" {
+            BeaconStateMerkleProofValidity::load_from_dir(path, fork_name)
+                .map(GenericMerkleProofValidity::BeaconState)
+        } else if suite_name == "BeaconBlockBody" {
+            BeaconBlockBodyMerkleProofValidity::load_from_dir(path, fork_name)
+                .map(Box::new)
+                .map(GenericMerkleProofValidity::BeaconBlockBody)
+        } else {
+            panic!("unsupported type for merkle proof test: {:?}", suite_name)
+        }
+    }
+}
+
+impl<E: EthSpec> Case for GenericMerkleProofValidity<E> {
+    fn result(&self, case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        match self {
+            Self::BeaconState(test) => test.result(case_index, fork_name),
+            Self::BeaconBlockBody(test) => test.result(case_index, fork_name),
+        }
+    }
 }
 
 impl<E: EthSpec> LoadCase for BeaconStateMerkleProofValidity<E> {
@@ -72,11 +111,9 @@ impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
             }
         };
 
-        let Ok(proof) = proof else {
-            return Err(Error::FailedToParseTest(
-                "Could not retrieve merkle proof".to_string(),
-            ));
-        };
+        let proof = proof.map_err(|e| {
+            Error::FailedToParseTest(format!("Could not retrieve merkle proof: {e:?}"))
+        })?;
         let proof_len = proof.len();
         let branch_len = self.merkle_proof.branch.len();
         if proof_len != branch_len {
@@ -273,11 +310,11 @@ impl<E: EthSpec> Case for BeaconBlockBodyMerkleProofValidity<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let binding = self.block_body.clone();
         let block_body = binding.to_ref();
-        let Ok(proof) = block_body.block_body_merkle_proof(self.merkle_proof.leaf_index) else {
-            return Err(Error::FailedToParseTest(
-                "Could not retrieve merkle proof".to_string(),
-            ));
-        };
+        let proof = block_body
+            .block_body_merkle_proof(self.merkle_proof.leaf_index)
+            .map_err(|e| {
+                Error::FailedToParseTest(format!("Could not retrieve merkle proof: {e:?}"))
+            })?;
         let proof_len = proof.len();
         let branch_len = self.merkle_proof.branch.len();
         if proof_len != branch_len {
