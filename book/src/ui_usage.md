@@ -111,7 +111,7 @@ Siren's deposit flow aims to create a smooth and easy process for depositing and
 
 #### Withdrawal Credentials
 
-- Next, set the withdrawal and suggested fee recipient addresses. In the basic view, you can conveniently set both values to the same address, or switch to the advanced view to specify them separately. You may apply these settings uniformly to all validators or individually per candidate. Each value can be verified by connecting the relevant wallet and signing a valid message. Skipping verification is not recommended, as these credentials will receive all validator funds and cannot be changed later.
+- Next, set the withdrawal and suggested fee recipient addresses. In the basic view, you can conveniently set both values to the same address, or switch to the advanced view to specify them separately. You may apply these settings uniformly to all validators or individually per candidate. Each value can be verified by connecting the relevant wallet and signing a valid message. Skipping verification is not recommended, as the withdrawal address will receive the staked validator funds and cannot be changed later.
 
 ![deposit-step-4](imgs/ui-dep-4.png)
 
@@ -139,13 +139,13 @@ Siren's deposit flow aims to create a smooth and easy process for depositing and
 
 - Target validators with `0x01` withdrawal credentials must initiate a self-consolidation request to upgrade credentials to `0x02`, enabling them to accept funds and benefit from the increased balance cap.
 
-- Validators selected for merging must already be eligible for withdrawal.
+- Source validators must first become eligible for exit and must not have any pending withdrawal requests.
 
 ![consolidation-source](imgs/consolidation-source.png)
 
 #### Post-consolidation
 
-- Consolidated validators will exit automatically, and their funds will be transferred to the target validator.
+- All source validators will exit automatically, and their funds will be transferred to the target validator.
 
 - Validators consolidated under the new credentials (`0x02`) will no longer participate in automatic partial withdrawal sweeps. Instead, withdrawal requests must be explicitly submitted to the withdrawal contract as defined in `EIP-7002`.
 
@@ -159,7 +159,7 @@ In order to request a partial withdrawal you must have access to the wallet set 
 
 ### Partial Validator Top-ups
 
-If your validator's `EFFECTIVE_BALANCE` drops, or you've upgraded to `0x02` compounding withdrawal credentials, you can add additional funds. Simply connect any wallet to Siren and transfer the desired amount directly to your validators.
+If your validator's `EFFECTIVE_BALANCE` drops, or you've upgraded to `0x02` compounding withdrawal credentials, you can add additional funds. Simply connect any wallet to Siren and enter the desired amount to deposit to your validator. Once prompted sign the deposit transaction and your funds will enter the deposit queue and processed by the Beacon Node.
 
 ![deposit-funds](imgs/deposit-funds.png)
 
