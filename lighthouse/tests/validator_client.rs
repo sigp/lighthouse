@@ -318,7 +318,7 @@ fn missing_unencrypted_http_transport_flag() {
 }
 #[test]
 #[should_panic]
-fn msising_http_http_port_flag() {
+fn missing_http_http_port_flag() {
     CommandLineTest::new()
         .flag("http-port", Some("9090"))
         .run()
