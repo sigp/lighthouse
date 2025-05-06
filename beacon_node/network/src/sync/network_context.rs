@@ -46,6 +46,7 @@ use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
     Hash256, SignedBeaconBlock, Slot,
 };
+// use crate::metrics::SYNC_TIME_PER_CLIENT;
 
 pub mod custody;
 mod requests;
@@ -324,6 +325,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .read()
             .peer_info(peer_id)
             .map(|info| info.client().clone())
+            .unwrap_or_default()
+    }
+
+    pub fn client_version(&self, peer_id: &PeerId) -> String {
+        self.network_globals()
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .map(|info| info.client().version.clone())
             .unwrap_or_default()
     }
 
@@ -1114,7 +1124,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.on_rpc_response_result(id, "DataColumnsByRange", resp, peer_id, |d| d.len())
     }
 
-    fn on_rpc_response_result<I: std::fmt::Display, R, F: FnOnce(&R) -> usize>(
+    pub fn on_rpc_response_result<I: std::fmt::Display, R, F: FnOnce(&R) -> usize>(
         &mut self,
         id: I,
         method: &'static str,

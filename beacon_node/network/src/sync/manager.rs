@@ -72,6 +72,7 @@ use tokio::sync::mpsc;
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
+use crate::metrics;
 
 #[cfg(test)]
 use types::ColumnIndex;
@@ -865,31 +866,45 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 imported,
                 &mut self.network,
             ),
-            SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
-                ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
-                    self.range_sync.handle_block_process_result(
-                        &mut self.network,
-                        chain_id,
-                        epoch,
-                        result,
-                    );
-                    self.update_sync_state();
-                }
-                ChainSegmentProcessId::BackSyncBatchId(epoch) => {
-                    match self.backfill_sync.on_batch_process_result(
-                        &mut self.network,
-                        epoch,
-                        &result,
-                    ) {
-                        Ok(ProcessResult::Successful) => {}
-                        Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                        Err(error) => {
-                            error!(self.log, "Backfill sync failed"; "error" => ?error);
-                            // Update the global status
-                            self.update_sync_state();
+            SyncMessage::BatchProcessed { sync_type, result } => {
+                match sync_type {
+                    ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
+                        self.range_sync.handle_block_process_result(
+                            &mut self.network,
+                            chain_id,
+                            epoch,
+                            result,
+                        );
+                        self.update_sync_state();
+                    }
+                    ChainSegmentProcessId::BackSyncBatchId(epoch) => {
+                        match self.backfill_sync.on_batch_process_result(
+                            &mut self.network,
+                            epoch,
+                            &result,
+                        ) {
+                            Ok(ProcessResult::Successful) => {}
+                            Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                            Err(error) => {
+                                error!(self.log, "Backfill sync failed"; "error" => ?error);
+                                // Update the global status
+                                self.update_sync_state();
+                            }
                         }
                     }
                 }
+                // TODO: should we have a map of peer_id to blocks requested? and use here?
+                // self.network_globals()
+                //     .peers
+                //     .read()
+                //     .synced_peers()
+                //     .for_each(|peer_id| {
+                //         let client_type = self.network.client_type(&peer_id).to_string();
+                //         let client_version = self.network.client_version(&peer_id).to_string();
+                        
+                //         metrics::inc_counter_vec_by(&metrics::BLOCKS_SYNCED_PER_CLIENT, &[&client_type], result.imported_blocks);
+                //         metrics::inc_counter_vec_by(&metrics::BLOCKS_SYNCED_PER_CLIENT_VERSION, &[&client_type, &client_version], result.imported_blocks);
+                //     });
             },
             SyncMessage::SampleVerified { id, result } => {
                 if let Some((requester, result)) =
@@ -1049,6 +1064,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
+            let client_type = self.network.client_type(&peer_id).to_string();
+            let client_version = self.network.client_version(&peer_id).to_string();
+                    
+            metrics::inc_counter_vec(&metrics::BLOCKS_SYNCED_PER_CLIENT, &[&client_type] );
+            metrics::inc_counter_vec(&metrics::BLOCKS_SYNCED_PER_CLIENT_VERSION, &[&client_type, &client_version]);
+                
             self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
                     id,
@@ -1261,6 +1282,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             match resp {
                 Ok(blocks) => {
+                    let client_type = self.network.client_type(&peer_id).to_string();
+                    let client_version = self.network.client_version(&peer_id).to_string();
+                    
+                    
+                    metrics::inc_counter_vec_by(&metrics::BLOCKS_SYNCED_PER_CLIENT, &[&client_type], blocks.len() as u64);
+                    metrics::inc_counter_vec_by(&metrics::BLOCKS_SYNCED_PER_CLIENT_VERSION, &[&client_type, &client_version], blocks.len() as u64);
+                    
                     match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(
