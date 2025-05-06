@@ -1131,8 +1131,8 @@ pub enum EventKind<E: EthSpec> {
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<E>>),
     LateHead(SseLateHead),
-    LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
-    LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<E>>),
+    LightClientFinalityUpdate(Box<BeaconResponse<LightClientFinalityUpdate<E>>>),
+    LightClientOptimisticUpdate(Box<BeaconResponse<LightClientOptimisticUpdate<E>>>),
     #[cfg(feature = "lighthouse")]
     BlockReward(BlockReward),
     PayloadAttributes(VersionedSsePayloadAttributes),
@@ -1212,22 +1212,24 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Payload Attributes: {:?}", e))
                 })?,
             )),
-            "light_client_finality_update" => Ok(EventKind::LightClientFinalityUpdate(
-                serde_json::from_str(data).map_err(|e| {
+            "light_client_finality_update" => Ok(EventKind::LightClientFinalityUpdate(Box::new(
+                BeaconResponse::ForkVersioned(serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!(
                         "Light Client Finality Update: {:?}",
                         e
                     ))
-                })?,
-            )),
-            "light_client_optimistic_update" => Ok(EventKind::LightClientOptimisticUpdate(
-                serde_json::from_str(data).map_err(|e| {
-                    ServerError::InvalidServerSentEvent(format!(
-                        "Light Client Optimistic Update: {:?}",
-                        e
-                    ))
-                })?,
-            )),
+                })?),
+            ))),
+            "light_client_optimistic_update" => {
+                Ok(EventKind::LightClientOptimisticUpdate(Box::new(
+                    BeaconResponse::ForkVersioned(serde_json::from_str(data).map_err(|e| {
+                        ServerError::InvalidServerSentEvent(format!(
+                            "Light Client Optimistic Update: {:?}",
+                            e
+                        ))
+                    })?),
+                )))
+            }
             #[cfg(feature = "lighthouse")]
             "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),

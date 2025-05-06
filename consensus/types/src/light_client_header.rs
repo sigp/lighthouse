@@ -36,9 +36,7 @@ use tree_hash_derive::TreeHash;
         arbitrary(bound = "E: EthSpec"),
     )
 )]
-#[derive(
-    Debug, Clone, Serialize, TreeHash, Encode, Deserialize, arbitrary::Arbitrary, PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, arbitrary::Arbitrary, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
