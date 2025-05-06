@@ -1503,7 +1503,7 @@ impl<E: EthSpec> PeerManager<E> {
             .peers
             .read()
             .peer_info(peer_id)
-            .and_then(|peer_info| Some(peer_info.custody_subnets_iter().count()))
+            .map(|peer_info| peer_info.custody_subnets_iter().count())
     }
 }
 
@@ -1915,7 +1915,7 @@ mod tests {
         let peer_id = PeerId::from_public_key(&pubkey);
         peer_manager.inject_connect_ingoing(
             &peer_id,
-            Multiaddr::empty().with_p2p(peer_id.clone()).unwrap(),
+            Multiaddr::empty().with_p2p(peer_id).unwrap(),
             None,
         );
 
@@ -1932,13 +1932,13 @@ mod tests {
             custody_group_count: peer_cgc,
         });
         let cgc_updated = peer_manager.meta_data_response(&peer_id, meta_data.clone());
-        assert_eq!(cgc_updated, true);
+        assert!(cgc_updated);
         let custody_subnet_count = peer_manager.custody_subnet_count_for_peer(&peer_id);
         assert_eq!(custody_subnet_count, Some(peer_cgc as usize));
 
         // Make another update and assert that CGC is not updated.
         let cgc_updated = peer_manager.meta_data_response(&peer_id, meta_data);
-        assert_eq!(cgc_updated, false);
+        assert!(!cgc_updated);
         let custody_subnet_count = peer_manager.custody_subnet_count_for_peer(&peer_id);
         assert_eq!(custody_subnet_count, Some(peer_cgc as usize));
     }
