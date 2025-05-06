@@ -341,7 +341,10 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     ///
     /// 1. validator_definitions.yml
     /// 2. process level flag
-    pub fn get_builder_proposals(&self, validator_pubkey: &PublicKeyBytes) -> bool {
+    ///
+    /// This function is currently only used in tests because in prod it is translated and combined
+    /// with other flags into a builder boost factor (see `determine_builder_boost_factor`).
+    pub fn get_builder_proposals_testing_only(&self, validator_pubkey: &PublicKeyBytes) -> bool {
         // If there is a `suggested_fee_recipient` in the validator definitions yaml
         // file, use that value.
         self.get_builder_proposals_defaulting(
@@ -349,11 +352,23 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         )
     }
 
+    fn get_builder_proposals_defaulting(&self, builder_proposals: Option<bool>) -> bool {
+        builder_proposals
+            // If there's nothing in the file, try the process-level default value.
+            .unwrap_or(self.builder_proposals)
+    }
+
     /// Returns a `u64` for the given public key that denotes the builder boost factor. The priority order for fetching this value is:
     ///
     /// 1. validator_definitions.yml
     /// 2. process level flag
-    pub fn get_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
+    ///
+    /// This function is currently only used in tests because in prod it is translated and combined
+    /// with other flags into a builder boost factor (see `determine_builder_boost_factor`).
+    pub fn get_builder_boost_factor_testing_only(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Option<u64> {
         self.validators
             .read()
             .builder_boost_factor(validator_pubkey)
@@ -365,17 +380,17 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     ///
     /// 1. validator_definitions.yml
     /// 2. process level flag
-    pub fn get_prefer_builder_proposals(&self, validator_pubkey: &PublicKeyBytes) -> bool {
+    ///
+    /// This function is currently only used in tests because in prod it is translated and combined
+    /// with other flags into a builder boost factor (see `determine_builder_boost_factor`).
+    pub fn get_prefer_builder_proposals_testing_only(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> bool {
         self.validators
             .read()
             .prefer_builder_proposals(validator_pubkey)
             .unwrap_or(self.prefer_builder_proposals)
-    }
-
-    fn get_builder_proposals_defaulting(&self, builder_proposals: Option<bool>) -> bool {
-        builder_proposals
-            // If there's nothing in the file, try the process-level default value.
-            .unwrap_or(self.builder_proposals)
     }
 
     pub fn import_slashing_protection(
@@ -627,18 +642,29 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                 None
             });
 
-        factor.or_else(|| {
-            if self.prefer_builder_proposals {
-                return Some(u64::MAX);
-            }
-            self.builder_boost_factor.or({
-                if !self.builder_proposals {
-                    Some(0)
-                } else {
+        factor
+            .or_else(|| {
+                if self.prefer_builder_proposals {
+                    return Some(u64::MAX);
+                }
+                self.builder_boost_factor.or({
+                    if !self.builder_proposals {
+                        Some(0)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .and_then(|factor| {
+                // If builder boost factor is set to 100 it should be treated
+                // as None to prevent unnecessary calculations that could
+                // lead to loss of information.
+                if factor == 100 {
                     None
+                } else {
+                    Some(factor)
                 }
             })
-        })
     }
 
     async fn randao_reveal(

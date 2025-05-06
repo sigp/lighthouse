@@ -296,7 +296,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         }
 
         for validator_pubkey in proposers {
-            let builder_boost_factor = self.get_builder_boost_factor(&validator_pubkey);
+            let builder_boost_factor = self
+                .validator_store
+                .determine_builder_boost_factor(&validator_pubkey);
             let service = self.clone();
             self.inner.executor.spawn(
                 async move {
@@ -568,30 +570,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         }
 
         Ok::<_, BlockError>(unsigned_block)
-    }
-
-    /// Returns the builder boost factor of the given public key.
-    /// The priority order for fetching this value is:
-    ///
-    /// 1. validator_definitions.yml
-    /// 2. process level flag
-    fn get_builder_boost_factor(&self, validator_pubkey: &PublicKeyBytes) -> Option<u64> {
-        // Apply per validator configuration first.
-        let validator_builder_boost_factor = self
-            .validator_store
-            .determine_builder_boost_factor(validator_pubkey);
-
-        if let Some(builder_boost_factor) = validator_builder_boost_factor {
-            // if builder boost factor is set to 100 it should be treated
-            // as None to prevent unnecessary calculations that could
-            // lead to loss of information.
-            if builder_boost_factor == 100 {
-                return None;
-            }
-            return Some(builder_boost_factor);
-        }
-
-        None
     }
 }
 

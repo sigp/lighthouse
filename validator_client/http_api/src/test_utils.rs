@@ -637,7 +637,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_builder_proposals(&validator.voting_pubkey),
+                .get_builder_proposals_testing_only(&validator.voting_pubkey),
             builder_proposals
         );
 
