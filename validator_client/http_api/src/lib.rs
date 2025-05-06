@@ -418,10 +418,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
-    // GET lighthouse/ui/fallback_health
-    let get_lighthouse_ui_fallback_health = warp::path("lighthouse")
-        .and(warp::path("ui"))
-        .and(warp::path("fallback_health"))
+    // GET lighthouse/beacon/health
+    let get_lighthouse_beacon_health = warp::path("lighthouse")
+        .and(warp::path("beacon"))
+        .and(warp::path("health"))
         .and(warp::path::end())
         .and(block_service_filter.clone())
         .then(|block_filter: BlockService<T, E>| async move {
@@ -1294,7 +1294,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_validators_pubkey)
                         .or(get_lighthouse_ui_health)
                         .or(get_lighthouse_ui_graffiti)
-                        .or(get_lighthouse_ui_fallback_health)
+                        .or(get_lighthouse_beacon_health)
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
                         .or(get_graffiti)
