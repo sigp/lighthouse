@@ -40,7 +40,6 @@ pub struct DataColumnsByRootIdentifier {
     pub indices: RuntimeVariableList<ColumnIndex>,
 }
 
-// TODO testing
 impl RuntimeVariableList<DataColumnsByRootIdentifier> {
     pub fn from_ssz_bytes_with_nested(
         bytes: &[u8],
@@ -57,12 +56,17 @@ impl RuntimeVariableList<DataColumnsByRootIdentifier> {
         )?
         .into_iter()
         .map(|bytes| {
-            // Split manually: first 32 bytes = block_root
-            if bytes.len() < 32 {
+            // Split manually: first 32 bytes = block_root and next 4 bytes = vector tag
+            if bytes.len() < (32 + 4) {
                 return Err(DecodeError::BytesInvalid("Bytes invalid".into()));
             }
             let (block_root_bytes, rest) = bytes.split_at(32);
             let block_root = Hash256::from_ssz_bytes(block_root_bytes)?;
+            let (tag_bytes, rest) = rest.split_at(4);
+            let tag = u32::from_ssz_bytes(tag_bytes)?;
+            if tag != 36 {
+                return Err(DecodeError::BytesInvalid("Bytes invalid".into()));
+            }
             let indices = RuntimeVariableList::<ColumnIndex>::from_ssz_bytes(rest, num_columns)?;
             Ok(DataColumnsByRootIdentifier {
                 block_root,
@@ -219,5 +223,47 @@ impl From<KzgError> for DataColumnSidecarError {
 impl From<SszError> for DataColumnSidecarError {
     fn from(e: SszError) -> Self {
         Self::SszError(e)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use bls::FixedBytesExtended;
+
+    #[test]
+    fn round_trip_dcbroot_list() {
+        let max_outer = 5;
+        let max_inner = 10;
+
+        let data = vec![
+            DataColumnsByRootIdentifier {
+                block_root: Hash256::from_low_u64_be(10),
+                indices: RuntimeVariableList::<ColumnIndex>::from_vec(vec![1u64, 2, 3], max_inner),
+            },
+            DataColumnsByRootIdentifier {
+                block_root: Hash256::from_low_u64_be(20),
+                indices: RuntimeVariableList::<ColumnIndex>::from_vec(vec![4u64, 5], max_inner),
+            },
+        ];
+
+        let list = RuntimeVariableList::from_vec(data.clone(), max_outer);
+
+        let ssz_bytes = list.as_ssz_bytes();
+
+        let decoded =
+            RuntimeVariableList::<DataColumnsByRootIdentifier>::from_ssz_bytes_with_nested(
+                &ssz_bytes, max_outer, max_inner,
+            )
+            .expect("should decode list of DataColumnsByRootIdentifier");
+
+        assert_eq!(decoded.len(), data.len());
+        for (original, decoded) in data.iter().zip(decoded.iter()) {
+            assert_eq!(decoded.block_root, original.block_root);
+            assert_eq!(
+                decoded.indices.iter().copied().collect::<Vec<_>>(),
+                original.indices.iter().copied().collect::<Vec<_>>()
+            );
+        }
     }
 }
