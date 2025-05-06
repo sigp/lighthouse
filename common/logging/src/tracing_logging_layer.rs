@@ -310,9 +310,6 @@ fn build_log_text(
 
     let mut formatted_spans = String::new();
     for (i, (field_name, field_value)) in span_fields.iter().rev().enumerate() {
-        if i > 0 && !visitor.fields.is_empty() {
-            formatted_spans.push_str(", ");
-        }
         if use_color {
             formatted_spans.push_str(&format!(
                 "{}{}{}: {}",
@@ -320,6 +317,11 @@ fn build_log_text(
             ));
         } else {
             formatted_spans.push_str(&format!("{}: {}", field_name, field_value));
+        }
+
+        // Check if this is not the last span.
+        if i != span_fields.len() - 1 {
+            formatted_spans.push_str(", ");
         }
     }
 
@@ -371,6 +373,7 @@ fn build_log_text(
         } else {
             formatted_fields.push_str(&format!("{}: {}", field_name, field_value));
         }
+        // Check if this is the last field and that we are also adding spans.
         if i == visitor.fields.len() - 1 && !span_fields.is_empty() {
             formatted_fields.push(',');
         }
@@ -406,4 +409,141 @@ fn parse_field(val: &str) -> Value {
         val
     };
     serde_json::from_str(cleaned).unwrap_or(Value::String(cleaned.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tracing_logging_layer::{build_log_text, FieldVisitor};
+    use std::io::Write;
+
+    struct Buffer {
+        data: Vec<u8>,
+    }
+
+    impl Buffer {
+        fn new() -> Self {
+            Buffer { data: Vec::new() }
+        }
+
+        fn into_string(self) -> String {
+            String::from_utf8(self.data).unwrap()
+        }
+    }
+
+    impl Write for Buffer {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.data.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_build_log_text_single_log_field() {
+        let log_fields = vec![("field_name".to_string(), "field_value".to_string())];
+        let span_fields = vec![];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name: field_value \n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_multiple_log_fields() {
+        let log_fields = vec![
+            ("field_name1".to_string(), "field_value1".to_string()),
+            ("field_name2".to_string(), "field_value2".to_string()),
+        ];
+        let span_fields = vec![];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name1: field_value1, field_name2: field_value2 \n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_log_field_and_span() {
+        let log_fields = vec![("field_name".to_string(), "field_value".to_string())];
+        let span_fields = vec![(
+            "span_field_name".to_string(),
+            "span_field_value".to_string(),
+        )];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name: field_value, span_field_name: span_field_value\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_single_span() {
+        let log_fields = vec![];
+        let span_fields = vec![(
+            "span_field_name".to_string(),
+            "span_field_value".to_string(),
+        )];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name: span_field_value\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_multiple_spans() {
+        let log_fields = vec![];
+        let span_fields = vec![
+            (
+                "span_field_name1".to_string(),
+                "span_field_value1".to_string(),
+            ),
+            (
+                "span_field_name2".to_string(),
+                "span_field_value2".to_string(),
+            ),
+        ];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name2: span_field_value2, span_field_name1: span_field_value1\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_multiple_span_fields() {
+        let log_fields = vec![];
+        let span_fields = vec![
+            (
+                "span_field_name1-1".to_string(),
+                "span_field_value1-1".to_string(),
+            ),
+            (
+                "span_field_name1-2".to_string(),
+                "span_field_value1-2".to_string(),
+            ),
+        ];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name1-2: span_field_value1-2, span_field_name1-1: span_field_value1-1\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    fn test_build_log_text(
+        log_fields: Vec<(String, String)>,
+        span_fields: Vec<(String, String)>,
+        expected: &str,
+    ) {
+        let visitor = FieldVisitor {
+            message: "test message".to_string(),
+            fields: log_fields,
+            is_crit: false,
+        };
+        let plain_level_str = "INFO";
+        let timestamp = "Jan 1 08:00:00.000";
+        let location = "";
+        let color_level_str = "\x1b[32mINFO\x1b[0m";
+        let use_color = false;
+        let mut writer = Buffer::new();
+
+        build_log_text(
+            &visitor,
+            plain_level_str,
+            timestamp,
+            &span_fields,
+            location,
+            color_level_str,
+            use_color,
+            &mut writer,
+        );
+
+        assert_eq!(expected, &writer.into_string());
+    }
 }
