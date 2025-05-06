@@ -5,9 +5,8 @@ use types::{
     Address, Attestation, AttestationError, BeaconBlock, BlindedBeaconBlock, Epoch, EthSpec,
     Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit,
+    SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -108,12 +107,6 @@ pub trait ValidatorStore: Send + Sync {
         attestation: &mut Attestation<Self::E>,
         current_epoch: Epoch,
     ) -> impl Future<Output = Result<(), Error<Self::Error>>> + Send;
-
-    fn sign_voluntary_exit(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        voluntary_exit: VoluntaryExit,
-    ) -> impl Future<Output = Result<SignedVoluntaryExit, Error<Self::Error>>> + Send;
 
     fn sign_validator_registration_data(
         &self,

@@ -524,6 +524,35 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             }
         }
     }
+
+    pub async fn sign_voluntary_exit(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        voluntary_exit: VoluntaryExit,
+    ) -> Result<SignedVoluntaryExit, Error> {
+        let signing_epoch = voluntary_exit.epoch;
+        let signing_context = self.signing_context(Domain::VoluntaryExit, signing_epoch);
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::VoluntaryExit(&voluntary_exit),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await?;
+
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_VOLUNTARY_EXITS_TOTAL,
+            &[validator_metrics::SUCCESS],
+        );
+
+        Ok(SignedVoluntaryExit {
+            message: voluntary_exit,
+            signature,
+        })
+    }
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorStore<T, E> {
@@ -804,35 +833,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                 Err(Error::Slashable(e))
             }
         }
-    }
-
-    async fn sign_voluntary_exit(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        voluntary_exit: VoluntaryExit,
-    ) -> Result<SignedVoluntaryExit, Error> {
-        let signing_epoch = voluntary_exit.epoch;
-        let signing_context = self.signing_context(Domain::VoluntaryExit, signing_epoch);
-        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
-
-        let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::VoluntaryExit(&voluntary_exit),
-                signing_context,
-                &self.spec,
-                &self.task_executor,
-            )
-            .await?;
-
-        validator_metrics::inc_counter_vec(
-            &validator_metrics::SIGNED_VOLUNTARY_EXITS_TOTAL,
-            &[validator_metrics::SUCCESS],
-        );
-
-        Ok(SignedVoluntaryExit {
-            message: voluntary_exit,
-            signature,
-        })
     }
 
     async fn sign_validator_registration_data(
