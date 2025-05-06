@@ -610,8 +610,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         self.get_fee_recipient_defaulting(self.suggested_fee_recipient(validator_pubkey))
     }
 
-    /// Translate the per validator `builder_proposals`, `builder_boost_factor` and
-    /// `prefer_builder_proposals` to a boost factor, if available.
+    /// Translate the per validator and per process `builder_proposals`, `builder_boost_factor` and
+    /// `prefer_builder_proposals` configurations to a boost factor, if available.
+    ///
+    /// Priority is given to per-validator values, and then if no preference is established by
+    /// these the process-level defaults are used. For both types of config, the logic is the same:
+    ///
     /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
     ///   preference for builder payloads.
     /// - If `builder_boost_factor` is a value other than None, return its value as the boost factor.
