@@ -94,7 +94,7 @@ means that the validator client is not running, or the `--http` flag is not prov
 validator api issue, server response: 403
 ```
 
-    which means that the API token is incorrect. Check that you have provided the correct token in the field `API_TOKEN` in `.env`.
+which means that the API token is incorrect. Check that you have provided the correct token in the field `API_TOKEN` in `.env`.
 
 When Siren has successfully started, you should see the log `LOG [NestApplication] Nest application successfully started +118ms`, indicating that Siren has started (in the docker logs).
 
