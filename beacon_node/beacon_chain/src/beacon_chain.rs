@@ -1115,14 +1115,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .data_availability_checker
             .get_data_columns(block_root)?
         {
-            Ok(Some(all_cols))
+            Some(all_cols)
         } else if let Some(all_cols) = self.early_attester_cache.get_data_columns(block_root) {
-            Ok(Some(all_cols))
+            Some(all_cols)
         } else {
-            self.get_data_columns(&block_root)
+            self.get_data_columns(&block_root)?
         };
 
-        if let Ok(Some(columns)) = columns {
+        let indices: HashSet<_> = indices.iter().clone().collect();
+        if let Some(columns) = columns {
             return Ok(Some(
                 columns
                     .iter()
@@ -1132,7 +1133,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         }
 
-        columns
+        Ok(columns)
     }
 
     /// Returns the block at the given root, if any.

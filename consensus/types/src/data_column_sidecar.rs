@@ -11,7 +11,7 @@ use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz::{DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
@@ -25,15 +25,7 @@ pub type ColumnIndex = u64;
 pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
 pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
-/// Container of the data that identifies an individual data column.
-#[derive(
-    Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
-)]
-pub struct DataColumnIdentifier {
-    pub block_root: Hash256,
-    pub index: ColumnIndex,
-}
-
+/// Container of data columns of a block root.
 #[derive(Serialize, Deserialize, Encode, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DataColumnsByRootIdentifier {
     pub block_root: Hash256,
@@ -56,18 +48,15 @@ impl RuntimeVariableList<DataColumnsByRootIdentifier> {
         )?
         .into_iter()
         .map(|bytes| {
-            // Split manually: first 32 bytes = block_root and next 4 bytes = vector tag
-            if bytes.len() < (32 + 4) {
-                return Err(DecodeError::BytesInvalid("Bytes invalid".into()));
-            }
-            let (block_root_bytes, rest) = bytes.split_at(32);
-            let block_root = Hash256::from_ssz_bytes(block_root_bytes)?;
-            let (tag_bytes, rest) = rest.split_at(4);
-            let tag = u32::from_ssz_bytes(tag_bytes)?;
-            if tag != 36 {
-                return Err(DecodeError::BytesInvalid("Bytes invalid".into()));
-            }
-            let indices = RuntimeVariableList::<ColumnIndex>::from_ssz_bytes(rest, num_columns)?;
+            let mut builder = ssz::SszDecoderBuilder::new(&bytes);
+            builder.register_type::<Hash256>()?;
+            builder.register_anonymous_variable_length_item()?;
+
+            let mut decoder = builder.build()?;
+            let block_root = decoder.decode_next()?;
+            let indices = decoder.decode_next_with(|bytes| {
+                RuntimeVariableList::from_ssz_bytes(bytes, num_columns)
+            })?;
             Ok(DataColumnsByRootIdentifier {
                 block_root,
                 indices,
@@ -178,13 +167,6 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         }
         .as_ssz_bytes()
         .len()
-    }
-
-    pub fn id(&self) -> DataColumnIdentifier {
-        DataColumnIdentifier {
-            block_root: self.block_root(),
-            index: self.index,
-        }
     }
 }
 

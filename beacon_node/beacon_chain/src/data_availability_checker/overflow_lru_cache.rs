@@ -404,7 +404,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    /// Fetch a data column from the cache without affecting the LRU ordering
+    /// Fetch data columns of a given `block_root` from the cache without affecting the LRU ordering
     pub fn peek_data_columns(
         &self,
         block_root: Hash256,

@@ -486,7 +486,7 @@ impl DataColumnsByRootRequest {
     pub fn new(data_column_ids: Vec<DataColumnsByRootIdentifier>, spec: &ChainSpec) -> Self {
         let data_column_ids = RuntimeVariableList::from_vec(
             data_column_ids,
-            spec.max_request_data_column_sidecars as usize,
+            spec.max_request_blocks(ForkName::Deneb),
         );
         Self { data_column_ids }
     }

@@ -363,7 +363,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         for data_column_ids_by_root in request.data_column_ids.as_slice() {
             match self.chain.get_data_columns_checking_all_caches(
                 data_column_ids_by_root.block_root,
-                &Vec::from(data_column_ids_by_root.indices.clone()),
+                data_column_ids_by_root.indices.as_slice(),
             ) {
                 Ok(Some(data_columns)) => {
                     send_data_column_count += data_columns.len();

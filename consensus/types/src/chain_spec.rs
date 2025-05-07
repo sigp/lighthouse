@@ -1794,7 +1794,7 @@ fn default_max_blobs_by_root_request() -> usize {
 
 fn default_data_columns_by_root_request() -> usize {
     max_data_columns_by_root_request_common(
-        default_max_request_data_column_sidecars(),
+        default_max_request_blocks_deneb(),
         default_number_of_columns(),
     )
 }
@@ -2097,7 +2097,7 @@ impl Config {
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
             max_data_columns_by_root_request: max_data_columns_by_root_request_common(
-                max_request_data_column_sidecars,
+                max_request_blocks_deneb,
                 number_of_columns,
             ),
 

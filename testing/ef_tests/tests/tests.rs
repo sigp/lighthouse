@@ -667,14 +667,6 @@ mod ssz_static {
     }
 
     #[test]
-    fn data_column_identifier() {
-        SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
-        SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
-    }
-
-    #[test]
     fn consolidation() {
         SszStaticHandler::<ConsolidationRequest, MinimalEthSpec>::electra_and_later().run();
         SszStaticHandler::<ConsolidationRequest, MainnetEthSpec>::electra_and_later().run();

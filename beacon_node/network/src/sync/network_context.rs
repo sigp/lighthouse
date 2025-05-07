@@ -732,7 +732,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request: RequestType::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
+            request: RequestType::DataColumnsByRoot(
+                request.clone().try_into_request(&self.chain.spec)?,
+            ),
             app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
         })?;
 
