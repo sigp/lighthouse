@@ -1126,9 +1126,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(columns) = columns {
             return Ok(Some(
                 columns
-                    .iter()
+                    .into_iter()
                     .filter(|col| indices.contains(&col.index))
-                    .cloned()
                     .collect(),
             ));
         }

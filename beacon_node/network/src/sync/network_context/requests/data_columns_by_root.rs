@@ -19,9 +19,6 @@ impl DataColumnsByRootSingleBlockRequest {
         spec: &ChainSpec,
     ) -> Result<DataColumnsByRootRequest, &'static str> {
         let number_of_columns = spec.number_of_columns as usize;
-        // TODO we aren't handling the case where self.indices > NUMBER_OF_COLUMNS defined by the
-        // spec. Do we do this else where? I think we shall use RuntimeVariableList::new() and
-        // handle errors.
         let indices = RuntimeVariableList::new(self.indices, number_of_columns)
             .map_err(|_| "Out of bounds")?;
         Ok(DataColumnsByRootRequest::new(
