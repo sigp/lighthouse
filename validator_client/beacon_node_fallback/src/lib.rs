@@ -486,12 +486,18 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         for (result, node) in results {
             if let Err(e) = result {
-                if *e != CandidateError::PreGenesis {
-                    warn!(
-                        error = ?e,
-                        endpoint = %node,
-                        "A connected beacon node errored during routine health check"
-                    );
+                // We don't want to spam warns before Genesis and a node is only marked as
+                // Uninitialized when the slot clock has not yet been set.
+                // This will only occur at start-up so it is safe to silence them.
+                match e {
+                    CandidateError::PreGenesis | CandidateError::Uninitialized => {}
+                    _ => {
+                        warn!(
+                            error = ?e,
+                            endpoint = %node,
+                            "A connected beacon node errored during routine health check"
+                        );
+                    }
                 }
             }
         }
