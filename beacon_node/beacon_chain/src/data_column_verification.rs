@@ -201,10 +201,6 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         )
     }
 
-    pub fn id(&self) -> ColumnIndex {
-        self.data_column.index()
-    }
-
     pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
         self.data_column.as_data_column()
     }
