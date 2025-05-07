@@ -317,6 +317,14 @@ fn missing_unencrypted_http_transport_flag() {
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
 #[test]
+#[should_panic]
+fn missing_http_http_port_flag() {
+    CommandLineTest::new()
+        .flag("http-port", Some("9090"))
+        .run()
+        .with_config(|config| assert_eq!(config.http_api.listen_port, 9090));
+}
+#[test]
 fn http_port_flag() {
     CommandLineTest::new()
         .flag("http", None)
