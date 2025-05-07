@@ -125,7 +125,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         logging_layers.push(
             stdout_logging_layer
                 .with_filter(logger_config.debug_level)
-                .boxed()
+                .boxed(),
         );
     }
     if let Some(file_logging_layer) = file_logging_layer {
