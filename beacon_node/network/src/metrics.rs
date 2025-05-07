@@ -644,6 +644,15 @@ pub static BLOCKS_SYNCED_PER_CLIENT_VERSION: LazyLock<Result<IntCounterVec>> = L
     )
 });
 
+pub static SYNC_TIME_PER_CLIENT: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec_with_buckets(
+        "client_sync_time_seconds",
+        "Time taken to sync with a client from start to finish",
+        Ok(vec![0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]),
+        &["Client"],
+    )
+});
+
 // pub static BYTES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
 //     try_create_int_counter_vec(
 //         "bytes_received_per_client",

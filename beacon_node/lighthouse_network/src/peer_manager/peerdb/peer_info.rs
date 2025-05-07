@@ -56,6 +56,9 @@ pub struct PeerInfo<E: EthSpec> {
     connection_direction: Option<ConnectionDirection>,
     /// The enr of the peer, if known.
     enr: Option<Enr>,
+    /// The time the peer was started syncing
+    #[serde(skip)]
+    sync_start_time: Option<Instant>,
 }
 
 impl<E: EthSpec> Default for PeerInfo<E> {
@@ -74,6 +77,7 @@ impl<E: EthSpec> Default for PeerInfo<E> {
             is_trusted: false,
             connection_direction: None,
             enr: None,
+            sync_start_time: None,
         }
     }
 }
@@ -145,6 +149,11 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Returns the sync status of the peer.
     pub fn sync_status(&self) -> &SyncStatus {
         &self.sync_status
+    }
+
+    /// Returns the sync start time of the peer.
+    pub fn sync_start_time(&self) -> Option<&Instant> {
+        self.sync_start_time.as_ref()
     }
 
     /// Returns the metadata for the peer if currently known.
@@ -357,6 +366,11 @@ impl<E: EthSpec> PeerInfo<E> {
     // VISIBILITY: Both the peer manager the network sync is able to update the sync state of a peer
     pub fn update_sync_status(&mut self, sync_status: SyncStatus) -> bool {
         self.sync_status.update(sync_status)
+    }
+
+    /// Updates the sync start time. Returns true if the start time was changed.
+    pub fn update_sync_start_time(&mut self, sync_start_time: Instant) {
+        self.sync_start_time = Some(sync_start_time);
     }
 
     /// Sets the client of the peer.
