@@ -298,7 +298,7 @@ jobs:
     - name: Create log dir
       run: mkdir ${{ runner.temp }}/basic_simulator_logs
     - name: Run a basic beacon chain sim that starts from Bellatrix
-      run: cargo run --release --bin simulator basic-sim --log-dir ${{ runner.temp }}/basic_simulator_logs
+      run: cargo run --release --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
     - name: Upload logs
       uses: actions/upload-artifact@v4
       with:
@@ -319,7 +319,7 @@ jobs:
     - name: Create log dir
       run: mkdir ${{ runner.temp }}/fallback_simulator_logs
     - name: Run a beacon chain sim which tests VC fallback behaviour
-      run: cargo run --release --bin simulator fallback-sim --log-dir ${{ runner.temp }}/fallback_simulator_logs
+      run: cargo run --release --bin simulator fallback-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/fallback_simulator_logs
     - name: Upload logs
       uses: actions/upload-artifact@v4
       with:

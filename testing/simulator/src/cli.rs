@@ -67,6 +67,12 @@ pub fn cli_app() -> Command {
                         .long("log-dir")
                         .action(ArgAction::Set)
                         .help("Set a path for logs of beacon nodes that run in this simulation."),
+                )
+                .arg(
+                    Arg::new("disable-stdout-logging")
+                        .long("disable-stdout-logging")
+                        .action(ArgAction::SetTrue)
+                        .help("Disables stdout logging."),
                 ),
         )
         .subcommand(
@@ -132,6 +138,12 @@ pub fn cli_app() -> Command {
                         .long("log-dir")
                         .action(ArgAction::Set)
                         .help("Set a path for logs of beacon nodes that run in this simulation."),
+                )
+                .arg(
+                    Arg::new("disable-stdout-logging")
+                        .long("disable-stdout-logging")
+                        .action(ArgAction::SetTrue)
+                        .help("Disables stdout logging."),
                 ),
         )
 }
