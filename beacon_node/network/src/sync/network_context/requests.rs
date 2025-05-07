@@ -179,6 +179,10 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
             .collect()
     }
 
+    pub fn iter_request_peers(&self) -> impl Iterator<Item = PeerId> + '_ {
+        self.requests.values().map(|request| request.peer_id)
+    }
+
     pub fn len(&self) -> usize {
         self.requests.len()
     }
