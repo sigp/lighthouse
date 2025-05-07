@@ -668,9 +668,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // The peer is faulty if they send bad signatures.
                         Some(PeerAction::LowToleranceError)
                     }
-                    HistoricalBlockError::InvalidBlobsSignature(_)
-                    | HistoricalBlockError::InvalidDataColumnsSignature(_)
-                    | HistoricalBlockError::Unexpected(_)
+                    HistoricalBlockError::Unexpected(_)
                     | HistoricalBlockError::AvailabilityCheckError(_) => {
                         debug!(
                             error = ?e,

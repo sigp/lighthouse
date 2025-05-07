@@ -22,6 +22,10 @@ pub enum Error {
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
+    /// One or more signatures in a BlobSidecar of an RpcBlock are invalid
+    InvalidBlobsSignature(Vec<u64>),
+    /// One or more signatures in a DataColumnSidecar of an RpcBlock are invalid
+    InvalidDataColumnsSignature(Vec<ColumnIndex>),
 }
 
 #[derive(PartialEq, Eq)]
@@ -44,7 +48,9 @@ impl Error {
             | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
-            | Error::SlotClockError => ErrorCategory::Internal,
+            | Error::SlotClockError
+            | Error::InvalidBlobsSignature(_)
+            | Error::InvalidDataColumnsSignature(_) => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
             | Error::ReconstructColumnsError { .. }

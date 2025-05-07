@@ -2611,8 +2611,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             beacon_chain
                 .import_historical_block_batch(&batch_with_invalid_header)
                 .unwrap_err(),
-            HistoricalBlockError::InvalidBlobsSignature(_)
-                | HistoricalBlockError::InvalidDataColumnsSignature(_)
+            HistoricalBlockError::AvailabilityCheckError(_)
         ));
 
         // Importing the batch with an invalid blob/column KZG commitment should error.
@@ -2629,9 +2628,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         beacon_chain
             .import_historical_block_batch(&batch_with_invalid_first_block)
             .unwrap_err(),
-        HistoricalBlockError::InvalidSignature(_)
-            | HistoricalBlockError::InvalidBlobsSignature(_)
-            | HistoricalBlockError::InvalidDataColumnsSignature(_),
+        HistoricalBlockError::InvalidSignature(_) | HistoricalBlockError::AvailabilityCheckError(_)
     ));
 
     // Importing the batch with valid signatures should succeed.

@@ -81,6 +81,38 @@ impl<E: EthSpec> RpcBlock<E> {
         }
     }
 
+    /// Returns indices of blobs or data columns that have conflicting signature with block's
+    /// signature.
+    pub fn validate_non_matching_signed_headers(&self) -> Result<(), AvailabilityCheckError> {
+        match &self.block {
+            RpcBlockInner::Block(_) => Ok(()),
+            RpcBlockInner::BlockAndBlobs(block, blobs) => {
+                let indices: Vec<_> = blobs
+                    .iter()
+                    .filter(|blob| &blob.signed_block_header.signature != block.signature())
+                    .map(|blob| blob.index)
+                    .collect();
+                if !indices.is_empty() {
+                    return Err(AvailabilityCheckError::InvalidBlobsSignature(indices));
+                }
+                Ok(())
+            }
+            RpcBlockInner::BlockAndCustodyColumns(block, data_columns) => {
+                let indices: Vec<_> = data_columns
+                    .iter()
+                    .filter(|column| {
+                        &column.as_data_column().signed_block_header.signature != block.signature()
+                    })
+                    .map(|column| column.index())
+                    .collect();
+                if !indices.is_empty() {
+                    return Err(AvailabilityCheckError::InvalidDataColumnsSignature(indices));
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// Returns indices of blobs that have conflicting signature with block's signature.
     pub fn non_matching_blobs_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
         match &self.block {

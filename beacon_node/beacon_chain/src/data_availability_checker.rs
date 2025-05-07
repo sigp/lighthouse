@@ -323,6 +323,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
+        // Verify that blobs or data columns signatures match
+        block.validate_non_matching_signed_headers()?;
+
         let custody_columns_count = block.custody_columns_count();
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
@@ -393,6 +396,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         blocks: &[RpcBlock<T::EthSpec>],
     ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
+        // Verify that blobs or data columns signatures match
+        blocks
+            .iter()
+            .map(|block| block.validate_non_matching_signed_headers())
+            .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
+
         let mut results = Vec::with_capacity(blocks.len());
         let all_blobs = blocks
             .iter()

@@ -13,7 +13,7 @@ use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::debug;
-use types::{ColumnIndex, FixedBytesExtended, Hash256, Slot};
+use types::{FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -32,10 +32,6 @@ pub enum HistoricalBlockError {
     },
     /// Bad signature, caller should retry with different blocks.
     InvalidSignature(String),
-    /// One or more signatures in a BlobSidecar of an RpcBlock are invalid
-    InvalidBlobsSignature(Vec<u64>),
-    /// One or more signatures in a DataColumnSidecar of an RpcBlock are invalid
-    InvalidDataColumnsSignature(Vec<ColumnIndex>),
     /// Unexpected error
     Unexpected(String),
     /// Transitory error, caller should retry with the same blocks.
@@ -187,26 +183,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         blocks: &[RpcBlock<T::EthSpec>],
     ) -> Result<Vec<AvailableBlock<T::EthSpec>>, HistoricalBlockError> {
-        // Verify that blobs or data columns signatures match
-        // TODO: this logic is redundant with one from range sync. Do we have a good place to make
-        // it as a common function?
-        blocks
-            .iter()
-            .map(|block| {
-                if let Some(indices) = block.non_matching_blobs_signed_headers() {
-                    if !indices.is_empty() {
-                        return Err(HistoricalBlockError::InvalidBlobsSignature(indices));
-                    }
-                }
-                if let Some(indices) = block.non_matching_custody_columns_signed_headers() {
-                    if !indices.is_empty() {
-                        return Err(HistoricalBlockError::InvalidDataColumnsSignature(indices));
-                    }
-                }
-                Ok(())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
         // Check that all data columns are present <- faulty failure if missing because we have
         // checked the block root is correct first.
         let sig_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_TOTAL_TIMES);
