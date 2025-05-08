@@ -1,7 +1,4 @@
-use crate::rpc::{
-    methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage},
-    MetaData,
-};
+use crate::rpc::methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage};
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
@@ -137,8 +134,6 @@ pub enum AppRequestId {
 //       `RPCCodedResponse`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Response<E: EthSpec> {
-    /// A Metadata message.
-    MetaData(Arc<MetaData<E>>, /* updated_cgc */ bool),
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
@@ -190,7 +185,6 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
                 Some(d) => RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(d)),
                 None => RpcResponse::StreamTermination(ResponseTermination::DataColumnsByRange),
             },
-            Response::MetaData(m, _) => RpcResponse::Success(RpcSuccessResponse::MetaData(m)),
             Response::Status(s) => RpcResponse::Success(RpcSuccessResponse::Status(s)),
             Response::LightClientBootstrap(b) => {
                 RpcResponse::Success(RpcSuccessResponse::LightClientBootstrap(b))

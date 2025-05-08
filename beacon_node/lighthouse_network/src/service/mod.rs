@@ -103,6 +103,8 @@ pub enum NetworkEvent<E: EthSpec> {
     StatusPeer(PeerId),
     NewListenAddr(Multiaddr),
     ZeroListeners,
+    /// A peer has an updated custody group count from MetaData.
+    PeerUpdatedCustodyGroupCount(PeerId),
 }
 
 pub type Gossipsub = gossipsub::Behaviour<SnappyTransform, SubscriptionFilter>;
@@ -1862,13 +1864,7 @@ impl<E: EthSpec> Network<E> {
                             .peer_manager_mut()
                             .meta_data_response(&peer_id, meta_data.as_ref().clone());
                         // Send event after calling into peer_manager so the PeerDB is updated.
-                        // Manually build the response here, as we want to propagate the METADATA
-                        // message upwards, even though it's initiated from network.
-                        Some(NetworkEvent::ResponseReceived {
-                            peer_id,
-                            app_request_id: id,
-                            response: Response::MetaData(meta_data, updated_cgc),
-                        })
+                        updated_cgc.then(|| NetworkEvent::PeerUpdatedCustodyGroupCount(peer_id))
                     }
                     /* Network propagated protocols */
                     RpcSuccessResponse::Status(msg) => {

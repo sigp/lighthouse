@@ -73,6 +73,8 @@ pub enum RouterMessage<E: EthSpec> {
     PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
+    /// The peer has an updated custody group count from METADATA.
+    PeerUpdatedCustodyGroupCount(PeerId),
 }
 
 impl<T: BeaconChainTypes> Router<T> {
@@ -154,6 +156,10 @@ impl<T: BeaconChainTypes> Router<T> {
             // A peer has disconnected
             RouterMessage::PeerDisconnected(peer_id) => {
                 self.send_to_sync(SyncMessage::Disconnect(peer_id));
+            }
+            // A peer has updated CGC
+            RouterMessage::PeerUpdatedCustodyGroupCount(peer_id) => {
+                self.send_to_sync(SyncMessage::UpdatedPeerCgc(peer_id));
             }
             RouterMessage::RPCRequestReceived {
                 peer_id,
@@ -283,9 +289,6 @@ impl<T: BeaconChainTypes> Router<T> {
         response: Response<T::EthSpec>,
     ) {
         match response {
-            Response::MetaData(_meta_data, updated_cgc) => {
-                self.on_meta_data_response(peer_id, updated_cgc)
-            }
             Response::Status(status_message) => {
                 debug!(%peer_id, ?status_message,"Received Status Response");
                 self.handle_beacon_processor_send_result(
@@ -554,12 +557,6 @@ impl<T: BeaconChainTypes> Router<T> {
             self.network_beacon_processor
                 .send_status_message(peer_id, status),
         )
-    }
-
-    pub fn on_meta_data_response(&mut self, peer_id: PeerId, updated_cgc: bool) {
-        if updated_cgc {
-            self.send_to_sync(SyncMessage::UpdatedPeerCgc(peer_id));
-        }
     }
 
     /// Handle a `BlocksByRange` response from the peer.
