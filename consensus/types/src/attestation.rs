@@ -1,3 +1,4 @@
+use crate::context_deserialize;
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, Hash256, Slot};
 use crate::{Checkpoint, ContextDeserialize, ForkName};
@@ -47,6 +48,7 @@ impl From<ssz_types::Error> for Error {
             arbitrary::Arbitrary,
             TreeHash,
         ),
+        context_deserialize(ForkName),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
@@ -584,6 +586,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> 
     TreeHash,
     PartialEq,
 )]
+#[context_deserialize(ForkName)]
 pub struct SingleAttestation {
     #[serde(with = "serde_utils::quoted_u64")]
     pub committee_index: u64,

@@ -4,4 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+milhouse = { workspace = true }
 serde = { workspace = true }
+ssz_types = { workspace = true }

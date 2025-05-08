@@ -26,6 +26,7 @@ use tree_hash_derive::TreeHash;
 #[derive(
     Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
 )]
+#[context_deserialize(ForkName)]
 pub struct BlobIdentifier {
     pub block_root: Hash256,
     pub index: u64,

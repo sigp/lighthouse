@@ -1,3 +1,4 @@
+use crate::context_deserialize;
 use crate::indexed_attestation::{
     IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
 };
@@ -26,6 +27,7 @@ use tree_hash_derive::TreeHash;
             TestRandom,
             arbitrary::Arbitrary
         ),
+        context_deserialize(ForkName),
         derivative(PartialEq, Eq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec"),
         arbitrary(bound = "E: EthSpec")

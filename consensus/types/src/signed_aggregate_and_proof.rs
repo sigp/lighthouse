@@ -2,11 +2,11 @@ use super::{
     AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofRef,
 };
 use super::{
-    AttestationRef, ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey, SelectionProof,
-    Signature, SignedRoot,
+    Attestation, AttestationRef, ChainSpec, Domain, EthSpec, Fork, ForkName, Hash256, SecretKey,
+    SelectionProof, Signature, SignedRoot,
 };
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::Attestation;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
@@ -32,6 +32,7 @@ use tree_hash_derive::TreeHash;
             TestRandom,
             TreeHash,
         ),
+        context_deserialize(ForkName),
         serde(bound = "E: EthSpec"),
         arbitrary(bound = "E: EthSpec"),
     ),

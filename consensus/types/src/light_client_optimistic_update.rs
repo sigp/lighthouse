@@ -1,4 +1,5 @@
 use super::{ContextDeserialize, EthSpec, ForkName, LightClientHeader, Slot, SyncAggregate};
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{
     light_client_update::*, ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella,
@@ -35,6 +36,7 @@ use tree_hash_derive::TreeHash;
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
+        context_deserialize(ForkName),
     )
 )]
 #[derive(Debug, Clone, Serialize, Encode, TreeHash, arbitrary::Arbitrary, PartialEq)]

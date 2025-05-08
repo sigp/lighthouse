@@ -4,57 +4,98 @@ extern crate syn;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, AttributeArgs, DeriveInput, LifetimeDef, Meta, NestedMeta, Path};
+use syn::{
+    parse_macro_input, AttributeArgs, DeriveInput, GenericParam, LifetimeDef, Meta, NestedMeta,
+    WhereClause,
+};
 
-/// `#[context_deserialize(Foo, Bar, ...)]`
-/// generates `ContextDeserialize<'de, Foo>` and `ContextDeserialize<'de, Bar>`
-/// forwarding impls for the given struct.
 #[proc_macro_attribute]
 pub fn context_deserialize(attr: TokenStream, item: TokenStream) -> TokenStream {
-    // Parse attribute and input struct
     let args = parse_macro_input!(attr as AttributeArgs);
     let input = parse_macro_input!(item as DeriveInput);
     let ident = &input.ident;
 
-    // Context types provided in macro
-    let ctx_types: Vec<Path> = args
-        .iter()
-        .filter_map(|meta| match meta {
-            NestedMeta::Meta(Meta::Path(p)) => Some(p.clone()),
-            _ => None,
-        })
-        .collect();
+    let mut ctx_types = Vec::new();
+    let mut explicit_where: Option<WhereClause> = None;
+
+    for meta in args {
+        match meta {
+            NestedMeta::Meta(Meta::Path(p)) => {
+                ctx_types.push(p);
+            }
+            NestedMeta::Meta(Meta::NameValue(nv)) if nv.path.is_ident("bound") => {
+                if let syn::Lit::Str(lit_str) = &nv.lit {
+                    let where_string = format!("where {}", lit_str.value());
+                    match syn::parse_str::<WhereClause>(&where_string) {
+                        Ok(where_clause) => {
+                            explicit_where = Some(where_clause);
+                        }
+                        Err(err) => {
+                            return syn::Error::new_spanned(
+                                lit_str,
+                                format!("Invalid where clause '{}': {}", lit_str.value(), err),
+                            )
+                            .to_compile_error()
+                            .into();
+                        }
+                    }
+                } else {
+                    return syn::Error::new_spanned(
+                        &nv,
+                        "Expected a string literal for `bound` value",
+                    )
+                    .to_compile_error()
+                    .into();
+                }
+            }
+            _ => {
+                return syn::Error::new_spanned(
+                    &meta,
+                    "Expected paths or `bound = \"...\"` in #[context_deserialize(...)]",
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+    }
 
     if ctx_types.is_empty() {
         return quote! {
-            compile_error!("Usage: #[context_deserialize(Type1, Type2, ...)]");
+            compile_error!("Usage: #[context_deserialize(Type1, Type2, ..., bound = \"...\")]");
         }
         .into();
     }
 
-    // Generic handling
-    let generics = &input.generics;
-    let params = &generics.params;
-    let (_, ty_generics, where_clause) = generics.split_for_impl();
+    let original_generics = input.generics.clone();
 
-    let has_de = generics
+    // Clone and clean generics for impl use (remove default params)
+    let mut impl_generics = input.generics.clone();
+    for param in impl_generics.params.iter_mut() {
+        if let GenericParam::Type(ty) = param {
+            ty.eq_token = None;
+            ty.default = None;
+        }
+    }
+
+    // Ensure 'de lifetime exists in impl generics
+    let has_de = impl_generics
         .lifetimes()
         .any(|LifetimeDef { lifetime, .. }| lifetime.ident == "de");
 
-    let base_generics = if has_de {
-        quote! { #params }
-    } else if params.is_empty() {
-        quote! { 'de }
-    } else {
-        quote! { 'de, #params }
-    };
+    if !has_de {
+        impl_generics.params.insert(0, syn::parse_quote! { 'de });
+    }
 
-    // Generate impls per context type
+    let (_, ty_generics, _) = original_generics.split_for_impl();
+    let (impl_gens, _, _) = impl_generics.split_for_impl();
+
+    // Generate: no `'de` applied to the type name
     let mut impls = quote! {};
     for ctx in ctx_types {
         impls.extend(quote! {
-            impl<#base_generics> context_deserialize::ContextDeserialize<'de, #ctx>
-                for #ident #ty_generics #where_clause
+            impl #impl_gens context_deserialize::ContextDeserialize<'de, #ctx>
+                for #ident #ty_generics
+                #explicit_where
             {
                 fn context_deserialize<D>(
                     deserializer: D,
@@ -69,7 +110,6 @@ pub fn context_deserialize(attr: TokenStream, item: TokenStream) -> TokenStream 
         });
     }
 
-    // Final output: input struct + impl blocks
     quote! {
         #input
         #impls
