@@ -210,6 +210,7 @@ impl From<SszError> for DataColumnSidecarError {
 #[cfg(test)]
 mod test {
     use super::*;
+    use bls::FixedBytesExtended;
 
     #[test]
     fn round_trip_dcbroot_list() {
