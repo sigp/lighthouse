@@ -1,4 +1,5 @@
-use serde::Deserialize;
+use context_deserialize::ContextDeserialize;
+use serde::{Deserialize, Deserializer};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
@@ -40,6 +41,15 @@ macro_rules! uint_wrapper {
                 self.x.tree_hash_root()
             }
         }
+
+        impl<'de, T> ContextDeserialize<'de, T> for $wrapper_name {
+            fn context_deserialize<D>(deserializer: D, _context: T) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                Ok(<$wrapper_name>::deserialize(deserializer)?)
+            }
+        }
     };
 }
 
@@ -48,12 +58,12 @@ uint_wrapper!(DecimalU256, alloy_primitives::U256);
 
 /// Trait for types that can be used in SSZ static tests.
 pub trait SszStaticType:
-    serde::de::DeserializeOwned + Encode + Clone + PartialEq + Debug + Sync
+    serde::de::DeserializeOwned + Encode + for<'de> ContextDeserialize<'de, ForkName> + Clone + PartialEq + Debug + Sync
 {
 }
 
 impl<T> SszStaticType for T where
-    T: serde::de::DeserializeOwned + Encode + Clone + PartialEq + Debug + Sync
+    T: serde::de::DeserializeOwned + Encode + for<'de> ContextDeserialize<'de, ForkName> + Clone + PartialEq + Debug + Sync
 {
 }
 

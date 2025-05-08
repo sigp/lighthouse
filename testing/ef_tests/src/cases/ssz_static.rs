@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::decode::{snappy_decode_file, yaml_decode_file};
+use crate::decode::{snappy_decode_file, yaml_decode_file, context_yaml_decode_file};
 use serde::Deserialize;
 use ssz::Decode;
 use tree_hash::TreeHash;
@@ -37,18 +37,18 @@ pub struct SszStaticWithSpec<T> {
     value: T,
 }
 
-fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
+fn load_from_dir<T: SszStaticType>(path: &Path, fork_name: ForkName) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
     let roots = yaml_decode_file(&path.join("roots.yaml"))?;
     let serialized = snappy_decode_file(&path.join("serialized.ssz_snappy"))
         .expect("serialized.ssz_snappy exists");
-    let value = yaml_decode_file(&path.join("value.yaml"))?;
+    let value = context_yaml_decode_file(&path.join("value.yaml"), fork_name)?;
 
     Ok((roots, serialized, value))
 }
 
 impl<T: SszStaticType> LoadCase for SszStatic<T> {
-    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
-        load_from_dir(path).map(|(roots, serialized, value)| Self {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
             roots,
             serialized,
             value,
@@ -57,8 +57,8 @@ impl<T: SszStaticType> LoadCase for SszStatic<T> {
 }
 
 impl<T: SszStaticType> LoadCase for SszStaticTHC<T> {
-    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
-        load_from_dir(path).map(|(roots, serialized, value)| Self {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
             roots,
             serialized,
             value,
@@ -67,8 +67,8 @@ impl<T: SszStaticType> LoadCase for SszStaticTHC<T> {
 }
 
 impl<T: SszStaticType> LoadCase for SszStaticWithSpec<T> {
-    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
-        load_from_dir(path).map(|(roots, serialized, value)| Self {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
             roots,
             serialized,
             value,

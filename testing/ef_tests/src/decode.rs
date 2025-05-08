@@ -6,6 +6,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use types::{BeaconState, LightClientUpdate};
+use context_deserialize::ContextDeserialize;
 
 /// See `log_file_access` for details.
 const ACCESSED_FILE_LOG_FILENAME: &str = ".accessed_file_log.txt";
@@ -33,6 +34,27 @@ pub fn log_file_access<P: AsRef<Path>>(file_accessed: P) {
 
 pub fn yaml_decode<T: serde::de::DeserializeOwned>(string: &str) -> Result<T, Error> {
     serde_yaml::from_str(string).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
+}
+
+pub fn context_yaml_decode<'de, C>(string: &'de str, fork_name: ForkName) -> Result<C, Error>
+where
+    C: ContextDeserialize<'de, ForkName>,
+{
+    let deserializer = serde_yaml::Deserializer::from_str(string);
+    C::context_deserialize(deserializer, fork_name)
+        .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
+}
+
+pub fn context_yaml_decode_file<C>(path: &Path, fork_name: ForkName) -> Result<C, Error>
+where
+    C: for<'de> ContextDeserialize<'de, ForkName>
+{
+    log_file_access(path);
+    fs::read_to_string(path)
+        .map_err(|e| {
+            Error::FailedToParseTest(format!("Unable to load {}: {:?}", path.display(), e))
+        })
+        .and_then(|s| context_yaml_decode(&s, fork_name))
 }
 
 pub fn yaml_decode_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Error> {
