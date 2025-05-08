@@ -26,8 +26,8 @@ const CACHED_RESPONSE_AGE_LIMIT: Duration = Duration::from_secs(900); // 15 minu
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq, Debug, Eq, Default)]
 enum EngineStateInternal {
-    Synced,
     #[default]
+    Synced,
     Offline,
     Syncing,
     AuthFailed,
