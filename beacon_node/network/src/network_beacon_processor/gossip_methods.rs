@@ -1160,7 +1160,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    self.attempt_data_column_reconstruction(block_root).await;
+                    self.attempt_data_column_reconstruction(block_root, true)
+                        .await;
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {

@@ -144,6 +144,7 @@ pub struct Timeouts {
     pub get_debug_beacon_states: Duration,
     pub get_deposit_snapshot: Duration,
     pub get_validator_block: Duration,
+    pub default: Duration,
 }
 
 impl Timeouts {
@@ -161,6 +162,7 @@ impl Timeouts {
             get_debug_beacon_states: timeout,
             get_deposit_snapshot: timeout,
             get_validator_block: timeout,
+            default: timeout,
         }
     }
 }
@@ -235,7 +237,9 @@ impl BeaconNodeHttpClient {
         url: U,
         builder: impl FnOnce(RequestBuilder) -> RequestBuilder,
     ) -> Result<Response, Error> {
-        let response = builder(self.client.get(url)).send().await?;
+        let response = builder(self.client.get(url).timeout(self.timeouts.default))
+            .send()
+            .await?;
         ok_or_error(response).await
     }
 
@@ -398,11 +402,10 @@ impl BeaconNodeHttpClient {
         body: &T,
         timeout: Option<Duration>,
     ) -> Result<Response, Error> {
-        let mut builder = self.client.post(url);
-        if let Some(timeout) = timeout {
-            builder = builder.timeout(timeout);
-        }
-
+        let builder = self
+            .client
+            .post(url)
+            .timeout(timeout.unwrap_or(self.timeouts.default));
         let response = builder.json(body).send().await?;
         ok_or_error(response).await
     }
@@ -415,10 +418,10 @@ impl BeaconNodeHttpClient {
         timeout: Option<Duration>,
         fork: ForkName,
     ) -> Result<Response, Error> {
-        let mut builder = self.client.post(url);
-        if let Some(timeout) = timeout {
-            builder = builder.timeout(timeout);
-        }
+        let builder = self
+            .client
+            .post(url)
+            .timeout(timeout.unwrap_or(self.timeouts.default));
         let response = builder
             .header(CONSENSUS_VERSION_HEADER, fork.to_string())
             .json(body)
@@ -433,7 +436,7 @@ impl BeaconNodeHttpClient {
         url: U,
         body: &T,
     ) -> Result<Response, Error> {
-        let builder = self.client.post(url);
+        let builder = self.client.post(url).timeout(self.timeouts.default);
         let mut headers = HeaderMap::new();
 
         headers.insert(
@@ -452,10 +455,10 @@ impl BeaconNodeHttpClient {
         timeout: Option<Duration>,
         fork: ForkName,
     ) -> Result<Response, Error> {
-        let mut builder = self.client.post(url);
-        if let Some(timeout) = timeout {
-            builder = builder.timeout(timeout);
-        }
+        let builder = self
+            .client
+            .post(url)
+            .timeout(timeout.unwrap_or(self.timeouts.default));
         let mut headers = HeaderMap::new();
         headers.insert(
             CONSENSUS_VERSION_HEADER,
@@ -1868,7 +1871,13 @@ impl BeaconNodeHttpClient {
             .push("node")
             .push("health");
 
-        let status = self.client.get(path).send().await?.status();
+        let status = self
+            .client
+            .get(path)
+            .timeout(self.timeouts.default)
+            .send()
+            .await?
+            .status();
         if status == StatusCode::OK || status == StatusCode::PARTIAL_CONTENT {
             Ok(status)
         } else {
