@@ -1,3 +1,4 @@
+use std::path::Path;
 use eth2::lighthouse::{Health, ProcessHealth, SystemHealth};
 
 #[cfg(target_os = "linux")]
@@ -7,32 +8,36 @@ use {
 };
 
 pub trait Observe: Sized {
-    fn observe() -> Result<Self, String>;
+    fn observe_with_path<P>(datadir: P) -> Result<Self, String> where P: AsRef<Path>;
+
+    fn observe() -> Result<Self, String> {
+        Self::observe_with_path("/")
+    }
 }
 
 impl Observe for Health {
     #[cfg(not(target_os = "linux"))]
-    fn observe() -> Result<Self, String> {
+    fn observe_with_path<P>(_datadir: P) -> Result<Self, String> where P: AsRef<Path> {
         Err("Health is only available on Linux".into())
     }
 
     #[cfg(target_os = "linux")]
-    fn observe() -> Result<Self, String> {
+    fn observe_with_path<P>(datadir: P) -> Result<Self, String> where P: AsRef<Path> {
         Ok(Self {
-            process: ProcessHealth::observe()?,
-            system: SystemHealth::observe()?,
+            process: ProcessHealth::observe_with_path(&datadir)?,
+            system: SystemHealth::observe_with_path(&datadir)?,
         })
     }
 }
 
 impl Observe for SystemHealth {
     #[cfg(not(target_os = "linux"))]
-    fn observe() -> Result<Self, String> {
+    fn observe_with_path<P>(_datadir: P) -> Result<Self, String> where P: AsRef<Path> {
         Err("Health is only available on Linux".into())
     }
 
     #[cfg(target_os = "linux")]
-    fn observe() -> Result<Self, String> {
+    fn observe_with_path<P>(datadir: P) -> Result<Self, String> where P: AsRef<Path> {
         let vm = psutil::memory::virtual_memory()
             .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
         let loadavg =
@@ -41,7 +46,7 @@ impl Observe for SystemHealth {
         let cpu =
             psutil::cpu::cpu_times().map_err(|e| format!("Unable to get cpu times: {:?}", e))?;
 
-        let disk_usage = psutil::disk::disk_usage("/")
+        let disk_usage = psutil::disk::disk_usage(&datadir)
             .map_err(|e| format!("Unable to disk usage info: {:?}", e))?;
 
         let disk = psutil::disk::DiskIoCountersCollector::default()
@@ -90,12 +95,12 @@ impl Observe for SystemHealth {
 
 impl Observe for ProcessHealth {
     #[cfg(not(target_os = "linux"))]
-    fn observe() -> Result<Self, String> {
+    fn observe_with_path<P>(_datadir: P) -> Result<Self, String> where P: AsRef<Path> {
         Err("Health is only available on Linux".into())
     }
 
     #[cfg(target_os = "linux")]
-    fn observe() -> Result<Self, String> {
+    fn observe_with_path<P>(_datadir: P) -> Result<Self, String> where P: AsRef<Path> {
         let process =
             Process::current().map_err(|e| format!("Unable to get current process: {:?}", e))?;
 

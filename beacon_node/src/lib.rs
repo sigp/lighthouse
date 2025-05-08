@@ -63,7 +63,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let spec = context.eth2_config().spec.clone();
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
-        let _datadir = client_config.create_data_dir()?;
+        let datadir = client_config.create_data_dir()?;
         let db_path = client_config.create_db_path()?;
         let freezer_db_path = client_config.create_freezer_db_path()?;
         let blobs_db_path = client_config.create_blobs_db_path()?;
@@ -122,6 +122,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         };
 
         let builder = if let Some(monitoring_config) = &mut client_config.monitoring_api {
+            monitoring_config.monitoring_dir = datadir;
             monitoring_config.db_path = Some(db_path);
             monitoring_config.freezer_db_path = Some(freezer_db_path);
             builder.monitoring_client(monitoring_config)?

@@ -50,6 +50,8 @@ impl std::fmt::Display for Error {
 pub struct Config {
     /// Endpoint
     pub monitoring_endpoint: String,
+    /// Path for the data directory
+    pub monitoring_dir: PathBuf,
     /// Path for the hot database required for fetching beacon db size metrics.
     /// Note: not relevant for validator and system metrics.
     pub db_path: Option<PathBuf>,
@@ -63,6 +65,7 @@ pub struct Config {
 #[derive(Clone)]
 pub struct MonitoringHttpClient {
     client: reqwest::Client,
+    monitoring_dir: PathBuf,
     /// Path to the hot database. Required for getting db size metrics
     db_path: Option<PathBuf>,
     /// Path to the freezer database.
@@ -75,6 +78,7 @@ impl MonitoringHttpClient {
     pub fn new(config: &Config) -> Result<Self, String> {
         Ok(Self {
             client: reqwest::Client::new(),
+            monitoring_dir: config.monitoring_dir.clone(),
             db_path: config.db_path.clone(),
             freezer_db_path: config.freezer_db_path.clone(),
             update_period: Duration::from_secs(
@@ -159,7 +163,7 @@ impl MonitoringHttpClient {
 
     /// Gets system metrics by observing capturing the SystemHealth metrics.
     pub fn get_system_metrics(&self) -> Result<MonitoringMetrics, Error> {
-        let system_health = SystemHealth::observe().map_err(Error::SystemMetricsFailed)?;
+        let system_health = SystemHealth::observe_with_path(&self.monitoring_dir).map_err(Error::SystemMetricsFailed)?;
         Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::System),
             process_metrics: Process::System(system_health.into()),

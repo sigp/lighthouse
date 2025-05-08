@@ -248,6 +248,7 @@ pub fn get_config<E: EthSpec>(
             freezer_db_path: None,
             update_period_secs,
             monitoring_endpoint: monitoring_endpoint.to_string(),
+            monitoring_dir: client_config.data_dir().clone()
         });
     }
 

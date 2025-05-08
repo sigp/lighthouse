@@ -167,6 +167,7 @@ impl ApiTester {
     pub fn default_http_config() -> HttpConfig {
         HttpConfig {
             enabled: true,
+            monitoring_dir: tempdir().unwrap().path().to_path_buf(),
             listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 0,
             allow_origin: None,

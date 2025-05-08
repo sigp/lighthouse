@@ -96,6 +96,7 @@ pub struct Context<T: SlotClock, E> {
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub enabled: bool,
+    pub monitoring_dir: PathBuf,
     pub listen_addr: IpAddr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
@@ -107,14 +108,17 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         // This value is always overridden when building config from CLI.
-        let http_token_path = dirs::home_dir()
+        let validator_dir =  dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(DEFAULT_ROOT_DIR)
             .join(DEFAULT_HARDCODED_NETWORK)
-            .join(DEFAULT_VALIDATOR_DIR)
-            .join(PK_FILENAME);
+            .join(DEFAULT_VALIDATOR_DIR);
+
+        let http_token_path = validator_dir.join(PK_FILENAME);
+
         Self {
             enabled: false,
+            monitoring_dir: validator_dir,
             listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 5062,
             allow_origin: None,
@@ -294,9 +298,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let get_lighthouse_health = warp::path("lighthouse")
         .and(warp::path("health"))
         .and(warp::path::end())
-        .then(|| {
+        .and(validator_dir_filter.clone())
+        .then(|validator_dir: PathBuf| {
             blocking_json_task(move || {
-                eth2::lighthouse::Health::observe()
+                eth2::lighthouse::Health::observe_with_path(validator_dir)
                     .map(api_types::GenericResponse::from)
                     .map_err(warp_utils::reject::custom_bad_request)
             })

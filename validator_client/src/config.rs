@@ -148,9 +148,10 @@ impl Config {
             .map(|home| home.join(DEFAULT_ROOT_DIR))
             .unwrap_or_else(|| PathBuf::from("."));
 
-        let (mut validator_dir, mut secrets_dir) = (None, None);
+        let (mut validator_dir, mut secrets_dir, mut data_dir) = (None, None, None);
         if cli_args.get_one::<String>("datadir").is_some() {
             let base_dir: PathBuf = parse_required(cli_args, "datadir")?;
+            data_dir = Some(base_dir.clone());
             validator_dir = Some(base_dir.join(DEFAULT_VALIDATOR_DIR));
             secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
         }
@@ -275,6 +276,7 @@ impl Config {
          */
 
         config.http_api.enabled = validator_client_config.http;
+        config.http_api.monitoring_dir = data_dir.unwrap_or(config.validator_dir.clone());
 
         if let Some(address) = &validator_client_config.http_address {
             if validator_client_config.unencrypted_http_transport {
@@ -346,6 +348,7 @@ impl Config {
         if let Some(monitoring_endpoint) = validator_client_config.monitoring_endpoint.as_ref() {
             let update_period_secs = Some(validator_client_config.monitoring_endpoint_period);
             config.monitoring_api = Some(monitoring_api::Config {
+                monitoring_dir: config.http_api.monitoring_dir.clone(),
                 db_path: None,
                 freezer_db_path: None,
                 update_period_secs,
