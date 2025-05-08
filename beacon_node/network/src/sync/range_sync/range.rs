@@ -317,9 +317,8 @@ where
         skip_all
     )]
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
-        for (removed_chain, sync_type, remove_reason) in self
-            .chains
-            .call_all(|chain| chain.remove_peer(peer_id, network))
+        for (removed_chain, sync_type, remove_reason) in
+            self.chains.call_all(|chain| chain.remove_peer(peer_id))
         {
             self.on_chain_removed(
                 removed_chain,

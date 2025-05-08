@@ -19,6 +19,7 @@ use environment::tracing_common;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use logging::build_workspace_filter;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
@@ -26,10 +27,9 @@ const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 32;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
-const CAPELLA_FORK_EPOCH: u64 = 1;
-const DENEB_FORK_EPOCH: u64 = 2;
-// const ELECTRA_FORK_EPOCH: u64 = 3;
-// const FULU_FORK_EPOCH: u64  = 4;
+const CAPELLA_FORK_EPOCH: u64 = 0;
+const DENEB_FORK_EPOCH: u64 = 0;
+const ELECTRA_FORK_EPOCH: u64 = 2;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
@@ -120,11 +120,13 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         EnvironmentBuilder::minimal(),
     );
 
+    let workspace_filter = build_workspace_filter()?;
     let mut logging_layers = vec![];
     if !disable_stdout_logging {
         logging_layers.push(
             stdout_logging_layer
                 .with_filter(logger_config.debug_level)
+                .with_filter(workspace_filter.clone())
                 .boxed(),
         );
     }
@@ -132,6 +134,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         logging_layers.push(
             file_logging_layer
                 .with_filter(logger_config.logfile_debug_level)
+                .with_filter(workspace_filter)
                 .boxed(),
         );
     }
@@ -151,8 +154,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let genesis_delay = GENESIS_DELAY;
 
     // Convenience variables. Update these values when adding a newer fork.
-    let latest_fork_version = spec.deneb_fork_version;
-    let latest_fork_start_epoch = DENEB_FORK_EPOCH;
+    let latest_fork_version = spec.electra_fork_version;
+    let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
 
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
@@ -163,8 +166,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.bellatrix_fork_epoch = Some(Epoch::new(BELLATRIX_FORK_EPOCH));
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
-    //spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
-    //spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
+    spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
