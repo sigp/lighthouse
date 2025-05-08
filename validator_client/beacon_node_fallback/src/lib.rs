@@ -486,11 +486,19 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         for (result, node) in results {
             if let Err(e) = result {
-                // We don't want to spam warns before Genesis and a node is only marked as
-                // Uninitialized when the slot clock has not yet been set.
-                // This will only occur at start-up so it is safe to silence them.
                 match e {
-                    CandidateError::PreGenesis | CandidateError::Uninitialized => {}
+                    // Avoid spamming warns before genesis.
+                    CandidateError::PreGenesis => {}
+                    // Uninitialized *should* only occur during start-up before the
+                    // slot clock has been initialized.
+                    // Seeing this log in any other circumstance would indicate a serious bug.
+                    CandidateError::Uninitialized => {
+                        debug!(
+                            error = ?e,
+                            endpoint = %node,
+                            "A connected beacon node is uninitialized"
+                        );
+                    }
                     _ => {
                         warn!(
                             error = ?e,
