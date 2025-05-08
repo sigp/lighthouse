@@ -117,23 +117,10 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn get_blobs<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a BlobSidecarList<E>> {
         self.blob_cache.get(block_root)
     }
-    pub fn get_data_columns(
-        &mut self,
-        block_root: &Hash256,
-        indices: &mut Option<&mut HashSet<ColumnIndex>>,
-    ) -> Option<DataColumnSidecarList<E>> {
-        self.data_column_cache.get(block_root).map(|map| {
-            map.values()
-                .filter(|col| {
-                    if let Some(set) = indices.as_mut() {
-                        set.remove(&col.index)
-                    } else {
-                        true
-                    }
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-        })
+    pub fn get_data_columns(&mut self, block_root: &Hash256) -> Option<DataColumnSidecarList<E>> {
+        self.data_column_cache
+            .get(block_root)
+            .map(|map| map.values().cloned().collect::<Vec<_>>())
     }
     pub fn get_data_column<'a>(
         &'a mut self,
@@ -2048,19 +2035,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
-        mut indices: Option<&mut HashSet<ColumnIndex>>,
+        indices: Option<&HashSet<ColumnIndex>>,
     ) -> Result<Option<DataColumnSidecarList<E>>, Error> {
-        if let Some(columns) = self
-            .block_cache
-            .lock()
-            .get_data_columns(block_root, &mut indices)
-        {
+        // TODO: The block cache may not have all columns.
+        if let Some(columns) = self.block_cache.lock().get_data_columns(block_root) {
             metrics::inc_counter(&metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT);
             return Ok(Some(columns));
         }
+        // FIXME: refactor this
+        let indices = indices.cloned();
 
         let byte_columns: Result<Vec<Vec<u8>>, Error> = match indices {
-            Some(indices) => {
+            Some(mut indices) => {
                 let indices_snapshot: Vec<_> = indices.iter().copied().collect();
                 indices_snapshot
                     .iter()

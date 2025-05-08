@@ -167,7 +167,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn get_data_columns(
         &self,
         block_root: Hash256,
-    ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, AvailabilityCheckError> {
+    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
         self.availability_cache.peek_data_columns(block_root)
     }
 

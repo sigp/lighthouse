@@ -1111,46 +1111,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         indices: &[ColumnIndex],
     ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
-        if indices.is_empty() {
-            return Ok(None);
-        }
-
-        let mut columns = vec![];
-        let mut indices: HashSet<ColumnIndex> = indices.iter().copied().collect();
-
-        if let Some(all_cols) = self
+        let all_cached_columns_opt = self
             .data_availability_checker
-            .get_data_columns(block_root)?
-        {
-            let filtered = all_cols
-                .into_iter()
-                .filter(|col| indices.remove(&col.index))
-                .collect::<Vec<_>>();
-            columns.extend(filtered);
+            .get_data_columns(block_root)
+            .or_else(|| self.early_attester_cache.get_data_columns(block_root));
 
-            if indices.is_empty() {
-                return Ok(Some(columns));
-            }
-        }
-        if let Some(all_cols) = self.early_attester_cache.get_data_columns(block_root) {
-            let filtered = all_cols
-                .into_iter()
-                .filter(|col| indices.remove(&col.index))
-                .collect::<Vec<_>>();
-            columns.extend(filtered);
-
-            if indices.is_empty() {
-                return Ok(Some(columns));
-            }
-        }
-        if let Some(filtered) = self.get_data_columns(&block_root, Some(&mut indices))? {
-            columns.extend(filtered)
-        };
-
-        if columns.is_empty() {
-            Ok(None)
+        if let Some(mut all_cached_columns) = all_cached_columns_opt {
+            all_cached_columns.retain(|col| indices.contains(&col.index));
+            Ok(Some(all_cached_columns))
         } else {
-            Ok(Some(columns))
+            self.get_data_columns(&block_root, Some(&indices.iter().cloned().collect()))
         }
     }
 
@@ -1235,7 +1205,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
-        indices: Option<&mut HashSet<ColumnIndex>>,
+        indices: Option<&HashSet<ColumnIndex>>,
     ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
         self.store
             .get_data_columns(block_root, indices)

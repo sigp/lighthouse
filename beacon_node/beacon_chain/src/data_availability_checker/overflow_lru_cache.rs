@@ -408,18 +408,12 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn peek_data_columns(
         &self,
         block_root: Hash256,
-    ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, AvailabilityCheckError> {
-        if let Some(pending_components) = self.critical.read().peek(&block_root) {
-            Ok(Some(
-                pending_components
+    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
+        self.critical.read().peek(&block_root).map(|pending_components| pending_components
                     .verified_data_columns
                     .iter()
                     .map(|col| col.clone_arc())
-                    .collect(),
-            ))
-        } else {
-            Ok(None)
-        }
+                    .collect())
     }
 
     pub fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
