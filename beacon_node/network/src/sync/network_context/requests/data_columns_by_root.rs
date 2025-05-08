@@ -1,7 +1,7 @@
 use lighthouse_network::rpc::methods::DataColumnsByRootRequest;
 use std::sync::Arc;
 use types::{
-    ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, Hash256,
+    ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkName, Hash256,
     RuntimeVariableList,
 };
 
@@ -16,6 +16,7 @@ pub struct DataColumnsByRootSingleBlockRequest {
 impl DataColumnsByRootSingleBlockRequest {
     pub fn try_into_request(
         self,
+        fork_name: ForkName,
         spec: &ChainSpec,
     ) -> Result<DataColumnsByRootRequest, &'static str> {
         let number_of_columns = spec.number_of_columns as usize;
@@ -26,7 +27,7 @@ impl DataColumnsByRootSingleBlockRequest {
                 block_root: self.block_root,
                 columns,
             }],
-            spec,
+            spec.max_request_blocks(fork_name),
         ))
     }
 }

@@ -483,11 +483,11 @@ pub struct DataColumnsByRootRequest {
 }
 
 impl DataColumnsByRootRequest {
-    pub fn new(data_column_ids: Vec<DataColumnsByRootIdentifier>, spec: &ChainSpec) -> Self {
-        let data_column_ids = RuntimeVariableList::from_vec(
-            data_column_ids,
-            spec.max_request_blocks(ForkName::Deneb),
-        );
+    pub fn new(
+        data_column_ids: Vec<DataColumnsByRootIdentifier>,
+        max_request_blocks: usize,
+    ) -> Self {
+        let data_column_ids = RuntimeVariableList::from_vec(data_column_ids, max_request_blocks);
         Self { data_column_ids }
     }
 }

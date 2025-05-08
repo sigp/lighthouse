@@ -163,7 +163,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_blob(blob_id)
     }
 
-    /// Get a data column from the availability cache.
+    /// Get data columns for a block from the availability cache.
     pub fn get_data_columns(
         &self,
         block_root: Hash256,
