@@ -434,14 +434,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // target when there is no sampling peers available. This is a valid state and should not
             // return an error.
             return Ok(KeepChain);
+        } else {
+            // NOTE: It is possible that the batch doesn't exist for the processing id. This can happen
+            // when we complete a batch and attempt to download a new batch but there are:
+            // 1. No idle peers to download from
+            // 2. No good peers on sampling subnets
+            //
+            // In these cases, a batch will not yet exist.
+            debug!(batch = %self.processing_target, "The processing batch has not been scheduled for download yet. Awaiting progress");
         }
-
-        // NOTE: It is possible that the batch doesn't exist for the processing id. This can happen
-        // when we complete a batch and attempt do download a new batch but there are:
-        // 1. No idle peers to download from
-        // 2. No good peers on sampling subnets
-        //
-        // In these cases, a batch will not yet exist.
 
         Ok(KeepChain)
     }
