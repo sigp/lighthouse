@@ -36,6 +36,9 @@ We recommend running Siren's container next to your beacon node (on the same ser
 
  1. Edit the `.env` file filling in the required fields. A beacon node and validator url needs to be
     specified as well as the validator clients `API_TOKEN`, which can be obtained from the [`Validator Client Authorization Header`](./api_vc_auth_header.md).
+    Note that the HTTP API ports must be accessible from within docker and cannot just be listening
+    on localhost. This means using the
+ `--http-address 0.0.0.0` flag on the beacon node and validator client.
 
  1. Run the containers with docker compose
 
@@ -48,6 +51,9 @@ We recommend running Siren's container next to your beacon node (on the same ser
     ```
     https://localhost
     ```
+
+> Note: If running on a remote host and the port is exposed, you can access Siren remotely via
+`https://<IP-OF-REMOTE-HOST>`
 
 ## Running Siren in Docker
 
@@ -76,11 +82,20 @@ We recommend running Siren's container next to your beacon node (on the same ser
     docker run -ti --name siren --env-file $PWD/.env -p 443:443 sigp/siren
     ```
 
+> Note: If you have only exposed your HTTP API ports on the Beacon Node and Validator client to
+localhost, i.e via --http-address 127.0.0.1, you must add
+`--add-host=host.docker.internal:host-gateway` to the docker command to allow docker to access the
+hosts localhost. Alternatively, you should expose the HTTP API to the IP address of the host or
+`0.0.0.0`
+
  1. Siren should be accessible at the url:
 
     ```
     https://localhost
     ```
+
+> Note: If running on a remote host and the port is exposed, you can access Siren remotely via
+`https://<IP-OF-REMOTE-HOST>`
 
 ## Possible Docker Errors
 
