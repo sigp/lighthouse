@@ -15,7 +15,6 @@ use ssz::{DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
-use std::hash::Hash;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -25,11 +24,11 @@ pub type ColumnIndex = u64;
 pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
 pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
-/// Container of data columns of a block root.
-#[derive(Serialize, Deserialize, Encode, Clone, Debug, PartialEq, Eq, Hash)]
+/// Identifies a set of data columns associated with a specific beacon block.
+#[derive(Encode, Clone, Debug, PartialEq)]
 pub struct DataColumnsByRootIdentifier {
     pub block_root: Hash256,
-    pub indices: RuntimeVariableList<ColumnIndex>,
+    pub columns: RuntimeVariableList<ColumnIndex>,
 }
 
 impl RuntimeVariableList<DataColumnsByRootIdentifier> {
@@ -54,12 +53,12 @@ impl RuntimeVariableList<DataColumnsByRootIdentifier> {
 
             let mut decoder = builder.build()?;
             let block_root = decoder.decode_next()?;
-            let indices = decoder.decode_next_with(|bytes| {
+            let columns = decoder.decode_next_with(|bytes| {
                 RuntimeVariableList::from_ssz_bytes(bytes, num_columns)
             })?;
             Ok(DataColumnsByRootIdentifier {
                 block_root,
-                indices,
+                columns,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -211,7 +210,6 @@ impl From<SszError> for DataColumnSidecarError {
 #[cfg(test)]
 mod test {
     use super::*;
-    use bls::FixedBytesExtended;
 
     #[test]
     fn round_trip_dcbroot_list() {
@@ -221,11 +219,11 @@ mod test {
         let data = vec![
             DataColumnsByRootIdentifier {
                 block_root: Hash256::from_low_u64_be(10),
-                indices: RuntimeVariableList::<ColumnIndex>::from_vec(vec![1u64, 2, 3], max_inner),
+                columns: RuntimeVariableList::<ColumnIndex>::from_vec(vec![1u64, 2, 3], max_inner),
             },
             DataColumnsByRootIdentifier {
                 block_root: Hash256::from_low_u64_be(20),
-                indices: RuntimeVariableList::<ColumnIndex>::from_vec(vec![4u64, 5], max_inner),
+                columns: RuntimeVariableList::<ColumnIndex>::from_vec(vec![4u64, 5], max_inner),
             },
         ];
 
@@ -243,8 +241,8 @@ mod test {
         for (original, decoded) in data.iter().zip(decoded.iter()) {
             assert_eq!(decoded.block_root, original.block_root);
             assert_eq!(
-                decoded.indices.iter().copied().collect::<Vec<_>>(),
-                original.indices.iter().copied().collect::<Vec<_>>()
+                decoded.columns.iter().copied().collect::<Vec<_>>(),
+                original.columns.iter().copied().collect::<Vec<_>>()
             );
         }
     }

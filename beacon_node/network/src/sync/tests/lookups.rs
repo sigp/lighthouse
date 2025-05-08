@@ -982,7 +982,7 @@ impl TestRig {
                             .iter()
                             .find(|id| id.block_root == block_root)?;
 
-                        let indices = matching.indices.iter().copied().collect();
+                        let indices = matching.columns.iter().copied().collect();
                         Some((*id, indices))
                     }
                     _ => None,

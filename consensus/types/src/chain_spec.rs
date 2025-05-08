@@ -1763,11 +1763,11 @@ fn max_data_columns_by_root_request_common(
 
     let empty_data_column_indices = (0..max_request_blocks)
         .map(|_| {
-            let indices =
+            let columns =
                 RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns);
             DataColumnsByRootIdentifier {
                 block_root: Hash256::zero(),
-                indices,
+                columns,
             }
         })
         .collect();

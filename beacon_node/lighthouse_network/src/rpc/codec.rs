@@ -1075,7 +1075,7 @@ mod tests {
             data_column_ids: RuntimeVariableList::new(
                 vec![DataColumnsByRootIdentifier {
                     block_root: Hash256::zero(),
-                    indices: RuntimeVariableList::from_vec(vec![0, 1, 2], number_of_columns),
+                    columns: RuntimeVariableList::from_vec(vec![0, 1, 2], number_of_columns),
                 }],
                 spec.max_request_blocks(fork_name),
             )

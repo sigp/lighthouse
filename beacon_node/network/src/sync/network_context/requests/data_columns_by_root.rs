@@ -19,12 +19,12 @@ impl DataColumnsByRootSingleBlockRequest {
         spec: &ChainSpec,
     ) -> Result<DataColumnsByRootRequest, &'static str> {
         let number_of_columns = spec.number_of_columns as usize;
-        let indices = RuntimeVariableList::new(self.indices, number_of_columns)
-            .map_err(|_| "Out of bounds")?;
+        let columns = RuntimeVariableList::new(self.indices, number_of_columns)
+            .map_err(|_| "Number of indices exceeds total number of columns")?;
         Ok(DataColumnsByRootRequest::new(
             vec![DataColumnsByRootIdentifier {
                 block_root: self.block_root,
-                indices,
+                columns,
             }],
             spec,
         ))
