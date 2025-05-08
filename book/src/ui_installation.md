@@ -29,6 +29,7 @@ We recommend running Siren's container next to your beacon node (on the same ser
     ```
 
  1. Copy the example `.env.example` file to `.env`:
+
     ```
     cp .env.example .env
     ```
@@ -37,11 +38,13 @@ We recommend running Siren's container next to your beacon node (on the same ser
     specified as well as the validator clients `API_TOKEN`, which can be obtained from the [`Validator Client Authorization Header`](./api_vc_auth_header.md).
 
  1. Run the containers with docker compose
+
     ```
     docker compose up -d
     ```
 
  1. You should now be able to access siren at the url (provided SSL is enabled):
+
     ```
     https://localhost
     ```
@@ -74,6 +77,7 @@ We recommend running Siren's container next to your beacon node (on the same ser
     ```
 
  1. Siren should be accessible at the url:
+
     ```
     https://localhost
     ```
