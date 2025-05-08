@@ -14,6 +14,7 @@ eth2_keystore = { workspace = true }
 eth2_network_config = { workspace = true }
 futures = { workspace = true }
 initialized_validators = { workspace = true }
+lighthouse_validator_store = { workspace = true }
 logging = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
