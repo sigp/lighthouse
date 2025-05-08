@@ -125,6 +125,7 @@ impl ApiTester {
                 allow_origin: None,
                 allow_keystore_export: true,
                 store_passwords_in_secrets_dir: false,
+                monitoring_dir: validator_dir.path().into(),
                 http_token_path: token_path,
             },
             sse_logging_components: None,
