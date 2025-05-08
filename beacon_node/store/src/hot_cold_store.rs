@@ -120,11 +120,17 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn get_data_columns(
         &mut self,
         block_root: &Hash256,
-        indices: Option<&HashSet<ColumnIndex>>,
+        indices: &mut Option<&mut HashSet<ColumnIndex>>,
     ) -> Option<DataColumnSidecarList<E>> {
         self.data_column_cache.get(block_root).map(|map| {
             map.values()
-                .filter(|col| indices.is_none_or(|set| set.contains(&col.index)))
+                .filter(|col| {
+                    if let Some(set) = indices.as_mut() {
+                        set.remove(&col.index)
+                    } else {
+                        true
+                    }
+                })
                 .cloned()
                 .collect::<Vec<_>>()
         })
@@ -2042,29 +2048,35 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
-        indices: Option<&HashSet<ColumnIndex>>,
+        mut indices: Option<&mut HashSet<ColumnIndex>>,
     ) -> Result<Option<DataColumnSidecarList<E>>, Error> {
         if let Some(columns) = self
             .block_cache
             .lock()
-            .get_data_columns(block_root, indices)
+            .get_data_columns(block_root, &mut indices)
         {
             metrics::inc_counter(&metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT);
             return Ok(Some(columns));
         }
 
         let byte_columns: Result<Vec<Vec<u8>>, Error> = match indices {
-            Some(indices) => indices
-                .iter()
-                .filter_map(|index| {
-                    let key = get_data_column_key(block_root, index);
-                    match self.blobs_db.get_bytes(DBColumn::BeaconDataColumn, &key) {
-                        Ok(Some(bytes)) => Some(Ok(bytes)),
-                        Ok(None) => None,
-                        Err(e) => Some(Err(e)),
-                    }
-                })
-                .collect(),
+            Some(indices) => {
+                let indices_snapshot: Vec<_> = indices.iter().copied().collect();
+                indices_snapshot
+                    .iter()
+                    .filter_map(|index| {
+                        let key = get_data_column_key(block_root, index);
+                        match self.blobs_db.get_bytes(DBColumn::BeaconDataColumn, &key) {
+                            Ok(Some(bytes)) => {
+                                indices.remove(index);
+                                Some(Ok(bytes))
+                            }
+                            Ok(None) => None,
+                            Err(e) => Some(Err(e)),
+                        }
+                    })
+                    .collect()
+            }
             None => self
                 .blobs_db
                 .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())

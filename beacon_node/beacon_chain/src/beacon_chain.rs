@@ -1111,23 +1111,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         indices: &[ColumnIndex],
     ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
-        let indices: HashSet<ColumnIndex> = indices.iter().copied().collect();
-        let filter = |cols: DataColumnSidecarList<_>| {
-            cols.into_iter()
-                .filter(|col| indices.contains(&col.index))
-                .collect()
-        };
-        let columns = if let Some(all_cols) = self
+        if indices.is_empty() {
+            return Ok(None);
+        }
+
+        let mut columns = vec![];
+        let mut indices: HashSet<ColumnIndex> = indices.iter().copied().collect();
+
+        if let Some(all_cols) = self
             .data_availability_checker
             .get_data_columns(block_root)?
         {
-            Some(filter(all_cols))
-        } else if let Some(all_cols) = self.early_attester_cache.get_data_columns(block_root) {
-            Some(filter(all_cols))
-        } else {
-            self.get_data_columns(&block_root, Some(&indices))?
+            let filtered = all_cols
+                .into_iter()
+                .filter(|col| indices.remove(&col.index))
+                .collect::<Vec<_>>();
+            columns.extend(filtered);
+
+            if indices.is_empty() {
+                return Ok(Some(columns));
+            }
+        }
+        if let Some(all_cols) = self.early_attester_cache.get_data_columns(block_root) {
+            let filtered = all_cols
+                .into_iter()
+                .filter(|col| indices.remove(&col.index))
+                .collect::<Vec<_>>();
+            columns.extend(filtered);
+
+            if indices.is_empty() {
+                return Ok(Some(columns));
+            }
+        }
+        if let Some(filtered) = self.get_data_columns(&block_root, Some(&mut indices))? {
+            columns.extend(filtered)
         };
-        Ok(columns)
+
+        if columns.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(columns))
+        }
     }
 
     /// Returns the block at the given root, if any.
@@ -1211,7 +1235,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
-        indices: Option<&HashSet<ColumnIndex>>,
+        indices: Option<&mut HashSet<ColumnIndex>>,
     ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
         self.store
             .get_data_columns(block_root, indices)
