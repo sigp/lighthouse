@@ -1111,27 +1111,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         indices: &[ColumnIndex],
     ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
+        let indices: HashSet<ColumnIndex> = indices.iter().copied().collect();
+        let filter = |cols: DataColumnSidecarList<_>| {
+            cols.into_iter()
+                .filter(|col| indices.contains(&col.index))
+                .collect()
+        };
         let columns = if let Some(all_cols) = self
             .data_availability_checker
             .get_data_columns(block_root)?
         {
-            Some(all_cols)
+            Some(filter(all_cols))
         } else if let Some(all_cols) = self.early_attester_cache.get_data_columns(block_root) {
-            Some(all_cols)
+            Some(filter(all_cols))
         } else {
-            self.get_data_columns(&block_root)?
+            self.get_data_columns(&block_root, Some(&indices))?
         };
-
-        let indices: HashSet<_> = indices.iter().clone().collect();
-        if let Some(columns) = columns {
-            return Ok(Some(
-                columns
-                    .into_iter()
-                    .filter(|col| indices.contains(&col.index))
-                    .collect(),
-            ));
-        }
-
         Ok(columns)
     }
 
@@ -1216,8 +1211,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
+        indices: Option<&HashSet<ColumnIndex>>,
     ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
-        self.store.get_data_columns(block_root).map_err(Error::from)
+        self.store
+            .get_data_columns(block_root, indices)
+            .map_err(Error::from)
     }
 
     /// Returns the blobs at the given root, if any.
@@ -1238,7 +1236,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            if let Some(columns) = self.store.get_data_columns(block_root)? {
+            if let Some(columns) = self.store.get_data_columns(block_root, None)? {
                 let num_required_columns = self.spec.number_of_columns / 2;
                 let reconstruction_possible = columns.len() >= num_required_columns as usize;
                 if reconstruction_possible {
