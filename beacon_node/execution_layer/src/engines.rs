@@ -403,12 +403,17 @@ mod tests {
     async fn test_state_notifier() {
         let mut state = State::default();
         let initial_state: EngineState = state.state.into();
-        assert_eq!(initial_state, EngineState::Offline);
-        state.update(EngineStateInternal::Synced);
+        // default state is online
+        assert_eq!(initial_state, EngineState::Online);
 
         // a watcher that arrives after the first update.
         let mut watcher = state.watch();
         let new_state = watcher.next().await.expect("Last state is always present");
         assert_eq!(new_state, EngineState::Online);
+
+        // update to offline
+        state.update(EngineStateInternal::Offline);
+        let new_state = watcher.next().await.expect("Last state is always present");
+        assert_eq!(new_state, EngineState::Offline);
     }
 }
