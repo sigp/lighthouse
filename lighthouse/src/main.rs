@@ -698,6 +698,9 @@ fn run<E: EthSpec>(
                 return Ok(());
             }
 
+            #[cfg(feature = "console-subscriber")]
+            console_subscriber::init();
+
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionValidatorClient::new(context, config)
