@@ -582,15 +582,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if new_state.is_synced() {
                     // update the sync time metrics - for each client it records the time from sync_start_time to now for the peer of that client
                     let client = self.network.client_type(&peer_id).kind.to_string();
-                    let client_version = self.network.client_version(&peer_id).to_string();
 
-                    let sync_start_time = self.network_globals().peers.read().sync_start_time(peer_id);
+                    let peers = self.network_globals().peers.read();
+                    let sync_start_time = peers.sync_start_time(peer_id);
                     if let Some(start_time) = sync_start_time {
                         let sync_time = start_time.elapsed().as_secs_f64();
-                        metrics::SYNC_TIME_PER_CLIENT
-                            .with_label_values(&[&client, &client_version])
-                            .observe(sync_time);
+                        if let Ok(metric) = metrics::SYNC_TIME_PER_CLIENT.as_ref() {
+                            metric.with_label_values(&[&client]).observe(sync_time);
+                        }
                     }
+                    drop(peers);
                     self.backfill_sync.fully_synced_peer_joined();
                 }
             }
