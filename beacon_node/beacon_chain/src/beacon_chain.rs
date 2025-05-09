@@ -1120,7 +1120,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             all_cached_columns.retain(|col| indices.contains(&col.index));
             Ok(all_cached_columns)
         } else {
-            self.get_data_columns(&block_root, Some(&indices.iter().cloned().collect()))
+            indices
+                .iter()
+                .filter_map(|index| self.get_data_column(&block_root, index).transpose())
+                .collect::<Result<_, _>>()
         }
     }
 
@@ -1205,11 +1208,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
-        indices: Option<&HashSet<ColumnIndex>>,
     ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
-        self.store
-            .get_data_columns(block_root, indices)
-            .map_err(Error::from)
+        self.store.get_data_columns(block_root).map_err(Error::from)
     }
 
     /// Returns the blobs at the given root, if any.
@@ -1230,7 +1230,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let columns = self.store.get_data_columns(block_root, None)?;
+            let columns = self.store.get_data_columns(block_root)?;
             let num_required_columns = self.spec.number_of_columns / 2;
             let reconstruction_possible = columns.len() >= num_required_columns as usize;
             if reconstruction_possible {
