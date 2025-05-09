@@ -139,7 +139,7 @@ Siren's deposit flow aims to create a smooth and easy process for depositing and
 
 - Target validators with `0x01` withdrawal credentials must initiate a self-consolidation request to upgrade credentials to `0x02`, enabling them to accept funds and benefit from the increased balance cap.
 
-- Source validators must first become eligible for exit and must not have any pending withdrawal requests.
+- Source validators must first have been active long enough to become eligible for exit and must not have any pending withdrawal requests.
 
 ![consolidation-source](imgs/consolidation-source.png)
 
