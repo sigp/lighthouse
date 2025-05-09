@@ -105,7 +105,7 @@ Siren's deposit flow aims to create a smooth and easy process for depositing and
 
 #### Mnemonic Indexing
 
-- The mnemonic index is as important as the mnemonic phrase; reusing existing or previously exited indices directs deposits to existing validators and requires additional steps to recover those funds. Each index combined with the mnemonic phrase generates a deterministic public key, which Siren validates by checking against the Beacon Node. Since newly submitted deposits may not immediately appear on the Beacon Node, Siren provides [Beaconcha.in](https://beaconcha.in) links for secondary confirmation.
+- The mnemonic index is as important as the mnemonic phrase; reusing existing or previously exited indices directs deposits to existing validators and may requires additional steps to recover those funds. Each index combined with the mnemonic phrase generates a deterministic public key, which Siren validates by checking against the Beacon Node. Since newly submitted deposits may not immediately appear on the Beacon Node, Siren provides [Beaconcha.in](https://beaconcha.in) links for secondary confirmation.
 
 ![deposit-step-3](imgs/ui-dep-3.png)
 
