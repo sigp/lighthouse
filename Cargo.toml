@@ -148,7 +148,7 @@ fnv = "1"
 fs2 = "0.4"
 futures = "0.3"
 graffiti_file = { path = "validator_client/graffiti_file" }
-gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "7a36e4c" }
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "61b2820" }
 hex = "0.4"
 hashlink = "0.9.0"
 hyper = "1"
