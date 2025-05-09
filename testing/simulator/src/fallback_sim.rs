@@ -11,6 +11,7 @@ use node_test_rig::{
 };
 use rayon::prelude::*;
 use std::cmp::max;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -69,12 +70,18 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let continue_after_checks = matches.get_flag("continue-after-checks");
 
+    let log_dir = matches.get_one::<String>("log-dir").map(PathBuf::from);
+
+    let disable_stdout_logging = matches.get_flag("disable-stdout-logging");
+
     println!("Fallback Simulator:");
     println!(" vc-count: {}", vc_count);
     println!(" validators-per-vc: {}", validators_per_vc);
     println!(" bns-per-vc: {}", bns_per_vc);
     println!(" speed-up-factor: {}", speed_up_factor);
     println!(" continue-after-checks: {}", continue_after_checks);
+    println!(" log-dir: {:?}", log_dir);
+    println!(" disable-stdout-logging: {}", disable_stdout_logging);
 
     // Generate the directories and keystores required for the validator clients.
     let validator_files = (0..vc_count)
@@ -95,12 +102,12 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         env_builder,
         logger_config,
         stdout_logging_layer,
-        _file_logging_layer,
+        file_logging_layer,
         _sse_logging_layer_opt,
         _libp2p_discv5_layer,
     ) = tracing_common::construct_logger(
         LoggerConfig {
-            path: None,
+            path: log_dir,
             debug_level: tracing_common::parse_level(&log_level.clone()),
             logfile_debug_level: tracing_common::parse_level(&log_level.clone()),
             log_format: None,
@@ -108,8 +115,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             log_color: true,
             logfile_color: false,
             disable_log_timestamp: false,
-            max_log_size: 0,
-            max_log_number: 0,
+            max_log_size: 200,
+            max_log_number: 5,
             compression: false,
             is_restricted: true,
             sse_logging: false,
@@ -119,8 +126,24 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         EnvironmentBuilder::minimal(),
     );
 
+    let mut logging_layers = vec![];
+    if !disable_stdout_logging {
+        logging_layers.push(
+            stdout_logging_layer
+                .with_filter(logger_config.debug_level)
+                .boxed(),
+        );
+    }
+    if let Some(file_logging_layer) = file_logging_layer {
+        logging_layers.push(
+            file_logging_layer
+                .with_filter(logger_config.logfile_debug_level)
+                .boxed(),
+        );
+    }
+
     if let Err(e) = tracing_subscriber::registry()
-        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
+        .with(logging_layers)
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging: {e}");
