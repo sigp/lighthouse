@@ -85,11 +85,57 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     _phantom: PhantomData<E>,
 }
 
+#[derive(Clone)]
+enum CachedDataColumns<E: EthSpec> {
+    // The complete set of data columns stored by the node. If this set is complete,
+    // the caller can avoid loading from the disk.
+    Complete(HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>),
+    // Partial set of data columns stored by the node.
+    Partial(HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>),
+}
+
+impl<E: EthSpec> Default for CachedDataColumns<E> {
+    fn default() -> Self {
+        CachedDataColumns::Partial(Default::default())
+    }
+}
+
+impl<E: EthSpec> CachedDataColumns<E> {
+    fn insert(&mut self, column: Arc<DataColumnSidecar<E>>) {
+        match self {
+            CachedDataColumns::Complete(_) => {
+                // no-op
+            }
+            CachedDataColumns::Partial(columns) => {
+                columns.insert(column.index, column);
+            }
+        }
+    }
+    fn get(&self, column_index: &ColumnIndex) -> Option<Arc<DataColumnSidecar<E>>> {
+        match self {
+            CachedDataColumns::Complete(columns) => columns.get(column_index).cloned(),
+            CachedDataColumns::Partial(columns) => columns.get(column_index).cloned(),
+        }
+    }
+    fn deconstruct(self) -> HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>> {
+        match self {
+            CachedDataColumns::Complete(columns) => columns,
+            CachedDataColumns::Partial(columns) => columns,
+        }
+    }
+    fn into_complete(self) -> Self {
+        match self {
+            CachedDataColumns::Complete(_) => self,
+            CachedDataColumns::Partial(columns) => CachedDataColumns::Complete(columns),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
     blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
-    data_column_cache: LruCache<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>,
+    data_column_cache: LruCache<Hash256, CachedDataColumns<E>>,
 }
 
 impl<E: EthSpec> BlockCache<E> {
@@ -109,7 +155,13 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn put_data_column(&mut self, block_root: Hash256, data_column: Arc<DataColumnSidecar<E>>) {
         self.data_column_cache
             .get_or_insert_mut(block_root, Default::default)
-            .insert(data_column.index, data_column);
+            .insert(data_column);
+    }
+    pub fn mark_data_column_complete(&mut self, block_root: Hash256) {
+        if let Some((_, cached)) = self.data_column_cache.pop_entry(&block_root) {
+            self.data_column_cache
+                .push(block_root, cached.into_complete());
+        }
     }
     pub fn get_block<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a SignedBeaconBlock<E>> {
         self.block_cache.get(block_root)
@@ -117,16 +169,14 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn get_blobs<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a BlobSidecarList<E>> {
         self.blob_cache.get(block_root)
     }
-    pub fn get_data_columns(&mut self, block_root: &Hash256) -> Option<DataColumnSidecarList<E>> {
-        self.data_column_cache
-            .get(block_root)
-            .map(|map| map.values().cloned().collect::<Vec<_>>())
+    pub fn get_data_columns(&mut self, block_root: &Hash256) -> Option<CachedDataColumns<E>> {
+        self.data_column_cache.get(block_root).cloned()
     }
-    pub fn get_data_column<'a>(
-        &'a mut self,
+    pub fn get_data_column(
+        &mut self,
         block_root: &Hash256,
         column_index: &ColumnIndex,
-    ) -> Option<&'a Arc<DataColumnSidecar<E>>> {
+    ) -> Option<Arc<DataColumnSidecar<E>>> {
         self.data_column_cache
             .get(block_root)
             .and_then(|map| map.get(column_index))
@@ -2035,63 +2085,77 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
-        indices: Option<&HashSet<ColumnIndex>>,
-    ) -> Result<Option<DataColumnSidecarList<E>>, Error> {
-        // TODO: The block cache may not have all columns.
-        if let Some(columns) = self.block_cache.lock().get_data_columns(block_root) {
-            metrics::inc_counter(&metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT);
-            return Ok(Some(columns));
-        }
-        // FIXME: refactor this
-        let indices = indices.cloned();
-
-        let byte_columns: Result<Vec<Vec<u8>>, Error> = match indices {
-            Some(mut indices) => {
-                let indices_snapshot: Vec<_> = indices.iter().copied().collect();
-                indices_snapshot
-                    .iter()
-                    .filter_map(|index| {
-                        let key = get_data_column_key(block_root, index);
-                        match self.blobs_db.get_bytes(DBColumn::BeaconDataColumn, &key) {
-                            Ok(Some(bytes)) => {
-                                indices.remove(index);
-                                Some(Ok(bytes))
-                            }
-                            Ok(None) => None,
-                            Err(e) => Some(Err(e)),
-                        }
-                    })
-                    .collect()
+        indices_opt: Option<&HashSet<ColumnIndex>>,
+    ) -> Result<DataColumnSidecarList<E>, Error> {
+        let cached_columns_opt = self.block_cache.lock().get_data_columns(block_root);
+        match cached_columns_opt {
+            // All custody columns cached
+            Some(CachedDataColumns::Complete(columns)) => {
+                if let Some(indices) = indices_opt {
+                    metrics::inc_counter_by(
+                        &metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT,
+                        indices.len() as u64,
+                    );
+                    Ok(columns
+                        .into_values()
+                        .filter(|col| indices.contains(&col.index))
+                        .collect())
+                } else {
+                    metrics::inc_counter_by(
+                        &metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT,
+                        columns.len() as u64,
+                    );
+                    Ok(columns.into_values().collect())
+                }
             }
-            None => self
-                .blobs_db
-                .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())
-                .take_while(|res| {
-                    res.as_ref()
-                        .is_ok_and(|(key, _)| key.starts_with(block_root.as_slice()))
-                })
-                .map(|result| match result {
-                    Ok((_, value)) => Ok(value),
-                    Err(e) => Err(e),
-                })
-                .collect(),
-        };
+            // Partial cache hit, load remaining from the disk
+            other => {
+                let mut cached_columns = other.map(|c| c.deconstruct()).unwrap_or_default();
+                let mut load_column_checking_cache = |col_index: &ColumnIndex| {
+                    cached_columns
+                        .remove(col_index)
+                        .map(Ok)
+                        .or_else(|| self.get_data_column(block_root, col_index).transpose())
+                };
 
-        let columns = byte_columns?
-            .iter()
-            .map(|bytes| {
-                let column = DataColumnSidecar::<E>::from_ssz_bytes(bytes).map(Arc::new)?;
-                self.block_cache
-                    .lock()
-                    .put_data_column(*block_root, column.clone());
-                Ok(column)
-            })
-            .collect::<Result<DataColumnSidecarList<E>, Error>>()?;
+                if let Some(indices) = indices_opt {
+                    // Fetch only the requested column indices
+                    indices
+                        .iter()
+                        .filter_map(&mut load_column_checking_cache)
+                        .collect::<Result<DataColumnSidecarList<E>, Error>>()
+                } else {
+                    // Fetch all columns for the given block root.
+                    // Note: until we have custody info cached, we have to iterate all through
+                    // columns indices matching the block root, but we can avoid loading the value
+                    // and decoding if the column is already cached.
+                    let stored_col_indices = self
+                        .blobs_db
+                        .iter_column_keys_from::<Vec<u8>>(
+                            DBColumn::BeaconDataColumn,
+                            block_root.as_slice(),
+                        )
+                        .take_while(|res| {
+                            res.as_ref()
+                                .is_ok_and(|key| key.starts_with(block_root.as_slice()))
+                        })
+                        .map(|res| {
+                            res.and_then(|bytes| parse_data_column_key(bytes).map(|(_, idx)| idx))
+                        })
+                        .collect::<Result<Vec<ColumnIndex>, Error>>()?;
 
-        if columns.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(columns))
+                    stored_col_indices
+                        .into_iter()
+                        .filter_map(|col_index| load_column_checking_cache(&col_index))
+                        .collect::<Result<DataColumnSidecarList<E>, Error>>()
+                        .inspect(|_| {
+                            // We've now loaded all data columns into the cache, so we mark it as complete in the cache.
+                            self.block_cache
+                                .lock()
+                                .mark_data_column_complete(*block_root);
+                        })
+                }
+            }
         }
     }
 
@@ -2157,7 +2221,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .get_data_column(block_root, column_index)
         {
             metrics::inc_counter(&metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT);
-            return Ok(Some(data_column.clone()));
+            return Ok(Some(data_column));
         }
 
         match self.blobs_db.get_bytes(

@@ -365,7 +365,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 data_column_ids_by_root.block_root,
                 data_column_ids_by_root.columns.as_slice(),
             ) {
-                Ok(Some(data_columns)) => {
+                Ok(data_columns) => {
                     send_data_column_count += data_columns.len();
                     for data_column in data_columns {
                         self.send_response(
@@ -375,7 +375,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                 }
-                Ok(None) => {} // no-op
                 Err(e) => {
                     // TODO(das): lower log level when feature is stabilized
                     error!(

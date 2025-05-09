@@ -1110,7 +1110,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: Hash256,
         indices: &[ColumnIndex],
-    ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
+    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
         let all_cached_columns_opt = self
             .data_availability_checker
             .get_data_columns(block_root)
@@ -1118,7 +1118,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(mut all_cached_columns) = all_cached_columns_opt {
             all_cached_columns.retain(|col| indices.contains(&col.index));
-            Ok(Some(all_cached_columns))
+            Ok(all_cached_columns)
         } else {
             self.get_data_columns(&block_root, Some(&indices.iter().cloned().collect()))
         }
@@ -1206,7 +1206,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
         indices: Option<&HashSet<ColumnIndex>>,
-    ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
+    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
         self.store
             .get_data_columns(block_root, indices)
             .map_err(Error::from)
@@ -1230,20 +1230,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            if let Some(columns) = self.store.get_data_columns(block_root, None)? {
-                let num_required_columns = self.spec.number_of_columns / 2;
-                let reconstruction_possible = columns.len() >= num_required_columns as usize;
-                if reconstruction_possible {
-                    reconstruct_blobs(&self.kzg, &columns, None, &block, &self.spec)
-                        .map(Some)
-                        .map_err(Error::FailedToReconstructBlobs)
-                } else {
-                    Err(Error::InsufficientColumnsToReconstructBlobs {
-                        columns_found: columns.len(),
-                    })
-                }
+            let columns = self.store.get_data_columns(block_root, None)?;
+            let num_required_columns = self.spec.number_of_columns / 2;
+            let reconstruction_possible = columns.len() >= num_required_columns as usize;
+            if reconstruction_possible {
+                reconstruct_blobs(&self.kzg, &columns, None, &block, &self.spec)
+                    .map(Some)
+                    .map_err(Error::FailedToReconstructBlobs)
             } else {
-                Ok(None)
+                Err(Error::InsufficientColumnsToReconstructBlobs {
+                    columns_found: columns.len(),
+                })
             }
         } else {
             self.get_blobs(block_root).map(|b| b.blobs())
