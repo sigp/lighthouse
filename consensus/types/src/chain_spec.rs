@@ -1761,19 +1761,13 @@ fn max_data_columns_by_root_request_common(
     let max_request_blocks = max_request_blocks as usize;
     let number_of_columns = number_of_columns as usize;
 
-    let empty_data_column_indices = (0..max_request_blocks)
-        .map(|_| {
-            let columns =
-                RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns);
-            DataColumnsByRootIdentifier {
-                block_root: Hash256::zero(),
-                columns,
-            }
-        })
-        .collect();
+    let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
+        block_root: Hash256::zero(),
+        columns: RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns),
+    };
 
     RuntimeVariableList::<DataColumnsByRootIdentifier>::from_vec(
-        empty_data_column_indices,
+        vec![empty_data_columns_by_root_id; max_request_blocks],
         max_request_blocks,
     )
     .as_ssz_bytes()
