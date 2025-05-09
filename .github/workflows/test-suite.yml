@@ -295,7 +295,7 @@ jobs:
       with:
           channel: stable
           cache-target: release
-    - name: Run a basic beacon chain sim that starts from Bellatrix
+    - name: Run a basic beacon chain sim that starts from Deneb
       run: cargo run --release --bin simulator basic-sim
   fallback-simulator-ubuntu:
     name: fallback-simulator-ubuntu

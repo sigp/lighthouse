@@ -813,6 +813,7 @@ dependencies = [
  "maplit",
  "merkle_proof",
  "metrics",
+ "once_cell",
  "oneshot_broadcast",
  "operation_pool",
  "parking_lot 0.12.3",
@@ -878,14 +879,13 @@ name = "beacon_node_fallback"
 version = "0.1.0"
 dependencies = [
  "clap",
- "environment",
  "eth2",
  "futures",
  "itertools 0.10.5",
- "logging",
  "serde",
  "slot_clock",
  "strum",
+ "task_executor",
  "tokio",
  "tracing",
  "types",
@@ -2363,6 +2363,7 @@ dependencies = [
  "tokio",
  "tracing",
  "types",
+ "validator_store",
 ]
 
 [[package]]
@@ -5635,6 +5636,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "lighthouse_validator_store"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "beacon_node_fallback",
+ "doppelganger_service",
+ "either",
+ "environment",
+ "eth2",
+ "futures",
+ "initialized_validators",
+ "logging",
+ "parking_lot 0.12.3",
+ "serde",
+ "signing_method",
+ "slashing_protection",
+ "slot_clock",
+ "task_executor",
+ "tokio",
+ "tracing",
+ "types",
+ "validator_metrics",
+ "validator_store",
+]
+
+[[package]]
 name = "lighthouse_version"
 version = "0.1.0"
 dependencies = [
@@ -5731,8 +5758,6 @@ dependencies = [
  "chrono",
  "logroller",
  "metrics",
- "once_cell",
- "parking_lot 0.12.3",
  "serde",
  "serde_json",
  "tokio",
@@ -9668,6 +9693,7 @@ dependencies = [
  "graffiti_file",
  "hyper 1.6.0",
  "initialized_validators",
+ "lighthouse_validator_store",
  "metrics",
  "monitoring_api",
  "parking_lot 0.12.3",
@@ -9723,6 +9749,7 @@ dependencies = [
  "health_metrics",
  "initialized_validators",
  "itertools 0.10.5",
+ "lighthouse_validator_store",
  "lighthouse_version",
  "logging",
  "parking_lot 0.12.3",
@@ -9755,6 +9782,7 @@ name = "validator_http_metrics"
 version = "0.1.0"
 dependencies = [
  "health_metrics",
+ "lighthouse_validator_store",
  "lighthouse_version",
  "logging",
  "malloc_utils",
@@ -9766,7 +9794,6 @@ dependencies = [
  "types",
  "validator_metrics",
  "validator_services",
- "validator_store",
  "warp",
  "warp_utils",
 ]
@@ -9812,9 +9839,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
  "bls",
- "doppelganger_service",
  "either",
- "environment",
  "eth2",
  "futures",
  "graffiti_file",
@@ -9822,6 +9847,7 @@ dependencies = [
  "parking_lot 0.12.3",
  "safe_arith",
  "slot_clock",
+ "task_executor",
  "tokio",
  "tracing",
  "tree_hash",
@@ -9834,19 +9860,8 @@ dependencies = [
 name = "validator_store"
 version = "0.1.0"
 dependencies = [
- "account_utils",
- "doppelganger_service",
- "initialized_validators",
- "logging",
- "parking_lot 0.12.3",
- "serde",
- "signing_method",
  "slashing_protection",
- "slot_clock",
- "task_executor",
- "tracing",
  "types",
- "validator_metrics",
 ]
 
 [[package]]
@@ -10104,6 +10119,7 @@ dependencies = [
  "eth2_network_config",
  "futures",
  "initialized_validators",
+ "lighthouse_validator_store",
  "logging",
  "parking_lot 0.12.3",
  "reqwest",

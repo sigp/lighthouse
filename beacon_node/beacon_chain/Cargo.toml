@@ -47,6 +47,7 @@ logging = { workspace = true }
 lru = { workspace = true }
 merkle_proof = { workspace = true }
 metrics = { workspace = true }
+once_cell = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
