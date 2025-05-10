@@ -12,8 +12,8 @@ use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slot_clock::SlotClock;
-use store::metadata::STATE_UPPER_LIMIT_NO_RETAIN;
 use std::collections::HashMap;
+use store::metadata::STATE_UPPER_LIMIT_NO_RETAIN;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, warn};
 use types::{
@@ -125,7 +125,6 @@ fn duties_from_state_load<T: BeaconChainTypes>(
         let load_slot = std::cmp::max(computed_slot, effective_state_upper_limit);
 
         let state = chain.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)?;
-
 
         state
             .get_sync_committee_duties(request_epoch, request_indices, &chain.spec)
