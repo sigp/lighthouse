@@ -12,7 +12,7 @@ use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slot_clock::SlotClock;
-use std::cmp::max;
+use store::metadata::STATE_UPPER_LIMIT_NO_RETAIN;
 use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, warn};
@@ -108,13 +108,24 @@ fn duties_from_state_load<T: BeaconChainTypes>(
         // have to transition the head to start of the current period).
         //
         // We also need to ensure that the load slot is after the Altair fork.
-        let load_slot = max(
+        let anchor_info = chain.store.get_anchor_info();
+        let state_upper_limit = anchor_info.state_upper_limit;
+        // Compute the lower bound in epoch units.
+        let computed_epoch = std::cmp::max(
             chain.spec.epochs_per_sync_committee_period * sync_committee_period.saturating_sub(1),
             altair_fork_epoch,
-        )
-        .start_slot(T::EthSpec::slots_per_epoch());
+        );
+        let computed_slot = computed_epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let effective_state_upper_limit = if state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN {
+            computed_slot
+        } else {
+            state_upper_limit
+        };
+
+        let load_slot = std::cmp::max(computed_slot, effective_state_upper_limit);
 
         let state = chain.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)?;
+
 
         state
             .get_sync_committee_duties(request_epoch, request_indices, &chain.spec)
