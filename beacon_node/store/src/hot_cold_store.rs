@@ -2032,12 +2032,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
-    ) -> Result<DataColumnSidecarList<E>, Error> {
+    ) -> Result<Option<DataColumnSidecarList<E>>, Error> {
         let column_indices = self.get_data_column_keys(*block_root)?;
-        column_indices
+
+        let columns: DataColumnSidecarList<E> = column_indices
             .into_iter()
             .filter_map(|col_index| self.get_data_column(block_root, &col_index).transpose())
-            .collect()
+            .collect::<Result<_, _>>()?;
+
+        Ok((!columns.is_empty()).then_some(columns))
     }
 
     /// Fetch blobs for a given block from the store.

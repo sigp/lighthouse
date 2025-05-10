@@ -2371,7 +2371,7 @@ where
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let columns = self.chain.get_data_columns(&block_root).unwrap();
+            let columns = self.chain.get_data_columns(&block_root).unwrap().unwrap();
             let custody_columns = columns
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)

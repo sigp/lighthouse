@@ -1208,7 +1208,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
-    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
+    ) -> Result<Option<DataColumnSidecarList<T::EthSpec>>, Error> {
         self.store.get_data_columns(block_root).map_err(Error::from)
     }
 
@@ -1230,17 +1230,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let columns = self.store.get_data_columns(block_root)?;
-            let num_required_columns = self.spec.number_of_columns / 2;
-            let reconstruction_possible = columns.len() >= num_required_columns as usize;
-            if reconstruction_possible {
-                reconstruct_blobs(&self.kzg, &columns, None, &block, &self.spec)
-                    .map(Some)
-                    .map_err(Error::FailedToReconstructBlobs)
+            if let Some(columns) = self.store.get_data_columns(block_root)? {
+                let num_required_columns = self.spec.number_of_columns / 2;
+                let reconstruction_possible = columns.len() >= num_required_columns as usize;
+                if reconstruction_possible {
+                    reconstruct_blobs(&self.kzg, &columns, None, &block, &self.spec)
+                        .map(Some)
+                        .map_err(Error::FailedToReconstructBlobs)
+                } else {
+                    Err(Error::InsufficientColumnsToReconstructBlobs {
+                        columns_found: columns.len(),
+                    })
+                }
             } else {
-                Err(Error::InsufficientColumnsToReconstructBlobs {
-                    columns_found: columns.len(),
-                })
+                Ok(None)
             }
         } else {
             self.get_blobs(block_root).map(|b| b.blobs())

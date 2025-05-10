@@ -391,18 +391,16 @@ impl TestRig {
         let fork = block.fork_name_unchecked();
 
         let data_sidecars = if fork.fulu_enabled() {
-            let columns = store
+            store
                 .get_data_columns(&block_root)
+                .unwrap()
                 .map(|columns| {
-                    DataSidecars::DataColumns(
-                        columns
-                            .into_iter()
-                            .map(CustodyDataColumn::from_asserted_custody)
-                            .collect(),
-                    )
+                    columns
+                        .into_iter()
+                        .map(CustodyDataColumn::from_asserted_custody)
+                        .collect()
                 })
-                .unwrap();
-            Some(columns)
+                .map(DataSidecars::DataColumns)
         } else if fork.deneb_enabled() {
             store
                 .get_blobs(&block_root)

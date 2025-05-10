@@ -77,19 +77,17 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars
         });
 
         let data_sidecars = if harness.spec.is_peer_das_enabled_for_epoch(block_epoch) {
-            let columns = harness
+            harness
                 .chain
                 .get_data_columns(&snapshot.beacon_block_root)
+                .unwrap()
                 .map(|columns| {
-                    DataSidecars::DataColumns(
-                        columns
-                            .into_iter()
-                            .map(CustodyDataColumn::from_asserted_custody)
-                            .collect(),
-                    )
+                    columns
+                        .into_iter()
+                        .map(CustodyDataColumn::from_asserted_custody)
+                        .collect()
                 })
-                .unwrap();
-            Some(columns)
+                .map(DataSidecars::DataColumns)
         } else {
             harness
                 .chain
