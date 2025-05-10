@@ -490,6 +490,10 @@ impl DataColumnsByRootRequest {
         let data_column_ids = RuntimeVariableList::from_vec(data_column_ids, max_request_blocks);
         Self { data_column_ids }
     }
+
+    pub fn max_requested(&self) -> usize {
+        self.data_column_ids.iter().map(|id| id.columns.len()).sum()
+    }
 }
 
 /// Request a number of beacon data columns from a peer.
