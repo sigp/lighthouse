@@ -469,46 +469,50 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // Outermost error (from `with_committee_cache`) indicating that the block is not known
             // and that this conversion should be retried.
             Err(BeaconChainError::MissingBeaconBlock(beacon_block_root)) => {
-                metrics::inc_counter(
-                    &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
-                );
-                // We don't know the block, get the sync manager to handle the block lookup, and
-                // send the attestation to be scheduled for re-processing.
-                self.sync_tx
-                    .send(SyncMessage::UnknownBlockHashFromAttestation(
-                        peer_id,
-                        beacon_block_root,
-                    ))
-                    .unwrap_or_else(|_| {
-                        warn!(msg = "UnknownBlockHash", "Failed to send to sync service")
-                    });
-                let processor = self.clone();
-                let msg_id = message_id.clone();
-                // Do not allow this attestation to be re-processed beyond this point.
-                let reprocess_msg =
-                    ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
-                        beacon_block_root,
-                        process_fn: Box::new(move || {
-                            processor.process_gossip_attestation_to_convert(
-                                msg_id,
-                                peer_id,
-                                single_attestation,
-                                subnet_id,
-                                should_import,
-                                false,
-                                seen_timestamp,
-                            )
-                        }),
-                    });
-                if self
-                    .beacon_processor_send
-                    .try_send(WorkEvent {
-                        drop_during_sync: false,
-                        work: Work::Reprocess(reprocess_msg),
-                    })
-                    .is_err()
-                {
-                    error!("Failed to send attestation for re-processing");
+                if should_reprocess {
+                    metrics::inc_counter(
+                        &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
+                    );
+
+                    // We don't know the block, get the sync manager to handle the block lookup, and
+                    // send the attestation to be scheduled for re-processing.
+                    self.sync_tx
+                        .send(SyncMessage::UnknownBlockHashFromAttestation(
+                            peer_id,
+                            beacon_block_root,
+                        ))
+                        .unwrap_or_else(|_| {
+                            warn!(msg = "UnknownBlockHash", "Failed to send to sync service")
+                        });
+                    let processor = self.clone();
+                    let msg_id = message_id.clone();
+                    // Do not allow this attestation to be re-processed beyond this point.
+                    let reprocess_msg =
+                        ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
+                            beacon_block_root,
+                            process_fn: Box::new(move || {
+                                processor.process_gossip_attestation_to_convert(
+                                    msg_id,
+                                    peer_id,
+                                    single_attestation,
+                                    subnet_id,
+                                    should_import,
+                                    false,
+                                    seen_timestamp,
+                                )
+                            }),
+                        });
+                    if self
+                        .beacon_processor_send
+                        .try_send(WorkEvent {
+                            drop_during_sync: false,
+                            work: Work::Reprocess(reprocess_msg),
+                        })
+                        .is_err()
+                    {
+                        error!("Failed to send attestation for re-processing");
+                    }
+                } else {
                     // We shouldn't make any further attempts to process this attestation.
                     //
                     // Don't downscore the peer since it's not clear if we requested this head
