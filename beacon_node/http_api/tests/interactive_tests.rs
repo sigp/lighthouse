@@ -4,7 +4,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
     ChainConfig,
 };
-use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, Work, WorkEvent};
 use either::Either;
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
@@ -948,11 +948,13 @@ async fn queue_attestations_from_http() {
         .beacon_processor_send
         .as_ref()
         .unwrap()
-        .send(ReprocessQueueMessage::BlockImported {
-            block_root,
-            parent_root,
+        .try_send(WorkEvent {
+            drop_during_sync: false,
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
+                block_root,
+                parent_root,
+            }),
         })
-        .await
         .unwrap();
 
     attestation_future.await.unwrap();
