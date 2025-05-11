@@ -408,7 +408,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// This function performs the conversion, and if successful queues a new message to be
     /// processed by `process_gossip_attestation`. If unsuccessful due to block unavailability,
     /// a retry message will be pushed.
-    /// TODO(beacon-processor) should we add a bool to enable/disable retry?
     #[allow(clippy::too_many_arguments)]
     pub fn process_gossip_attestation_to_convert(
         self: Arc<Self>,
@@ -417,6 +416,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         single_attestation: Box<SingleAttestation>,
         subnet_id: SubnetId,
         should_import: bool,
+        should_reprocess: bool,
         seen_timestamp: Duration,
     ) {
         let conversion_result = self.chain.with_committee_cache(
@@ -495,6 +495,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 single_attestation,
                                 subnet_id,
                                 should_import,
+                                false,
                                 seen_timestamp,
                             )
                         }),
@@ -1198,7 +1199,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///   be downloaded.
     ///
     /// Raises a log if there are errors.
-    /// TODO(beacon-processor) allow_reprocess flag?
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_block(
         self: Arc<Self>,
@@ -1530,7 +1530,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Process the beacon block that has already passed gossip verification.
     ///
     /// Raises a log if there are errors.
-    /// TODO(beacon-processor) allow reprocess?
     pub async fn process_gossip_verified_block(
         self: Arc<Self>,
         peer_id: PeerId,

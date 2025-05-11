@@ -92,6 +92,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.attestation,
                 package.subnet_id,
                 package.should_import,
+                true,
                 package.seen_timestamp,
             )
         };
