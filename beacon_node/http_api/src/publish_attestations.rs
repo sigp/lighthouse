@@ -40,6 +40,7 @@ use beacon_chain::{
     AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
+use beacon_processor::{Work, WorkEvent};
 use either::Either;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
@@ -48,10 +49,7 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{
-    mpsc::{Sender, UnboundedSender},
-    oneshot,
-};
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use tracing::{debug, error, warn};
 use types::{Attestation, EthSpec, ForkName, SingleAttestation};
 
@@ -224,7 +222,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     attestations: Vec<Either<Attestation<T::EthSpec>, SingleAttestation>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-    reprocess_send: Option<Sender<ReprocessQueueMessage>>,
+    allow_reprocess: bool,
 ) -> Result<(), warp::Rejection> {
     // Collect metadata about attestations which we'll use to report failures. We need to
     // move the `attestations` vec into the blocking task, so this small overhead is unavoidable.
@@ -239,6 +237,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     // Gossip validate and publish attestations that can be immediately processed.
     let seen_timestamp = timestamp_now();
     let mut prelim_results = task_spawner
+        .clone()
         .blocking_task(Priority::P0, move || {
             Ok(attestations
                 .into_iter()
@@ -253,7 +252,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                         Err(Error::Validation(AttestationError::UnknownHeadBlock {
                             beacon_block_root,
                         })) => {
-                            let Some(reprocess_tx) = &reprocess_send else {
+                            if !allow_reprocess {
                                 return PublishAttestationResult::Failure(Error::ReprocessDisabled);
                             };
                             // Re-process.
@@ -277,7 +276,13 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                                     beacon_block_root,
                                     process_fn: Box::new(reprocess_fn),
                                 });
-                            if reprocess_tx.try_send(reprocess_msg).is_err() {
+                            if task_spawner
+                                .try_send(WorkEvent {
+                                    drop_during_sync: false,
+                                    work: Work::Reprocess(reprocess_msg),
+                                })
+                                .is_err()
+                            {
                                 PublishAttestationResult::Failure(Error::ReprocessFull)
                             } else {
                                 PublishAttestationResult::Reprocessing(rx)

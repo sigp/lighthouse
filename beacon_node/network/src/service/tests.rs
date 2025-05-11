@@ -137,7 +137,6 @@ fn test_removing_topic_weight_on_old_topics() {
             executor.clone(),
             None,
             beacon_processor_channels.beacon_processor_tx,
-            beacon_processor_channels.work_reprocessing_tx,
         )
         .await
         .unwrap()

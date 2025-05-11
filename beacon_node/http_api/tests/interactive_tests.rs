@@ -945,7 +945,7 @@ async fn queue_attestations_from_http() {
         .unwrap();
     tester
         .ctx
-        .beacon_processor_reprocess_send
+        .beacon_processor_send
         .as_ref()
         .unwrap()
         .send(ReprocessQueueMessage::BlockImported {

@@ -237,7 +237,6 @@ impl TestRig {
             chain: harness.chain.clone(),
             network_tx,
             sync_tx,
-            reprocess_tx: work_reprocessing_tx.clone(),
             network_globals: network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor: executor.clone(),
