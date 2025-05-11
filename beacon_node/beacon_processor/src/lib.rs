@@ -770,7 +770,7 @@ struct InboundEvents<E: EthSpec> {
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
     event_rx: mpsc::Receiver<WorkEvent<E>>,
     /// Used internally for queuing work ready to be re-processed.
-    reprocess_work_rx: mpsc::Receiver<ReadyWork>,
+    ready_work_rx: mpsc::Receiver<ReadyWork>,
 }
 
 impl<E: EthSpec> Stream for InboundEvents<E> {
@@ -791,7 +791,7 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
 
         // Poll for delayed blocks before polling for new work. It might be the case that a delayed
         // block is required to successfully process some new work.
-        match self.reprocess_work_rx.poll_recv(cx) {
+        match self.ready_work_rx.poll_recv(cx) {
             Poll::Ready(Some(ready_work)) => {
                 return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
             }
@@ -947,7 +947,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             let mut inbound_events = InboundEvents {
                 idle_rx,
                 event_rx,
-                reprocess_work_rx: ready_work_rx,
+                ready_work_rx,
             };
 
             let enable_backfill_rate_limiting = self.config.enable_backfill_rate_limiting;
@@ -1023,8 +1023,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         .unwrap_or(WORKER_FREED);
 
                     // We don't care if this message was successfully sent, we only use the journal
-                    // during testing.
-                    let _ = work_journal_tx.try_send(id);
+                    // during testing. We also ignore reprocess messages to ensure our test cases can pass.
+                    if id != "reprocess" {
+                        let _ = work_journal_tx.try_send(id);
+                    }
                 }
 
                 let can_spawn = self.current_workers < self.config.max_workers;
