@@ -127,7 +127,7 @@ use tokio_stream::Stream;
 use tracing::{debug, error, info, trace, warn};
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
+use types::data_column_sidecar::ColumnIndex;
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -1106,23 +1106,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
-    pub fn get_data_column_checking_all_caches(
+    pub fn get_data_columns_checking_all_caches(
         &self,
         block_root: Hash256,
-        index: ColumnIndex,
-    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, Error> {
-        if let Some(column) = self
+        indices: &[ColumnIndex],
+    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
+        let all_cached_columns_opt = self
             .data_availability_checker
-            .get_data_column(&DataColumnIdentifier { block_root, index })?
-        {
-            return Ok(Some(column));
-        }
+            .get_data_columns(block_root)
+            .or_else(|| self.early_attester_cache.get_data_columns(block_root));
 
-        if let Some(columns) = self.early_attester_cache.get_data_columns(block_root) {
-            return Ok(columns.iter().find(|c| c.index == index).cloned());
+        if let Some(mut all_cached_columns) = all_cached_columns_opt {
+            all_cached_columns.retain(|col| indices.contains(&col.index));
+            Ok(all_cached_columns)
+        } else {
+            indices
+                .iter()
+                .filter_map(|index| self.get_data_column(&block_root, index).transpose())
+                .collect::<Result<_, _>>()
         }
-
-        self.get_data_column(&block_root, &index)
     }
 
     /// Returns the block at the given root, if any.
