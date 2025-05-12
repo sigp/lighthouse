@@ -100,7 +100,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                     }
                 }
             },
-            RpcResponse::Error(_, err) => err.as_ssz_bytes(),
+            RpcResponse::Error(_, err) => err.as_bytes().to_vec().as_ssz_bytes(),
             RpcResponse::StreamTermination(_) => {
                 unreachable!("Code error - attempting to encode a stream termination")
             }
@@ -334,6 +334,14 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
     type Error = RPCError;
 
     fn encode(&mut self, item: RequestType<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let compress = !matches!(
+            &item,
+            RequestType::Raw(RawRequest {
+                mode: RawMode::Raw,
+                ..
+            })
+        );
+
         let bytes = match item {
             RequestType::Status(req) => {
                 // Send the status message based on the negotiated protocol
@@ -365,14 +373,25 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
             RequestType::MetaData(_)
             | RequestType::LightClientOptimisticUpdate
             | RequestType::LightClientFinalityUpdate => return Ok(()),
+            RequestType::Raw(RawRequest {
+                bytes,
+                protocol: _,
+                mode,
+            }) => match mode {
+                RawMode::EncodeAndCompress => bytes.as_ssz_bytes(),
+                RawMode::Compress | RawMode::Raw => bytes,
+            },
         };
 
+        // Mallory doesn't care about inbound limits
+        /*
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
             return Err(RPCError::InternalError(
                 "attempting to encode data > max_packet_size",
             ));
         }
+        */
 
         // Inserts the length prefix of the uncompressed bytes into dst
         // encoded as a unsigned varint
@@ -380,12 +399,14 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
             .encode(bytes.len(), dst)
             .map_err(RPCError::from)?;
 
-        let mut writer = FrameEncoder::new(Vec::new());
-        writer.write_all(&bytes).map_err(RPCError::from)?;
-        writer.flush().map_err(RPCError::from)?;
-
-        // Write compressed bytes to `dst`
-        dst.extend_from_slice(writer.get_ref());
+        if compress {
+            let mut writer = FrameEncoder::new(Vec::new());
+            writer.write_all(&bytes).map_err(RPCError::from)?;
+            writer.flush().map_err(RPCError::from)?;
+            dst.extend_from_slice(writer.get_ref());
+        } else {
+            dst.extend_from_slice(&bytes);
+        }
         Ok(())
     }
 }

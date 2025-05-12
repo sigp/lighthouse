@@ -241,14 +241,8 @@ impl<E: EthSpec> Discovery<E> {
                 quic = bootnode_enr.quic4(),
                 "Adding node to routing table"
             );
-            let repr = bootnode_enr.to_string();
-            let _ = discv5.add_enr(bootnode_enr).map_err(|e| {
-                error!(
-                    addr = repr,
-                    error = e.to_string(),
-                    "Could not add peer to the local routing table"
-                )
-            });
+            // Error is suppressed for mallory
+            let _ = discv5.add_enr(bootnode_enr);
         }
 
         // Start the discv5 service and obtain an event stream
