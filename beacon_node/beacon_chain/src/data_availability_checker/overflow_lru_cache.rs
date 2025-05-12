@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tracing::debug;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar, Epoch, EthSpec,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
     Hash256, RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock,
 };
 
@@ -404,20 +404,21 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    /// Fetch a data column from the cache without affecting the LRU ordering
-    pub fn peek_data_column(
+    /// Fetch data columns of a given `block_root` from the cache without affecting the LRU ordering
+    pub fn peek_data_columns(
         &self,
-        data_column_id: &DataColumnIdentifier,
-    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
-        if let Some(pending_components) = self.critical.read().peek(&data_column_id.block_root) {
-            Ok(pending_components
-                .verified_data_columns
-                .iter()
-                .find(|data_column| data_column.as_data_column().index == data_column_id.index)
-                .map(|data_column| data_column.clone_arc()))
-        } else {
-            Ok(None)
-        }
+        block_root: Hash256,
+    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
+        self.critical
+            .read()
+            .peek(&block_root)
+            .map(|pending_components| {
+                pending_components
+                    .verified_data_columns
+                    .iter()
+                    .map(|col| col.clone_arc())
+                    .collect()
+            })
     }
 
     pub fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
