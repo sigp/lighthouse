@@ -16,6 +16,7 @@ use futures::prelude::*;
 use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDiscovery};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
+use ssz_types::BitVector;
 use types::{
     AttestationData, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
@@ -89,8 +90,8 @@ pub struct SubnetService<T: BeaconChainTypes> {
     scheduled_subscriptions: HashSetDelay<ExactSubnet>,
 
     /// A list of permanent subnets that this node is subscribed to.
-    // TODO: Shift this to a dynamic bitfield
-    permanent_attestation_subscriptions: HashSet<Subnet>,
+    /// Uses a BitVector for space-efficient storage and operations.
+    permanent_attestation_subscriptions: BitVector<<T::EthSpec as EthSpec>::SubnetBitfieldLength>,
 
     /// A collection timeouts to track the existence of aggregate validator subscriptions at an
     /// `ExactSubnet`.
@@ -128,12 +129,20 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
         // Build the list of known permanent subscriptions, so that we know not to subscribe or
         // discover them.
-        let mut permanent_attestation_subscriptions = HashSet::default();
+        let mut permanent_attestation_subscriptions = BitVector::new();
         if config.subscribe_all_subnets {
             // We are subscribed to all subnets, set all the bits to true.
             for index in 0..beacon_chain.spec.attestation_subnet_count {
-                permanent_attestation_subscriptions
-                    .insert(Subnet::Attestation(SubnetId::from(index)));
+                let index_usize = index as usize;
+                if let Err(e) = permanent_attestation_subscriptions.set(index_usize, true) {
+                    // This should never happen, but log it if it does
+                    warn!(
+                        log,
+                        "Failed to set bit in BitVector";
+                        "index" => index_usize,
+                        "error" => ?e
+                    );
+                }
             }
         } else {
             // Not subscribed to all subnets, so just calculate the required subnets from the node
@@ -141,7 +150,17 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             for subnet_id in
                 SubnetId::compute_attestation_subnets(node_id.raw(), &beacon_chain.spec)
             {
-                permanent_attestation_subscriptions.insert(Subnet::Attestation(subnet_id));
+                let index = subnet_id.into();
+                if let Err(e) = permanent_attestation_subscriptions.set(index, true) {
+                    // This should never happen, but log it if it does
+                    warn!(
+                        log,
+                        "Failed to set bit in BitVector for subnet";
+                        "subnet_id" => ?subnet_id,
+                        "index" => index,
+                        "error" => ?e
+                    );
+                }
             }
         }
 
@@ -200,15 +219,30 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     }
 
     #[cfg(test)]
-    pub fn permanent_subscriptions(&self) -> impl Iterator<Item = &Subnet> {
-        self.permanent_attestation_subscriptions.iter()
+    pub fn permanent_subscriptions(&self) -> impl Iterator<Item = Subnet> {
+        (0..self.permanent_attestation_subscriptions.len())
+            .filter(move |&i| {
+                // Safely handle potential errors by defaulting to false if get() returns an error
+                self.permanent_attestation_subscriptions
+                    .get(i)
+                    .unwrap_or(false)
+            })
+            .map(|i| Subnet::Attestation(SubnetId::new(i as u64)))
     }
 
     /// Returns whether we are subscribed to a subnet for testing purposes.
     #[cfg(test)]
     pub(crate) fn is_subscribed(&self, subnet: &Subnet) -> bool {
         self.subscriptions.contains_key(subnet)
-            || self.permanent_attestation_subscriptions.contains(subnet)
+            || match subnet {
+                Subnet::Attestation(subnet_id) => {
+                    // Safely handle potential errors by defaulting to false if get() returns an error
+                    self.permanent_attestation_subscriptions
+                        .get(subnet_id.into())
+                        .unwrap_or(false)
+                },
+                _ => false
+            }
     }
 
     /// Returns whether we are subscribed to a permanent subnet for testing purposes.
@@ -478,8 +512,15 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         ExactSubnet { subnet, slot }: ExactSubnet,
     ) -> Result<(), &'static str> {
         // If the subnet is one of our permanent subnets, we do not need to subscribe.
-        if self.subscribe_all_subnets || self.permanent_attestation_subscriptions.contains(&subnet)
-        {
+        if self.subscribe_all_subnets || match subnet {
+            Subnet::Attestation(subnet_id) => {
+                // Safely handle potential errors by defaulting to false if get() returns an error
+                self.permanent_attestation_subscriptions
+                    .get(subnet_id.into())
+                    .unwrap_or(false)
+            },
+            _ => false
+        } {
             return Ok(());
         }
 
