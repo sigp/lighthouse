@@ -131,9 +131,9 @@ deposit_contract = { path = "common/deposit_contract" }
 derivative = "2"
 directory = { path = "common/directory" }
 dirs = "3"
-discv5 = { version = "0.9", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 either = "1.9"
+discv5 = { git= "https://github.com/sigp/discv5", features = ["libp2p"], branch = "mallory" }
 env_logger = "0.9"
 environment = { path = "lighthouse/environment" }
 eth2 = { path = "common/eth2" }
@@ -159,8 +159,8 @@ fork_choice = { path = "consensus/fork_choice" }
 fs2 = "0.4"
 futures = "0.3"
 genesis = { path = "beacon_node/genesis" }
-gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "61b2820" }
 graffiti_file = { path = "validator_client/graffiti_file" }
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", branch = "mallory" }
 hashlink = "0.9.0"
 health_metrics = { path = "common/health_metrics" }
 hex = "0.4"

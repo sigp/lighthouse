@@ -35,7 +35,7 @@ pub struct Config {
     pub network_dir: PathBuf,
 
     /// IP addresses to listen on.
-    pub(crate) listen_addresses: ListenAddress,
+    pub listen_addresses: ListenAddress,
 
     /// The address to broadcast to peers about which address we are listening on. None indicates
     /// that no discovery address has been set in the CLI args.
@@ -142,6 +142,9 @@ pub struct Config {
 
     /// Flag for advertising a fake CGC to peers for testing ONLY.
     pub advertise_false_custody_group_count: Option<u64>,
+    /// Extra configurations for Mallory.
+    #[serde(skip)]
+    pub attacker_config: crate::MalloryConfig,
 }
 
 impl Config {
@@ -367,6 +370,7 @@ impl Default for Config {
             inbound_rate_limiter_config: None,
             idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
             advertise_false_custody_group_count: None,
+            attacker_config: Default::default(),
         }
     }
 }

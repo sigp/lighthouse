@@ -30,6 +30,8 @@ pub struct Context<'a> {
     pub fork_context: Arc<ForkContext>,
     pub chain_spec: Arc<ChainSpec>,
     pub libp2p_registry: Option<&'a mut Registry>,
+    pub keypair: Keypair,
+    pub incoming_connections: Option<u32>,
 }
 
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;

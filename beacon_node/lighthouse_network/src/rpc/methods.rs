@@ -1,5 +1,6 @@
 //! Available RPC methods types and ids.
 
+use super::protocol::SupportedProtocol;
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use regex::bytes::Regex;
 use serde::Serialize;
@@ -11,6 +12,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
+use strum::{Display as StrumDisplay, EnumString};
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
@@ -127,6 +129,38 @@ impl StatusMessage {
 pub struct Ping {
     /// The metadata sequence number.
     pub data: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RawRequest {
+    pub bytes: Vec<u8>,
+    pub protocol: SupportedProtocol,
+    pub mode: RawMode,
+}
+
+#[derive(Debug, Clone, PartialEq, EnumString, StrumDisplay)]
+pub enum RawMode {
+    /// SSZ encode, Snappy compress.
+    #[strum(serialize = "encode-compress")]
+    EncodeAndCompress,
+    /// Only Snappy compress.
+    #[strum(serialize = "compress")]
+    Compress,
+    /// Do not alter the bytes.
+    #[strum(serialize = "raw")]
+    Raw,
+}
+
+impl Default for RawMode {
+    fn default() -> Self {
+        RawMode::EncodeAndCompress
+    }
+}
+
+impl std::fmt::Display for RawRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 /// The METADATA request structure.
@@ -411,6 +445,8 @@ impl DataColumnsByRangeRequest {
     }
 }
 
+const MALLORY_MAX_REQUEST_BLOCKS: usize = 10000000000000000000;
+
 /// Request a number of beacon block roots from a peer.
 #[superstruct(
     variants(V1, V2),
@@ -495,6 +531,11 @@ impl BlocksByRootRequest {
             .max_request_blocks(fork_context.current_fork());
         let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
         Self::V1(BlocksByRootRequestV1 { block_roots })
+    }
+
+    pub fn mallory_new(block_roots: Vec<Hash256>) -> Self {
+        let block_roots = RuntimeVariableList::from_vec(block_roots, MALLORY_MAX_REQUEST_BLOCKS);
+        Self::V2(BlocksByRootRequestV2 { block_roots })
     }
 }
 
@@ -653,10 +694,10 @@ impl ResponseTermination {
 /// and the contents of the response
 #[derive(Debug, Clone)]
 pub enum RpcResponse<E: EthSpec> {
-    /// The response is a successful.
+    /// The response is successful.
     Success(RpcSuccessResponse<E>),
 
-    Error(RpcErrorResponse, ErrorType),
+    Error(RpcErrorResponse, String),
 
     /// Received a stream termination indicating which response is being terminated.
     StreamTermination(ResponseTermination),
@@ -706,7 +747,7 @@ impl<E: EthSpec> RpcResponse<E> {
             140 => RpcErrorResponse::BlobsNotFoundForBlock,
             _ => RpcErrorResponse::Unknown,
         };
-        RpcResponse::Error(code, err)
+        RpcResponse::Error(code, err.to_string())
     }
 
     /// Returns true if this response always terminates the stream.

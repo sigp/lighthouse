@@ -1,7 +1,7 @@
 use gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use strum::AsRefStr;
+use strum::{AsRefStr, IntoStaticStr};
 use types::{ChainSpec, DataColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};
 
 use crate::Subnet;
@@ -145,7 +145,7 @@ pub struct GossipTopic {
 
 /// Enum that brings these topics into the rust type system.
 // NOTE: There is intentionally no unknown type here. We only allow known gossipsub topics.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, AsRefStr)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, AsRefStr, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
