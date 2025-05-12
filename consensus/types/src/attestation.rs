@@ -244,8 +244,15 @@ impl<E: EthSpec> Attestation<E> {
         attester_index: u64,
     ) -> Result<SingleAttestation, Error> {
         match self {
-            Self::Base(_) => Err(Error::IncorrectStateVariant),
+            Self::Base(attn) => attn.to_single_attestation_with_attester_index(attester_index),
             Self::Electra(attn) => attn.to_single_attestation_with_attester_index(attester_index),
+        }
+    }
+
+    pub fn get_aggregation_bits(&self) -> Vec<u64> {
+        match self {
+            Self::Base(attn) => attn.get_aggregation_bits(),
+            Self::Electra(attn) => attn.get_aggregation_bits(),
         }
     }
 }
@@ -458,6 +465,34 @@ impl<E: EthSpec> AttestationBase<E> {
         &self,
     ) -> Result<BitList<E::MaxValidatorsPerSlot>, ssz::BitfieldError> {
         self.aggregation_bits.resize::<E::MaxValidatorsPerSlot>()
+    }
+
+    pub fn get_aggregation_bits(&self) -> Vec<u64> {
+        self.aggregation_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
+    }
+
+    pub fn to_single_attestation_with_attester_index(
+        &self,
+        attester_index: u64,
+    ) -> Result<SingleAttestation, Error> {
+        let data = AttestationData {
+            slot: self.data.slot,
+            index: 0,
+            beacon_block_root: self.data.beacon_block_root,
+            source: self.data.source,
+            target: self.data.target,
+        };
+
+        Ok(SingleAttestation {
+            committee_index: self.data.index,
+            attester_index,
+            data,
+            signature: self.signature.clone(),
+        })
     }
 }
 
