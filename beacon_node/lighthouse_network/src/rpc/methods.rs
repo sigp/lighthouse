@@ -6,7 +6,6 @@ use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::U256, VariableList};
-use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -16,9 +15,10 @@ use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
-    blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
-    Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
+    blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar,
+    DataColumnsByRootIdentifier, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList,
+    SignedBeaconBlock, Slot,
 };
 use types::{ForkContext, ForkName};
 
@@ -479,31 +479,20 @@ impl BlobsByRootRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DataColumnsByRootRequest {
     /// The list of beacon block roots and column indices being requested.
-    pub data_column_ids: RuntimeVariableList<DataColumnIdentifier>,
+    pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier>,
 }
 
 impl DataColumnsByRootRequest {
-    pub fn new(data_column_ids: Vec<DataColumnIdentifier>, spec: &ChainSpec) -> Self {
-        let data_column_ids = RuntimeVariableList::from_vec(
-            data_column_ids,
-            spec.max_request_data_column_sidecars as usize,
-        );
+    pub fn new(
+        data_column_ids: Vec<DataColumnsByRootIdentifier>,
+        max_request_blocks: usize,
+    ) -> Self {
+        let data_column_ids = RuntimeVariableList::from_vec(data_column_ids, max_request_blocks);
         Self { data_column_ids }
     }
 
-    pub fn new_single(block_root: Hash256, index: ColumnIndex, spec: &ChainSpec) -> Self {
-        Self::new(vec![DataColumnIdentifier { block_root, index }], spec)
-    }
-
-    pub fn group_by_ordered_block_root(&self) -> Vec<(Hash256, Vec<ColumnIndex>)> {
-        let mut column_indexes_by_block = BTreeMap::<Hash256, Vec<ColumnIndex>>::new();
-        for request_id in self.data_column_ids.as_slice() {
-            column_indexes_by_block
-                .entry(request_id.block_root)
-                .or_default()
-                .push(request_id.index);
-        }
-        column_indexes_by_block.into_iter().collect()
+    pub fn max_requested(&self) -> usize {
+        self.data_column_ids.iter().map(|id| id.columns.len()).sum()
     }
 }
 
