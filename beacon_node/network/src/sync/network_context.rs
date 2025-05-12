@@ -372,6 +372,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .unwrap_or_default()
     }
 
+    pub fn client_version(&self, peer_id: &PeerId) -> String {
+        self.network_globals()
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .map(|info| info.client().version.clone())
+            .unwrap_or_default()
+    }
+
+
     pub fn status_peers<C: ToStatusMessage>(&self, chain: &C, peers: impl Iterator<Item = PeerId>) {
         let span = span!(
             Level::INFO,

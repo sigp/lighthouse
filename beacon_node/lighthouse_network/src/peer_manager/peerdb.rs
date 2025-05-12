@@ -169,6 +169,11 @@ impl<E: EthSpec> PeerDB<E> {
         }
     }
 
+    /// Returns the sync start time of the peer if it exists
+    pub fn sync_start_time(&self, peer_id: &PeerId) -> Option<&Instant> {
+        self.peers.get(peer_id).and_then(|info| info.sync_start_time())
+    }
+
     /// Returns the current [`BanResult`] of the peer if banned. This doesn't check the connection state, rather the
     /// underlying score of the peer. A peer may be banned but still in the connected state
     /// temporarily.
@@ -393,6 +398,17 @@ impl<E: EthSpec> PeerDB<E> {
     ) -> Option<bool> {
         let info = self.peers.get_mut(peer_id)?;
         Some(info.update_sync_status(sync_status))
+    }
+
+    /// Updates the sync start time for a peer
+    pub fn update_sync_start_time(
+        &mut self,
+        peer_id: &PeerId,
+        sync_start_time: Instant
+    ) { 
+        if let Some(info) = self.peers.get_mut(peer_id) {
+            info.update_sync_start_time(sync_start_time);
+        }
     }
 
     /// Updates the scores of known peers according to their connection status and the time that

@@ -67,7 +67,7 @@ use logging::crit;
 use lru_cache::LRUTimeCache;
 use std::ops::Sub;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use types::{
@@ -76,6 +76,7 @@ use types::{
 
 #[cfg(test)]
 use types::ColumnIndex;
+use crate::metrics;
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -412,6 +413,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             match sync_type {
                 PeerSyncType::Behind => {} // Do nothing
                 PeerSyncType::Advanced => {
+                    // update sync start time
+                    self.network_globals().peers.write().update_sync_start_time(&peer_id, Instant::now());
                     self.range_sync
                         .add_peer(&mut self.network, local, peer_id, remote);
                 }
@@ -474,6 +477,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         };
 
         for peer_id in peers {
+            self.network_globals().peers.write().update_sync_start_time(peer_id, Instant::now());
             self.range_sync
                 .add_peer(&mut self.network, local.clone(), *peer_id, remote.clone());
         }
@@ -582,6 +586,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // A peer has transitioned its sync state. If the new state is "synced" we
                 // inform the backfill sync that a new synced peer has joined us.
                 if new_state.is_synced() {
+                    // update the sync time metrics - for each client it records the time from sync_start_time to now for the peer of that client
+                    let client = self.network.client_type(&peer_id).kind.to_string();
+
+                    let peers = self.network_globals().peers.read();
+                    let sync_start_time = peers.sync_start_time(peer_id);
+                    if let Some(start_time) = sync_start_time {
+                        let sync_time = start_time.elapsed().as_secs_f64();
+                        if let Ok(metric) = metrics::SYNC_TIME_PER_CLIENT.as_ref() {
+                            metric.with_label_values(&[&client]).observe(sync_time);
+                        }
+                    }
+                    drop(peers);
                     self.backfill_sync.fully_synced_peer_joined();
                 }
             }
@@ -1067,6 +1083,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
+            let client = self.network.client_type(&peer_id).kind.to_string();
+            let client_version = self.network.client_version(&peer_id).to_string();
+
+            metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client] );
+            metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT_VERSION, &[&client, &client_version]);
+
+
             self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
                     id,
@@ -1277,6 +1300,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             match resp {
                 Ok(blocks) => {
+                    let client = self.network.client_type(&peer_id).kind.to_string();
+                    let client_version = self.network.client_version(&peer_id).to_string();
+
+
+                    metrics::inc_counter_vec_by(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client], blocks.len() as u64);
+                    metrics::inc_counter_vec_by(&metrics::BLOCKS_RECEIVED_PER_CLIENT_VERSION, &[&client, &client_version], blocks.len() as u64);
                     match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(
