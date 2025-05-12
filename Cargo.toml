@@ -7,7 +7,6 @@ members = [
     "beacon_node/beacon_processor",
     "beacon_node/builder_client",
     "beacon_node/client",
-    "beacon_node/eth1",
     "beacon_node/execution_layer",
     "beacon_node/genesis",
     "beacon_node/http_api",
@@ -80,7 +79,6 @@ members = [
     "slasher/service",
 
     "testing/ef_tests",
-    "testing/eth1_test_rig",
     "testing/execution_engine_integration",
     "testing/node_test_rig",
     "testing/simulator",
@@ -229,8 +227,6 @@ deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 environment = { path = "lighthouse/environment" }
-eth1 = { path = "beacon_node/eth1" }
-eth1_test_rig = { path = "testing/eth1_test_rig" }
 eth2 = { path = "common/eth2" }
 eth2_config = { path = "common/eth2_config" }
 eth2_key_derivation = { path = "crypto/eth2_key_derivation" }

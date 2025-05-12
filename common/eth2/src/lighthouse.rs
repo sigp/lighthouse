@@ -343,18 +343,6 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET lighthouse/staking`
-    pub async fn get_lighthouse_staking(&self) -> Result<bool, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("staking");
-
-        self.get_opt::<(), _>(path).await.map(|opt| opt.is_some())
-    }
-
     /// `POST lighthouse/database/reconstruct`
     pub async fn post_lighthouse_database_reconstruct(&self) -> Result<String, Error> {
         let mut path = self.server.full.clone();

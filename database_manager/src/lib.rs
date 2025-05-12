@@ -3,8 +3,7 @@ use crate::cli::DatabaseManager;
 use crate::cli::Migrate;
 use crate::cli::PruneStates;
 use beacon_chain::{
-    builder::Witness, eth1_chain::CachingEth1Backend, schema_change::migrate_schema,
-    slot_clock::SystemTimeSlotClock,
+    builder::Witness, schema_change::migrate_schema, slot_clock::SystemTimeSlotClock,
 };
 use beacon_node::{get_data_dir, ClientConfig};
 use clap::ArgMatches;
@@ -330,12 +329,7 @@ pub fn migrate_db<E: EthSpec>(
     );
 
     let genesis_state_root = genesis_state.canonical_root()?;
-    migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(
-        db,
-        Some(genesis_state_root),
-        from,
-        to,
-    )
+    migrate_schema::<Witness<SystemTimeSlotClock, _, _, _>>(db, Some(genesis_state_root), from, to)
 }
 
 pub fn prune_payloads<E: EthSpec>(

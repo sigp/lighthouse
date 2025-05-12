@@ -3,7 +3,6 @@ use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::eth1_chain::Error as Eth1ChainError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
@@ -271,7 +270,6 @@ pub enum BlockProductionError {
     BlockProcessingError(BlockProcessingError),
     EpochCacheError(EpochCacheError),
     ForkChoiceError(ForkChoiceError),
-    Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
     StateAdvanceError(StateAdvanceError),
     OpPoolError(OpPoolError),
@@ -307,7 +305,6 @@ pub enum BlockProductionError {
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
-easy_from_to!(Eth1ChainError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
 easy_from_to!(EpochCacheError, BlockProductionError);
