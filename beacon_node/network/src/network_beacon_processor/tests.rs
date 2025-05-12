@@ -15,6 +15,7 @@ use beacon_chain::test_utils::{
     EphemeralHarnessType,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
+use beacon_processor::work_queue::BeaconProcessorQueueLengths;
 use beacon_processor::{work_reprocessing_queue::*, *};
 use itertools::Itertools;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};

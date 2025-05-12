@@ -4,7 +4,8 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes,
 };
 use beacon_processor::{
-    BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
+    work_queue::BeaconProcessorQueueLengths, BeaconProcessor, BeaconProcessorChannels,
+    BeaconProcessorConfig,
 };
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};

@@ -18,8 +18,8 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
+use beacon_processor::{work_queue::BeaconProcessorQueueLengths, BeaconProcessorConfig};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
-use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2::{
