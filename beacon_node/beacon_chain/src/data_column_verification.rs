@@ -16,7 +16,7 @@ use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::debug;
-use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
+use types::data_column_sidecar::ColumnIndex;
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
     RuntimeVariableList, SignedBeaconBlockHeader, Slot,
@@ -198,13 +198,6 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 )
             },
         )
-    }
-
-    pub fn id(&self) -> DataColumnIdentifier {
-        DataColumnIdentifier {
-            block_root: self.block_root,
-            index: self.data_column.index(),
-        }
     }
 
     pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
@@ -741,7 +734,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipDataColumnError> {
     // Now the signature is valid, store the proposal so we don't accept another data column sidecar
-    // with the same `DataColumnIdentifier`.  It's important to double-check that the proposer still
+    // with the same `ColumnIndex`.  It's important to double-check that the proposer still
     // hasn't been observed so we don't have a race-condition when verifying two blocks
     // simultaneously.
     //

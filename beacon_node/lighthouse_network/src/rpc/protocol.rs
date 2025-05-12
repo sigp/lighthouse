@@ -740,7 +740,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
             RequestType::BlobsByRange(req) => req.max_blobs_requested(current_fork, spec),
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
-            RequestType::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
+            RequestType::DataColumnsByRoot(req) => req.max_requested() as u64,
             RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
             RequestType::Ping(_) => 1,
             RequestType::MetaData(_) => 1,
