@@ -863,11 +863,16 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             &chain.spec,
         )?;
 
-        // [New in Electra:EIP7549]
-        if attestation.data.index != 0 {
-            return Err(Error::CommitteeIndexNonZero(
-                attestation.data.index as usize,
-            ));
+        let fork_name = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
+        if fork_name.electra_enabled() {
+            // [New in Electra:EIP7549]
+            if attestation.data.index != 0 {
+                return Err(Error::CommitteeIndexNonZero(
+                    attestation.data.index as usize,
+                ));
+            }
         }
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
