@@ -15,8 +15,8 @@ use delay_map::HashSetDelay;
 use futures::prelude::*;
 use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDiscovery};
 use slot_clock::SlotClock;
-use tracing::{debug, error, info, instrument, warn};
 use ssz_types::BitVector;
+use tracing::{debug, error, info, instrument, warn};
 use types::{
     AttestationData, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
@@ -137,10 +137,8 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                 if let Err(e) = permanent_attestation_subscriptions.set(index_usize, true) {
                     // This should never happen, but log it if it does
                     warn!(
-                        log,
-                        "Failed to set bit in BitVector";
-                        "index" => index_usize,
-                        "error" => ?e
+                        "Failed to set bit in BitVector, index: {}, error: {:?}",
+                        index_usize, e
                     );
                 }
             }
@@ -150,15 +148,12 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             for subnet_id in
                 SubnetId::compute_attestation_subnets(node_id.raw(), &beacon_chain.spec)
             {
-                let index = subnet_id.into();
+                let index = u64::from(subnet_id) as usize;
                 if let Err(e) = permanent_attestation_subscriptions.set(index, true) {
                     // This should never happen, but log it if it does
                     warn!(
-                        log,
-                        "Failed to set bit in BitVector for subnet";
-                        "subnet_id" => ?subnet_id,
-                        "index" => index,
-                        "error" => ?e
+                        "Failed to set bit in BitVector for subnet, subnet_id: {:?}, index: {}, error: {:?}",
+                        subnet_id, index, e
                     );
                 }
             }
@@ -180,22 +175,27 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
         // Queue discovery queries for the permanent attestation subnets
         if !config.disable_discovery {
-            events.push_back(SubnetServiceMessage::DiscoverPeers(
-                permanent_attestation_subscriptions
-                    .iter()
-                    .cloned()
-                    .map(|subnet| SubnetDiscovery {
+            let permanent_subnets: Vec<_> = (0..permanent_attestation_subscriptions.len())
+                .filter(|&i| permanent_attestation_subscriptions.get(i).unwrap_or(false))
+                .map(|i| {
+                    let subnet = Subnet::Attestation(SubnetId::new(i as u64));
+                    SubnetDiscovery {
                         subnet,
                         min_ttl: None,
-                    })
-                    .collect(),
-            ));
+                    }
+                })
+                .collect();
+
+            events.push_back(SubnetServiceMessage::DiscoverPeers(permanent_subnets));
         }
 
         // Pre-populate the events with permanent subscriptions
-        for subnet in permanent_attestation_subscriptions.iter() {
-            events.push_back(SubnetServiceMessage::Subscribe(*subnet));
-            events.push_back(SubnetServiceMessage::EnrAdd(*subnet));
+        for i in 0..permanent_attestation_subscriptions.len() {
+            if permanent_attestation_subscriptions.get(i).unwrap_or(false) {
+                let subnet = Subnet::Attestation(SubnetId::new(i as u64));
+                events.push_back(SubnetServiceMessage::Subscribe(subnet));
+                events.push_back(SubnetServiceMessage::EnrAdd(subnet));
+            }
         }
 
         SubnetService {
@@ -219,7 +219,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     }
 
     #[cfg(test)]
-    pub fn permanent_subscriptions(&self) -> impl Iterator<Item = Subnet> {
+    pub fn permanent_subscriptions(&'_ self) -> impl Iterator<Item = Subnet> + '_ {
         (0..self.permanent_attestation_subscriptions.len())
             .filter(move |&i| {
                 // Safely handle potential errors by defaulting to false if get() returns an error
@@ -237,18 +237,27 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             || match subnet {
                 Subnet::Attestation(subnet_id) => {
                     // Safely handle potential errors by defaulting to false if get() returns an error
+                    let index = u64::from(**subnet_id) as usize;
                     self.permanent_attestation_subscriptions
-                        .get(subnet_id.into())
+                        .get(index)
                         .unwrap_or(false)
-                },
-                _ => false
+                }
+                _ => false,
             }
     }
 
     /// Returns whether we are subscribed to a permanent subnet for testing purposes.
     #[cfg(test)]
     pub(crate) fn is_subscribed_permanent(&self, subnet: &Subnet) -> bool {
-        self.permanent_attestation_subscriptions.contains(subnet)
+        match subnet {
+            Subnet::Attestation(subnet_id) => {
+                let index = u64::from(**subnet_id) as usize;
+                self.permanent_attestation_subscriptions
+                    .get(index)
+                    .unwrap_or(false)
+            }
+            _ => false,
+        }
     }
 
     /// Processes a list of validator subscriptions.
@@ -512,15 +521,18 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         ExactSubnet { subnet, slot }: ExactSubnet,
     ) -> Result<(), &'static str> {
         // If the subnet is one of our permanent subnets, we do not need to subscribe.
-        if self.subscribe_all_subnets || match subnet {
-            Subnet::Attestation(subnet_id) => {
-                // Safely handle potential errors by defaulting to false if get() returns an error
-                self.permanent_attestation_subscriptions
-                    .get(subnet_id.into())
-                    .unwrap_or(false)
-            },
-            _ => false
-        } {
+        if self.subscribe_all_subnets
+            || match subnet {
+                Subnet::Attestation(subnet_id) => {
+                    // Safely handle potential errors by defaulting to false if get() returns an error
+                    let index = u64::from(*subnet_id) as usize;
+                    self.permanent_attestation_subscriptions
+                        .get(index)
+                        .unwrap_or(false)
+                }
+                _ => false,
+            }
+        {
             return Ok(());
         }
 
@@ -711,36 +723,38 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         name = "subnet_service",
         skip_all
     )]
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
         // Update the waker if needed.
-        if let Some(waker) = &self.waker {
-            if waker.will_wake(cx.waker()) {
-                self.waker = Some(cx.waker().clone());
+        if let Some(waker) = &this.waker {
+            if !waker.will_wake(cx.waker()) {
+                this.waker = Some(cx.waker().clone());
             }
         } else {
-            self.waker = Some(cx.waker().clone());
+            this.waker = Some(cx.waker().clone());
         }
 
         // Send out any generated events.
-        if let Some(event) = self.events.pop_front() {
+        if let Some(event) = this.events.pop_front() {
             return Poll::Ready(Some(event));
         }
 
         // Process scheduled subscriptions that might be ready, since those can extend a soon to
         // expire subscription.
-        match self.scheduled_subscriptions.poll_next_unpin(cx) {
+        match this.scheduled_subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => {
                 let ExactSubnet { subnet, slot } = exact_subnet;
                 // Set the `end_slot` for the subscription to be `duty.slot + 1` so that we unsubscribe
                 // only at the end of the duty slot.
-                if let Err(e) = self.subscribe_to_subnet_immediately(subnet, slot + 1) {
+                if let Err(e) = this.subscribe_to_subnet_immediately(subnet, slot + 1) {
                     debug!(
                         subnet = ?subnet,
                         err = e,
                         "Failed to subscribe to short lived subnet"
                     );
                 }
-                self.waker
+                this.waker
                     .as_ref()
                     .expect("Waker has been set")
                     .wake_by_ref();
@@ -755,11 +769,11 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         }
 
         // Process any expired subscriptions.
-        match self.subscriptions.poll_next_unpin(cx) {
+        match this.subscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(subnet))) => {
-                self.handle_removed_subnet(subnet);
+                this.handle_removed_subnet(subnet);
                 // We re-wake the task as there could be other subscriptions to process
-                self.waker
+                this.waker
                     .as_ref()
                     .expect("Waker has been set")
                     .wake_by_ref();
@@ -771,7 +785,7 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         }
 
         // Poll to remove entries on expiration, no need to act on expiration events.
-        if let Some(tracked_vals) = self.aggregate_validators_on_subnet.as_mut() {
+        if let Some(tracked_vals) = this.aggregate_validators_on_subnet.as_mut() {
             if let Poll::Ready(Some(Err(e))) = tracked_vals.poll_next_unpin(cx) {
                 error!(
                     error = e,
@@ -808,3 +822,6 @@ impl PartialEq for SubnetServiceMessage {
         }
     }
 }
+
+// Реализуем Unpin для SubnetService, чтобы можно было использовать get_mut() на Pin<&mut Self>
+impl<T: BeaconChainTypes> Unpin for SubnetService<T> {}
