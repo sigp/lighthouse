@@ -47,6 +47,7 @@ use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::crit;
 use parking_lot::Mutex;
+pub use scheduler::work_reprocessing_queue;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use std::cmp;
@@ -74,7 +75,7 @@ use work_reprocessing_queue::{IgnoredRpcBlock, QueuedSamplingRequest};
 
 mod metrics;
 pub mod work_queue;
-pub mod work_reprocessing_queue;
+pub mod scheduler;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
