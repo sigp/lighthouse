@@ -1158,6 +1158,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
+            let client = self.network.client_type(&peer_id).kind.to_string();
+            let client_version = self.network.client_version(&peer_id).to_string();
+
+            metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client] );
+            metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT_VERSION, &[&client, &client_version]);
             self.block_lookups
                 .on_download_response::<BlobRequestState<T::EthSpec>>(
                     id,
