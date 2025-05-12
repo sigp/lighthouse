@@ -919,8 +919,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 //         let client_type = self.network.client_type(&peer_id).to_string();
                 //         let client_version = self.network.client_version(&peer_id).to_string();
                         
-                //         metrics::inc_counter_vec_by(&metrics::BLOCKS_SYNCED_PER_CLIENT, &[&client_type], result.imported_blocks);
-                //         metrics::inc_counter_vec_by(&metrics::BLOCKS_SYNCED_PER_CLIENT_VERSION, &[&client_type, &client_version], result.imported_blocks);
+                //         metrics::inc_counter_vec_by(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client_type], result.imported_blocks);
+                //         metrics::inc_counter_vec_by(&metrics::BLOCKS_RECEIVED_PER_CLIENT_VERSION, &[&client_type, &client_version], result.imported_blocks);
                 //     });
             },
             SyncMessage::SampleVerified { id, result } => {
@@ -1084,8 +1084,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             let client = self.network.client_type(&peer_id).kind.to_string();
             let client_version = self.network.client_version(&peer_id).to_string();
                     
-            metrics::inc_counter_vec(&metrics::BLOCKS_SYNCED_PER_CLIENT, &[&client] );
-            metrics::inc_counter_vec(&metrics::BLOCKS_SYNCED_PER_CLIENT_VERSION, &[&client, &client_version]);
+            metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client] );
+            metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT_VERSION, &[&client, &client_version]);
                 
             self.block_lookups
                 .on_download_response::<BlockRequestState<T::EthSpec>>(
@@ -1303,8 +1303,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     let client_version = self.network.client_version(&peer_id).to_string();
                     
                     
-                    metrics::inc_counter_vec_by(&metrics::BLOCKS_SYNCED_PER_CLIENT, &[&client], blocks.len() as u64);
-                    metrics::inc_counter_vec_by(&metrics::BLOCKS_SYNCED_PER_CLIENT_VERSION, &[&client, &client_version], blocks.len() as u64);
+                    metrics::inc_counter_vec_by(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client], blocks.len() as u64);
+                    metrics::inc_counter_vec_by(&metrics::BLOCKS_RECEIVED_PER_CLIENT_VERSION, &[&client, &client_version], blocks.len() as u64);
                     
                     match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {

@@ -628,46 +628,62 @@ pub static SAMPLING_REQUEST_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::
     )
 });
 
-pub static BLOCKS_SYNCED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+pub static BLOCKS_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "blocks_synced_per_client",
-        "Total number of blocks synced per client type",
+        "blocks_received_per_client",
+        "Total number of blocks received for sync per client type",
         &["Client"],
     )
 });
 
-pub static BLOCKS_SYNCED_PER_CLIENT_VERSION: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+pub static BLOCKS_RECEIVED_PER_CLIENT_VERSION: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "blocks_synced_per_client_version",
-        "Total number of blocks synced per client type and version",
+        "blocks_received_per_client_version",
+        "Total number of blocks received for sync per client type and version",
         &["Client", "Version"],
+    )
+});
+
+pub static GOSSIP_BLOCKS_IMPORTED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "gossip_blocks_imported_per_client",
+        "Total number of blocks imported via gossipper client type",
+        &["Client"],
+    )
+});
+
+pub static RPC_BLOCKS_IMPORTED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "gossip_blocks_imported_per_client",
+        "Total number of blocks imported via gossipper client type",
+        &["Client"],
     )
 });
 
 pub static SYNC_TIME_PER_CLIENT: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
     try_create_histogram_vec_with_buckets(
         "client_sync_time_seconds",
-        "Time taken to sync with a client from start to finish",
+        "Time taken to sync with a client.",
         Ok(vec![0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]),
         &["Client"],
     )
 });
 
-// pub static BYTES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-//     try_create_int_counter_vec(
-//         "bytes_received_per_client",
-//         "Total bytes received per client type",
-//         &["Client"],
-//     )
-// });
+pub static BYTES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "bytes_received_per_client",
+        "Total bytes received per client type",
+        &["Client"],
+    )
+});
 
-// pub static MESSAGES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-//     try_create_int_counter_vec(
-//         "messages_received_per_client",
-//         "Total messages received per client type",
-//         &["Client"],
-//     )
-// });
+pub static MESSAGES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "messages_received_per_client",
+        "Total messages received per client type",
+        &["Client"],
+    )
+});
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
     inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
