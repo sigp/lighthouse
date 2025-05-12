@@ -979,18 +979,13 @@ impl TestRig {
                         request: RequestType::DataColumnsByRoot(request),
                         app_request_id:
                             AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
-                    } if request
-                        .data_column_ids
-                        .to_vec()
-                        .iter()
-                        .any(|r| r.block_root == block_root) =>
-                    {
-                        let indices = request
+                    } => {
+                        let matching = request
                             .data_column_ids
-                            .to_vec()
                             .iter()
-                            .map(|cid| cid.index)
-                            .collect::<Vec<_>>();
+                            .find(|id| id.block_root == block_root)?;
+
+                        let indices = matching.columns.iter().copied().collect();
                         Some((*id, indices))
                     }
                     _ => None,
