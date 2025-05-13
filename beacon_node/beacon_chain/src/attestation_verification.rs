@@ -972,14 +972,6 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
         let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
 
-        let committees_per_slot = chain
-            .with_committee_cache(
-                attestation.data.target.root,
-                attestation_epoch,
-                |committee_cache, _| Ok(committee_cache.committees_per_slot()),
-            )
-            .map_err(|e| SignatureNotCheckedSingle(attestation, e.into()))?;
-
         let fork_name = chain
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
@@ -997,6 +989,27 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
                 signature: attestation.signature.clone(),
             })
         };
+
+        let committees_per_slot = chain
+            .with_committee_cache(
+                attestation.data.target.root,
+                attestation_epoch,
+                |committee_cache, _| {
+                    if committee_cache
+                        .get_beacon_committee(attestation.data.slot, attestation.committee_index)
+                        .is_none()
+                    {
+                        return Ok(Err(Error::NoCommitteeForSlotAndIndex {
+                            slot: attestation.data.slot,
+                            index: attestation.committee_index,
+                        }));
+                    }
+
+                    Ok(Ok(committee_cache.committees_per_slot()))
+                },
+            )
+            .map_err(|e| SignatureNotCheckedSingle(attestation, e.into()))?
+            .map_err(|e| SignatureNotCheckedSingle(attestation, e.into()))?;
 
         let (validator_index, expected_subnet_id) = match Self::verify_middle_checks(
             attestation,
