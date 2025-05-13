@@ -539,7 +539,7 @@ pub async fn proposer_boost_re_org_test(
         slot_a,
         num_parent_votes,
     );
-    harness.process_attestations(block_a_parent_votes);
+    harness.process_attestations(block_a_parent_votes, &state_a);
 
     // Attest to block A during slot B.
     for _ in 0..parent_distance {
@@ -553,7 +553,7 @@ pub async fn proposer_boost_re_org_test(
         slot_b,
         num_empty_votes,
     );
-    harness.process_attestations(block_a_empty_votes);
+    harness.process_attestations(block_a_empty_votes, &state_a);
 
     let remaining_attesters = all_validators
         .iter()
@@ -586,7 +586,7 @@ pub async fn proposer_boost_re_org_test(
         slot_b,
         num_head_votes,
     );
-    harness.process_attestations(block_b_head_votes);
+    harness.process_attestations(block_b_head_votes, &state_b);
 
     let payload_lookahead = harness.chain.config.prepare_payload_lookahead;
     let fork_choice_lookahead = Duration::from_millis(500);
@@ -818,10 +818,10 @@ pub async fn fork_choice_before_proposal() {
         block_root_c,
         slot_c,
     );
-    harness.process_attestations(attestations_c);
+    harness.process_attestations(attestations_c, &state_c);
 
     // Apply the attestations to B, but don't re-run fork choice.
-    harness.process_attestations(attestations_b);
+    harness.process_attestations(attestations_b, &state_b);
 
     // Due to proposer boost, the head should be C during slot C.
     assert_eq!(

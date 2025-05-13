@@ -32,9 +32,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, DataColumnSidecarList,
-    DataColumnSubnetId, Epoch, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
+    AttesterSlashing, BlobSidecar, BlobSidecarList, DataColumnSidecarList, DataColumnSubnetId,
+    Epoch, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -56,8 +56,8 @@ struct TestRig {
     next_block: Arc<SignedBeaconBlock<E>>,
     next_blobs: Option<BlobSidecarList<E>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
-    attestations: Vec<(Attestation<E>, SubnetId)>,
-    next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
+    attestations: Vec<(SingleAttestation, SubnetId)>,
+    next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
@@ -132,7 +132,7 @@ impl TestRig {
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
-            .get_unaggregated_attestations(
+            .get_single_attestations(
                 &AttestationStrategy::AllValidators,
                 &head.beacon_state,
                 head_state_root,
@@ -149,7 +149,7 @@ impl TestRig {
         );
 
         let next_block_attestations = harness
-            .get_unaggregated_attestations(
+            .get_single_attestations(
                 &AttestationStrategy::AllValidators,
                 &next_state,
                 next_block_tuple.0.state_root(),

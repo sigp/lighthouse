@@ -567,7 +567,7 @@ async fn attestations_with_increasing_slots() {
         let head = harness.chain.head_snapshot();
         let head_state_root = head.beacon_state_root();
 
-        attestations.extend(harness.get_unaggregated_attestations(
+        attestations.extend(harness.get_single_attestations(
             &AttestationStrategy::AllValidators,
             &head.beacon_state,
             head_state_root,
@@ -584,7 +584,7 @@ async fn attestations_with_increasing_slots() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data().slot;
+        let expected_attestation_slot = attestation.data.slot;
         let expected_earliest_permissible_slot =
             current_slot - MinimalEthSpec::slots_per_epoch() - 1;
 
