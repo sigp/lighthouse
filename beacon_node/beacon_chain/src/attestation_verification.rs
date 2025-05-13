@@ -1009,7 +1009,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
                 },
             )
             .map_err(|e| SignatureNotCheckedSingle(attestation, e.into()))?
-            .map_err(|e| SignatureNotCheckedSingle(attestation, e.into()))?;
+            .map_err(|e| SignatureNotCheckedSingle(attestation, e))?;
 
         let (validator_index, expected_subnet_id) = match Self::verify_middle_checks(
             attestation,
