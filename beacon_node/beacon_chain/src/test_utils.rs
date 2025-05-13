@@ -1129,9 +1129,14 @@ where
                 attn.aggregation_bits
                     .set(aggregation_bit_index, true)
                     .unwrap();
-                attn
+                Attestation::Electra(attn)
             }
-            Attestation::Base(_) => panic!("Must be an Electra attestation"),
+            Attestation::Base(mut attn) => {
+                attn.aggregation_bits
+                    .set(aggregation_bit_index, true)
+                    .unwrap();
+                Attestation::Base(attn)
+            }
         };
 
         let aggregation_bits = attestation.get_aggregation_bits();
