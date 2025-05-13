@@ -1024,24 +1024,6 @@ async fn unaggregated_gossip_verification() {
             },
         )
         /*
-         * The following two tests ensure:
-         *
-         * The attestation is unaggregated -- that is, it has exactly one participating validator
-         * (len([bit for bit in attestation.aggregation_bits if bit == 0b1]) == 1).
-         */
-        .inspect_unaggregate_err(
-            "attestation without any attester index set",
-            |_, a, _, _| {
-                a.attester_index = 0;
-            },
-            |_, err| {
-                assert!(matches!(
-                    err,
-                    AttnError::NotExactlyOneAggregationBitSet(0)
-                ))
-            },
-        )
-        /*
          * The following test ensures that:
          *
          * The block being voted for (attestation.data.beacon_block_root) passes validation.
