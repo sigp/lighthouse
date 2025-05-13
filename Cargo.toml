@@ -162,7 +162,7 @@ milhouse = "0.5"
 mockito = "1.5.0"
 num_cpus = "1"
 once_cell = "1.17.1"
-parking_lot = "0.12"
+parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 paste = "1"
 prometheus = { version = "0.13", default-features = false }
 quickcheck = "1"
@@ -293,6 +293,7 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 incremental = false
+debug = true
 
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }

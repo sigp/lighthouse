@@ -19,11 +19,14 @@ use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use logging::{build_workspace_filter, crit, MetricsLayer};
 use malloc_utils::configure_memory_allocator;
+use parking_lot::deadlock;
 use std::backtrace::Backtrace;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
+use std::thread;
+use std::time::Duration;
 use task_executor::ShutdownReason;
 use tracing::{info, warn, Level};
 use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
@@ -101,6 +104,24 @@ fn main() {
     if std::env::var("RUST_BACKTRACE").is_err() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
+
+    // Create a background thread which checks for deadlocks every 10s
+    thread::spawn(move || loop {
+        thread::sleep(Duration::from_secs(10));
+        let deadlocks = deadlock::check_deadlock();
+        if deadlocks.is_empty() {
+            continue;
+        }
+
+        println!("{} deadlocks detected", deadlocks.len());
+        for (i, threads) in deadlocks.iter().enumerate() {
+            println!("Deadlock #{}", i);
+            for t in threads {
+                println!("Thread Id {:#?}", t.thread_id());
+                println!("{:#?}", t.backtrace());
+            }
+        }
+    });
 
     // Parse the CLI parameters.
     let cli = Command::new("Lighthouse")
