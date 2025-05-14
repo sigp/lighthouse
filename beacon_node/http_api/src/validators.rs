@@ -2,7 +2,7 @@ use crate::state_id::StateId;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::{
     self as api_types, ExecutionOptimisticFinalizedResponse, ValidatorBalanceData, ValidatorData,
-    ValidatorId, ValidatorStatus,
+    ValidatorId, ValidatorIdentityData, ValidatorStatus,
 };
 use std::{collections::HashSet, sync::Arc};
 
@@ -100,6 +100,48 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
                         .map(|(index, (_, balance))| ValidatorBalanceData {
                             index: index as u64,
                             balance: *balance,
+                        })
+                        .collect::<Vec<_>>(),
+                    execution_optimistic,
+                    finalized,
+                ))
+            },
+        )?;
+
+    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+        data,
+        execution_optimistic: Some(execution_optimistic),
+        finalized: Some(finalized),
+    })
+}
+
+pub fn get_beacon_state_validator_identities<T: BeaconChainTypes>(
+    state_id: StateId,
+    chain: Arc<BeaconChain<T>>,
+    optional_ids: Option<&[ValidatorId]>,
+) -> Result<ExecutionOptimisticFinalizedResponse<Vec<ValidatorIdentityData>>, warp::Rejection> {
+    let (data, execution_optimistic, finalized) = state_id
+        .map_state_and_execution_optimistic_and_finalized(
+            &chain,
+            |state, execution_optimistic, finalized| {
+                let ids_filter_set: Option<HashSet<&ValidatorId>> =
+                    optional_ids.map(|f| HashSet::from_iter(f.iter()));
+
+                Ok((
+                    state
+                        .validators()
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, validator)| {
+                            ids_filter_set.as_ref().is_none_or(|ids_set| {
+                                ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
+                                    || ids_set.contains(&ValidatorId::Index(*index as u64))
+                            })
+                        })
+                        .map(|(index, validator)| ValidatorIdentityData {
+                            index: index as u64,
+                            pubkey: validator.pubkey,
+                            activation_epoch: validator.activation_epoch,
                         })
                         .collect::<Vec<_>>(),
                     execution_optimistic,

@@ -49,7 +49,7 @@ use either::Either;
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
     LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
-    ValidatorStatus, ValidatorsRequestBody,
+    ValidatorIdentitiesRequestBody, ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
@@ -718,6 +718,27 @@ pub fn serve<T: BeaconChainTypes>(
              query: ValidatorBalancesRequestBody| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     crate::validators::get_beacon_state_validator_balances(
+                        state_id,
+                        chain,
+                        Some(&query.ids),
+                    )
+                })
+            },
+        );
+
+    // POST beacon/states/{state_id}/validator_identities
+    let post_beacon_state_validator_identities = beacon_states_path
+        .clone()
+        .and(warp::path("validator_identities"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: ValidatorIdentitiesRequestBody| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    crate::validators::get_beacon_state_validator_identities(
                         state_id,
                         chain,
                         Some(&query.ids),
@@ -4923,6 +4944,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_bls_to_execution_changes)
                     .uor(post_beacon_state_validators)
                     .uor(post_beacon_state_validator_balances)
+                    .uor(post_beacon_state_validator_identities)
                     .uor(post_beacon_rewards_attestations)
                     .uor(post_beacon_rewards_sync_committee)
                     .uor(post_validator_duties_attester)

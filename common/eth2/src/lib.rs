@@ -618,6 +618,29 @@ impl BeaconNodeHttpClient {
         self.post_with_opt_response(path, &request).await
     }
 
+    /// `POST beacon/states/{state_id}/validator_identities`
+    ///
+    ///  Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_states_validator_identities(
+        &self,
+        state_id: StateId,
+        ids: Vec<ValidatorId>,
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorIdentityData>>>, Error>
+    {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_identities");
+
+        let request = ValidatorIdentitiesRequestBody { ids };
+
+        self.post_with_opt_response(path, &request).await
+    }
+
     /// `GET beacon/states/{state_id}/validators?id,status`
     ///
     /// Returns `Ok(None)` on a 404 error.
