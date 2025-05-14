@@ -18,6 +18,7 @@ use crate::sync::range_sync::{
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use itertools::Itertools;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
@@ -609,12 +610,20 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // Penalize the peer appropiately.
                     network.report_peer(batch_peers.block(), penalty, "faulty_batch");
                 }
-                for (column_index, penalty) in &peer_action.column_peer {
-                    if let Some(peer) = batch_peers.column(column_index) {
-                        network.report_peer(*peer, *penalty, "faulty_batch");
-                    } else {
-                        warn!(%batch_id, column_index, "Missing peer in PeerGroup");
-                    }
+
+                // Penalize each peer only once. Currently a peer_action does not mix different
+                // PeerAction levels.
+                for (peer, penalty) in peer_action
+                    .column_peer
+                    .iter()
+                    .filter_map(|(column_index, penalty)| {
+                        batch_peers
+                            .column(column_index)
+                            .map(|peer| (*peer, *penalty))
+                    })
+                    .unique()
+                {
+                    network.report_peer(peer, penalty, "faulty_batch_column");
                 }
 
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure) {
