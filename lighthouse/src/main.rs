@@ -109,11 +109,12 @@ fn main() {
     thread::spawn(move || loop {
         thread::sleep(Duration::from_secs(10));
         let deadlocks = deadlock::check_deadlock();
-        if deadlocks.is_empty() {
-            println!("No deadlocks detected");
-        }
 
         println!("{} deadlocks detected", deadlocks.len());
+
+        if deadlocks.is_empty() {
+            continue;
+        }
         for (i, threads) in deadlocks.iter().enumerate() {
             println!("Deadlock #{}", i);
             for t in threads {
