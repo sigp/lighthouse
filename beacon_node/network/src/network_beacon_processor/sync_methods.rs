@@ -697,7 +697,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(ChainSegmentFailed {
                     // Render the full error in debug for full details
                     message: format!("{:?}", e),
-                    // This is an internal error, don't penalize the peer.
                     peer_action,
                 })
             }
@@ -787,8 +786,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 warn!(?block_root, "Received block known to be invalid");
                 Some(PeerGroupAction::block_peer(PeerAction::Fatal))
             }
-            // TODO(sync): Should we penalize slashable blocks?
-            BlockError::Slashable => None,
+            BlockError::Slashable => {
+                Some(PeerGroupAction::block_peer(PeerAction::MidToleranceError))
+            }
             // Do not penalize peers for internal errors.
             // BlobNotRequired is never constructed on this path
             // TODO(sync): Double check that all `BeaconChainError` variants are actually internal
