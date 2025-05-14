@@ -5,7 +5,7 @@ use self::custody::{ActiveCustodyRequest, Error as CustodyRequestError};
 pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest};
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
-use super::range_sync::{BatchPeerGroup, ByRangeRequestType};
+use super::range_sync::{BatchPeers, ByRangeRequestType};
 use super::SyncMessage;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
@@ -606,7 +606,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id: ComponentsByRangeRequestId,
         peer_id: PeerId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
-    ) -> Option<Result<(Vec<RpcBlock<T::EthSpec>>, BatchPeerGroup), RpcResponseError>> {
+    ) -> Option<Result<(Vec<RpcBlock<T::EthSpec>>, BatchPeers), RpcResponseError>> {
         let Entry::Occupied(mut entry) = self.components_by_range_requests.entry(id) else {
             metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
             return None;

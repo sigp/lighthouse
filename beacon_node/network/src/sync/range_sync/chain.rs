@@ -1,4 +1,4 @@
-use super::batch::{BatchInfo, BatchPeerGroup, BatchProcessingResult, BatchState};
+use super::batch::{BatchInfo, BatchPeers, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
@@ -216,7 +216,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
-        peer: BatchPeerGroup,
+        batch_peers: BatchPeers,
         request_id: Id,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> ProcessingResult {
@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // Remove the request from the peer's active batches
 
         // TODO(das): should use peer group here https://github.com/sigp/lighthouse/issues/6258
-        let received = batch.download_completed(blocks, peer)?;
+        let received = batch.download_completed(blocks, batch_peers)?;
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
             / EPOCHS_PER_BATCH;
@@ -447,7 +447,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        let batch_peers = batch.processing_peer().ok_or_else(|| {
+        let batch_peers = batch.processing_peers().ok_or_else(|| {
             RemoveChain::WrongBatchState(format!(
                 "Processing target is in wrong state: {:?}",
                 batch.state(),
@@ -650,8 +650,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         if attempt.hash != processed_attempt.hash {
                             // The re-downloaded version was different
                             // TODO(das): should penalize other peers?
-                            let valid_attempt_peer = processed_attempt.peer_id.block();
-                            let bad_attempt_peer = attempt.peer_id.block();
+                            let valid_attempt_peer = processed_attempt.block_peer();
+                            let bad_attempt_peer = attempt.block_peer();
                             if valid_attempt_peer != bad_attempt_peer {
                                 // A different peer sent the correct batch, the previous peer did not
                                 // We negatively score the original peer.

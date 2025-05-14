@@ -16,7 +16,7 @@ use types::{
     Hash256, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
-use super::range_sync::BatchPeerGroup;
+use super::range_sync::BatchPeers;
 
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
@@ -126,7 +126,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     pub fn responses(
         &self,
         spec: &ChainSpec,
-    ) -> Option<Result<(Vec<RpcBlock<E>>, BatchPeerGroup), String>> {
+    ) -> Option<Result<(Vec<RpcBlock<E>>, BatchPeers), String>> {
         let Some((blocks, &block_peer)) = self.blocks_request.to_finished() else {
             return None;
         };
@@ -134,7 +134,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         match &self.block_data_request {
             RangeBlockDataRequest::NoData => Some(
                 Self::responses_with_blobs(blocks.to_vec(), vec![], spec)
-                    .map(|blocks| (blocks, BatchPeerGroup::new_from_block_peer(block_peer))),
+                    .map(|blocks| (blocks, BatchPeers::new_from_block_peer(block_peer))),
             ),
             RangeBlockDataRequest::Blobs(request) => {
                 let Some((blobs, _blob_peer)) = request.to_finished() else {
@@ -142,7 +142,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 };
                 Some(
                     Self::responses_with_blobs(blocks.to_vec(), blobs.to_vec(), spec)
-                        .map(|blocks| (blocks, BatchPeerGroup::new_from_block_peer(block_peer))),
+                        .map(|blocks| (blocks, BatchPeers::new_from_block_peer(block_peer))),
                 )
             }
             RangeBlockDataRequest::DataColumns {
@@ -168,7 +168,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         expected_column_to_peer.clone(),
                         spec,
                     )
-                    .map(|blocks| (blocks, BatchPeerGroup::new(block_peer, column_peers))),
+                    .map(|blocks| (blocks, BatchPeers::new(block_peer, column_peers))),
                 )
             }
         }
