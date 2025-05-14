@@ -914,7 +914,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .collect::<HashSet<_>>();
 
             let request = batch.to_blocks_by_range_request();
-            let failed_peers = batch.failed_peers();
+            let failed_peers = batch.failed_block_peers();
             match network.block_components_by_range_request(
                 request,
                 RangeRequestId::BackfillSync { batch_id },

@@ -11,7 +11,6 @@ pub enum Error {
         block_commitment: KzgCommitment,
     },
     Unexpected(String),
-    SszTypes(ssz_types::Error),
     MissingBlobs,
     MissingCustodyColumns(Vec<ColumnIndex>),
     BlobIndexInvalid(u64),
@@ -35,8 +34,7 @@ pub enum ErrorCategory {
 impl Error {
     pub fn category(&self) -> ErrorCategory {
         match self {
-            Error::SszTypes(_)
-            | Error::MissingBlobs
+            Error::MissingBlobs
             | Error::MissingCustodyColumns(_)
             | Error::StoreError(_)
             | Error::DecodeError(_)
@@ -52,12 +50,6 @@ impl Error {
             | Error::DataColumnIndexInvalid(_)
             | Error::KzgCommitmentMismatch { .. } => ErrorCategory::Malicious,
         }
-    }
-}
-
-impl From<ssz_types::Error> for Error {
-    fn from(value: ssz_types::Error) -> Self {
-        Self::SszTypes(value)
     }
 }
 

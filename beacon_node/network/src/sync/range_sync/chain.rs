@@ -244,7 +244,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // A stream termination has been sent. This batch has ended. Process a completed batch.
         // Remove the request from the peer's active batches
 
-        // TODO(das): should use peer group here https://github.com/sigp/lighthouse/issues/6258
         let received = batch.download_completed(blocks, batch_peers)?;
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
@@ -531,7 +530,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
                 for (column_index, penalty) in &peer_action.column_peer {
                     if let Some(peer) = batch_peers.column(column_index) {
-                        network.report_peer(*peer, *penalty, "faulty_batch");
+                        network.report_peer(*peer, *penalty, "faulty_batch_columns");
                     } else {
                         warn!(%batch_id, column_index, "Missing peer in PeerGroup");
                     }
@@ -908,7 +907,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let request = batch.to_blocks_by_range_request();
-            let failed_peers = batch.failed_peers();
+            let failed_peers = batch.failed_block_peers();
             match network.block_components_by_range_request(
                 request,
                 RangeRequestId::RangeSync {

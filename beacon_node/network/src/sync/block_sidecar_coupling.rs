@@ -122,6 +122,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
+    /// If all internal requests are complete returns a Vec of coupled RpcBlocks
     #[allow(clippy::type_complexity)]
     pub fn responses(
         &self,

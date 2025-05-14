@@ -598,8 +598,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(columns_to_request_by_peer)
     }
 
-    /// Received a blocks by range or blobs by range response for a request that couples blocks '
-    /// and blobs.
+    /// Received a _by_range response for a request that couples blocks and its data
+    ///
+    /// `peer_id` is the peer that served this individual RPC _by_range response.
     #[allow(clippy::type_complexity)]
     pub fn range_block_component_response(
         &mut self,

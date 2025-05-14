@@ -214,7 +214,10 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
 
     /// Gives a list of peers from which this batch has had a failed download or processing
     /// attempt.
-    pub fn failed_peers(&self) -> HashSet<PeerId> {
+    ///
+    /// TODO(das): Returns only block peers to keep the mainnet path equivalent. The failed peers
+    /// mechanism is broken for PeerDAS and will be fixed with https://github.com/sigp/lighthouse/issues/6258
+    pub fn failed_block_peers(&self) -> HashSet<PeerId> {
         let mut peers = HashSet::with_capacity(
             self.failed_processing_attempts.len() + self.failed_download_attempts.len(),
         );
@@ -460,12 +463,12 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     }
 }
 
-/// Represents a peer's attempt and providing the result for this batch.
+/// Represents a batch attempt awaiting validation
 ///
-/// Invalid attempts will downscore a peer.
+/// Invalid attempts will downscore its peers
 #[derive(Debug)]
 pub struct Attempt {
-    /// The peer that made the attempt.
+    /// The peers that served this batch contents
     peers: BatchPeers,
     /// The hash of the blocks of the attempt.
     pub hash: u64,

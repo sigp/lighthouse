@@ -81,8 +81,9 @@ impl PeerGroupAction {
             AvailabilityCheckError::ReconstructColumnsError(_) => None, // internal error
             AvailabilityCheckError::KzgCommitmentMismatch { .. } => None, // should never happen after checking inclusion proof
             AvailabilityCheckError::Unexpected(_) => None,                // internal
-            AvailabilityCheckError::SszTypes(_) => None,                  // ??
-            AvailabilityCheckError::MissingBlobs => None, // TODO(das) internal for now
+            AvailabilityCheckError::MissingBlobs => {
+                Some(PeerGroupAction::block_peer(PeerAction::LowToleranceError))
+            }
             AvailabilityCheckError::MissingCustodyColumns(columns) => Some(
                 PeerGroupAction::column_peers(columns, PeerAction::LowToleranceError),
             ),

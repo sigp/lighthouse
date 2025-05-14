@@ -205,7 +205,13 @@ impl<E: EthSpec> RpcBlock<E> {
         let custody_columns_count = expected_custody_indices.len();
         let inner = RpcBlockInner::BlockAndCustodyColumns(
             block,
-            RuntimeVariableList::new(custody_columns, spec.number_of_columns as usize)?,
+            RuntimeVariableList::new(custody_columns, spec.number_of_columns as usize).map_err(
+                |e| {
+                    AvailabilityCheckError::Unexpected(format!(
+                        "custody_columns len exceeds number_of_columns: {e:?}"
+                    ))
+                },
+            )?,
             expected_custody_indices,
         );
         Ok(Self {
