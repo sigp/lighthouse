@@ -55,7 +55,10 @@ impl From<SignatureSetError> for HistoricalBlockError {
     fn from(err: SignatureSetError) -> Self {
         match err {
             // The encoding of the signature is invalid, peer fault
-            e @ SignatureSetError::SignatureInvalid(_) => Self::InvalidSignature(format!("{e:?}")),
+            e
+            @ (SignatureSetError::SignatureInvalid(_) | SignatureSetError::BadBlsBytes { .. }) => {
+                Self::InvalidSignature(format!("{e:?}"))
+            }
             // All these variants are internal errors or unreachable for historical block paths,
             // which only check the proposer signature.
             // BadBlsBytes = Unreachable
@@ -65,7 +68,6 @@ impl From<SignatureSetError> for HistoricalBlockError {
             | SignatureSetError::IncorrectBlockProposer { .. }
             | SignatureSetError::MismatchedPublicKeyLen { .. }
             | SignatureSetError::PublicKeyDecompressionFailed
-            | SignatureSetError::BadBlsBytes { .. }
             | SignatureSetError::InconsistentBlockFork(_)) => Self::Unexpected(format!("{e:?}")),
         }
     }
@@ -125,8 +127,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.assert_correct_historical_block_chain(&blocks)?;
 
         // Verify that blobs or data columns signatures match
-        // Why are we computing the DB ops before verifying the signatures? ¬Ø\_(„ÉÑ)_/¬Ø We have to
-        // wait to maybe return the invalid block signature error.
+        //
+        // TODO(das): We don't raise the `matching_sidecar_signatures_error` yet. We have to wait to
+        // return an invalid block signature error first. We may want to refactor this order in a
+        // later code change.
         let matching_sidecar_signatures_error = blocks
             .iter()
             .map(|block| {

@@ -47,6 +47,7 @@ pub struct ChainSegmentFailed {
     pub peer_action: Option<PeerGroupAction>,
 }
 
+/// Tracks which block(s) component caused the block to be invalid. Used to attribute fault in sync.
 #[derive(Debug)]
 pub struct PeerGroupAction {
     pub block_peer: Option<PeerAction>,

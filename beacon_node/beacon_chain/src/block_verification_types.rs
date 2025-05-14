@@ -120,13 +120,13 @@ impl<E: EthSpec> RpcBlock<E> {
 enum RpcBlockInner<E: EthSpec> {
     /// **Range sync**: Variant for all pre-Deneb blocks
     /// **Lookup sync**: Variant used for all blocks of all forks, regardless if the have data or
-    /// not. Note: this is confusing and should be fixed in a later refactor.
+    /// not
     Block(Arc<SignedBeaconBlock<E>>),
-    /// Variant for all post-Deneb blocks regardless if they have data or not. Only used for chain
-    /// segments in range sync
+    /// **Range sync**: Variant for all post-Deneb blocks regardless if they have data or not
+    /// **Lookup sync**: Not used
     BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
-    /// Variant for all post-Fulu blocks regardless if they have data or not. Only used for chain
-    /// segments in range sync
+    /// **Range sync**: Variant for all post-Fulu blocks regardless if they have data or not
+    /// **Lookup sync**: Not used
     BlockAndCustodyColumns(
         Arc<SignedBeaconBlock<E>>,
         CustodyDataColumnList<E>,

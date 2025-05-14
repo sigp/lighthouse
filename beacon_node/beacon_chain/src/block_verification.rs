@@ -650,6 +650,10 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     }
 
     // Verify that blobs or data columns signatures match
+    //
+    // TODO(das): Should check correct proposer cheap for added protection if blocks and columns
+    // don't match. This code attributes fault to the blobs / data columns if they don't match the
+    // block
     for (_, block) in &chain_segment {
         if let Some(indices) = block.non_matching_blobs_signed_headers() {
             if !indices.is_empty() {
@@ -662,8 +666,6 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
             }
         }
     }
-
-    // Should check correct proposer cheap for added protection if blocks and columns don't match
 
     // unzip chain segment and verify kzg in bulk
     let (roots, blocks): (Vec<_>, Vec<_>) = chain_segment.into_iter().unzip();
