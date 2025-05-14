@@ -68,7 +68,7 @@ lighthouse account validator exit --network hoodi --keystore /path/to/keystore -
 
 It will prompt for the keystore password, which, upon entering the correct password, will generate a pre-signed exit message:
 
-```json
+```
 Successfully pre-signed voluntary exit for validator 0x[redacted]. Not publishing.
 {
   "message": {
