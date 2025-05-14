@@ -1980,7 +1980,7 @@ enum InvalidBuilderPayload {
         expected: Option<u64>,
     },
     Fork {
-        payload: Option<ForkName>,
+        payload: ForkName,
         expected: ForkName,
     },
     Signature {
@@ -2013,7 +2013,7 @@ impl fmt::Display for InvalidBuilderPayload {
                 write!(f, "payload block number was {} not {:?}", payload, expected)
             }
             InvalidBuilderPayload::Fork { payload, expected } => {
-                write!(f, "payload fork was {:?} not {}", payload, expected)
+                write!(f, "payload fork was {} not {}", payload, expected)
             }
             InvalidBuilderPayload::Signature { signature, pubkey } => write!(
                 f,
@@ -2118,7 +2118,7 @@ fn verify_builder_bid<E: EthSpec>(
         }))
     } else if bid.version != current_fork {
         Err(Box::new(InvalidBuilderPayload::Fork {
-            payload: Some(bid.version),
+            payload: bid.version,
             expected: current_fork,
         }))
     } else if !is_signature_valid {
