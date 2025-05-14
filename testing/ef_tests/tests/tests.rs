@@ -667,11 +667,13 @@ mod ssz_static {
     }
 
     #[test]
-    fn data_column_identifier() {
-        SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
-        SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
+    #[ignore]
+    // TODO(das): enable once EF tests are updated to latest release.
+    fn data_column_by_root_identifier() {
+        // SszStaticHandler::<DataColumnsByRootIdentifier, MinimalEthSpec>::default()
+        //     .run_for_feature(FeatureName::Fulu);
+        // SszStaticHandler::<DataColumnsByRootIdentifier, MainnetEthSpec>::default()
+        //     .run_for_feature(FeatureName::Fulu);
     }
 
     #[test]

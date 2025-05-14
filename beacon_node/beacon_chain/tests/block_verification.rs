@@ -370,6 +370,7 @@ async fn chain_segment_non_linear_parent_roots() {
     blocks[3] = harness.build_rpc_block_from_store_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
+        harness.sampling_column_count,
     );
 
     assert!(
@@ -407,6 +408,7 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = harness.build_rpc_block_from_store_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
+        harness.sampling_column_count,
     );
 
     assert!(
@@ -434,6 +436,7 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = harness.build_rpc_block_from_store_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
+        harness.sampling_column_count,
     );
 
     assert!(

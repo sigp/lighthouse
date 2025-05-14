@@ -1,6 +1,6 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
-use crate::data_column_sidecar::DataColumnIdentifier;
+use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
@@ -239,6 +239,11 @@ pub struct ChainSpec {
     max_blobs_per_block_electra: u64,
     blob_sidecar_subnet_count_electra: u64,
     max_request_blob_sidecars_electra: u64,
+
+    /*
+     * Networking Fulu
+     */
+    max_blobs_per_block_fulu: u64,
 
     /*
      * Networking Derived
@@ -655,7 +660,9 @@ impl ChainSpec {
 
     /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for `fork`.
     pub fn max_blobs_per_block_by_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name.electra_enabled() {
+        if fork_name.fulu_enabled() {
+            self.max_blobs_per_block_fulu
+        } else if fork_name.electra_enabled() {
             self.max_blobs_per_block_electra
         } else {
             self.max_blobs_per_block
@@ -993,6 +1000,11 @@ impl ChainSpec {
             max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
 
             /*
+             * Networking Fulu specific
+             */
+            max_blobs_per_block_fulu: default_max_blobs_per_block_fulu(),
+
+            /*
              * Application specific
              */
             domain_application_mask: APPLICATION_DOMAIN_BUILDER,
@@ -1322,6 +1334,11 @@ impl ChainSpec {
             max_request_blob_sidecars_electra: 256,
 
             /*
+             * Networking Fulu specific
+             */
+            max_blobs_per_block_fulu: default_max_blobs_per_block_fulu(),
+
+            /*
              * Application specific
              */
             domain_application_mask: APPLICATION_DOMAIN_BUILDER,
@@ -1540,6 +1557,9 @@ pub struct Config {
     #[serde(default = "default_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
+    #[serde(default = "default_max_blobs_per_block_fulu")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_blobs_per_block_fulu: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1677,6 +1697,10 @@ const fn default_max_blobs_per_block_electra() -> u64 {
     9
 }
 
+const fn default_max_blobs_per_block_fulu() -> u64 {
+    12
+}
+
 const fn default_attestation_propagation_slot_range() -> u64 {
     32
 }
@@ -1730,15 +1754,21 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     .len()
 }
 
-fn max_data_columns_by_root_request_common(max_request_data_column_sidecars: u64) -> usize {
-    let max_request_data_column_sidecars = max_request_data_column_sidecars as usize;
-    let empty_data_column_id = DataColumnIdentifier {
+fn max_data_columns_by_root_request_common(
+    max_request_blocks: u64,
+    number_of_columns: u64,
+) -> usize {
+    let max_request_blocks = max_request_blocks as usize;
+    let number_of_columns = number_of_columns as usize;
+
+    let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        index: 0,
+        columns: RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns),
     };
-    RuntimeVariableList::from_vec(
-        vec![empty_data_column_id; max_request_data_column_sidecars],
-        max_request_data_column_sidecars,
+
+    RuntimeVariableList::<DataColumnsByRootIdentifier>::from_vec(
+        vec![empty_data_columns_by_root_id; max_request_blocks],
+        max_request_blocks,
     )
     .as_ssz_bytes()
     .len()
@@ -1757,7 +1787,10 @@ fn default_max_blobs_by_root_request() -> usize {
 }
 
 fn default_data_columns_by_root_request() -> usize {
-    max_data_columns_by_root_request_common(default_max_request_data_column_sidecars())
+    max_data_columns_by_root_request_common(
+        default_max_request_blocks_deneb(),
+        default_number_of_columns(),
+    )
 }
 
 impl Default for Config {
@@ -1904,6 +1937,7 @@ impl Config {
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
             samples_per_slot: spec.samples_per_slot,
             custody_requirement: spec.custody_requirement,
+            max_blobs_per_block_fulu: spec.max_blobs_per_block_fulu,
         }
     }
 
@@ -1982,6 +2016,7 @@ impl Config {
             data_column_sidecar_subnet_count,
             samples_per_slot,
             custody_requirement,
+            max_blobs_per_block_fulu,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2056,7 +2091,8 @@ impl Config {
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
             max_data_columns_by_root_request: max_data_columns_by_root_request_common(
-                max_request_data_column_sidecars,
+                max_request_blocks_deneb,
+                number_of_columns,
             ),
 
             number_of_columns,
@@ -2064,6 +2100,7 @@ impl Config {
             data_column_sidecar_subnet_count,
             samples_per_slot,
             custody_requirement,
+            max_blobs_per_block_fulu,
 
             ..chain_spec.clone()
         })

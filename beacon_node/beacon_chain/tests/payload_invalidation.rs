@@ -1,5 +1,6 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},

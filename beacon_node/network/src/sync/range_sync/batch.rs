@@ -136,7 +136,7 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// Number of processing attempts that have failed but we do not count.
     non_faulty_processing_attempts: u8,
     /// The number of download retries this batch has undergone due to a failed request.
-    failed_download_attempts: Vec<PeerId>,
+    failed_download_attempts: Vec<Option<PeerId>>,
     /// State of the batch.
     state: BatchState<E>,
     /// Pin the generic

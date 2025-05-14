@@ -18,12 +18,12 @@ use eth2::{
     Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
+use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
-use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -31,7 +31,7 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use types::graffiti::GraffitiString;
-use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
+use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -42,7 +42,7 @@ type E = MainnetEthSpec;
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
-    validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+    validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
     _validator_dir: TempDir,
@@ -91,7 +91,7 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(ValidatorStore::<_, E>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -129,11 +129,10 @@ impl ApiTester {
             },
             sse_logging_components: None,
             slot_clock: slot_clock.clone(),
-            _phantom: PhantomData,
         });
         let ctx = context.clone();
         let (listening_socket, server) =
-            super::serve(ctx, test_runtime.task_executor.exit()).unwrap();
+            super::serve::<_, E>(ctx, test_runtime.task_executor.exit()).unwrap();
 
         tokio::spawn(server);
 
@@ -670,7 +669,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_builder_proposals(&validator.voting_pubkey),
+                .get_builder_proposals_testing_only(&validator.voting_pubkey),
             builder_proposals
         );
 
@@ -686,7 +685,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_builder_boost_factor(&validator.voting_pubkey),
+                .get_builder_boost_factor_testing_only(&validator.voting_pubkey),
             builder_boost_factor
         );
 
@@ -702,7 +701,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .determine_validator_builder_boost_factor(&validator.voting_pubkey),
+                .determine_builder_boost_factor(&validator.voting_pubkey),
             builder_boost_factor
         );
 
@@ -712,7 +711,7 @@ impl ApiTester {
     pub fn assert_default_builder_boost_factor(self, builder_boost_factor: Option<u64>) -> Self {
         assert_eq!(
             self.validator_store
-                .determine_default_builder_boost_factor(),
+                .determine_builder_boost_factor(&PublicKeyBytes::empty()),
             builder_boost_factor
         );
 
@@ -728,7 +727,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_prefer_builder_proposals(&validator.voting_pubkey),
+                .get_prefer_builder_proposals_testing_only(&validator.voting_pubkey),
             prefer_builder_proposals
         );
 
@@ -1159,7 +1158,7 @@ async fn validator_derived_builder_boost_factor_with_process_defaults() {
         })
         .await
         .assert_default_builder_boost_factor(Some(80))
-        .assert_validator_derived_builder_boost_factor(0, None)
+        .assert_validator_derived_builder_boost_factor(0, Some(80))
         .await
         .set_builder_proposals(0, false)
         .await
