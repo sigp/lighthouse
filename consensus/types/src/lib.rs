@@ -139,7 +139,7 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_response::{
-    BeaconResponse, ForkVersionDecode, ForkVersionedResponse, UnVersionedResponse,
+    BeaconResponse, ForkVersionDecode, ForkVersionedResponse, UnversionedResponse,
 };
 pub use crate::beacon_state::{Error as BeaconStateError, *};
 pub use crate::blob_sidecar::{BlobIdentifier, BlobSidecar, BlobSidecarList, BlobsList};

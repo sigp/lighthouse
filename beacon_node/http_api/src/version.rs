@@ -9,7 +9,7 @@ use types::{
         ExecutionOptimisticFinalizedBeaconResponse, ExecutionOptimisticFinalizedMetadata,
     },
     BeaconResponse, ForkName, ForkVersionedResponse, InconsistentFork, Uint256,
-    UnVersionedResponse,
+    UnversionedResponse,
 };
 use warp::reply::{self, Reply, Response};
 
@@ -35,7 +35,7 @@ pub fn beacon_response<T: Serialize>(
                 data,
             })
         }
-        ResponseIncludesVersion::No => BeaconResponse::UnVersioned(UnVersionedResponse {
+        ResponseIncludesVersion::No => BeaconResponse::Unversioned(UnversionedResponse {
             metadata: Default::default(),
             data,
         }),
@@ -60,7 +60,7 @@ pub fn execution_optimistic_finalized_beacon_response<T: Serialize>(
                 data,
             }))
         }
-        ResponseIncludesVersion::No => Ok(BeaconResponse::UnVersioned(UnVersionedResponse {
+        ResponseIncludesVersion::No => Ok(BeaconResponse::Unversioned(UnversionedResponse {
             metadata,
             data,
         })),

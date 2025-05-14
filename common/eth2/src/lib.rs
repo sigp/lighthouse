@@ -1278,7 +1278,7 @@ impl BeaconNodeHttpClient {
 
         self.get_opt(path)
             .await
-            .map(|opt| opt.map(BeaconResponse::UnVersioned))
+            .map(|opt| opt.map(BeaconResponse::Unversioned))
     }
 
     /// `GET beacon/blocks` as SSZ

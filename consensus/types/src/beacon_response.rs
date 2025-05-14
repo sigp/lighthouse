@@ -24,7 +24,7 @@ pub struct ForkVersionedResponse<T, M = EmptyMetadata> {
 /// version. If you *do* care about adding other fields you can mix in any type that implements
 /// `Deserialize`.
 #[derive(Debug, PartialEq, Clone, Serialize)]
-pub struct UnVersionedResponse<T, M = EmptyMetadata> {
+pub struct UnversionedResponse<T, M = EmptyMetadata> {
     pub metadata: M,
     pub data: T,
 }
@@ -33,28 +33,28 @@ pub struct UnVersionedResponse<T, M = EmptyMetadata> {
 #[serde(untagged)]
 pub enum BeaconResponse<T, M = EmptyMetadata> {
     ForkVersioned(ForkVersionedResponse<T, M>),
-    UnVersioned(UnVersionedResponse<T, M>),
+    Unversioned(UnversionedResponse<T, M>),
 }
 
 impl<T, M> BeaconResponse<T, M> {
     pub fn version(&self) -> Option<ForkName> {
         match self {
             BeaconResponse::ForkVersioned(response) => Some(response.version),
-            BeaconResponse::UnVersioned(_) => None,
+            BeaconResponse::Unversioned(_) => None,
         }
     }
 
     pub fn data(&self) -> &T {
         match self {
             BeaconResponse::ForkVersioned(response) => &response.data,
-            BeaconResponse::UnVersioned(response) => &response.data,
+            BeaconResponse::Unversioned(response) => &response.data,
         }
     }
 
     pub fn metadata(&self) -> &M {
         match self {
             BeaconResponse::ForkVersioned(response) => &response.metadata,
-            BeaconResponse::UnVersioned(response) => &response.metadata,
+            BeaconResponse::Unversioned(response) => &response.metadata,
         }
     }
 }
@@ -110,7 +110,7 @@ where
     }
 }
 
-impl<'de, T, M> Deserialize<'de> for UnVersionedResponse<T, M>
+impl<'de, T, M> Deserialize<'de> for UnversionedResponse<T, M>
 where
     T: DeserializeOwned,
     M: DeserializeOwned,
@@ -128,7 +128,7 @@ where
 
         let helper = Helper::deserialize(deserializer)?;
 
-        Ok(UnVersionedResponse {
+        Ok(UnversionedResponse {
             metadata: helper.metadata,
             data: helper.data,
         })
@@ -141,8 +141,8 @@ impl<T, M> BeaconResponse<T, M> {
             BeaconResponse::ForkVersioned(response) => {
                 BeaconResponse::ForkVersioned(response.map_data(f))
             }
-            BeaconResponse::UnVersioned(response) => {
-                BeaconResponse::UnVersioned(response.map_data(f))
+            BeaconResponse::Unversioned(response) => {
+                BeaconResponse::Unversioned(response.map_data(f))
             }
         }
     }
@@ -150,15 +150,15 @@ impl<T, M> BeaconResponse<T, M> {
     pub fn into_data(self) -> T {
         match self {
             BeaconResponse::ForkVersioned(response) => response.data,
-            BeaconResponse::UnVersioned(response) => response.data,
+            BeaconResponse::Unversioned(response) => response.data,
         }
     }
 }
 
-impl<T, M> UnVersionedResponse<T, M> {
-    pub fn map_data<U>(self, f: impl FnOnce(T) -> U) -> UnVersionedResponse<U, M> {
-        let UnVersionedResponse { metadata, data } = self;
-        UnVersionedResponse {
+impl<T, M> UnversionedResponse<T, M> {
+    pub fn map_data<U>(self, f: impl FnOnce(T) -> U) -> UnversionedResponse<U, M> {
+        let UnversionedResponse { metadata, data } = self;
+        UnversionedResponse {
             metadata,
             data: f(data),
         }
@@ -187,9 +187,9 @@ impl<T, M> From<ForkVersionedResponse<T, M>> for BeaconResponse<T, M> {
     }
 }
 
-impl<T, M> From<UnVersionedResponse<T, M>> for BeaconResponse<T, M> {
-    fn from(response: UnVersionedResponse<T, M>) -> Self {
-        BeaconResponse::UnVersioned(response)
+impl<T, M> From<UnversionedResponse<T, M>> for BeaconResponse<T, M> {
+    fn from(response: UnversionedResponse<T, M>) -> Self {
+        BeaconResponse::Unversioned(response)
     }
 }
 
