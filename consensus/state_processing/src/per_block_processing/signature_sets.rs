@@ -34,9 +34,6 @@ pub enum Error {
     ///
     /// The block is invalid.
     IncorrectBlockProposer { block: u64, local_shuffling: u64 },
-    /// The public keys supplied do not match the number of objects requiring keys. Block validity
-    /// was not determined.
-    MismatchedPublicKeyLen { pubkey_len: usize, other_len: usize },
     /// Pubkey decompression failed. The block is invalid.
     PublicKeyDecompressionFailed,
     /// The public key bytes stored in the `BeaconState` were not valid. This is a serious internal

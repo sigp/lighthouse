@@ -66,7 +66,6 @@ impl From<SignatureSetError> for HistoricalBlockError {
             | SignatureSetError::ValidatorUnknown(_)
             | SignatureSetError::ValidatorPubkeyUnknown(_)
             | SignatureSetError::IncorrectBlockProposer { .. }
-            | SignatureSetError::MismatchedPublicKeyLen { .. }
             | SignatureSetError::PublicKeyDecompressionFailed
             | SignatureSetError::InconsistentBlockFork(_)) => Self::Unexpected(format!("{e:?}")),
         }
