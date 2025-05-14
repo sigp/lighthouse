@@ -1085,17 +1085,8 @@ impl<'de> ContextDeserialize<'de, ForkName> for SseExtendedPayloadAttributes {
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        struct Helper {
-            proposal_slot: Slot,
-            proposer_index: u64,
-            parent_block_root: Hash256,
-            parent_block_number: u64,
-            parent_block_hash: ExecutionBlockHash,
-            payload_attributes: serde_json::Value,
-        }
-
-        let helper = Helper::deserialize(deserializer)?;
+        let helper =
+            SseExtendedPayloadAttributesGeneric::<serde_json::Value>::deserialize(deserializer)?;
 
         Ok(Self {
             proposal_slot: helper.proposal_slot,
