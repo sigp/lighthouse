@@ -1073,13 +1073,7 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
             ForkName::Capella => {
                 Self::V2(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Deneb => {
-                Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
-            }
-            ForkName::Electra => {
-                Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
-            }
-            ForkName::Fulu => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
                 Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })
