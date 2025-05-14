@@ -479,18 +479,10 @@ impl<E: EthSpec> AttestationBase<E> {
         &self,
         attester_index: u64,
     ) -> Result<SingleAttestation, Error> {
-        let data = AttestationData {
-            slot: self.data.slot,
-            index: 0,
-            beacon_block_root: self.data.beacon_block_root,
-            source: self.data.source,
-            target: self.data.target,
-        };
-
         Ok(SingleAttestation {
             committee_index: self.data.index,
             attester_index,
-            data,
+            data: self.data.clone(),
             signature: self.signature.clone(),
         })
     }
