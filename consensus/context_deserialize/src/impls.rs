@@ -2,6 +2,7 @@ use crate::ContextDeserialize;
 use serde::de::{Deserialize, DeserializeSeed, Deserializer, SeqAccess, Visitor};
 use std::marker::PhantomData;
 use std::sync::Arc;
+
 impl<'de, C, T> ContextDeserialize<'de, T> for Arc<C>
 where
     C: ContextDeserialize<'de, T>,
