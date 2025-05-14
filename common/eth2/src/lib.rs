@@ -2392,7 +2392,6 @@ impl BeaconNodeHttpClient {
             )
             .await?;
 
-        // TODO: verify this is fork versioned.. couldn't find API docs for this endpoint
         self.get(path).await.map(BeaconResponse::ForkVersioned)
     }
 
