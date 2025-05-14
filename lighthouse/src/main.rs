@@ -110,7 +110,7 @@ fn main() {
         thread::sleep(Duration::from_secs(10));
         let deadlocks = deadlock::check_deadlock();
         if deadlocks.is_empty() {
-            continue;
+            println!("No deadlocks detected");
         }
 
         println!("{} deadlocks detected", deadlocks.len());
