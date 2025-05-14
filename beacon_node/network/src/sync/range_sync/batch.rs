@@ -223,7 +223,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             peers.insert(attempt.peer_id.block());
         }
 
-        for peer in self.failed_download_attempts.iter() {
+        for peer in self.failed_download_attempts.iter().flatten() {
             peers.insert(*peer);
         }
 
@@ -330,9 +330,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         match self.state.poison() {
             BatchState::Downloading(_request_id) => {
                 // register the attempt and check if the batch can be tried again
-                if let Some(peer) = peer {
-                    self.failed_download_attempts.push(peer);
-                }
+                self.failed_download_attempts.push(peer);
                 self.state = if self.failed_download_attempts.len()
                     >= B::max_batch_download_attempts() as usize
                 {

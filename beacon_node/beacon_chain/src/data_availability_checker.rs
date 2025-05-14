@@ -18,8 +18,8 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256,
+    RuntimeVariableList, SignedBeaconBlock,
 };
 
 mod error;
