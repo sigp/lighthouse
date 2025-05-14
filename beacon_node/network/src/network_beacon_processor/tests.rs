@@ -348,6 +348,22 @@ impl TestRig {
         }
     }
 
+    pub fn enqueue_gossip_data_columns(&self, col_index: usize) {
+        if let Some(data_columns) = self.next_data_columns.as_ref() {
+            let data_column = data_columns.get(col_index).unwrap();
+            self.network_beacon_processor
+                .send_gossip_data_column_sidecar(
+                    junk_message_id(),
+                    junk_peer_id(),
+                    Client::default(),
+                    DataColumnSubnetId::from_column_index(data_column.index, &self.chain.spec),
+                    data_column.clone(),
+                    Duration::from_secs(0),
+                )
+                .unwrap();
+        }
+    }
+
     pub fn custody_columns_count(&self) -> usize {
         self.network_beacon_processor
             .network_globals
