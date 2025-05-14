@@ -1,5 +1,5 @@
 use kzg::{Error as KzgError, KzgCommitment};
-use types::{BeaconStateError, ColumnIndex, Hash256};
+use types::{BeaconStateError, ColumnIndex};
 
 #[derive(Debug)]
 pub enum Error {
@@ -16,8 +16,6 @@ pub enum Error {
     BlobIndexInvalid(u64),
     DataColumnIndexInvalid(u64),
     StoreError(store::Error),
-    DecodeError(ssz::DecodeError),
-    ParentStateMissing(Hash256),
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
@@ -37,9 +35,7 @@ impl Error {
             Error::MissingBlobs
             | Error::MissingCustodyColumns(_)
             | Error::StoreError(_)
-            | Error::DecodeError(_)
             | Error::Unexpected(_)
-            | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
             | Error::SlotClockError => ErrorCategory::Internal,
@@ -56,12 +52,6 @@ impl Error {
 impl From<store::Error> for Error {
     fn from(value: store::Error) -> Self {
         Self::StoreError(value)
-    }
-}
-
-impl From<ssz::DecodeError> for Error {
-    fn from(value: ssz::DecodeError) -> Self {
-        Self::DecodeError(value)
     }
 }
 

@@ -84,18 +84,18 @@ impl PeerGroupAction {
             AvailabilityCheckError::MissingBlobs => {
                 Some(PeerGroupAction::block_peer(PeerAction::LowToleranceError))
             }
+            // TOOD(das): PeerAction::High may be too soft of a penalty. Also may be deprecated
+            // with https://github.com/sigp/lighthouse/issues/6258
             AvailabilityCheckError::MissingCustodyColumns(columns) => Some(
-                PeerGroupAction::column_peers(columns, PeerAction::LowToleranceError),
+                PeerGroupAction::column_peers(columns, PeerAction::HighToleranceError),
             ),
             AvailabilityCheckError::BlobIndexInvalid(_) => {
                 Some(PeerGroupAction::block_peer(PeerAction::LowToleranceError))
             }
             AvailabilityCheckError::DataColumnIndexInvalid(_) => None, // unreachable
             AvailabilityCheckError::StoreError(_) => None,             // unreachable
-            AvailabilityCheckError::DecodeError(_) => None,            // ??
-            AvailabilityCheckError::ParentStateMissing(_) => None,     // ??
-            AvailabilityCheckError::BlockReplayError(_) => None,       // un-reachable ??
-            AvailabilityCheckError::RebuildingStateCaches(_) => None,  // ??
+            AvailabilityCheckError::BlockReplayError(_) => None,       // internal error
+            AvailabilityCheckError::RebuildingStateCaches(_) => None,  // internal error
             AvailabilityCheckError::SlotClockError => None,            // internal error
         }
     }

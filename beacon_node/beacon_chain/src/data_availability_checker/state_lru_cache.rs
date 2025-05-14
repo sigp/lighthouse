@@ -157,9 +157,9 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                 parent_block_state_root,
             )
             .map_err(AvailabilityCheckError::StoreError)?
-            .ok_or(AvailabilityCheckError::ParentStateMissing(
-                parent_block_state_root,
-            ))?;
+            .ok_or(AvailabilityCheckError::Unexpected(format!(
+                "Parent state missing {parent_block_state_root:?}"
+            )))?;
 
         let state_roots = vec![
             Ok((parent_state_root, diet_executed_block.parent_block.slot())),
