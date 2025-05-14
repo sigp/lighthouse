@@ -53,7 +53,7 @@ impl<E: EthSpec> RpcBlock<E> {
         match &self.block {
             RpcBlockInner::Block(block) => block,
             RpcBlockInner::BlockAndBlobs(block, _) => block,
-            RpcBlockInner::BlockAndCustodyColumns(block, _, _) => block,
+            RpcBlockInner::BlockAndCustodyColumns { block, .. } => block,
         }
     }
 
@@ -61,7 +61,7 @@ impl<E: EthSpec> RpcBlock<E> {
         match &self.block {
             RpcBlockInner::Block(block) => block.clone(),
             RpcBlockInner::BlockAndBlobs(block, _) => block.clone(),
-            RpcBlockInner::BlockAndCustodyColumns(block, _, _) => block.clone(),
+            RpcBlockInner::BlockAndCustodyColumns { block, .. } => block.clone(),
         }
     }
 
@@ -69,7 +69,7 @@ impl<E: EthSpec> RpcBlock<E> {
         match &self.block {
             RpcBlockInner::Block(_) => None,
             RpcBlockInner::BlockAndBlobs(_, blobs) => Some(blobs),
-            RpcBlockInner::BlockAndCustodyColumns(_, _, _) => None,
+            RpcBlockInner::BlockAndCustodyColumns { .. } => None,
         }
     }
 
@@ -77,7 +77,7 @@ impl<E: EthSpec> RpcBlock<E> {
         match &self.block {
             RpcBlockInner::Block(_) => None,
             RpcBlockInner::BlockAndBlobs(_, _) => None,
-            RpcBlockInner::BlockAndCustodyColumns(_, data_columns, _) => Some(data_columns),
+            RpcBlockInner::BlockAndCustodyColumns { data_columns, .. } => Some(data_columns),
         }
     }
 
@@ -91,7 +91,7 @@ impl<E: EthSpec> RpcBlock<E> {
                     .map(|blob| blob.index)
                     .collect(),
             ),
-            RpcBlockInner::BlockAndCustodyColumns(..) => None,
+            RpcBlockInner::BlockAndCustodyColumns { .. } => None,
         }
     }
 
@@ -99,7 +99,11 @@ impl<E: EthSpec> RpcBlock<E> {
         match &self.block {
             RpcBlockInner::Block(_) => None,
             RpcBlockInner::BlockAndBlobs(..) => None,
-            RpcBlockInner::BlockAndCustodyColumns(block, data_columns, _) => Some(
+            RpcBlockInner::BlockAndCustodyColumns {
+                block,
+                data_columns,
+                ..
+            } => Some(
                 data_columns
                     .iter()
                     .filter(|column| {
@@ -127,11 +131,11 @@ enum RpcBlockInner<E: EthSpec> {
     BlockAndBlobs(Arc<SignedBeaconBlock<E>>, BlobSidecarList<E>),
     /// **Range sync**: Variant for all post-Fulu blocks regardless if they have data or not
     /// **Lookup sync**: Not used
-    BlockAndCustodyColumns(
-        Arc<SignedBeaconBlock<E>>,
-        CustodyDataColumnList<E>,
-        Vec<ColumnIndex>,
-    ),
+    BlockAndCustodyColumns {
+        block: Arc<SignedBeaconBlock<E>>,
+        data_columns: CustodyDataColumnList<E>,
+        expected_custody_indices: Vec<ColumnIndex>,
+    },
 }
 
 impl<E: EthSpec> RpcBlock<E> {
@@ -203,17 +207,19 @@ impl<E: EthSpec> RpcBlock<E> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
 
         let custody_columns_count = expected_custody_indices.len();
-        let inner = RpcBlockInner::BlockAndCustodyColumns(
+        let inner = RpcBlockInner::BlockAndCustodyColumns {
             block,
-            RuntimeVariableList::new(custody_columns, spec.number_of_columns as usize).map_err(
-                |e| {
-                    AvailabilityCheckError::Unexpected(format!(
-                        "custody_columns len exceeds number_of_columns: {e:?}"
-                    ))
-                },
-            )?,
+            data_columns: RuntimeVariableList::new(
+                custody_columns,
+                spec.number_of_columns as usize,
+            )
+            .map_err(|e| {
+                AvailabilityCheckError::Unexpected(format!(
+                    "custody_columns len exceeds number_of_columns: {e:?}"
+                ))
+            })?,
             expected_custody_indices,
-        );
+        };
         Ok(Self {
             block_root,
             block: inner,
@@ -234,11 +240,11 @@ impl<E: EthSpec> RpcBlock<E> {
         match self.block {
             RpcBlockInner::Block(block) => (block_root, block, None, None),
             RpcBlockInner::BlockAndBlobs(block, blobs) => (block_root, block, Some(blobs), None),
-            RpcBlockInner::BlockAndCustodyColumns(
+            RpcBlockInner::BlockAndCustodyColumns {
                 block,
                 data_columns,
                 expected_custody_indices,
-            ) => (
+            } => (
                 block_root,
                 block,
                 None,
@@ -248,14 +254,14 @@ impl<E: EthSpec> RpcBlock<E> {
     }
     pub fn n_blobs(&self) -> usize {
         match &self.block {
-            RpcBlockInner::Block(_) | RpcBlockInner::BlockAndCustodyColumns(_, _, _) => 0,
+            RpcBlockInner::Block(_) | RpcBlockInner::BlockAndCustodyColumns { .. } => 0,
             RpcBlockInner::BlockAndBlobs(_, blobs) => blobs.len(),
         }
     }
     pub fn n_data_columns(&self) -> usize {
         match &self.block {
             RpcBlockInner::Block(_) | RpcBlockInner::BlockAndBlobs(_, _) => 0,
-            RpcBlockInner::BlockAndCustodyColumns(_, data_columns, _) => data_columns.len(),
+            RpcBlockInner::BlockAndCustodyColumns { data_columns, .. } => data_columns.len(),
         }
     }
 }
@@ -570,14 +576,14 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
         match &self.block {
             RpcBlockInner::Block(block) => block,
             RpcBlockInner::BlockAndBlobs(block, _) => block,
-            RpcBlockInner::BlockAndCustodyColumns(block, _, _) => block,
+            RpcBlockInner::BlockAndCustodyColumns { block, .. } => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self.block {
             RpcBlockInner::Block(block) => block.clone(),
             RpcBlockInner::BlockAndBlobs(block, _) => block.clone(),
-            RpcBlockInner::BlockAndCustodyColumns(block, _, _) => block.clone(),
+            RpcBlockInner::BlockAndCustodyColumns { block, .. } => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {
