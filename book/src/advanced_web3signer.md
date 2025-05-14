@@ -58,8 +58,9 @@ SSL client authentication with the "self-signed" certificate in `/home/paul/my-k
 > in the VC.  Setting it too short will result in failed signatures and therefore missed duties.
 
 ## Slashing protection database
+
 Web3signer may has its own slashing protection database. This makes the local slashing protection database by Lighthouse redundant. To disable Lighthouse slashing protection database for web3signer keys, use the flag `--disable-slashing-protection-web3signer` on the validator client.
 
-> Note: DO NOT use this flag unless you are certain that slashing protection is enabled on the web3signer. 
+> Note: DO NOT use this flag unless you are certain that slashing protection is enabled on the web3signer.
 
 The `--init-slashing-protection` is also required to initialize the slashing protection database locally.
