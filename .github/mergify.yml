@@ -38,9 +38,9 @@ pull_request_rules:
     conditions:
       - label=waiting-on-author
       - -conflict
-      - check-success=test-suite-success
-      - check-success=local-testnet-success
-      - "#changes-requested-reviews-by = 0"
+      - check-failure!=test-suite-success
+      - check-failure!=local-testnet-success
+      - "#review-requested > 0"
     actions:
       label:
         remove:
