@@ -37,7 +37,11 @@ pub fn construct_logger<E: EthSpec>(
         environment_builder.init_tracing(logger_config.clone(), logfile_prefix);
 
     let libp2p_discv5_layer = if let Some(subcommand_name) = subcommand_name {
-        if subcommand_name == "beacon_node" || subcommand_name == "boot_node" {
+        if subcommand_name == "beacon_node"
+            || subcommand_name == "boot_node"
+            || subcommand_name == "basic-sim"
+            || subcommand_name == "fallback-sim"
+        {
             if logger_config.max_log_size == 0 || logger_config.max_log_number == 0 {
                 // User has explicitly disabled logging to file.
                 None
