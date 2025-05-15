@@ -143,10 +143,14 @@ fn build_rpc_block(
         Some(DataSidecars::Blobs(blobs)) => {
             RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
         }
-        Some(DataSidecars::DataColumns(columns)) => {
-            RpcBlock::new_with_custody_columns(None, block, columns.clone(), columns.len(), spec)
-                .unwrap()
-        }
+        Some(DataSidecars::DataColumns(columns)) => RpcBlock::new_with_custody_columns(
+            None,
+            block,
+            columns.clone(),
+            columns.iter().map(|d| d.index).collect(),
+            spec,
+        )
+        .unwrap(),
         None => RpcBlock::new_without_blobs(None, block, 0),
     }
 }
