@@ -42,7 +42,10 @@ pull_request_rules:
       - -draft
       - label=waiting-on-author
       - -conflict
+      # Need to be the logical opposite of the above rule `Ask to resolve CI failures`, otherwise mergify will run into an infinite loop.
+      - check-failure!=test-suite-success
       - check-skipped!=test-suite-success
+      - check-failure!=local-testnet-success
       - check-skipped!=local-testnet-success
       - "#review-requested > 0"
     actions:
