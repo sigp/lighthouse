@@ -1,6 +1,7 @@
 pull_request_rules:
   - name: Ask to resolve conflict
     conditions:
+      - -closed
       - conflict
       - -author=dependabot[bot]
       - or:
@@ -20,6 +21,7 @@ pull_request_rules:
 
   - name: Ask to resolve CI failures
     conditions:
+      - -closed
       - or:
           - check-failure=test-suite-success
           - check-skipped=test-suite-success
@@ -36,6 +38,7 @@ pull_request_rules:
 
   - name: Update labels when PR is unblocked
     conditions:
+      - -closed
       - label=waiting-on-author
       - -conflict
       - check-failure!=test-suite-success
@@ -54,6 +57,7 @@ pull_request_rules:
 
   - name: Close stale pull request after 30 days of inactivity
     conditions:
+      - -closed
       - label=waiting-on-author
       - updated-at<=30 days ago
     actions:
