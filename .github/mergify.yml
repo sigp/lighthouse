@@ -12,6 +12,58 @@ pull_request_rules:
       comment:
         message: This pull request has merge conflicts. Could you please resolve them
           @{{author}}? 🙏
+      label:
+        add:
+          - waiting-on-author
+        remove:
+          - ready-for-review
+
+  - name: Ask to resolve CI failures
+    conditions:
+      - or:
+          - check-failure=test-suite-success
+          - check-skipped=test-suite-success
+          - check-failure=local-testnet-success
+          - check-skipped=local-testnet-success
+    actions:
+      comment:
+        message: Some required checks have failed. Could you please take a look @{{author}}? 🙏
+      label:
+        add:
+          - waiting-on-author
+        remove:
+          - ready-for-review
+
+  - name: Update labels when PR is unblocked
+    conditions:
+      - label=waiting-on-author
+      - -conflict
+      - check-failure!=test-suite-success
+      - check-failure!=local-testnet-success
+      - "#review-requested > 0"
+    actions:
+      label:
+        remove:
+          - waiting-on-author
+        add:
+          - ready-for-review
+      comment:
+        message: >
+          All required checks have passed and there are no merge conflicts.
+          This pull request may now be ready for another review.
+
+  - name: Close stale pull request after 30 days of inactivity
+    conditions:
+      - label=waiting-on-author
+      - updated-at<=30 days ago
+    actions:
+      close:
+        message: >
+          Hi @{{author}}, this pull request has been closed automatically due to 30 days of inactivity.
+          If you’d like to continue working on it, feel free to reopen at any time.
+      label:
+        add:
+          - stale
 
   - name: Approve trivial maintainer PRs
     conditions:
