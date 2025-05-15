@@ -86,4 +86,4 @@ The script comes with some CLI options, which can be viewed with `./start_local_
 
 ## Further reading about Kurtosis
 
-You may refer to [Kurtosis: A deep dive to local devnets](https://ethpandaops.io/posts/kurtosis-deep-dive/) for information about Kurtosis.
+You may refer to [this article](https://ethpandaops.io/posts/kurtosis-deep-dive/) for information about Kurtosis.
