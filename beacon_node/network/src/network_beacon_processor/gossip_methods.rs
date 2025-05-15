@@ -1130,7 +1130,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processing_start_time = Instant::now();
         let block_root = verified_data_column.block_root();
         let data_column_slot = verified_data_column.slot();
-        let data_column_index = verified_data_column.id().index;
+        let data_column_index = verified_data_column.index();
 
         let result = self
             .chain
@@ -1160,7 +1160,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    self.attempt_data_column_reconstruction(block_root).await;
+                    self.attempt_data_column_reconstruction(block_root, true)
+                        .await;
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {

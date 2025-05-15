@@ -10,14 +10,13 @@ use derivative::Derivative;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
-use slasher::test_utils::E;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::debug;
-use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
+use types::data_column_sidecar::ColumnIndex;
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
     RuntimeVariableList, SignedBeaconBlockHeader, Slot,
@@ -199,13 +198,6 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 )
             },
         )
-    }
-
-    pub fn id(&self) -> DataColumnIdentifier {
-        DataColumnIdentifier {
-            block_root: self.block_root,
-            index: self.data_column.index(),
-        }
     }
 
     pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
@@ -589,19 +581,19 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipDataColumnError> {
     let column_slot = data_column.slot();
-    let column_epoch = column_slot.epoch(E::slots_per_epoch());
+    let slots_per_epoch = T::EthSpec::slots_per_epoch();
+    let column_epoch = column_slot.epoch(slots_per_epoch);
     let column_index = data_column.index;
     let block_root = data_column.block_root();
     let block_parent_root = data_column.block_parent_root();
 
-    let proposer_shuffling_root =
-        if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) == column_epoch {
-            parent_block
-                .next_epoch_shuffling_id
-                .shuffling_decision_block
-        } else {
-            parent_block.root
-        };
+    let proposer_shuffling_root = if parent_block.slot.epoch(slots_per_epoch) == column_epoch {
+        parent_block
+            .next_epoch_shuffling_id
+            .shuffling_decision_block
+    } else {
+        parent_block.root
+    };
 
     // We lock the cache briefly to get or insert a OnceCell, then drop the lock
     // before doing proposer shuffling calculation via `OnceCell::get_or_try_init`. This avoids
@@ -649,7 +641,7 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
 
     let proposer_index = *epoch_proposers
         .proposers
-        .get(column_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
+        .get(column_slot.as_usize() % slots_per_epoch as usize)
         .ok_or_else(|| BeaconChainError::NoProposerForSlot(column_slot))?;
 
     let fork = epoch_proposers.fork;
@@ -742,7 +734,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipDataColumnError> {
     // Now the signature is valid, store the proposal so we don't accept another data column sidecar
-    // with the same `DataColumnIdentifier`.  It's important to double-check that the proposer still
+    // with the same `ColumnIndex`.  It's important to double-check that the proposer still
     // hasn't been observed so we don't have a race-condition when verifying two blocks
     // simultaneously.
     //
