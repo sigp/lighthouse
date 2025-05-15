@@ -334,6 +334,10 @@ impl GossipTester {
                 valid_attestation.committee_index,
             )
             .unwrap();
+        let fork_name = harness
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(valid_attestation.data().slot);
         let valid_aggregate_attestation =
             single_attestation_to_attestation(&valid_attestation, committee.committee).unwrap();
 
@@ -1399,6 +1403,10 @@ async fn verify_aggregate_for_gossip_doppelganger_detection() {
             valid_attestation.committee_index,
         )
         .unwrap();
+    let fork_name = harness
+        .chain
+        .spec
+        .fork_name_at_slot::<E>(valid_attestation.data().slot);
     let valid_attestation =
         single_attestation_to_attestation(&valid_attestation, committee.committee).unwrap();
     let (valid_aggregate, _, _) =

@@ -1123,7 +1123,9 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             return Err(SignatureValid(indexed_attestation, e));
         }
 
-        //TODO(single-attestation)
+        let fork_name = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
         let regular_attestation = chain
             .with_committee_cache(
@@ -1142,6 +1144,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
                     Ok(single_attestation_to_attestation(
                         attestation,
                         committee.committee,
+                        fork_name,
                     ))
                 },
             )

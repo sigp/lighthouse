@@ -1164,8 +1164,10 @@ where
         let single_attestation =
             attestation.to_single_attestation_with_attester_index(attester_index as u64)?;
 
+        let fork_name = self.spec.fork_name_at_slot::<E>(attestation.data().slot);
         let attestation: Attestation<E> =
-            single_attestation_to_attestation(&single_attestation, committee.committee).unwrap();
+            single_attestation_to_attestation(&single_attestation, committee.committee, fork_name)
+                .unwrap();
 
         assert_eq!(
             single_attestation.committee_index,
