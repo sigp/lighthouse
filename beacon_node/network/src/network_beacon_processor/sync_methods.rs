@@ -81,7 +81,7 @@ impl PeerGroupAction {
             AvailabilityCheckError::KzgCommitmentMismatch { .. } => None, // should never happen after checking inclusion proof
             AvailabilityCheckError::Unexpected(_) => None,                // internal
             AvailabilityCheckError::MissingBlobs => {
-                Some(PeerGroupAction::block_peer(PeerAction::LowToleranceError))
+                Some(PeerGroupAction::block_peer(PeerAction::HighToleranceError))
             }
             // TOOD(das): PeerAction::High may be too soft of a penalty. Also may be deprecated
             // with https://github.com/sigp/lighthouse/issues/6258
