@@ -649,6 +649,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     if signature_verifier.verify().is_err() {
         return Err(BlockError::InvalidSignature(InvalidSignature::Unknown));
     }
+    drop(pubkey_cache);
 
     // Verify that blobs or data columns signatures match
     //
