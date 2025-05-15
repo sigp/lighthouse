@@ -39,10 +39,11 @@ pull_request_rules:
   - name: Update labels when PR is unblocked
     conditions:
       - -closed
+      - -draft
       - label=waiting-on-author
       - -conflict
-      - check-failure!=test-suite-success
-      - check-failure!=local-testnet-success
+      - check-skipped!=test-suite-success
+      - check-skipped!=local-testnet-success
       - "#review-requested > 0"
     actions:
       label:
