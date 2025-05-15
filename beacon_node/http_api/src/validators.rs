@@ -128,10 +128,12 @@ pub fn get_beacon_state_validator_identities<T: BeaconChainTypes>(
                     optional_ids.map(|f| HashSet::from_iter(f.iter()));
 
                 Ok((
+                    // From the BeaconState, extract the Validator data and convert it into ValidatorIdentityData type
                     state
                         .validators()
                         .iter()
                         .enumerate()
+                        // filter by validator id(s) if provided
                         .filter(|(index, validator)| {
                             ids_filter_set.as_ref().is_none_or(|ids_set| {
                                 ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
