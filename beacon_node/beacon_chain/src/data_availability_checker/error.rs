@@ -32,14 +32,14 @@ pub enum ErrorCategory {
 impl Error {
     pub fn category(&self) -> ErrorCategory {
         match self {
-            Error::MissingBlobs
-            | Error::MissingCustodyColumns(_)
-            | Error::StoreError(_)
+            Error::StoreError(_)
             | Error::Unexpected(_)
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
             | Error::SlotClockError => ErrorCategory::Internal,
-            Error::InvalidBlobs { .. }
+            Error::MissingBlobs
+            | Error::MissingCustodyColumns(_)
+            | Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
             | Error::ReconstructColumnsError { .. }
             | Error::BlobIndexInvalid(_)
