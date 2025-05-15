@@ -23,10 +23,14 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRangeRequestItems<E> {
     type Item = Arc<DataColumnSidecar<E>>;
 
     fn add(&mut self, data_column: Self::Item) -> Result<bool, LookupVerifyError> {
-        if data_column.slot() < self.request.start_slot
-            || data_column.slot() >= self.request.start_slot + self.request.count
-        {
-            return Err(LookupVerifyError::UnrequestedSlot(data_column.slot()));
+        let end_slot = self.request.start_slot + self.request.count;
+
+        if data_column.slot() < self.request.start_slot || data_column.slot() >= end_slot {
+            return Err(LookupVerifyError::UnrequestedSlot {
+                slot: data_column.slot(),
+                start_slot: self.request.start_slot,
+                end_slot,
+            });
         }
         if !self.request.columns.contains(&data_column.index) {
             return Err(LookupVerifyError::UnrequestedIndex(data_column.index));

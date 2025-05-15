@@ -28,11 +28,17 @@ mod data_columns_by_root;
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupVerifyError {
-    NotEnoughResponsesReturned { actual: usize },
+    NotEnoughResponsesReturned {
+        actual: usize,
+    },
     TooManyResponses,
     UnrequestedBlockRoot(Hash256),
     UnrequestedIndex(u64),
-    UnrequestedSlot(Slot),
+    UnrequestedSlot {
+        slot: Slot,
+        start_slot: Slot,
+        end_slot: Slot,
+    },
     InvalidInclusionProof,
     DuplicatedData(Slot, u64),
     InternalError(String),

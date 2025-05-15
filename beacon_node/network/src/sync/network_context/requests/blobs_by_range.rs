@@ -25,10 +25,14 @@ impl<E: EthSpec> ActiveRequestItems for BlobsByRangeRequestItems<E> {
     type Item = Arc<BlobSidecar<E>>;
 
     fn add(&mut self, blob: Self::Item) -> Result<bool, LookupVerifyError> {
-        if blob.slot() < self.request.start_slot
-            || blob.slot() >= self.request.start_slot + self.request.count
-        {
-            return Err(LookupVerifyError::UnrequestedSlot(blob.slot()));
+        let end_slot = self.request.start_slot + self.request.count;
+
+        if blob.slot() < self.request.start_slot || blob.slot() >= end_slot {
+            return Err(LookupVerifyError::UnrequestedSlot {
+                slot: blob.slot(),
+                start_slot: self.request.start_slot,
+                end_slot,
+            });
         }
         if blob.index >= self.max_blobs_per_block {
             return Err(LookupVerifyError::UnrequestedIndex(blob.index));
