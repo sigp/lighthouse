@@ -1,7 +1,7 @@
 use super::{ActiveRequestItems, LookupVerifyError};
 use lighthouse_network::rpc::methods::DataColumnsByRangeRequest;
 use std::sync::Arc;
-use types::{DataColumnSidecar, EthSpec};
+use types::{DataColumnSidecar, EthSpec, Slot};
 
 /// Accumulates results of a data_columns_by_range request. Only returns items after receiving the
 /// stream termination.
@@ -23,12 +23,13 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRangeRequestItems<E> {
     type Item = Arc<DataColumnSidecar<E>>;
 
     fn add(&mut self, data_column: Self::Item) -> Result<bool, LookupVerifyError> {
-        let end_slot = self.request.start_slot + self.request.count;
+        let start_slot = Slot::new(self.request.start_slot);
+        let end_slot = start_slot + Slot::new(self.request.count);
 
-        if data_column.slot() < self.request.start_slot || data_column.slot() >= end_slot {
+        if data_column.slot() < start_slot || data_column.slot() >= end_slot {
             return Err(LookupVerifyError::UnrequestedSlot {
                 slot: data_column.slot(),
-                start_slot: self.request.start_slot,
+                start_slot,
                 end_slot,
             });
         }
