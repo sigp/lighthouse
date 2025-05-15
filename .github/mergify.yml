@@ -1,6 +1,7 @@
 pull_request_rules:
   - name: Ask to resolve conflict
     conditions:
+      - -closed
       - conflict
       - -author=dependabot[bot]
       - or:
@@ -20,6 +21,7 @@ pull_request_rules:
 
   - name: Ask to resolve CI failures
     conditions:
+      - -closed
       - or:
           - check-failure=test-suite-success
           - check-skipped=test-suite-success
@@ -36,10 +38,15 @@ pull_request_rules:
 
   - name: Update labels when PR is unblocked
     conditions:
+      - -closed
+      - -draft
       - label=waiting-on-author
       - -conflict
+      # Need to be the logical opposite of the above rule `Ask to resolve CI failures`, otherwise mergify will run into an infinite loop.
       - check-failure!=test-suite-success
+      - check-skipped!=test-suite-success
       - check-failure!=local-testnet-success
+      - check-skipped!=local-testnet-success
       - "#review-requested > 0"
     actions:
       label:
@@ -54,6 +61,7 @@ pull_request_rules:
 
   - name: Close stale pull request after 30 days of inactivity
     conditions:
+      - -closed
       - label=waiting-on-author
       - updated-at<=30 days ago
     actions:
