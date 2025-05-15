@@ -102,10 +102,9 @@ impl<E: EthSpec> RpcBlock<E> {
                 ..
             } => Some(non_matching_custody_columns_block_signature(
                 block,
-                &data_columns
+                data_columns
                     .iter()
-                    .map(|data_column| data_column.clone_arc())
-                    .collect::<Vec<_>>(),
+                    .map(|data_column| data_column.as_data_column()),
             )),
         }
     }
@@ -597,12 +596,11 @@ pub fn non_matching_blobs_block_signature<E: EthSpec>(
         .collect()
 }
 
-pub fn non_matching_custody_columns_block_signature<E: EthSpec>(
+pub fn non_matching_custody_columns_block_signature<'a, E: EthSpec>(
     block: &SignedBeaconBlock<E>,
-    data_columns: &[Arc<DataColumnSidecar<E>>],
+    data_columns: impl Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
 ) -> Vec<ColumnIndex> {
     data_columns
-        .iter()
         .filter(|column| &column.signed_block_header.signature != block.signature())
         .map(|column| column.index)
         .collect()

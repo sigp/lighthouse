@@ -817,7 +817,7 @@ impl<E: EthSpec> AvailableBlock<E> {
             AvailableBlockData::NoData => None,
             AvailableBlockData::Blobs(_) => None,
             AvailableBlockData::DataColumns(data_columns) => Some(
-                non_matching_custody_columns_block_signature(&self.block, data_columns),
+                non_matching_custody_columns_block_signature(&self.block, data_columns.iter()),
             ),
         }
     }
