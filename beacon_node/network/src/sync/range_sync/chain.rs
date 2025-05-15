@@ -917,13 +917,25 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let request = batch.to_blocks_by_range_request();
             let failed_peers = batch.failed_block_peers();
+
+            // TODO(das): we should request only from peers that are part of this SyncingChain.
+            // However, then we hit the NoPeer error frequently which causes the batch to fail and
+            // the SyncingChain to be dropped. We need to handle this case more gracefully.
+            let synced_peers = network
+                .network_globals()
+                .peers
+                .read()
+                .synced_peers()
+                .cloned()
+                .collect::<HashSet<_>>();
+
             match network.block_components_by_range_request(
                 request,
                 RangeRequestId::RangeSync {
                     chain_id: self.id,
                     batch_id,
                 },
-                &self.peers,
+                &synced_peers,
                 &failed_peers,
             ) {
                 Ok(request_id) => {
