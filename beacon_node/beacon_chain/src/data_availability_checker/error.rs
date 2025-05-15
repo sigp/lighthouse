@@ -5,7 +5,6 @@ use types::{BeaconStateError, ColumnIndex};
 pub enum Error {
     InvalidBlobs(KzgError),
     InvalidColumn(Vec<(ColumnIndex, KzgError)>),
-    ReconstructColumnsError(KzgError),
     KzgCommitmentMismatch {
         blob_commitment: KzgCommitment,
         block_commitment: KzgCommitment,
@@ -41,7 +40,6 @@ impl Error {
             | Error::MissingCustodyColumns(_)
             | Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
-            | Error::ReconstructColumnsError { .. }
             | Error::BlobIndexInvalid(_)
             | Error::DataColumnIndexInvalid(_)
             | Error::KzgCommitmentMismatch { .. } => ErrorCategory::Malicious,

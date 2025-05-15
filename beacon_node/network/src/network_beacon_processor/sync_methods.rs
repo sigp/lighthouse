@@ -78,7 +78,6 @@ impl PeerGroupAction {
                 &errors.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
                 PeerAction::LowToleranceError,
             )),
-            AvailabilityCheckError::ReconstructColumnsError(_) => None, // internal error
             AvailabilityCheckError::KzgCommitmentMismatch { .. } => None, // should never happen after checking inclusion proof
             AvailabilityCheckError::Unexpected(_) => None,                // internal
             AvailabilityCheckError::MissingBlobs => {

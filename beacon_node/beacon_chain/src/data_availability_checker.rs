@@ -589,7 +589,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             self.availability_cache
                 .handle_reconstruction_failure(block_root);
             metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES);
-            AvailabilityCheckError::ReconstructColumnsError(e)
+            AvailabilityCheckError::Unexpected(format!("Error reconstructing columns: {e:?}"))
         })?;
 
         // Check indices from cache again to make sure we don't publish components we've already received.
