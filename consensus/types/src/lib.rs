@@ -149,7 +149,7 @@ pub use crate::config_and_preset::{
 pub use crate::consolidation_request::ConsolidationRequest;
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::data_column_sidecar::{
-    ColumnIndex, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
+    ColumnIndex, DataColumnSidecar, DataColumnSidecarList, DataColumnsByRootIdentifier,
 };
 pub use crate::data_column_subnet_id::DataColumnSubnetId;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};

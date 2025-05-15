@@ -1,7 +1,5 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use bls::PublicKeyBytes;
-use doppelganger_service::DoppelgangerStatus;
-use environment::RuntimeContext;
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -9,13 +7,16 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use task_executor::TaskExecutor;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, warn};
 use types::{
     Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
     ValidatorRegistrationData,
 };
-use validator_store::{Error as ValidatorStoreError, ProposalData, ValidatorStore};
+use validator_store::{
+    DoppelgangerStatus, Error as ValidatorStoreError, ProposalData, ValidatorStore,
+};
 
 /// Number of epochs before the Bellatrix hard fork to begin posting proposer preparations.
 const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
@@ -25,28 +26,28 @@ const EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION: u64 = 1;
 
 /// Builds an `PreparationService`.
 #[derive(Default)]
-pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
-    validator_store: Option<Arc<ValidatorStore<T, E>>>,
+pub struct PreparationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> {
+    validator_store: Option<Arc<S>>,
     slot_clock: Option<T>,
-    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
-    context: Option<RuntimeContext<E>>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
+    executor: Option<TaskExecutor>,
     builder_registration_timestamp_override: Option<u64>,
     validator_registration_batch_size: Option<usize>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
+impl<S: ValidatorStore, T: SlotClock + 'static> PreparationServiceBuilder<S, T> {
     pub fn new() -> Self {
         Self {
             validator_store: None,
             slot_clock: None,
             beacon_nodes: None,
-            context: None,
+            executor: None,
             builder_registration_timestamp_override: None,
             validator_registration_batch_size: None,
         }
     }
 
-    pub fn validator_store(mut self, store: Arc<ValidatorStore<T, E>>) -> Self {
+    pub fn validator_store(mut self, store: Arc<S>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -56,13 +57,13 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
         self
     }
 
-    pub fn runtime_context(mut self, context: RuntimeContext<E>) -> Self {
-        self.context = Some(context);
+    pub fn executor(mut self, executor: TaskExecutor) -> Self {
+        self.executor = Some(executor);
         self
     }
 
@@ -82,7 +83,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
-    pub fn build(self) -> Result<PreparationService<T, E>, String> {
+    pub fn build(self) -> Result<PreparationService<S, T>, String> {
         Ok(PreparationService {
             inner: Arc::new(Inner {
                 validator_store: self
@@ -94,9 +95,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                 beacon_nodes: self
                     .beacon_nodes
                     .ok_or("Cannot build PreparationService without beacon_nodes")?,
-                context: self
-                    .context
-                    .ok_or("Cannot build PreparationService without runtime_context")?,
+                executor: self
+                    .executor
+                    .ok_or("Cannot build PreparationService without executor")?,
                 builder_registration_timestamp_override: self
                     .builder_registration_timestamp_override,
                 validator_registration_batch_size: self.validator_registration_batch_size.ok_or(
@@ -109,11 +110,11 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
 }
 
 /// Helper to minimise `Arc` usage.
-pub struct Inner<T, E: EthSpec> {
-    validator_store: Arc<ValidatorStore<T, E>>,
+pub struct Inner<S, T> {
+    validator_store: Arc<S>,
     slot_clock: T,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    context: RuntimeContext<E>,
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
+    executor: TaskExecutor,
     builder_registration_timestamp_override: Option<u64>,
     // Used to track unpublished validator registration changes.
     validator_registration_cache:
@@ -145,11 +146,11 @@ impl From<ValidatorRegistrationData> for ValidatorRegistrationKey {
 }
 
 /// Attempts to produce proposer preparations for all known validators at the beginning of each epoch.
-pub struct PreparationService<T, E: EthSpec> {
-    inner: Arc<Inner<T, E>>,
+pub struct PreparationService<S, T> {
+    inner: Arc<Inner<S, T>>,
 }
 
-impl<T, E: EthSpec> Clone for PreparationService<T, E> {
+impl<S, T> Clone for PreparationService<S, T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -157,15 +158,15 @@ impl<T, E: EthSpec> Clone for PreparationService<T, E> {
     }
 }
 
-impl<T, E: EthSpec> Deref for PreparationService<T, E> {
-    type Target = Inner<T, E>;
+impl<S, T> Deref for PreparationService<S, T> {
+    type Target = Inner<S, T>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, T> {
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
         self.clone().start_validator_registration_service(spec)?;
         self.start_proposer_prepare_service(spec)
@@ -176,7 +177,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         info!("Proposer preparation service started");
 
-        let executor = self.context.executor.clone();
+        let executor = self.executor.clone();
         let spec = spec.clone();
 
         let interval_fut = async move {
@@ -215,7 +216,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let spec = spec.clone();
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
 
-        let executor = self.context.executor.clone();
+        let executor = self.executor.clone();
 
         let validator_registration_fut = async move {
             loop {
@@ -243,10 +244,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     /// This avoids spamming the BN with preparations before the Bellatrix fork epoch, which may
     /// cause errors if it doesn't support the preparation API.
     fn should_publish_at_current_slot(&self, spec: &ChainSpec) -> bool {
-        let current_epoch = self
-            .slot_clock
-            .now()
-            .map_or(E::genesis_epoch(), |slot| slot.epoch(E::slots_per_epoch()));
+        let current_epoch = self.slot_clock.now().map_or(S::E::genesis_epoch(), |slot| {
+            slot.epoch(S::E::slots_per_epoch())
+        });
         spec.bellatrix_fork_epoch.is_some_and(|fork_epoch| {
             current_epoch + PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS >= fork_epoch
         })
@@ -367,7 +367,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
         // Check if any have changed or it's been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
         if let Some(slot) = self.slot_clock.now() {
-            if slot % (E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0 {
+            if slot % (S::E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0
+            {
                 self.publish_validator_registration_data(registration_keys)
                     .await?;
             } else if !changed_keys.is_empty() {

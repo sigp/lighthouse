@@ -8,12 +8,13 @@ use eth2::lighthouse_vc::{
     types::Web3SignerValidatorRequest,
 };
 use itertools::Itertools;
+use lighthouse_validator_store::DEFAULT_GAS_LIMIT;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
 use types::{attestation::AttestationBase, Address};
-use validator_store::DEFAULT_GAS_LIMIT;
+use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
 
 fn new_keystore(password: Zeroizing<String>) -> Keystore {
