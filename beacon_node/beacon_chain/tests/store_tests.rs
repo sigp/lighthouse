@@ -2503,7 +2503,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         beacon_chain
             .import_historical_block_batch(batch_with_invalid_first_block)
             .unwrap_err(),
-        HistoricalBlockError::InvalidSignature
+        HistoricalBlockError::InvalidSignature(_)
     ));
 
     // Importing the batch with valid signatures should succeed.

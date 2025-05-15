@@ -9,8 +9,9 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, ColumnIndex, Epoch,
-    EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, ColumnIndex,
+    DataColumnSidecar, Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// A block that has been received over RPC. It has 2 internal variants:
@@ -84,13 +85,9 @@ impl<E: EthSpec> RpcBlock<E> {
     pub fn non_matching_blobs_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
         match &self.block {
             RpcBlockInner::Block(_) => None,
-            RpcBlockInner::BlockAndBlobs(block, blobs) => Some(
-                blobs
-                    .iter()
-                    .filter(|blob| &blob.signed_block_header.signature != block.signature())
-                    .map(|blob| blob.index)
-                    .collect(),
-            ),
+            RpcBlockInner::BlockAndBlobs(block, blobs) => {
+                Some(non_matching_blobs_block_signature(block, blobs))
+            }
             RpcBlockInner::BlockAndCustodyColumns { .. } => None,
         }
     }
@@ -103,15 +100,13 @@ impl<E: EthSpec> RpcBlock<E> {
                 block,
                 data_columns,
                 ..
-            } => Some(
-                data_columns
+            } => Some(non_matching_custody_columns_block_signature(
+                block,
+                &data_columns
                     .iter()
-                    .filter(|column| {
-                        &column.as_data_column().signed_block_header.signature != block.signature()
-                    })
-                    .map(|column| column.index())
-                    .collect(),
-            ),
+                    .map(|data_column| data_column.clone_arc())
+                    .collect::<Vec<_>>(),
+            )),
         }
     }
 }
@@ -589,4 +584,26 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
     fn canonical_root(&self) -> Hash256 {
         self.as_block().canonical_root()
     }
+}
+
+pub fn non_matching_blobs_block_signature<E: EthSpec>(
+    block: &SignedBeaconBlock<E>,
+    blobs: &BlobSidecarList<E>,
+) -> Vec<ColumnIndex> {
+    blobs
+        .iter()
+        .filter(|blob| &blob.signed_block_header.signature != block.signature())
+        .map(|blob| blob.index)
+        .collect()
+}
+
+pub fn non_matching_custody_columns_block_signature<E: EthSpec>(
+    block: &SignedBeaconBlock<E>,
+    data_columns: &[Arc<DataColumnSidecar<E>>],
+) -> Vec<ColumnIndex> {
+    data_columns
+        .iter()
+        .filter(|column| &column.signed_block_header.signature != block.signature())
+        .map(|column| column.index)
+        .collect()
 }

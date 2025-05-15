@@ -1,5 +1,7 @@
 use crate::block_verification_types::{MaybeAvailableBlock, RpcBlock};
-use crate::data_availability_checker::{AvailabilityCheckError, AvailableBlockData};
+use crate::data_availability_checker::{
+    AvailabilityCheckError, AvailableBlock, AvailableBlockData,
+};
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
 use state_processing::{
@@ -100,6 +102,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    pub fn verify_and_import_historical_block_batch(
+        &self,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
+    ) -> Result<usize, HistoricalBlockError> {
+        // First check that chain of blocks is correct
+        self.assert_correct_historical_block_chain(&blocks)?;
+
+        // Check that all data columns are present <- faulty failure if missing because we have
+        // checked the block root is correct first.
+        let blocks = self
+            .data_availability_checker
+            .verify_kzg_for_rpc_blocks(blocks)
+            .and_then(|blocks| {
+                blocks
+                    .into_iter()
+                    // RpcBlocks must always be Available, otherwise a data peer is faulty of
+                    // malicious. `verify_kzg_for_rpc_blocks` returns errors for those cases, but we
+                    // haven't updated its function signature. This code block can be deleted later
+                    // bigger refactor.
+                    .map(|maybe_available| match maybe_available {
+                        MaybeAvailableBlock::Available(block) => Ok(block),
+                        MaybeAvailableBlock::AvailabilityPending { .. } => Err(
+                            AvailabilityCheckError::Unexpected("block not available".to_string()),
+                        ),
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })?;
+
+        self.import_historical_block_batch(blocks)
+    }
+
     /// Store a batch of historical blocks in the database.
     ///
     /// The `blocks` should be given in slot-ascending order. One of the blocks should have a block
@@ -120,11 +153,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return the number of blocks successfully imported.
     pub fn import_historical_block_batch(
         &self,
-        blocks: Vec<RpcBlock<T::EthSpec>>,
+        mut blocks: Vec<AvailableBlock<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
-        // First check that chain of blocks is correct
-        self.assert_correct_historical_block_chain(&blocks)?;
-
         // Verify that blobs or data columns signatures match
         //
         // TODO(das): We don't raise the `matching_sidecar_signatures_error` yet. We have to wait to
@@ -146,27 +176,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(())
             })
             .collect::<Result<Vec<_>, _>>();
-
-        // Check that all data columns are present <- faulty failure if missing because we have
-        // checked the block root is correct first.
-        let mut blocks = self
-            .data_availability_checker
-            .verify_kzg_for_rpc_blocks(blocks)
-            .and_then(|blocks| {
-                blocks
-                    .into_iter()
-                    // RpcBlocks must always be Available, otherwise a data peer is faulty of
-                    // malicious. `verify_kzg_for_rpc_blocks` returns errors for those cases, but we
-                    // haven't updated its function signature. This code block can be deleted later
-                    // bigger refactor.
-                    .map(|maybe_available| match maybe_available {
-                        MaybeAvailableBlock::Available(block) => Ok(block),
-                        MaybeAvailableBlock::AvailabilityPending { .. } => Err(
-                            AvailabilityCheckError::Unexpected("block not available".to_string()),
-                        ),
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            })?;
 
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();

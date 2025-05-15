@@ -1,5 +1,6 @@
 use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
 use crate::block_verification_types::{
+    non_matching_blobs_block_signature, non_matching_custody_columns_block_signature,
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
 use crate::data_availability_checker::overflow_lru_cache::{
@@ -799,6 +800,26 @@ impl<E: EthSpec> AvailableBlock<E> {
             ..
         } = self;
         (block_root, block, blob_data)
+    }
+
+    pub fn non_matching_blobs_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+        match &self.blob_data {
+            AvailableBlockData::NoData => None,
+            AvailableBlockData::Blobs(blobs) => {
+                Some(non_matching_blobs_block_signature(&self.block, blobs))
+            }
+            AvailableBlockData::DataColumns(_) => None,
+        }
+    }
+
+    pub fn non_matching_custody_columns_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+        match &self.blob_data {
+            AvailableBlockData::NoData => None,
+            AvailableBlockData::Blobs(_) => None,
+            AvailableBlockData::DataColumns(data_columns) => Some(
+                non_matching_custody_columns_block_signature(&self.block, data_columns),
+            ),
+        }
     }
 
     /// Only used for testing

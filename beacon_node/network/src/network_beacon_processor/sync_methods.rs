@@ -649,7 +649,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<usize, ChainSegmentFailed> {
-        match self.chain.import_historical_block_batch(downloaded_blocks) {
+        match self
+            .chain
+            .verify_and_import_historical_block_batch(downloaded_blocks)
+        {
             Ok(imported_blocks) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,

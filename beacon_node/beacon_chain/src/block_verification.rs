@@ -637,7 +637,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         &chain.spec,
     )?;
 
-    // verify signatures before matching blocks and data
+    // Verify signatures before matching blocks and data. Otherwise we may penalize blob or column
+    // peers for valid signatures if the block peer sends us an invalid signature.
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
     for (block_root, block) in &chain_segment {
