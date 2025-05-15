@@ -1,4 +1,5 @@
 use crate::beacon_block_body::{format_kzg_commitments, BLOB_KZG_COMMITMENTS_INDEX};
+use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
 use merkle_proof::MerkleTree;
@@ -6,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
 use superstruct::superstruct;
+use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
@@ -49,7 +51,8 @@ impl From<SignedBeaconBlockHash> for Hash256 {
             Decode,
             TreeHash,
             Derivative,
-            arbitrary::Arbitrary
+            arbitrary::Arbitrary,
+            TestRandom
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),

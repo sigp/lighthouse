@@ -1,4 +1,4 @@
-//! This module provides an implementation of `slog::Drain` that optionally writes to a channel if
+//! This module provides an implementation of `tracing_subscriber::layer::Layer` that optionally writes to a channel if
 //! there are subscribers to a HTTP SSE stream.
 
 use serde_json::json;

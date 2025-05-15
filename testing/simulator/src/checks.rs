@@ -128,17 +128,23 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
     slot_delay(slot, slot_duration).await;
     let beacon_nodes = network.beacon_nodes.read();
     let beacon_chain = beacon_nodes[0].client.beacon_chain().unwrap();
-    let num_blocks = beacon_chain
+    let block_slots = beacon_chain
         .chain_dump()
         .unwrap()
         .iter()
         .take_while(|s| s.beacon_block.slot() <= slot)
-        .count();
+        .map(|s| s.beacon_block.slot().as_usize())
+        .collect::<Vec<_>>();
+    let num_blocks = block_slots.len();
     if num_blocks != slot.as_usize() + 1 {
+        let missed_slots = (0..slot.as_usize())
+            .filter(|slot| !block_slots.contains(slot))
+            .collect::<Vec<_>>();
         return Err(format!(
-            "There wasn't a block produced at every slot, got: {}, expected: {}",
+            "There wasn't a block produced at every slot, got: {}, expected: {}, missed: {:?}",
             num_blocks,
-            slot.as_usize() + 1
+            slot.as_usize() + 1,
+            missed_slots
         ));
     }
     Ok(())
@@ -185,12 +191,17 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
             .get_beacon_blocks::<E>(BlockId::Slot(Slot::new(slot)))
             .await
             .map(|resp| {
-                resp.unwrap()
-                    .data
-                    .message()
-                    .body()
-                    .sync_aggregate()
-                    .map(|agg| agg.num_set_bits())
+                resp.unwrap_or_else(|| {
+                    panic!(
+                        "Beacon block for slot {} not returned from Beacon API",
+                        slot
+                    )
+                })
+                .data
+                .message()
+                .body()
+                .sync_aggregate()
+                .map(|agg| agg.num_set_bits())
             })
             .map_err(|e| format!("Error while getting beacon block: {:?}", e))?
             .map_err(|_| format!("Altair block {} should have sync aggregate", slot))?;
@@ -264,6 +275,11 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         let slot = Slot::new(slot);
         let previous_slot = slot - 1;
 
+        let sync_committee_period = slot
+            .epoch(E::slots_per_epoch())
+            .sync_committee_period(&E::default_spec())
+            .unwrap();
+
         let previous_slot_block = client
             .get_beacon_blocks::<E>(BlockId::Slot(previous_slot))
             .await
@@ -327,6 +343,20 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         if signature_slot_distance > light_client_update_slot_tolerance {
             return Err(format!(
                 "Existing finality update too old: signature slot {signature_slot}, current slot {slot:?}"
+            ));
+        }
+
+        let light_client_updates = client
+            .get_beacon_light_client_updates::<E>(sync_committee_period, 1)
+            .await
+            .map_err(|e| format!("Error while getting light client update: {:?}", e))?
+            .ok_or(format!("Light client update not found {slot:?}"))?;
+
+        // Ensure we're only storing a single light client update for the given sync committee period
+        if light_client_updates.len() != 1 {
+            return Err(format!(
+                "{} light client updates was returned when only one was expected.",
+                light_client_updates.len()
             ));
         }
     }

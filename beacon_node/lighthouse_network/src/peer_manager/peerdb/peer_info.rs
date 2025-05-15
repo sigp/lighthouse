@@ -22,7 +22,7 @@ use PeerConnectionStatus::*;
 #[serde(bound = "E: EthSpec")]
 pub struct PeerInfo<E: EthSpec> {
     /// The peers reputation
-    score: Score,
+    pub(crate) score: Score,
     /// Client managing this peer
     client: Client,
     /// Connection status of this peer
@@ -51,7 +51,7 @@ pub struct PeerInfo<E: EthSpec> {
     #[serde(skip)]
     min_ttl: Option<Instant>,
     /// Is the peer a trusted peer.
-    is_trusted: bool,
+    pub(crate) is_trusted: bool,
     /// Direction of the first connection of the last (or current) connected session with this peer.
     /// None if this peer was never connected.
     connection_direction: Option<ConnectionDirection>,

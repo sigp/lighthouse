@@ -41,7 +41,7 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     genesis_state_root: Option<Hash256>,
 ) -> Result<(), Error> {
-    info!("Upgrading from v21 to v22");
+    info!("Upgrading DB schema from v21 to v22");
 
     let old_anchor = db.get_anchor_info();
 

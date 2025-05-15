@@ -317,8 +317,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         metrics::inc_counter(&metrics::LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS);
 
         // Compute the value, handling potential errors.
+        // This state should already be cached. By electing not to cache it here
+        // we remove any chance of the light client server from affecting the state cache.
+        // We'd like the light client server to be as minimally invasive as possible.
         let mut state = store
-            .get_state(block_state_root, Some(block_slot))?
+            .get_state(block_state_root, Some(block_slot), false)?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", block_state_root))
             })?;
@@ -418,18 +421,13 @@ struct LightClientCachedData<E: EthSpec> {
 
 impl<E: EthSpec> LightClientCachedData<E> {
     fn from_state(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
-        let (finality_branch, next_sync_committee_branch, current_sync_committee_branch) = (
-            state.compute_finalized_root_proof()?,
-            state.compute_current_sync_committee_proof()?,
-            state.compute_next_sync_committee_proof()?,
-        );
         Ok(Self {
             finalized_checkpoint: state.finalized_checkpoint(),
-            finality_branch,
+            finality_branch: state.compute_finalized_root_proof()?,
             next_sync_committee: state.next_sync_committee()?.clone(),
             current_sync_committee: state.current_sync_committee()?.clone(),
-            next_sync_committee_branch,
-            current_sync_committee_branch,
+            next_sync_committee_branch: state.compute_next_sync_committee_proof()?,
+            current_sync_committee_branch: state.compute_current_sync_committee_proof()?,
             finalized_block_root: state.finalized_checkpoint().root,
         })
     }

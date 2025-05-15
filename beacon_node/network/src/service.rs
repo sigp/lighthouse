@@ -10,13 +10,15 @@ use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconPro
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
-use lighthouse_network::rpc::{RequestId, RequestType};
+use lighthouse_network::rpc::InboundRequestId;
+use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
+use lighthouse_network::Enr;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RpcErrorResponse},
-    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Response, Subnet,
+    Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
 };
 use lighthouse_network::{
     service::api_types::AppRequestId,
@@ -60,22 +62,20 @@ pub enum NetworkMessage<E: EthSpec> {
     SendRequest {
         peer_id: PeerId,
         request: RequestType<E>,
-        request_id: AppRequestId,
+        app_request_id: AppRequestId,
     },
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         response: Response<E>,
-        id: PeerRequestId,
     },
     /// Sends an error response to an RPC request.
     SendErrorResponse {
         peer_id: PeerId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         error: RpcErrorResponse,
         reason: String,
-        id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
     Publish { messages: Vec<PubsubMessage<E>> },
@@ -101,6 +101,10 @@ pub enum NetworkMessage<E: EthSpec> {
         reason: GoodbyeReason,
         source: ReportSource,
     },
+    /// Connect to a trusted peer and try to maintain the connection.
+    ConnectTrustedPeer(Enr),
+    /// Disconnect from a trusted peer and remove it from the `trusted_peers` mapping.
+    DisconnectTrustedPeer(Enr),
 }
 
 /// Messages triggered by validators that may trigger a subscription to a subnet.
@@ -481,32 +485,39 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkEvent::PeerDisconnected(peer_id) => {
                 self.send_to_router(RouterMessage::PeerDisconnected(peer_id));
             }
+            NetworkEvent::PeerUpdatedCustodyGroupCount(peer_id) => {
+                self.send_to_router(RouterMessage::PeerUpdatedCustodyGroupCount(peer_id));
+            }
             NetworkEvent::RequestReceived {
                 peer_id,
-                id,
-                request,
+                inbound_request_id,
+                request_type,
             } => {
                 self.send_to_router(RouterMessage::RPCRequestReceived {
                     peer_id,
-                    id,
-                    request,
+                    inbound_request_id,
+                    request_type,
                 });
             }
             NetworkEvent::ResponseReceived {
                 peer_id,
-                id,
+                app_request_id,
                 response,
             } => {
                 self.send_to_router(RouterMessage::RPCResponseReceived {
                     peer_id,
-                    request_id: id,
+                    app_request_id,
                     response,
                 });
             }
-            NetworkEvent::RPCFailed { id, peer_id, error } => {
+            NetworkEvent::RPCFailed {
+                app_request_id,
+                peer_id,
+                error,
+            } => {
                 self.send_to_router(RouterMessage::RPCFailed {
                     peer_id,
-                    request_id: id,
+                    app_request_id,
                     error,
                 });
             }
@@ -596,35 +607,34 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::SendRequest {
                 peer_id,
                 request,
-                request_id,
+                app_request_id,
             } => {
-                if let Err((request_id, error)) =
-                    self.libp2p.send_request(peer_id, request_id, request)
+                if let Err((app_request_id, error)) =
+                    self.libp2p.send_request(peer_id, app_request_id, request)
                 {
                     self.send_to_router(RouterMessage::RPCFailed {
                         peer_id,
-                        request_id,
+                        app_request_id,
                         error,
                     });
                 }
             }
             NetworkMessage::SendResponse {
                 peer_id,
+                inbound_request_id,
                 response,
-                id,
-                request_id,
             } => {
-                self.libp2p.send_response(peer_id, id, request_id, response);
+                self.libp2p
+                    .send_response(peer_id, inbound_request_id, response);
             }
             NetworkMessage::SendErrorResponse {
                 peer_id,
                 error,
-                id,
-                request_id,
+                inbound_request_id,
                 reason,
             } => {
                 self.libp2p
-                    .send_error_response(peer_id, id, request_id, error, reason);
+                    .send_error_response(peer_id, inbound_request_id, error, reason);
             }
             NetworkMessage::ValidationResult {
                 propagation_source,
@@ -666,6 +676,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 reason,
                 source,
             } => self.libp2p.goodbye_peer(&peer_id, reason, source),
+            NetworkMessage::ConnectTrustedPeer(enr) => {
+                self.libp2p.dial_trusted_peer(enr);
+            }
+            NetworkMessage::DisconnectTrustedPeer(enr) => {
+                self.libp2p.remove_trusted_peer(enr);
+            }
             NetworkMessage::SubscribeCoreTopics => {
                 if self.subscribed_core_topics() {
                     return;

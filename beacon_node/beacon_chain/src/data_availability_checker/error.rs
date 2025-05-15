@@ -10,7 +10,7 @@ pub enum Error {
         blob_commitment: KzgCommitment,
         block_commitment: KzgCommitment,
     },
-    Unexpected(&'static str),
+    Unexpected(String),
     SszTypes(ssz_types::Error),
     MissingBlobs,
     MissingCustodyColumns,

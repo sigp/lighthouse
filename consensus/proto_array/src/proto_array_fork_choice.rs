@@ -856,8 +856,16 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray::iter_nodes`
-    pub fn iter_nodes<'a>(&'a self, block_root: &Hash256) -> Iter<'a> {
+    pub fn iter_nodes(&self, block_root: &Hash256) -> Iter {
         self.proto_array.iter_nodes(block_root)
+    }
+
+    /// See `ProtoArray::iter_block_roots`
+    pub fn iter_block_roots(
+        &self,
+        block_root: &Hash256,
+    ) -> impl Iterator<Item = (Hash256, Slot)> + use<'_> {
+        self.proto_array.iter_block_roots(block_root)
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
@@ -884,6 +892,11 @@ impl ProtoArrayForkChoice {
     /// Should only be used during database schema migrations.
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
         &mut self.proto_array
+    }
+
+    /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
+    pub fn heads_descended_from_finalization<E: EthSpec>(&self) -> Vec<&ProtoNode> {
+        self.proto_array.heads_descended_from_finalization::<E>()
     }
 }
 
@@ -1121,7 +1134,7 @@ mod test_compute_deltas {
     ///
     /// - `A` (slot 31) is the common descendant.
     /// - `B` (slot 33) descends from `A`, but there is a single skip slot
-    ///     between it and `A`.
+    ///   between it and `A`.
     /// - `C` (slot 32) descends from `A` and conflicts with `B`.
     ///
     /// Imagine that the `B` chain is finalized at epoch 1. This means that the
