@@ -8,6 +8,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::{DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem};
+use tracing::{debug, info};
 use types::{Hash256, Slot};
 
 /// Dummy value to use for the canonical head block root, see below.
