@@ -147,7 +147,7 @@ fn build_rpc_block(
             None,
             block,
             columns.clone(),
-            columns.iter().map(|d| d.index).collect(),
+            columns.iter().map(|d| d.index()).collect(),
             spec,
         )
         .unwrap(),
