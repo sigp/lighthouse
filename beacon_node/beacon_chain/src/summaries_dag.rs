@@ -43,13 +43,6 @@ pub enum Error {
         state_root: Hash256,
         latest_block_root: Hash256,
     },
-    StateSummariesNotContiguous {
-        state_root: Hash256,
-        state_slot: Slot,
-        latest_block_root: Hash256,
-        parent_block_root: Box<Hash256>,
-        parent_block_latest_state_summary: Box<Option<(Slot, Hash256)>>,
-    },
     MissingChildStateRoot(Hash256),
     RequestedSlotAboveSummary {
         starting_state_root: Hash256,
