@@ -2499,12 +2499,13 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     };
 
     // Importing the invalid batch should error.
-    assert!(matches!(
-        beacon_chain
-            .import_historical_block_batch(batch_with_invalid_first_block)
-            .unwrap_err(),
-        HistoricalBlockError::InvalidSignature(_)
-    ));
+    let err = beacon_chain
+        .import_historical_block_batch(batch_with_invalid_first_block)
+        .unwrap_err();
+    match err {
+        HistoricalBlockError::InvalidSignature(_) => {} // ok
+        e => panic!("Unexpected error {e:?}"),
+    }
 
     // Importing the batch with valid signatures should succeed.
     let available_blocks_dup = available_blocks.iter().map(clone_block).collect::<Vec<_>>();

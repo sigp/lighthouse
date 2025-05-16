@@ -298,6 +298,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(pubkey_cache);
         drop(setup_timer);
 
+        let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
+        if !signature_set.verify() {
+            return Err(HistoricalBlockError::InvalidSignature("invalid".to_owned()));
+        }
+        drop(verify_timer);
+        drop(sig_timer);
+
         // Check that the proposer signature in the blobs and data columns is the same as the
         // correct signature in the block.
         blocks_to_import
@@ -312,13 +319,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(())
             })
             .collect::<Result<Vec<_>, _>>()?;
-
-        let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
-        if !signature_set.verify() {
-            return Err(HistoricalBlockError::InvalidSignature("invalid".to_owned()));
-        }
-        drop(verify_timer);
-        drop(sig_timer);
 
         // Write the I/O batches to disk, writing the blocks themselves first, as it's better
         // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
