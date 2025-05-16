@@ -123,7 +123,7 @@ async fn get_block_from_source<T: EthSpec>(
             .unwrap()
             .unwrap();
         let blobs_from_source = source
-            .get_blobs::<T>(block_id, None)
+            .get_blobs::<T>(block_id, None, spec)
             .await
             .unwrap()
             .unwrap()

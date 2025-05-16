@@ -283,6 +283,52 @@ impl BeaconNodeHttpClient {
         }
     }
 
+    pub async fn get_fork_contextual<T, U, Ctx, Meta>(
+        &self,
+        url: U,
+        ctx_constructor: impl Fn(ForkName) -> Ctx,
+    ) -> Result<Option<ForkVersionedResponse<T, Meta>>, Error>
+    where
+        U: IntoUrl,
+        T: ContextDeserialize<'static, Ctx>,
+        Meta: DeserializeOwned,
+        Ctx: Clone,
+    {
+        let response = self
+            .get_response(url, |b| b.accept(Accept::Json))
+            .await
+            .optional()?;
+
+        let Some(resp) = response else {
+            return Ok(None);
+        };
+
+        let bytes = resp.bytes().await?;
+
+        #[derive(serde::Deserialize)]
+        struct Helper {
+            version: ForkName,
+            #[serde(flatten)]
+            metadata: serde_json::Value,
+            data: serde_json::Value,
+        }
+
+        let helper: Helper = serde_json::from_slice(&bytes).map_err(Error::InvalidJson)?;
+
+        let metadata: Meta = serde_json::from_value(helper.metadata).map_err(Error::InvalidJson)?;
+
+        let ctx = ctx_constructor(helper.version);
+
+        let data: T = ContextDeserialize::context_deserialize(helper.data, ctx)
+            .map_err(Error::InvalidJson)?;
+
+        Ok(Some(ForkVersionedResponse {
+            version: helper.version,
+            metadata,
+            data,
+        }))
+    }
+
     /// Perform a HTTP GET request using an 'accept' header, returning `None` on a 404 error.
     pub async fn get_bytes_opt_accept_header<U: IntoUrl>(
         &self,
@@ -1228,6 +1274,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         indices: Option<&[u64]>,
+        spec: &ChainSpec,
     ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<BlobSidecarList<E>>>, Error> {
         let mut path = self.get_blobs_path(block_id)?;
         if let Some(indices) = indices {
@@ -1240,9 +1287,11 @@ impl BeaconNodeHttpClient {
                 .append_pair("indices", &indices_string);
         }
 
-        self.get_opt(path)
-            .await
-            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+        self.get_fork_contextual(path, |fork| {
+            (fork, spec.max_blobs_per_block_by_fork(fork) as usize)
+        })
+        .await
+        .map(|opt| opt.map(BeaconResponse::ForkVersioned))
     }
 
     /// `GET v1/beacon/blinded_blocks/{block_id}`

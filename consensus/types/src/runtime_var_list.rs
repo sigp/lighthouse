@@ -1,5 +1,6 @@
-use crate::{ContextDeserialize, ForkName};
+use crate::ContextDeserialize;
 use derivative::Derivative;
+use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_types::Error;
@@ -218,18 +219,25 @@ where
     }
 }
 
-impl<'de, C> ContextDeserialize<'de, ForkName> for RuntimeVariableList<C>
+impl<'de, C, T> ContextDeserialize<'de, (C, usize)> for RuntimeVariableList<T>
 where
-    C: ContextDeserialize<'de, ForkName>,
+    T: ContextDeserialize<'de, C>,
+    C: Clone,
 {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: (C, usize)) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         // first parse out a Vec<C> using the Vec<C> impl you already have
-        let vec: Vec<C> = Vec::context_deserialize(deserializer, context)?;
-        let len = vec.len();
-        Ok(RuntimeVariableList::from_vec(vec, len))
+        let vec: Vec<T> = Vec::context_deserialize(deserializer, context.0)?;
+        if vec.len() > context.1 {
+            return Err(DeError::custom(format!(
+                "RuntimeVariableList lengh {} exceeds max_len {}",
+                vec.len(),
+                context.1
+            )));
+        }
+        Ok(RuntimeVariableList::from_vec(vec, context.1))
     }
 }
 

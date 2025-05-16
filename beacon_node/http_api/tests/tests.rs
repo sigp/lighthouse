@@ -1750,7 +1750,11 @@ impl ApiTester {
         };
         let result = match self
             .client
-            .get_blobs::<E>(CoreBlockId::Root(block_root), blob_indices.as_deref())
+            .get_blobs::<E>(
+                CoreBlockId::Root(block_root),
+                blob_indices.as_deref(),
+                &self.chain.spec,
+            )
             .await
         {
             Ok(result) => result.unwrap().into_data(),
@@ -1806,7 +1810,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None)
+            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => {
@@ -1844,7 +1848,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None)
+            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => panic!("queries for pre-Deneb slots should fail. got: {result:?}"),

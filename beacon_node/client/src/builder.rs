@@ -461,7 +461,7 @@ where
                 let blobs = if block.message().body().has_blobs() {
                     debug!("Downloading finalized blobs");
                     if let Some(response) = remote
-                        .get_blobs::<E>(BlockId::Root(block_root), None)
+                        .get_blobs::<E>(BlockId::Root(block_root), None, &spec)
                         .await
                         .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
                     {
