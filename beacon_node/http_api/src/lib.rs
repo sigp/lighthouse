@@ -47,9 +47,9 @@ use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use either::Either;
 use eth2::types::{
-    self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
-    ValidatorStatus, ValidatorsRequestBody,
+    self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
+    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody,
+    ValidatorId, ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
@@ -1420,21 +1420,30 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp::body::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
         .then(
-            move |block_contents: PublishBlockRequest<T::EthSpec>,
+            move |value: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
+                        &value,
+                        consensus_version,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                    })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local_from_publish_request(block_contents),
+                        ProvenancedBlock::local_from_publish_request(request),
                         chain,
                         &network_tx,
                         BroadcastValidation::default(),
@@ -1490,22 +1499,32 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp::body::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  block_contents: PublishBlockRequest<T::EthSpec>,
+                  value: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
+                        &value,
+                        consensus_version,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                    })?;
+
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local_from_publish_request(block_contents),
+                        ProvenancedBlock::local_from_publish_request(request),
                         chain,
                         &network_tx,
                         validation_level.broadcast_validation,

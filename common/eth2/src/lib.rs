@@ -1040,8 +1040,14 @@ impl BeaconNodeHttpClient {
             .push("beacon")
             .push("blocks");
 
-        self.post_with_timeout(path, block_contents, self.timeouts.proposal)
-            .await?;
+        let fork_name = block_contents.signed_block().fork_name_unchecked();
+        self.post_generic_with_consensus_version(
+            path,
+            block_contents,
+            Some(self.timeouts.proposal),
+            fork_name,
+        )
+        .await?;
 
         Ok(())
     }

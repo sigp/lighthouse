@@ -1603,7 +1603,7 @@ mod tests {
     }
 }
 
-#[derive(Debug, Encode, Serialize, Deserialize)]
+#[derive(Debug, Encode, Serialize)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
@@ -1616,7 +1616,7 @@ pub type JsonProduceBlockV3Response<E> =
     ForkVersionedResponse<ProduceBlockV3Response<E>, ProduceBlockV3Metadata>;
 
 /// A wrapper over a [`BeaconBlock`] or a [`BlockContents`].
-#[derive(Debug, Encode, Serialize, Deserialize)]
+#[derive(Debug, Encode, Serialize)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
@@ -1808,13 +1808,33 @@ impl TryFrom<&HeaderMap> for ProduceBlockV3Metadata {
 }
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBlockContents`].
-#[derive(Clone, Debug, Encode, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Encode, Serialize)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
 pub enum PublishBlockRequest<E: EthSpec> {
     BlockContents(SignedBlockContents<E>),
     Block(Arc<SignedBeaconBlock<E>>),
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for PublishBlockRequest<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value =
+            serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+
+        SignedBlockContents::<E>::context_deserialize(&value, context)
+            .map(PublishBlockRequest::BlockContents)
+            .or_else(|_| {
+                Arc::<SignedBeaconBlock<E>>::context_deserialize(&value, context)
+                    .map(PublishBlockRequest::Block)
+            })
+            .map_err(|_| {
+                serde::de::Error::custom("could not match any variant of PublishBlockRequest")
+            })
+    }
 }
 
 impl<E: EthSpec> PublishBlockRequest<E> {
@@ -1893,7 +1913,7 @@ impl<E: EthSpec> From<SignedBlockContentsTuple<E>> for PublishBlockRequest<E> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Encode)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedBlockContents<E: EthSpec> {
     pub signed_block: Arc<SignedBeaconBlock<E>>,
@@ -1902,7 +1922,33 @@ pub struct SignedBlockContents<E: EthSpec> {
     pub blobs: BlobsList<E>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Encode)]
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedBlockContents<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(bound = "E: EthSpec")]
+        struct Helper<E: EthSpec> {
+            signed_block: serde_json::Value,
+            kzg_proofs: KzgProofs<E>,
+            #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+            blobs: BlobsList<E>,
+        }
+        let helper = Helper::<E>::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+
+        let block = SignedBeaconBlock::context_deserialize(helper.signed_block, context)
+            .map_err(serde::de::Error::custom)?;
+
+        Ok(Self {
+            signed_block: Arc::new(block),
+            kzg_proofs: helper.kzg_proofs,
+            blobs: helper.blobs,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Encode)]
 #[serde(bound = "E: EthSpec")]
 pub struct BlockContents<E: EthSpec> {
     pub block: BeaconBlock<E>,
@@ -2195,6 +2241,73 @@ mod test {
         let pubkey_str = "\"0xb824b5ede33a7b05a378a84b183b4bc7e7db894ce48b659f150c97d359edca2f503081d6678d1200f582ec7cafa9caf2\"";
         let y: ValidatorId = serde_json::from_str(pubkey_str).unwrap();
         assert_eq!(serde_json::to_string(&y).unwrap(), pubkey_str);
+    }
+
+    #[test]
+    fn test_publish_block_request_context_deserialize() {
+        let round_trip_test = |request: PublishBlockRequest<MainnetEthSpec>| {
+            let fork_name = request.signed_block().fork_name_unchecked();
+            let json_str = serde_json::to_string(&request).unwrap();
+            let mut de = serde_json::Deserializer::from_str(&json_str);
+            let deserialized_request =
+                PublishBlockRequest::<MainnetEthSpec>::context_deserialize(&mut de, fork_name)
+                    .unwrap();
+            assert_eq!(request, deserialized_request);
+        };
+
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        for fork_name in ForkName::list_all() {
+            let signed_beacon_block =
+                map_fork_name!(fork_name, SignedBeaconBlock, <_>::random_for_test(rng));
+            let request = if fork_name.deneb_enabled() {
+                let kzg_proofs = KzgProofs::<MainnetEthSpec>::random_for_test(rng);
+                let blobs = BlobsList::<MainnetEthSpec>::random_for_test(rng);
+                let block_contents = SignedBlockContents {
+                    signed_block: Arc::new(signed_beacon_block),
+                    kzg_proofs,
+                    blobs,
+                };
+                PublishBlockRequest::BlockContents(block_contents)
+            } else {
+                PublishBlockRequest::Block(Arc::new(signed_beacon_block))
+            };
+            round_trip_test(request);
+            println!("fork_name: {:?} PASSED", fork_name);
+        }
+    }
+
+    #[test]
+    fn test_signed_block_contents_context_deserialize() {
+        let round_trip_test = |contents: SignedBlockContents<MainnetEthSpec>| {
+            let fork_name = contents.signed_block.fork_name_unchecked();
+            let json_str = serde_json::to_string(&contents).unwrap();
+            let mut de = serde_json::Deserializer::from_str(&json_str);
+            let deserialized_contents =
+                SignedBlockContents::<MainnetEthSpec>::context_deserialize(&mut de, fork_name)
+                    .unwrap();
+            assert_eq!(contents, deserialized_contents);
+        };
+
+        let mut fork_name = ForkName::Deneb;
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        loop {
+            let signed_beacon_block =
+                map_fork_name!(fork_name, SignedBeaconBlock, <_>::random_for_test(rng));
+            let kzg_proofs = KzgProofs::<MainnetEthSpec>::random_for_test(rng);
+            let blobs = BlobsList::<MainnetEthSpec>::random_for_test(rng);
+            let block_contents = SignedBlockContents {
+                signed_block: Arc::new(signed_beacon_block),
+                kzg_proofs,
+                blobs,
+            };
+            round_trip_test(block_contents);
+            println!("fork_name: {:?} PASSED", fork_name);
+            if let Some(next_fork_name) = fork_name.next_fork() {
+                fork_name = next_fork_name;
+            } else {
+                break;
+            }
+        }
     }
 
     #[test]
