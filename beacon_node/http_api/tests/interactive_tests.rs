@@ -5,7 +5,6 @@ use beacon_chain::{
     ChainConfig,
 };
 use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
-use either::Either;
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
@@ -894,7 +893,7 @@ async fn queue_attestations_from_http() {
     let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
 
     // Make attestations to the block and POST them to the beacon node on a background thread.
-    let attestation_future = if fork_name.electra_enabled() {
+    let attestation_future = {
         let single_attestations = harness
             .make_single_attestations(
                 &all_validators,
@@ -907,30 +906,9 @@ async fn queue_attestations_from_http() {
             .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
             .collect::<Vec<_>>();
 
-        let attestations = Either::Right(single_attestations);
-
         tokio::spawn(async move {
             client
-                .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
-                .await
-                .expect("attestations should be processed successfully")
-        })
-    } else {
-        let attestations = harness
-            .make_unaggregated_attestations(
-                &all_validators,
-                &post_state,
-                block.0.state_root(),
-                block_root.into(),
-                attestation_slot,
-            )
-            .into_iter()
-            .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
-            .collect::<Vec<_>>();
-
-        tokio::spawn(async move {
-            client
-                .post_beacon_pool_attestations_v1(&attestations)
+                .post_beacon_pool_attestations_v2::<E>(single_attestations, fork_name)
                 .await
                 .expect("attestations should be processed successfully")
         })
