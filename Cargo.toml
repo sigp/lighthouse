@@ -96,11 +96,11 @@ members = [
     "validator_client/http_api",
     "validator_client/http_metrics",
     "validator_client/initialized_validators",
+    "validator_client/lighthouse_validator_store",
     "validator_client/signing_method",
     "validator_client/slashing_protection",
     "validator_client/validator_metrics",
     "validator_client/validator_services",
-    "validator_client/validator_store",
 
     "validator_manager",
 ]
@@ -148,7 +148,7 @@ fnv = "1"
 fs2 = "0.4"
 futures = "0.3"
 graffiti_file = { path = "validator_client/graffiti_file" }
-gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "7a36e4c" }
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "61b2820" }
 hex = "0.4"
 hashlink = "0.9.0"
 hyper = "1"
@@ -161,6 +161,7 @@ maplit = "1"
 milhouse = "0.5"
 mockito = "1.5.0"
 num_cpus = "1"
+once_cell = "1.17.1"
 parking_lot = "0.12"
 paste = "1"
 prometheus = { version = "0.13", default-features = false }
@@ -227,7 +228,6 @@ compare_fields = { path = "common/compare_fields" }
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
-validator_services = { path = "validator_client/validator_services" }
 environment = { path = "lighthouse/environment" }
 eth1 = { path = "beacon_node/eth1" }
 eth1_test_rig = { path = "testing/eth1_test_rig" }
@@ -249,6 +249,7 @@ int_to_bytes = { path = "consensus/int_to_bytes" }
 kzg = { path = "crypto/kzg" }
 metrics = { path = "common/metrics" }
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
+lighthouse_validator_store = { path = "validator_client/lighthouse_validator_store" }
 lighthouse_version = { path = "common/lighthouse_version" }
 workspace_members = { path = "common/workspace_members" }
 lockfile = { path = "common/lockfile" }
@@ -280,6 +281,7 @@ validator_dir = { path = "common/validator_dir" }
 validator_http_api = { path = "validator_client/http_api" }
 validator_http_metrics = { path = "validator_client/http_metrics" }
 validator_metrics = { path = "validator_client/validator_metrics" }
+validator_services = { path = "validator_client/validator_services" }
 validator_store = { path = "validator_client/validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
 warp_utils = { path = "common/warp_utils" }

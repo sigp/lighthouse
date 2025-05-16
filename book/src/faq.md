@@ -240,7 +240,7 @@ Another possible reason for missing the head vote is due to a chain "reorg". A r
 
 ### <a name="vc-exit"></a> Can I submit a voluntary exit message without running a beacon node?
 
-Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/docs/validator_voluntary_exit.md).
+Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/docs/voluntary-exit.md).
 
 It is also noted that you can submit your BLS-to-execution-change message to update your withdrawal credentials from type `0x00` to `0x01` using the same link.
 
