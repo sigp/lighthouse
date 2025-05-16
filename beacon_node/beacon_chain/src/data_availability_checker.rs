@@ -731,7 +731,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AvailableBlockData<E: EthSpec> {
     /// Block is pre-Deneb or has zero blobs
     NoData,
@@ -742,7 +742,7 @@ pub enum AvailableBlockData<E: EthSpec> {
 }
 
 /// A fully available block that is ready to be imported into fork choice.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
@@ -822,23 +822,6 @@ impl<E: EthSpec> AvailableBlock<E> {
                 match_block_and_data_columns(&self.block, data_columns.iter())
             }
         }
-    }
-
-    /// Only used for testing
-    pub fn __clone_without_recv(&self) -> Result<Self, String> {
-        Ok(Self {
-            block_root: self.block_root,
-            block: self.block.clone(),
-            blob_data: match &self.blob_data {
-                AvailableBlockData::NoData => AvailableBlockData::NoData,
-                AvailableBlockData::Blobs(blobs) => AvailableBlockData::Blobs(blobs.clone()),
-                AvailableBlockData::DataColumns(data_columns) => {
-                    AvailableBlockData::DataColumns(data_columns.clone())
-                }
-            },
-            blobs_available_timestamp: self.blobs_available_timestamp,
-            spec: self.spec.clone(),
-        })
     }
 }
 

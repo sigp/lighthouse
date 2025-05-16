@@ -3678,5 +3678,5 @@ fn get_blocks(
 }
 
 fn clone_block<E: EthSpec>(block: &AvailableBlock<E>) -> AvailableBlock<E> {
-    block.__clone_without_recv().unwrap()
+    block.clone()
 }

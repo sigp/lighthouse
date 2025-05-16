@@ -155,24 +155,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         mut blocks: Vec<AvailableBlock<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
-        // Verify that blobs or data columns signatures match
-        //
-        // TODO(das): We don't raise the `matching_sidecar_signatures_error` yet. We have to wait to
-        // return an invalid block signature error first. We may want to refactor this order in a
-        // later code change.
-        let matching_sidecar_signatures_error = blocks
-            .iter()
-            .map(|block| {
-                if let Err(indices) = block.match_block_and_blobs() {
-                    return Err(HistoricalBlockError::InvalidBlobsSignature(indices));
-                }
-                if let Err(indices) = block.match_block_and_data_columns() {
-                    return Err(HistoricalBlockError::InvalidDataColumnsSignature(indices));
-                }
-                Ok(())
-            })
-            .collect::<Result<Vec<_>, _>>();
-
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
@@ -209,7 +191,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
-        for available_block in blocks_to_import.into_iter().rev() {
+        for available_block in blocks_to_import.iter().cloned().rev() {
             let (block_root, block, block_data) = available_block.deconstruct();
 
             if !self.store.get_config().prune_payloads {
@@ -318,7 +300,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Check that the proposer signature in the blobs and data columns is the same as the
         // correct signature in the block.
-        matching_sidecar_signatures_error?;
+        blocks_to_import
+            .iter()
+            .map(|block| {
+                if let Err(indices) = block.match_block_and_blobs() {
+                    return Err(HistoricalBlockError::InvalidBlobsSignature(indices));
+                }
+                if let Err(indices) = block.match_block_and_data_columns() {
+                    return Err(HistoricalBlockError::InvalidDataColumnsSignature(indices));
+                }
+                Ok(())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
         if !signature_set.verify() {
