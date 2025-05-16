@@ -68,6 +68,7 @@ const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
 const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_DEFAULT_TIMEOUT_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
@@ -307,6 +308,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                     get_debug_beacon_states: slot_duration / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
                     get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
                     get_validator_block: slot_duration / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
+                    default: slot_duration / HTTP_DEFAULT_TIMEOUT_QUOTIENT,
                 }
             } else {
                 Timeouts::set_all(slot_duration.saturating_mul(config.long_timeouts_multiplier))

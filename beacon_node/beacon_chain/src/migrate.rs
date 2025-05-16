@@ -572,7 +572,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         if state_summaries_dag_roots.len() > 1 {
             warn!(
                 state_summaries_dag_roots = ?state_summaries_dag_roots,
-                "Prune state summaries dag found more than one root"
+                error = "summaries dag found more than one root",
+                "Notify the devs your hot DB has some inconsistency. Pruning will fix it but devs want to know about it",
             );
         }
 

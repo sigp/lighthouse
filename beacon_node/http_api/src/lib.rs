@@ -3241,13 +3241,14 @@ pub fn serve<T: BeaconChainTypes>(
                                 let direction = dir.into();
                                 let state = peer_info.connection_status().clone().into();
 
-                                let state_matches = query.state.as_ref().is_none_or(|states| {
-                                    states.iter().any(|state_param| *state_param == state)
-                                });
-                                let direction_matches =
-                                    query.direction.as_ref().is_none_or(|directions| {
-                                        directions.iter().any(|dir_param| *dir_param == direction)
-                                    });
+                                let state_matches = query
+                                    .state
+                                    .as_ref()
+                                    .is_none_or(|states| states.contains(&state));
+                                let direction_matches = query
+                                    .direction
+                                    .as_ref()
+                                    .is_none_or(|directions| directions.contains(&direction));
 
                                 if state_matches && direction_matches {
                                     peers.push(api_types::PeerData {

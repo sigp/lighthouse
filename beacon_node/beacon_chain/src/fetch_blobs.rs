@@ -49,7 +49,7 @@ pub enum EngineGetBlobsOutput<E: EthSpec> {
 #[derive(Debug)]
 pub enum FetchEngineBlobError {
     BeaconStateError(BeaconStateError),
-    BeaconChainError(BeaconChainError),
+    BeaconChainError(Box<BeaconChainError>),
     BlobProcessingError(BlockError),
     BlobSidecarError(BlobSidecarError),
     DataColumnSidecarError(DataColumnSidecarError),
@@ -320,7 +320,7 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
             "compute_and_publish_data_columns",
         )
         .await
-        .map_err(FetchEngineBlobError::BeaconChainError)
+        .map_err(|e| FetchEngineBlobError::BeaconChainError(Box::new(e)))
         .and_then(|r| r)
 }
 
