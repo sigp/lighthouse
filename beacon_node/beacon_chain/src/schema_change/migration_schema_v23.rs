@@ -8,6 +8,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::{DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem};
+use tracing::{debug, info};
 use types::{Hash256, Slot};
 
 /// Dummy value to use for the canonical head block root, see below.
@@ -16,6 +17,8 @@ pub const DUMMY_CANONICAL_HEAD_BLOCK_ROOT: Hash256 = Hash256::repeat_byte(0xff);
 pub fn upgrade_to_v23<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
+    info!("Upgrading DB schema from v22 to v23");
+
     // 1) Set the head-tracker to empty
     let Some(persisted_beacon_chain_v22) =
         db.get_item::<PersistedBeaconChainV22>(&BEACON_CHAIN_DB_KEY)?
@@ -37,10 +40,24 @@ pub fn upgrade_to_v23<T: BeaconChainTypes>(
         .hot_db
         .iter_column_keys::<Hash256>(DBColumn::BeaconStateTemporary)
     {
+        let state_root = state_root_result?;
+        debug!(
+            ?state_root,
+            "Deleting temporary state flag on v23 schema migration"
+        );
         ops.push(KeyValueStoreOp::DeleteKey(
             DBColumn::BeaconStateTemporary,
-            state_root_result?.as_slice().to_vec(),
+            state_root.as_slice().to_vec(),
         ));
+        // Here we SHOULD delete the items for key `state_root` in columns `BeaconState` and
+        // `BeaconStateSummary`. However, in the event we have dangling temporary states at the time
+        // of the migration, the first pruning routine will prune them. They will be a tree branch /
+        // root not part of the finalized tree and trigger a warning log once.
+        //
+        // We believe there may be race conditions concerning temporary flags where a necessary
+        // canonical state is marked as temporary. In current stable, a restart with that DB will
+        // corrupt the DB. In the unlikely case this happens we choose to leave the states and
+        // allow pruning to clean them.
     }
 
     Ok(ops)

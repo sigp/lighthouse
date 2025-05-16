@@ -8384,6 +8384,7 @@ dependencies = [
  "sensitive_url",
  "serde_json",
  "tokio",
+ "tracing",
  "tracing-subscriber",
  "types",
 ]

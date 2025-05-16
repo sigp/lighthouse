@@ -40,6 +40,16 @@ impl VoluntaryExit {
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
     ) -> SignedVoluntaryExit {
+        let domain = self.get_domain(genesis_validators_root, spec);
+
+        let message = self.signing_root(domain);
+        SignedVoluntaryExit {
+            message: self,
+            signature: secret_key.sign(message),
+        }
+    }
+
+    pub fn get_domain(&self, genesis_validators_root: Hash256, spec: &ChainSpec) -> Hash256 {
         let fork_name = spec.fork_name_at_epoch(self.epoch);
         let fork_version = if fork_name.deneb_enabled() {
             // EIP-7044
@@ -47,14 +57,7 @@ impl VoluntaryExit {
         } else {
             spec.fork_version_for_name(fork_name)
         };
-        let domain =
-            spec.compute_domain(Domain::VoluntaryExit, fork_version, genesis_validators_root);
-
-        let message = self.signing_root(domain);
-        SignedVoluntaryExit {
-            message: self,
-            signature: secret_key.sign(message),
-        }
+        spec.compute_domain(Domain::VoluntaryExit, fork_version, genesis_validators_root)
     }
 }
 
