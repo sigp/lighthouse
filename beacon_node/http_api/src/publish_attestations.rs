@@ -57,7 +57,7 @@ use types::SingleAttestation;
 pub enum Error {
     Validation(AttestationError),
     Publication,
-    ForkChoice(#[allow(dead_code)] BeaconChainError),
+    ForkChoice(#[allow(dead_code)] Box<BeaconChainError>),
     AggregationPool(#[allow(dead_code)] AttestationError),
     ReprocessDisabled,
     ReprocessFull,
@@ -117,7 +117,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     }
 
     if let Err(e) = fc_result {
-        Err(Error::ForkChoice(e))
+        Err(Error::ForkChoice(Box::new(e)))
     } else if let Err(e) = naive_aggregation_result {
         Err(Error::AggregationPool(e))
     } else {
