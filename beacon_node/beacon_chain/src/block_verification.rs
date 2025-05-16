@@ -657,15 +657,11 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     // don't match. This code attributes fault to the blobs / data columns if they don't match the
     // block
     for (_, block) in &chain_segment {
-        if let Some(indices) = block.non_matching_blobs_signed_headers() {
-            if !indices.is_empty() {
-                return Err(BlockError::InvalidBlobsSignature(indices));
-            }
+        if let Err(indices) = block.match_block_and_blobs() {
+            return Err(BlockError::InvalidBlobsSignature(indices));
         }
-        if let Some(indices) = block.non_matching_custody_columns_signed_headers() {
-            if !indices.is_empty() {
-                return Err(BlockError::InvalidDataColumnsSignature(indices));
-            }
+        if let Err(indices) = block.match_block_and_data_columns() {
+            return Err(BlockError::InvalidDataColumnsSignature(indices));
         }
     }
 

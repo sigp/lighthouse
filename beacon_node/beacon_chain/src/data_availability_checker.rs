@@ -1,7 +1,7 @@
 use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
 use crate::block_verification_types::{
-    non_matching_blobs_block_signature, non_matching_custody_columns_block_signature,
-    AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
+    match_block_and_blobs, match_block_and_data_columns, AvailabilityPendingExecutedBlock,
+    AvailableExecutedBlock, RpcBlock,
 };
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
@@ -802,23 +802,25 @@ impl<E: EthSpec> AvailableBlock<E> {
         (block_root, block, blob_data)
     }
 
-    pub fn non_matching_blobs_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+    /// Returns Err if any of its inner BlobSidecar's signed_block_header does not match the inner
+    /// block
+    pub fn match_block_and_blobs(&self) -> Result<(), Vec<u64>> {
         match &self.blob_data {
-            AvailableBlockData::NoData => None,
-            AvailableBlockData::Blobs(blobs) => {
-                Some(non_matching_blobs_block_signature(&self.block, blobs))
-            }
-            AvailableBlockData::DataColumns(_) => None,
+            AvailableBlockData::NoData => Ok(()),
+            AvailableBlockData::Blobs(blobs) => match_block_and_blobs(&self.block, blobs),
+            AvailableBlockData::DataColumns(_) => Ok(()),
         }
     }
 
-    pub fn non_matching_custody_columns_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+    /// Returns Err if any of its inner DataColumnSidecar's signed_block_header does not match the
+    /// inner block
+    pub fn match_block_and_data_columns(&self) -> Result<(), Vec<ColumnIndex>> {
         match &self.blob_data {
-            AvailableBlockData::NoData => None,
-            AvailableBlockData::Blobs(_) => None,
-            AvailableBlockData::DataColumns(data_columns) => Some(
-                non_matching_custody_columns_block_signature(&self.block, data_columns.iter()),
-            ),
+            AvailableBlockData::NoData => Ok(()),
+            AvailableBlockData::Blobs(_) => Ok(()),
+            AvailableBlockData::DataColumns(data_columns) => {
+                match_block_and_data_columns(&self.block, data_columns.iter())
+            }
         }
     }
 

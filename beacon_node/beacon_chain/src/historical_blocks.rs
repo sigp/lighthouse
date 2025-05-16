@@ -163,15 +163,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let matching_sidecar_signatures_error = blocks
             .iter()
             .map(|block| {
-                if let Some(indices) = block.non_matching_blobs_signed_headers() {
-                    if !indices.is_empty() {
-                        return Err(HistoricalBlockError::InvalidBlobsSignature(indices));
-                    }
+                if let Err(indices) = block.match_block_and_blobs() {
+                    return Err(HistoricalBlockError::InvalidBlobsSignature(indices));
                 }
-                if let Some(indices) = block.non_matching_custody_columns_signed_headers() {
-                    if !indices.is_empty() {
-                        return Err(HistoricalBlockError::InvalidDataColumnsSignature(indices));
-                    }
+                if let Err(indices) = block.match_block_and_data_columns() {
+                    return Err(HistoricalBlockError::InvalidDataColumnsSignature(indices));
                 }
                 Ok(())
             })

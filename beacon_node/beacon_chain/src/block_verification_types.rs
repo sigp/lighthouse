@@ -82,30 +82,32 @@ impl<E: EthSpec> RpcBlock<E> {
         }
     }
 
-    pub fn non_matching_blobs_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+    /// Returns Err if any of its inner BlobSidecar's signed_block_header does not match the inner
+    /// block
+    pub fn match_block_and_blobs(&self) -> Result<(), Vec<u64>> {
         match &self.block {
-            RpcBlockInner::Block(_) => None,
-            RpcBlockInner::BlockAndBlobs(block, blobs) => {
-                Some(non_matching_blobs_block_signature(block, blobs))
-            }
-            RpcBlockInner::BlockAndCustodyColumns { .. } => None,
+            RpcBlockInner::Block(_) => Ok(()),
+            RpcBlockInner::BlockAndBlobs(block, blobs) => match_block_and_blobs(block, blobs),
+            RpcBlockInner::BlockAndCustodyColumns { .. } => Ok(()),
         }
     }
 
-    pub fn non_matching_custody_columns_signed_headers(&self) -> Option<Vec<ColumnIndex>> {
+    /// Returns Err if any of its inner DataColumnSidecar's signed_block_header does not match the
+    /// inner block
+    pub fn match_block_and_data_columns(&self) -> Result<(), Vec<ColumnIndex>> {
         match &self.block {
-            RpcBlockInner::Block(_) => None,
-            RpcBlockInner::BlockAndBlobs(..) => None,
+            RpcBlockInner::Block(_) => Ok(()),
+            RpcBlockInner::BlockAndBlobs(..) => Ok(()),
             RpcBlockInner::BlockAndCustodyColumns {
                 block,
                 data_columns,
                 ..
-            } => Some(non_matching_custody_columns_block_signature(
+            } => match_block_and_data_columns(
                 block,
                 data_columns
                     .iter()
                     .map(|data_column| data_column.as_data_column()),
-            )),
+            ),
         }
     }
 }
@@ -585,23 +587,35 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
     }
 }
 
-pub fn non_matching_blobs_block_signature<E: EthSpec>(
+/// Returns Err if any of `blobs` BlobSidecar's signed_block_header does not match
+/// block
+pub fn match_block_and_blobs<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     blobs: &BlobSidecarList<E>,
-) -> Vec<ColumnIndex> {
-    blobs
+) -> Result<(), Vec<u64>> {
+    let indices = blobs
         .iter()
         .filter(|blob| &blob.signed_block_header.signature != block.signature())
         .map(|blob| blob.index)
-        .collect()
+        .collect::<Vec<_>>();
+    if indices.is_empty() {
+        Ok(())
+    } else {
+        Err(indices)
+    }
 }
 
-pub fn non_matching_custody_columns_block_signature<'a, E: EthSpec>(
+pub fn match_block_and_data_columns<'a, E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     data_columns: impl Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
-) -> Vec<ColumnIndex> {
-    data_columns
+) -> Result<(), Vec<ColumnIndex>> {
+    let indices = data_columns
         .filter(|column| &column.signed_block_header.signature != block.signature())
         .map(|column| column.index)
-        .collect()
+        .collect::<Vec<_>>();
+    if indices.is_empty() {
+        Ok(())
+    } else {
+        Err(indices)
+    }
 }
