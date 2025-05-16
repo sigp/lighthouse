@@ -1740,7 +1740,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let require_version = match endpoint_version {
                         V1 => ResponseIncludesVersion::No,
-                        V2 | V3 => ResponseIncludesVersion::Yes(fork_name),
+                        V2 => ResponseIncludesVersion::Yes(fork_name),
                         _ => return Err(unsupported_version_rejection(endpoint_version)),
                     };
 
@@ -1819,7 +1819,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let require_version = match endpoint_version {
                         V1 => ResponseIncludesVersion::No,
-                        V2 | V3 => ResponseIncludesVersion::Yes(fork_name),
+                        V2 => ResponseIncludesVersion::Yes(fork_name),
                         _ => return Err(unsupported_version_rejection(endpoint_version)),
                     };
 
@@ -2089,7 +2089,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let require_version = match endpoint_version {
                         V1 => ResponseIncludesVersion::No,
-                        V2 | V3 => ResponseIncludesVersion::Yes(fork_name),
+                        V2 => ResponseIncludesVersion::Yes(fork_name),
                         _ => return Err(unsupported_version_rejection(endpoint_version)),
                     };
 
@@ -2184,7 +2184,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                         let require_version = match endpoint_version {
                             V1 => ResponseIncludesVersion::No,
-                            V2 | V3 => ResponseIncludesVersion::Yes(fork_name),
+                            V2 => ResponseIncludesVersion::Yes(fork_name),
                             _ => return Err(unsupported_version_rejection(endpoint_version)),
                         };
 

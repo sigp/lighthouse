@@ -15,12 +15,12 @@ where
     }
 }
 
-impl<'de, C, T> ContextDeserialize<'de, T> for Vec<C>
+impl<'de, T, C> ContextDeserialize<'de, C> for Vec<T>
 where
-    C: ContextDeserialize<'de, T>,
-    T: Clone,
+    T: ContextDeserialize<'de, C>,
+    C: Clone,
 {
-    fn context_deserialize<D>(deserializer: D, context: T) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: C) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -58,23 +58,23 @@ where
         }
 
         // A little seed that hands the deserializer + context into C::context_deserialize
-        struct ContextSeed<C, T> {
-            context: T,
-            _marker: PhantomData<C>,
+        struct ContextSeed<T, C> {
+            context: C,
+            _marker: PhantomData<T>,
         }
 
-        impl<'de, C, T> DeserializeSeed<'de> for ContextSeed<C, T>
+        impl<'de, T, C> DeserializeSeed<'de> for ContextSeed<T, C>
         where
-            C: ContextDeserialize<'de, T>,
-            T: Clone,
+            T: ContextDeserialize<'de, C>,
+            C: Clone,
         {
-            type Value = C;
+            type Value = T;
 
-            fn deserialize<D>(self, deserializer: D) -> Result<C, D::Error>
+            fn deserialize<D>(self, deserializer: D) -> Result<T, D::Error>
             where
                 D: Deserializer<'de>,
             {
-                C::context_deserialize(deserializer, self.context)
+                T::context_deserialize(deserializer, self.context)
             }
         }
 
