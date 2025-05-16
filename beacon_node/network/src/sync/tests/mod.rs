@@ -93,6 +93,7 @@ pub fn init_tracing() {
     });
 }
 
+// CILogWriter writes logs to separate files for each test and each fork.
 struct CILogWriter;
 
 impl<'a> MakeWriter<'a> for CILogWriter {
