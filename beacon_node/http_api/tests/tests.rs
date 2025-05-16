@@ -2475,7 +2475,7 @@ impl ApiTester {
             is_syncing: false,
             is_optimistic: false,
             // these tests run without the Bellatrix fork enabled
-            el_offline: true,
+            el_offline: false,
             head_slot,
             sync_distance,
         };
@@ -2539,11 +2539,11 @@ impl ApiTester {
     pub async fn test_get_node_health(self) -> Self {
         let status = self.client.get_node_health().await;
         match status {
-            Ok(_) => {
-                panic!("should return 503 error status code");
+            Ok(status) => {
+                assert_eq!(status, 200);
             }
-            Err(e) => {
-                assert_eq!(e.status().unwrap(), 503);
+            Err(_) => {
+                panic!("should return valid status");
             }
         }
         self

@@ -56,7 +56,7 @@ pub enum Error {
     /// The `reqwest` client raised an error.
     HttpClient(PrettyReqwestError),
     /// The `reqwest_eventsource` client raised an error.
-    SseClient(reqwest_eventsource::Error),
+    SseClient(Box<reqwest_eventsource::Error>),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
     /// The server returned an error message with an array of errors.
@@ -99,7 +99,7 @@ impl Error {
         match self {
             Error::HttpClient(error) => error.inner().status(),
             Error::SseClient(error) => {
-                if let reqwest_eventsource::Error::InvalidStatusCode(status, _) = error {
+                if let reqwest_eventsource::Error::InvalidStatusCode(status, _) = error.as_ref() {
                     Some(*status)
                 } else {
                     None
@@ -2693,7 +2693,7 @@ impl BeaconNodeHttpClient {
         while let Some(event) = es.next().await {
             match event {
                 Ok(Event::Open) => break,
-                Err(err) => return Err(Error::SseClient(err)),
+                Err(err) => return Err(Error::SseClient(err.into())),
                 // This should never happen as we are guaranteed to get the
                 // Open event before any message starts coming through.
                 Ok(Event::Message(_)) => continue,
@@ -2705,7 +2705,7 @@ impl BeaconNodeHttpClient {
                 Ok(Event::Message(message)) => {
                     Some(EventKind::from_sse_bytes(&message.event, &message.data))
                 }
-                Err(err) => Some(Err(Error::SseClient(err))),
+                Err(err) => Some(Err(Error::SseClient(err.into()))),
             }
         })))
     }
