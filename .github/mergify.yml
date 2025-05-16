@@ -23,10 +23,10 @@ pull_request_rules:
     conditions:
       - -closed
       - or:
-          - check-failure=test-suite-success
           - check-skipped=test-suite-success
-          - check-failure=local-testnet-success
           - check-skipped=local-testnet-success
+          - check-failure=test-suite-success
+          - check-failure=local-testnet-success
     actions:
       comment:
         message: Some required checks have failed. Could you please take a look @{{author}}? 🙏
@@ -42,11 +42,10 @@ pull_request_rules:
       - -draft
       - label=waiting-on-author
       - -conflict
-      # Need to be the logical opposite of the above rule `Ask to resolve CI failures`, otherwise mergify will run into an infinite loop.
-      - check-failure!=test-suite-success
-      - check-skipped!=test-suite-success
-      - check-failure!=local-testnet-success
-      - check-skipped!=local-testnet-success
+      # Unfortunately, it doesn't look like there's an easy way to check for PRs pending
+      # CI workflows approvals.
+      - check-success=local-testnet-success
+      - check-success=local-testnet-success
       - "#review-requested > 0"
     actions:
       label:
