@@ -44,7 +44,7 @@ pull_request_rules:
       - -conflict
       # Unfortunately, it doesn't look like there's an easy way to check for PRs pending
       # CI workflows approvals.
-      - check-success=local-testnet-success
+      - check-success=test-suite-success
       - check-success=local-testnet-success
       - "#review-requested > 0"
     actions:
