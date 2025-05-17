@@ -7,9 +7,10 @@ pub fn pubkey_to_validator_index<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     pubkey: &PublicKeyBytes,
-) -> Result<Option<usize>, BeaconChainError> {
+) -> Result<Option<usize>, Box<BeaconChainError>> {
     chain
-        .validator_index(pubkey)?
+        .validator_index(pubkey)
+        .map_err(Box::new)?
         .filter(|&index| {
             state
                 .validators()

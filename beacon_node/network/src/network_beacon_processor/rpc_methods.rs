@@ -66,7 +66,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn check_peer_relevance(
         &self,
         remote: &StatusMessage,
-    ) -> Result<Option<String>, BeaconChainError> {
+    ) -> Result<Option<String>, Box<BeaconChainError>> {
         let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
@@ -112,7 +112,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if self
                     .chain
                     .block_root_at_slot(remote_finalized_slot, WhenSlotSkipped::Prev)
-                    .map(|root_opt| root_opt != Some(remote.finalized_root))?
+                    .map(|root_opt| root_opt != Some(remote.finalized_root))
+                    .map_err(Box::new)?
                 {
                     Some("Different finalized chain".to_string())
                 } else {
