@@ -1,7 +1,8 @@
 use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{
-    BeaconBlockHeader, BeaconStateError, Epoch, EthSpec, Hash256, RuntimeVariableList,
+    BeaconBlockHeader, BeaconStateError, Epoch, EthSpec, ForkName, Hash256, RuntimeVariableList,
     SignedBeaconBlockHeader, Slot,
 };
 use bls::Signature;
@@ -84,6 +85,7 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[context_deserialize(ForkName)]
 pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: ColumnIndex,
