@@ -29,7 +29,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                         .enumerate()
                         // filter by validator id(s) if provided
                         .filter(|(index, (validator, _))| {
-                            ids_filter_set.as_ref().map_or(true, |ids_set| {
+                            ids_filter_set.as_ref().is_none_or(|ids_set| {
                                 ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
                                     || ids_set.contains(&ValidatorId::Index(*index as u64))
                             })
@@ -42,7 +42,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                                 far_future_epoch,
                             );
 
-                            let status_matches = query_statuses.as_ref().map_or(true, |statuses| {
+                            let status_matches = query_statuses.as_ref().is_none_or(|statuses| {
                                 statuses.contains(&status)
                                     || statuses.contains(&status.superstatus())
                             });
@@ -92,7 +92,7 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
                         .enumerate()
                         // filter by validator id(s) if provided
                         .filter(|(index, (validator, _))| {
-                            ids_filter_set.as_ref().map_or(true, |ids_set| {
+                            ids_filter_set.as_ref().is_none_or(|ids_set| {
                                 ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
                                     || ids_set.contains(&ValidatorId::Index(*index as u64))
                             })

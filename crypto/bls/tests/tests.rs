@@ -1,4 +1,7 @@
-use bls::{FixedBytesExtended, Hash256, INFINITY_SIGNATURE, SECRET_KEY_BYTES_LEN};
+use bls::{
+    FixedBytesExtended, Hash256, INFINITY_SIGNATURE, INFINITY_SIGNATURE_UNCOMPRESSED,
+    SECRET_KEY_BYTES_LEN,
+};
 use ssz::{Decode, Encode};
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -35,6 +38,18 @@ macro_rules! test_suite {
                 AggregateSignature::infinity(),
             );
             assert!(AggregateSignature::infinity().is_infinity());
+        }
+
+        #[test]
+        fn infinity_sig_serializations_match() {
+            let sig = Signature::deserialize(&INFINITY_SIGNATURE).unwrap();
+            assert_eq!(
+                sig.serialize_uncompressed().unwrap(),
+                INFINITY_SIGNATURE_UNCOMPRESSED
+            );
+            let sig =
+                Signature::deserialize_uncompressed(&INFINITY_SIGNATURE_UNCOMPRESSED).unwrap();
+            assert_eq!(sig.serialize(), INFINITY_SIGNATURE);
         }
 
         #[test]

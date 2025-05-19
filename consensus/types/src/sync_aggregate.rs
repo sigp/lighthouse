@@ -1,6 +1,7 @@
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::{AggregateSignature, BitVector, EthSpec, SyncCommitteeContribution};
+use crate::{AggregateSignature, BitVector, EthSpec, ForkName, SyncCommitteeContribution};
 use derivative::Derivative;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use tree_hash_derive::TreeHash;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     ArithError(ArithError),
 }
 
@@ -35,6 +37,7 @@ impl From<ArithError> for Error {
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct SyncAggregate<E: EthSpec> {
     pub sync_committee_bits: BitVector<E::SyncCommitteeSize>,
     pub sync_committee_signature: AggregateSignature,
@@ -68,7 +71,7 @@ impl<E: EthSpec> SyncAggregate<E> {
                     sync_aggregate
                         .sync_committee_bits
                         .set(participant_index, true)
-                        .map_err(Error::SszTypesError)?;
+                        .map_err(Error::BitfieldError)?;
                 }
             }
             sync_aggregate

@@ -717,12 +717,23 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
     }
 }
 
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(
+        derive(Debug, Clone, PartialEq, Serialize, Deserialize),
+        serde(bound = "E: EthSpec", rename_all = "camelCase")
+    )
+)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
-pub struct BlobAndProofV1<E: EthSpec> {
+pub struct BlobAndProof<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<E>,
+    /// KZG proof for the blob (Deneb)
+    #[superstruct(only(V1))]
     pub proof: KzgProof,
+    /// KZG cell proofs for the extended blob (PeerDAS)
+    #[superstruct(only(V2))]
+    pub proofs: KzgProofs<E>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

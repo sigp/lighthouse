@@ -34,6 +34,8 @@ pub enum MerkleTree {
 pub enum MerkleTreeError {
     // Trying to push in a leaf
     LeafReached,
+    // Trying to generate a proof for a non-leaf node
+    NonLeafProof,
     // No more space in the MerkleTree
     MerkleTreeFull,
     // MerkleTree is invalid
@@ -313,8 +315,17 @@ impl MerkleTree {
             current_depth -= 1;
         }
 
-        debug_assert_eq!(proof.len(), depth);
-        debug_assert!(current_node.is_leaf());
+        if proof.len() != depth {
+            // This should be unreachable regardless of how the method is called, because we push
+            // one proof element for each layer of `depth`.
+            return Err(MerkleTreeError::PleaseNotifyTheDevs);
+        }
+
+        // Generating a proof for a non-leaf node is invalid and indicates an error on the part of
+        // the caller.
+        if !current_node.is_leaf() {
+            return Err(MerkleTreeError::NonLeafProof);
+        }
 
         // Put proof in bottom-up order.
         proof.reverse();

@@ -17,6 +17,8 @@ pub enum DataColumnCustodyGroupError {
 /// The `get_custody_groups` function is used to determine the custody groups that a node is
 /// assigned to.
 ///
+/// Note: `get_custody_groups(node_id, x)` is a subset of `get_custody_groups(node_id, y)` if `x < y`.
+///
 /// spec: https://github.com/ethereum/consensus-specs/blob/8e0d0d48e81d6c7c5a8253ab61340f5ea5bac66a/specs/fulu/das-core.md#get_custody_groups
 pub fn get_custody_groups(
     raw_node_id: [u8; 32],

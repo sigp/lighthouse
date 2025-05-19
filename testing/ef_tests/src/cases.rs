@@ -84,11 +84,11 @@ pub use transition::TransitionTest;
 ///
 /// The feature tests can be run with one of the following methods:
 /// 1. `handler.run_for_feature(feature_name)` for new tests that are not on existing fork, i.e. a
-///     new handler. This will be temporary and the test will need to be updated to use
-///     `handle.run()` once the feature is incorporated into a fork.
+///    new handler. This will be temporary and the test will need to be updated to use
+///    `handle.run()` once the feature is incorporated into a fork.
 /// 2. `handler.run()` for tests that are already on existing forks, but with new test vectors for
-///     the feature. In this case the `handler.is_enabled_for_feature` will need to be implemented
-///     to return `true` for the feature in order for the feature test vector to be tested.
+///    the feature. In this case the `handler.is_enabled_for_feature` will need to be implemented
+///    to return `true` for the feature in order for the feature test vector to be tested.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FeatureName {
     // TODO(fulu): to be removed once we start using Fulu types for test vectors.

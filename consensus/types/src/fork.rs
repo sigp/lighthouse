@@ -1,5 +1,6 @@
 use crate::test_utils::TestRandom;
-use crate::Epoch;
+use crate::{Epoch, ForkName};
+use context_deserialize_derive::context_deserialize;
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -23,6 +24,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct Fork {
     #[serde(with = "serde_utils::bytes_4_hex")]
     pub previous_version: [u8; 4],

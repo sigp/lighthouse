@@ -667,11 +667,13 @@ mod ssz_static {
     }
 
     #[test]
-    fn data_column_identifier() {
-        SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
-        SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
+    #[ignore]
+    // TODO(das): enable once EF tests are updated to latest release.
+    fn data_column_by_root_identifier() {
+        // SszStaticHandler::<DataColumnsByRootIdentifier, MinimalEthSpec>::default()
+        //     .run_for_feature(FeatureName::Fulu);
+        // SszStaticHandler::<DataColumnsByRootIdentifier, MainnetEthSpec>::default()
+        //     .run_for_feature(FeatureName::Fulu);
     }
 
     #[test]
@@ -955,13 +957,9 @@ fn kzg_recover_cells_and_proofs() {
 }
 
 #[test]
-fn beacon_state_merkle_proof_validity() {
-    BeaconStateMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn beacon_block_body_merkle_proof_validity() {
-    BeaconBlockBodyMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+fn light_client_merkle_proof_validity() {
+    MerkleProofValidityHandler::<MinimalEthSpec>::default().run();
+    MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

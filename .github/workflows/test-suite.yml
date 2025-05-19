@@ -19,11 +19,11 @@ env:
   # Disable debug info (see https://github.com/sigp/lighthouse/issues/4005)
   RUSTFLAGS: "-D warnings -C debuginfo=0"
   # Prevent Github API rate limiting.
-  LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # NOTE: this token is a personal access token on Jimmy's account due to the default GITHUB_TOKEN
+  # not having access to other repositories. We should eventually devise a better solution here.
+  LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.LIGHTHOUSE_GITHUB_TOKEN }}
   # Enable self-hosted runners for the sigp repo only.
   SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
-  # Self-hosted runners need to reference a different host for `./watch` tests.
-  WATCH_HOST: ${{ github.repository == 'sigp/lighthouse' && 'host.docker.internal' || 'localhost' }}
   # Disable incremental compilation
   CARGO_INCREMENTAL: 0
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
@@ -295,8 +295,15 @@ jobs:
       with:
           channel: stable
           cache-target: release
-    - name: Run a basic beacon chain sim that starts from Bellatrix
-      run: cargo run --release --bin simulator basic-sim
+    - name: Create log dir
+      run: mkdir ${{ runner.temp }}/basic_simulator_logs
+    - name: Run a basic beacon chain sim that starts from Deneb
+      run: cargo run --release --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
+    - name: Upload logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: basic_simulator_logs
+        path: ${{ runner.temp }}/basic_simulator_logs
   fallback-simulator-ubuntu:
     name: fallback-simulator-ubuntu
     needs: [check-labels]
@@ -309,8 +316,15 @@ jobs:
       with:
           channel: stable
           cache-target: release
+    - name: Create log dir
+      run: mkdir ${{ runner.temp }}/fallback_simulator_logs
     - name: Run a beacon chain sim which tests VC fallback behaviour
-      run: cargo run --release --bin simulator fallback-sim
+      run: cargo run --release --bin simulator fallback-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/fallback_simulator_logs
+    - name: Upload logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: fallback_simulator_logs
+        path: ${{ runner.temp }}/fallback_simulator_logs
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     needs: [check-labels]

@@ -3,7 +3,7 @@ use crate::*;
 use derivative::Derivative;
 use merkle_proof::{MerkleTree, MerkleTreeError};
 use metastruct::metastruct;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;
@@ -48,6 +48,7 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
             deny_unknown_fields
         ),
         arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
+        context_deserialize(ForkName),
     ),
     specific_variant_attributes(
         Base(metastruct(mappings(beacon_block_body_base_fields(groups(fields))))),
@@ -61,10 +62,11 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Derivative, arbitrary::Arbitrary)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative, TreeHash, arbitrary::Arbitrary)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
+#[tree_hash(enum_behaviour = "transparent")]
 #[arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     pub randao_reveal: Signature,
@@ -277,9 +279,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
                 // https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#beaconblockbody
                 generalized_index
                     .checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
-                    .ok_or(Error::IndexNotSupported(generalized_index))?
+                    .ok_or(Error::GeneralizedIndexNotSupported(generalized_index))?
             }
-            _ => return Err(Error::IndexNotSupported(generalized_index)),
+            _ => return Err(Error::GeneralizedIndexNotSupported(generalized_index)),
         };
 
         let leaves = self.body_merkle_leaves();
@@ -971,11 +973,27 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
         Option<ExecutionPayload<E>>,
     )
 {
+    #[allow(clippy::useless_conversion)] // Not a useless conversion
     fn from(body: BeaconBlockBody<E, FullPayload<E>>) -> Self {
         map_beacon_block_body!(body, |inner, cons| {
             let (block, payload) = inner.into();
             (cons(block), payload.map(Into::into))
         })
+    }
+}
+
+impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> ContextDeserialize<'de, ForkName>
+    for BeaconBlockBody<E, Payload>
+{
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(map_fork_name!(
+            context,
+            Self,
+            serde::Deserialize::deserialize(deserializer)?
+        ))
     }
 }
 
