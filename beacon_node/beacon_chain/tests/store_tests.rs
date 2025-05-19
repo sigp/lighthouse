@@ -3,7 +3,8 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
-use beacon_chain::data_availability_checker::AvailableBlock;
+use beacon_chain::data_availability_checker::{AvailableBlock, AvailableBlockData};
+use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
@@ -11,9 +12,11 @@ use beacon_chain::test_utils::{
     BlockStrategy, DiskHarnessType,
 };
 use beacon_chain::{
-    data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
-    migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
-    BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
+    data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock},
+    historical_blocks::HistoricalBlockError,
+    migrate::MigratorConfig,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
+    NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
@@ -2339,6 +2342,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
+    let wss_fork = harness.spec.fork_name_at_slot::<E>(checkpoint_slot);
 
     let kzg = get_kzg(&spec);
 
@@ -2505,6 +2509,142 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     match err {
         HistoricalBlockError::InvalidSignature(_) => {} // ok
         e => panic!("Unexpected error {e:?}"),
+    }
+
+    if wss_fork.deneb_enabled() {
+        // Currently ExecutionBlockGenerator::build_new_execution_payload doesn't accept a parameter
+        // to generate a fixed number of blob TXs, so it's random. Given the large number of blocks
+        // in this batch it's very unlikely that no block has data, but it's probable that's it's
+        // not index 0, so we need to find the first block with data.
+        let first_block_with_data = available_blocks
+            .iter()
+            .position(|block| block.block().num_expected_blobs() > 0)
+            .expect("No blocks have data, try different RNG");
+
+        // Test 1: Invalidate sidecar header signature
+
+        let mut batch_with_invalid_header = available_blocks
+            .iter()
+            .map(|block| block.clone())
+            .collect::<Vec<_>>();
+        batch_with_invalid_header[first_block_with_data] = {
+            let (block_root, block, block_data) = batch_with_invalid_header[first_block_with_data]
+                .clone()
+                .deconstruct();
+            if wss_fork.fulu_enabled() {
+                let AvailableBlockData::DataColumns(mut data_columns) = block_data else {
+                    panic!("no columns")
+                };
+                assert!(
+                    !data_columns.is_empty(),
+                    "data column sidecars shouldn't be empty"
+                );
+                let mut data_column = (*data_columns[0]).clone();
+                data_column.signed_block_header.signature = Signature::empty();
+                data_columns[0] = data_column.into();
+                AvailableBlock::__new_for_testing(
+                    block_root,
+                    block,
+                    AvailableBlockData::DataColumns(data_columns),
+                    beacon_chain.spec.clone(),
+                )
+            } else {
+                let AvailableBlockData::Blobs(mut blobs) = block_data else {
+                    let blocks_have_blobs = available_blocks
+                        .into_iter()
+                        .map(|block| (block.block().slot(), block.has_blobs()))
+                        .collect::<Vec<_>>();
+                    panic!(
+                        "no blobs at block {:?} {}. blocks_have_blobs {:?}",
+                        block_root,
+                        block.slot(),
+                        blocks_have_blobs
+                    );
+                };
+                assert!(!blobs.is_empty(), "blob sidecars shouldn't be empty");
+                let mut blob = (*blobs[0]).clone();
+                blob.signed_block_header.signature = Signature::empty();
+                blobs[0] = blob.into();
+                AvailableBlock::__new_for_testing(
+                    block_root,
+                    block,
+                    AvailableBlockData::Blobs(blobs),
+                    beacon_chain.spec.clone(),
+                )
+            }
+        };
+
+        // Importing the invalid batch should error.
+        let err = beacon_chain
+            .import_historical_block_batch(batch_with_invalid_header)
+            .unwrap_err();
+        if wss_fork.fulu_enabled() {
+            match err {
+                HistoricalBlockError::InvalidSignature(_) => {} // ok
+                e => panic!("Unexpected error {e:?}"),
+            }
+        } else {
+            match err {
+                HistoricalBlockError::InvalidBlobsSignature(_) => {} // ok
+                e => panic!("Unexpected error {e:?}"),
+            }
+        }
+
+        // Test 2: invalidate KZG proof
+
+        let mut batch_with_invalid_kzg = available_blocks
+            .iter()
+            .map(|block| available_to_rpc_block(block.clone(), &harness.spec))
+            .collect::<Vec<_>>();
+
+        batch_with_invalid_kzg[first_block_with_data] = {
+            let (block_root, block, blobs, cols) = batch_with_invalid_kzg[first_block_with_data]
+                .clone()
+                .deconstruct();
+            if wss_fork.fulu_enabled() {
+                let (data_columns, expected_column_indices) = cols.unwrap();
+                assert!(
+                    !data_columns.is_empty(),
+                    "data column sidecars shouldn't be empty"
+                );
+                let mut sidecar = data_columns[0].clone_arc();
+                let mut_sidecar = Arc::make_mut(&mut sidecar);
+                mut_sidecar.kzg_proofs[0] = KzgProof::empty();
+                RpcBlock::new_with_custody_columns(
+                    Some(block_root),
+                    block,
+                    data_columns.to_vec(),
+                    expected_column_indices,
+                    &harness.spec,
+                )
+                .unwrap()
+            } else {
+                let mut blobs = blobs.unwrap();
+                assert!(!blobs.is_empty(), "blob sidecars shouldn't be empty");
+                let mut_sidecar = Arc::make_mut(&mut blobs[0]);
+                mut_sidecar.kzg_proof = KzgProof::empty();
+                RpcBlock::new(Some(block_root), block, Some(blobs)).unwrap()
+            }
+        };
+
+        let err = beacon_chain
+            .verify_and_import_historical_block_batch(batch_with_invalid_kzg)
+            .unwrap_err();
+        if wss_fork.fulu_enabled() {
+            match err {
+                HistoricalBlockError::AvailabilityCheckError(
+                    AvailabilityCheckError::InvalidColumn(_),
+                ) => {} // ok
+                e => panic!("Unexpected error {e:?}"),
+            }
+        } else {
+            match err {
+                HistoricalBlockError::AvailabilityCheckError(
+                    AvailabilityCheckError::InvalidBlobs(_),
+                ) => {} // ok
+                e => panic!("Unexpected error {e:?}"),
+            }
+        }
     }
 
     // Importing the batch with valid signatures should succeed.
@@ -3680,4 +3820,26 @@ fn get_blocks(
 
 fn clone_block<E: EthSpec>(block: &AvailableBlock<E>) -> AvailableBlock<E> {
     block.clone()
+}
+
+fn available_to_rpc_block<E: EthSpec>(block: AvailableBlock<E>, spec: &ChainSpec) -> RpcBlock<E> {
+    let (block_root, block, block_data) = block.deconstruct();
+
+    match block_data {
+        AvailableBlockData::NoData => RpcBlock::new(Some(block_root), block, None).unwrap(),
+        AvailableBlockData::Blobs(blobs) => {
+            RpcBlock::new(Some(block_root), block, Some(blobs)).unwrap()
+        }
+        AvailableBlockData::DataColumns(data_columns) => RpcBlock::new_with_custody_columns(
+            Some(block_root),
+            block,
+            data_columns
+                .into_iter()
+                .map(|d| CustodyDataColumn::from_asserted_custody(d))
+                .collect(),
+            vec![],
+            spec,
+        )
+        .unwrap(),
+    }
 }
