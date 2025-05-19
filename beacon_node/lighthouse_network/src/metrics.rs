@@ -206,6 +206,20 @@ pub static REPORT_PEER_MSGS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| 
     )
 });
 
+pub static OUTBOUND_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "outbound_request_idling_seconds",
+        "The time our own request remained idle in the self-limiter",
+    )
+});
+
+pub static RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "response_idling_seconds",
+        "The time our response remained idle in the response limiter",
+    )
+});
+
 pub fn scrape_discovery_metrics() {
     let metrics =
         discv5::metrics::Metrics::from(discv5::Discv5::<discv5::DefaultProtocolId>::raw_metrics());

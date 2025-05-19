@@ -25,6 +25,7 @@ mod tests {
     use initialized_validators::{
         load_pem_certificate, load_pkcs12_identity, InitializedValidators,
     };
+    use lighthouse_validator_store::LighthouseValidatorStore;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
@@ -44,7 +45,7 @@ mod tests {
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
     use url::Url;
-    use validator_store::{Error as ValidatorStoreError, ValidatorStore};
+    use validator_store::{Error as ValidatorStoreError, SignedBlock, ValidatorStore};
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
@@ -73,6 +74,7 @@ mod tests {
     impl SignedObject for Signature {}
     impl SignedObject for Attestation<E> {}
     impl SignedObject for SignedBeaconBlock<E> {}
+    impl SignedObject for SignedBlock<E> {}
     impl SignedObject for SignedAggregateAndProof<E> {}
     impl SignedObject for SelectionProof {}
     impl SignedObject for SyncSelectionProof {}
@@ -301,7 +303,7 @@ mod tests {
 
     /// A testing rig which holds a `ValidatorStore`.
     struct ValidatorStoreRig {
-        validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+        validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
         _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: async_channel::Sender<()>,
@@ -352,12 +354,12 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_store::Config {
+            let config = lighthouse_validator_store::Config {
                 enable_web3signer_slashing_protection: slashing_protection_config.local,
                 ..Default::default()
             };
 
-            let validator_store = ValidatorStore::<_, E>::new(
+            let validator_store = LighthouseValidatorStore::<_, E>::new(
                 initialized_validators,
                 slashing_protection,
                 Hash256::repeat_byte(42),
@@ -481,7 +483,7 @@ mod tests {
             generate_sig: F,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
             R: Future<Output = S>,
             // We use the `SignedObject` trait to white-list objects for comparison. This avoids
             // accidentally comparing something meaningless like a `()`.
@@ -516,8 +518,8 @@ mod tests {
             web3signer_should_sign: bool,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
-            R: Future<Output = Result<(), ValidatorStoreError>>,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
+            R: Future<Output = Result<(), lighthouse_validator_store::Error>>,
         {
             for validator_rig in &self.validator_rigs {
                 let result =
@@ -591,10 +593,10 @@ mod tests {
         .assert_signatures_match("beacon_block_base", |pubkey, validator_store| {
             let spec = spec.clone();
             async move {
-                let block = BeaconBlock::Base(BeaconBlockBase::empty(&spec));
+                let block = BeaconBlock::<E>::Base(BeaconBlockBase::empty(&spec));
                 let block_slot = block.slot();
                 validator_store
-                    .sign_block(pubkey, block, block_slot)
+                    .sign_block(pubkey, block.into(), block_slot)
                     .await
                     .unwrap()
             }
@@ -664,7 +666,11 @@ mod tests {
                 let mut altair_block = BeaconBlockAltair::empty(&spec);
                 altair_block.slot = altair_fork_slot;
                 validator_store
-                    .sign_block(pubkey, BeaconBlock::Altair(altair_block), altair_fork_slot)
+                    .sign_block(
+                        pubkey,
+                        BeaconBlock::<E>::Altair(altair_block).into(),
+                        altair_fork_slot,
+                    )
                     .await
                     .unwrap()
             }
@@ -749,7 +755,7 @@ mod tests {
                 validator_store
                     .sign_block(
                         pubkey,
-                        BeaconBlock::Bellatrix(bellatrix_block),
+                        BeaconBlock::<E>::Bellatrix(bellatrix_block).into(),
                         bellatrix_fork_slot,
                     )
                     .await
@@ -805,7 +811,7 @@ mod tests {
         };
 
         let first_block = || {
-            let mut bellatrix_block = BeaconBlockBellatrix::empty(&spec);
+            let mut bellatrix_block = BeaconBlockBellatrix::<E>::empty(&spec);
             bellatrix_block.slot = bellatrix_fork_slot;
             BeaconBlock::Bellatrix(bellatrix_block)
         };
@@ -871,7 +877,7 @@ mod tests {
             let block = first_block();
             let slot = block.slot();
             validator_store
-                .sign_block(pubkey, block, slot)
+                .sign_block(pubkey, block.into(), slot)
                 .await
                 .unwrap()
         })
@@ -882,7 +888,7 @@ mod tests {
                 let block = double_vote_block();
                 let slot = block.slot();
                 validator_store
-                    .sign_block(pubkey, block, slot)
+                    .sign_block(pubkey, block.into(), slot)
                     .await
                     .map(|_| ())
             },

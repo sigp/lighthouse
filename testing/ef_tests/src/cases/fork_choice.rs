@@ -3,6 +3,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
@@ -143,7 +144,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let description = path
             .iter()
-            .last()
+            .next_back()
             .expect("path must be non-empty")
             .to_str()
             .expect("path must be valid OsStr")
@@ -519,7 +520,7 @@ impl<E: EthSpec> Tester<E> {
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
-                block.clone(),
+                RpcBlock::new_without_blobs(Some(block_root), block.clone(), 0),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),

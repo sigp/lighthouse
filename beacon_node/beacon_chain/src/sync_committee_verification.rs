@@ -189,7 +189,7 @@ pub enum Error {
     ///
     /// We were unable to process this sync committee message due to an internal error. It's unclear if the
     /// sync committee message is valid.
-    BeaconChainError(BeaconChainError),
+    BeaconChainError(Box<BeaconChainError>),
     /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -232,7 +232,7 @@ pub enum Error {
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
-        Error::BeaconChainError(e)
+        Error::BeaconChainError(e.into())
     }
 }
 
@@ -334,7 +334,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             .observed_sync_contributions
             .write()
             .is_known_subset(contribution, contribution_data_root)
-            .map_err(|e| Error::BeaconChainError(e.into()))?
+            .map_err(|e| Error::BeaconChainError(Box::new(e.into())))?
         {
             metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_SUBSETS);
             return Err(Error::SyncContributionSupersetKnown(contribution_data_root));
@@ -363,7 +363,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
 
         if !selection_proof
             .is_aggregator::<T::EthSpec>()
-            .map_err(|e| Error::BeaconChainError(e.into()))?
+            .map_err(|e| Error::BeaconChainError(Box::new(e.into())))?
         {
             return Err(Error::InvalidSelectionProof { aggregator_index });
         }
@@ -395,7 +395,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             .observed_sync_contributions
             .write()
             .observe_item(contribution, Some(contribution_data_root))
-            .map_err(|e| Error::BeaconChainError(e.into()))?
+            .map_err(|e| Error::BeaconChainError(Box::new(e.into())))?
         {
             metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_SUBSETS);
             return Err(Error::SyncContributionSupersetKnown(contribution_data_root));

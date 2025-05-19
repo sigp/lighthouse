@@ -1,3 +1,4 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::*;
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,7 @@ pub const DEPOSIT_TREE_DEPTH: usize = 32;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct Deposit {
     pub proof: FixedVector<Hash256, U33>,
     pub data: DepositData,

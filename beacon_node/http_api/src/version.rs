@@ -5,10 +5,11 @@ use eth2::{
 };
 use serde::Serialize;
 use types::{
-    fork_versioned_response::{
-        ExecutionOptimisticFinalizedForkVersionedResponse, ExecutionOptimisticFinalizedMetadata,
+    beacon_response::{
+        ExecutionOptimisticFinalizedBeaconResponse, ExecutionOptimisticFinalizedMetadata,
     },
-    ForkName, ForkVersionedResponse, InconsistentFork, Uint256,
+    BeaconResponse, ForkName, ForkVersionedResponse, InconsistentFork, Uint256,
+    UnversionedResponse,
 };
 use warp::reply::{self, Reply, Response};
 
@@ -16,47 +17,54 @@ pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
 pub const V3: EndpointVersion = EndpointVersion(3);
 
-pub fn fork_versioned_response<T: Serialize>(
-    endpoint_version: EndpointVersion,
-    fork_name: ForkName,
-    data: T,
-) -> Result<ForkVersionedResponse<T>, warp::reject::Rejection> {
-    let fork_name = if endpoint_version == V1 {
-        None
-    } else if endpoint_version == V2 || endpoint_version == V3 {
-        Some(fork_name)
-    } else {
-        return Err(unsupported_version_rejection(endpoint_version));
-    };
-    Ok(ForkVersionedResponse {
-        version: fork_name,
-        metadata: Default::default(),
-        data,
-    })
+#[derive(Debug, PartialEq, Clone, Serialize)]
+pub enum ResponseIncludesVersion {
+    Yes(ForkName),
+    No,
 }
 
-pub fn execution_optimistic_finalized_fork_versioned_response<T: Serialize>(
-    endpoint_version: EndpointVersion,
-    fork_name: ForkName,
+pub fn beacon_response<T: Serialize>(
+    require_version: ResponseIncludesVersion,
+    data: T,
+) -> BeaconResponse<T> {
+    match require_version {
+        ResponseIncludesVersion::Yes(fork_name) => {
+            BeaconResponse::ForkVersioned(ForkVersionedResponse {
+                version: fork_name,
+                metadata: Default::default(),
+                data,
+            })
+        }
+        ResponseIncludesVersion::No => BeaconResponse::Unversioned(UnversionedResponse {
+            metadata: Default::default(),
+            data,
+        }),
+    }
+}
+
+pub fn execution_optimistic_finalized_beacon_response<T: Serialize>(
+    require_version: ResponseIncludesVersion,
     execution_optimistic: bool,
     finalized: bool,
     data: T,
-) -> Result<ExecutionOptimisticFinalizedForkVersionedResponse<T>, warp::reject::Rejection> {
-    let fork_name = if endpoint_version == V1 {
-        None
-    } else if endpoint_version == V2 {
-        Some(fork_name)
-    } else {
-        return Err(unsupported_version_rejection(endpoint_version));
+) -> Result<ExecutionOptimisticFinalizedBeaconResponse<T>, warp::reject::Rejection> {
+    let metadata = ExecutionOptimisticFinalizedMetadata {
+        execution_optimistic: Some(execution_optimistic),
+        finalized: Some(finalized),
     };
-    Ok(ExecutionOptimisticFinalizedForkVersionedResponse {
-        version: fork_name,
-        metadata: ExecutionOptimisticFinalizedMetadata {
-            execution_optimistic: Some(execution_optimistic),
-            finalized: Some(finalized),
-        },
-        data,
-    })
+    match require_version {
+        ResponseIncludesVersion::Yes(fork_name) => {
+            Ok(BeaconResponse::ForkVersioned(ForkVersionedResponse {
+                version: fork_name,
+                metadata,
+                data,
+            }))
+        }
+        ResponseIncludesVersion::No => Ok(BeaconResponse::Unversioned(UnversionedResponse {
+            metadata,
+            data,
+        })),
+    }
 }
 
 /// Add the 'Content-Type application/octet-stream` header to a response.

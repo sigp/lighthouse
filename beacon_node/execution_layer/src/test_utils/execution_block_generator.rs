@@ -20,13 +20,14 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadHeader, FixedBytesExtended, ForkName, Hash256, Transaction, Transactions,
-    Uint256,
+    ExecutionPayloadHeader, FixedBytesExtended, ForkName, Hash256, KzgProofs, Transaction,
+    Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
+const TEST_BLOB_BUNDLE_V2: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle_v2.ssz");
 
 pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
 const GAS_USED: u64 = DEFAULT_GAS_LIMIT - 1;
@@ -697,15 +698,13 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             },
         };
 
-        if execution_payload.fork_name().deneb_enabled() {
+        let fork_name = execution_payload.fork_name();
+        if fork_name.deneb_enabled() {
             // get random number between 0 and Max Blobs
             let mut rng = self.rng.lock();
-            let max_blobs = self
-                .spec
-                .max_blobs_per_block_by_fork(execution_payload.fork_name())
-                as usize;
+            let max_blobs = self.spec.max_blobs_per_block_by_fork(fork_name) as usize;
             let num_blobs = rng.gen::<usize>() % (max_blobs + 1);
-            let (bundle, transactions) = generate_blobs(num_blobs)?;
+            let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
             for tx in Vec::from(transactions) {
                 execution_payload
                     .transactions_mut()
@@ -721,7 +720,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
     }
 }
 
-pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String> {
+pub fn load_test_blobs_bundle_v1<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, Blob<E>), String>
+{
     let BlobsBundle::<E> {
         commitments,
         proofs,
@@ -745,32 +745,56 @@ pub fn load_test_blobs_bundle<E: EthSpec>() -> Result<(KzgCommitment, KzgProof, 
     ))
 }
 
+pub fn load_test_blobs_bundle_v2<E: EthSpec>(
+) -> Result<(KzgCommitment, KzgProofs<E>, Blob<E>), String> {
+    let BlobsBundle::<E> {
+        commitments,
+        proofs,
+        blobs,
+    } = BlobsBundle::from_ssz_bytes(TEST_BLOB_BUNDLE_V2)
+        .map_err(|e| format!("Unable to decode ssz: {:?}", e))?;
+
+    Ok((
+        commitments
+            .first()
+            .cloned()
+            .ok_or("commitment missing in test bundle")?,
+        // there's only one blob in the test bundle, hence we take all the cell proofs here.
+        proofs,
+        blobs
+            .first()
+            .cloned()
+            .ok_or("blob missing in test bundle")?,
+    ))
+}
+
 pub fn generate_blobs<E: EthSpec>(
     n_blobs: usize,
+    fork_name: ForkName,
 ) -> Result<(BlobsBundle<E>, Transactions<E>), String> {
-    let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
+    let tx = static_valid_tx::<E>()
+        .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
+    let transactions = vec![tx; n_blobs];
 
-    let mut bundle = BlobsBundle::<E>::default();
-    let mut transactions = vec![];
-
-    for blob_index in 0..n_blobs {
-        let tx = static_valid_tx::<E>()
-            .map_err(|e| format!("error creating valid tx SSZ bytes: {:?}", e))?;
-
-        transactions.push(tx);
-        bundle
-            .blobs
-            .push(blob.clone())
-            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
-        bundle
-            .commitments
-            .push(kzg_commitment)
-            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
-        bundle
-            .proofs
-            .push(kzg_proof)
-            .map_err(|_| format!("blobs are full, blob index: {:?}", blob_index))?;
-    }
+    let bundle = if fork_name.fulu_enabled() {
+        let (kzg_commitment, kzg_proofs, blob) = load_test_blobs_bundle_v2::<E>()?;
+        BlobsBundle {
+            commitments: vec![kzg_commitment; n_blobs].into(),
+            proofs: vec![kzg_proofs.to_vec(); n_blobs]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .into(),
+            blobs: vec![blob; n_blobs].into(),
+        }
+    } else {
+        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1::<E>()?;
+        BlobsBundle {
+            commitments: vec![kzg_commitment; n_blobs].into(),
+            proofs: vec![kzg_proof; n_blobs].into(),
+            blobs: vec![blob; n_blobs].into(),
+        }
+    };
 
     Ok((bundle, transactions.into()))
 }
@@ -905,7 +929,7 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
-    use kzg::{trusted_setup::get_trusted_setup, TrustedSetup};
+    use kzg::{trusted_setup::get_trusted_setup, Bytes48, CellRef, KzgBlobRef, TrustedSetup};
     use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]
@@ -974,24 +998,52 @@ mod test {
     }
 
     #[test]
-    fn valid_test_blobs() {
+    fn valid_test_blobs_bundle_v1() {
         assert!(
-            validate_blob::<MainnetEthSpec>().is_ok(),
+            validate_blob_bundle_v1::<MainnetEthSpec>().is_ok(),
             "Mainnet preset test blobs bundle should contain valid proofs"
         );
         assert!(
-            validate_blob::<MinimalEthSpec>().is_ok(),
+            validate_blob_bundle_v1::<MinimalEthSpec>().is_ok(),
             "Minimal preset test blobs bundle should contain valid proofs"
         );
     }
 
-    fn validate_blob<E: EthSpec>() -> Result<(), String> {
+    #[test]
+    fn valid_test_blobs_bundle_v2() {
+        validate_blob_bundle_v2::<MainnetEthSpec>()
+            .expect("Mainnet preset test blobs bundle v2 should contain valid proofs");
+        validate_blob_bundle_v2::<MinimalEthSpec>()
+            .expect("Minimal preset test blobs bundle v2 should contain valid proofs");
+    }
+
+    fn validate_blob_bundle_v1<E: EthSpec>() -> Result<(), String> {
         let kzg = load_kzg()?;
-        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
+        let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle_v1::<E>()?;
         let kzg_blob = kzg::Blob::from_bytes(blob.as_ref())
             .map(Box::new)
             .map_err(|e| format!("Error converting blob to kzg blob: {e:?}"))?;
         kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
+            .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
+    }
+
+    fn validate_blob_bundle_v2<E: EthSpec>() -> Result<(), String> {
+        let kzg = load_kzg()?;
+        let (kzg_commitments, kzg_proofs, cells) =
+            load_test_blobs_bundle_v2::<E>().map(|(commitment, proofs, blob)| {
+                let kzg_blob: KzgBlobRef = blob.as_ref().try_into().unwrap();
+                (
+                    vec![Bytes48::from(commitment); proofs.len()],
+                    proofs.into_iter().map(|p| p.into()).collect::<Vec<_>>(),
+                    kzg.compute_cells(kzg_blob).unwrap(),
+                )
+            })?;
+        let (cell_indices, cell_refs): (Vec<u64>, Vec<CellRef>) = cells
+            .iter()
+            .enumerate()
+            .map(|(cell_idx, cell)| (cell_idx as u64, CellRef::try_from(cell.as_ref()).unwrap()))
+            .unzip();
+        kzg.verify_cell_proof_batch(&cell_refs, &kzg_proofs, cell_indices, &kzg_commitments)
             .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
     }
 

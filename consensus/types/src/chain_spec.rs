@@ -1,6 +1,6 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
-use crate::data_column_sidecar::DataColumnIdentifier;
+use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
@@ -210,10 +210,9 @@ pub struct ChainSpec {
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
     pub target_aggregators_per_committee: u64,
-    pub gossip_max_size: u64,
+    pub max_payload_size: u64,
     max_request_blocks: u64,
     pub min_epochs_for_block_requests: u64,
-    pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     pub attestation_propagation_slot_range: u64,
@@ -240,6 +239,11 @@ pub struct ChainSpec {
     max_blobs_per_block_electra: u64,
     blob_sidecar_subnet_count_electra: u64,
     max_request_blob_sidecars_electra: u64,
+
+    /*
+     * Networking Fulu
+     */
+    max_blobs_per_block_fulu: u64,
 
     /*
      * Networking Derived
@@ -656,7 +660,9 @@ impl ChainSpec {
 
     /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for `fork`.
     pub fn max_blobs_per_block_by_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name.electra_enabled() {
+        if fork_name.fulu_enabled() {
+            self.max_blobs_per_block_fulu
+        } else if fork_name.electra_enabled() {
             self.max_blobs_per_block_electra
         } else {
             self.max_blobs_per_block
@@ -714,6 +720,35 @@ impl ChainSpec {
 
     pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
         (0..self.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
+    }
+
+    /// Worst-case compressed length for a given payload of size n when using snappy.
+    ///
+    /// https://github.com/google/snappy/blob/32ded457c0b1fe78ceb8397632c416568d6714a0/snappy.cc#L218C1-L218C47
+    /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/p2p-interface.md#max_compressed_len
+    fn max_compressed_len_snappy(n: usize) -> Option<usize> {
+        32_usize.checked_add(n)?.checked_add(n / 6)
+    }
+
+    /// Max compressed length of a message that we receive over gossip.
+    pub fn max_compressed_len(&self) -> usize {
+        Self::max_compressed_len_snappy(self.max_payload_size as usize)
+            .expect("should not overflow")
+    }
+
+    /// Max allowed size of a raw, compressed message received over the network.
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/p2p-interface.md#max_compressed_len
+    pub fn max_message_size(&self) -> usize {
+        std::cmp::max(
+            // 1024 to account for framing + encoding overhead
+            Self::max_compressed_len_snappy(self.max_payload_size as usize)
+                .expect("should not overflow")
+                .safe_add(1024)
+                .expect("should not overflow"),
+            //1MB
+            1024 * 1024,
+        )
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -883,7 +918,7 @@ impl ChainSpec {
              * Electra hard fork params
              */
             electra_fork_version: [0x05, 00, 00, 00],
-            electra_fork_epoch: None,
+            electra_fork_epoch: Some(Epoch::new(364032)),
             unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
@@ -930,9 +965,8 @@ impl ChainSpec {
             subnets_per_node: 2,
             maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            gossip_max_size: default_gossip_max_size(),
+            max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
-            max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
@@ -964,6 +998,11 @@ impl ChainSpec {
             max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
             blob_sidecar_subnet_count_electra: default_blob_sidecar_subnet_count_electra(),
             max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
+
+            /*
+             * Networking Fulu specific
+             */
+            max_blobs_per_block_fulu: default_max_blobs_per_block_fulu(),
 
             /*
              * Application specific
@@ -1213,7 +1252,7 @@ impl ChainSpec {
              * Electra hard fork params
              */
             electra_fork_version: [0x05, 0x00, 0x00, 0x64],
-            electra_fork_epoch: None,
+            electra_fork_epoch: Some(Epoch::new(1337856)),
             unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
@@ -1235,7 +1274,7 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
-                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+                u64::checked_pow(2, 6)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
 
@@ -1260,9 +1299,8 @@ impl ChainSpec {
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            gossip_max_size: default_gossip_max_size(),
+            max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: 33024,
-            max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
@@ -1278,7 +1316,7 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
-            max_blobs_per_block: default_max_blobs_per_block(),
+            max_blobs_per_block: 2,
 
             /*
              * Derived Deneb Specific
@@ -1291,9 +1329,14 @@ impl ChainSpec {
             /*
              * Networking Electra specific
              */
-            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
-            blob_sidecar_subnet_count_electra: default_blob_sidecar_subnet_count_electra(),
-            max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
+            max_blobs_per_block_electra: 2,
+            blob_sidecar_subnet_count_electra: 2,
+            max_request_blob_sidecars_electra: 256,
+
+            /*
+             * Networking Fulu specific
+             */
+            max_blobs_per_block_fulu: default_max_blobs_per_block_fulu(),
 
             /*
              * Application specific
@@ -1434,18 +1477,15 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     gas_limit_adjustment_factor: u64,
 
-    #[serde(default = "default_gossip_max_size")]
+    #[serde(default = "default_max_payload_size")]
     #[serde(with = "serde_utils::quoted_u64")]
-    gossip_max_size: u64,
+    max_payload_size: u64,
     #[serde(default = "default_max_request_blocks")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks: u64,
     #[serde(default = "default_min_epochs_for_block_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_block_requests: u64,
-    #[serde(default = "default_max_chunk_size")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    max_chunk_size: u64,
     #[serde(default = "default_ttfb_timeout")]
     #[serde(with = "serde_utils::quoted_u64")]
     ttfb_timeout: u64,
@@ -1517,6 +1557,9 @@ pub struct Config {
     #[serde(default = "default_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
+    #[serde(default = "default_max_blobs_per_block_fulu")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_blobs_per_block_fulu: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1580,16 +1623,12 @@ const fn default_gas_limit_adjustment_factor() -> u64 {
     1024
 }
 
-const fn default_gossip_max_size() -> u64 {
+const fn default_max_payload_size() -> u64 {
     10485760
 }
 
 const fn default_min_epochs_for_block_requests() -> u64 {
     33024
-}
-
-const fn default_max_chunk_size() -> u64 {
-    10485760
 }
 
 const fn default_ttfb_timeout() -> u64 {
@@ -1658,6 +1697,10 @@ const fn default_max_blobs_per_block_electra() -> u64 {
     9
 }
 
+const fn default_max_blobs_per_block_fulu() -> u64 {
+    12
+}
+
 const fn default_attestation_propagation_slot_range() -> u64 {
     32
 }
@@ -1711,15 +1754,21 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     .len()
 }
 
-fn max_data_columns_by_root_request_common(max_request_data_column_sidecars: u64) -> usize {
-    let max_request_data_column_sidecars = max_request_data_column_sidecars as usize;
-    let empty_data_column_id = DataColumnIdentifier {
+fn max_data_columns_by_root_request_common(
+    max_request_blocks: u64,
+    number_of_columns: u64,
+) -> usize {
+    let max_request_blocks = max_request_blocks as usize;
+    let number_of_columns = number_of_columns as usize;
+
+    let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        index: 0,
+        columns: RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns),
     };
-    RuntimeVariableList::from_vec(
-        vec![empty_data_column_id; max_request_data_column_sidecars],
-        max_request_data_column_sidecars,
+
+    RuntimeVariableList::<DataColumnsByRootIdentifier>::from_vec(
+        vec![empty_data_columns_by_root_id; max_request_blocks],
+        max_request_blocks,
     )
     .as_ssz_bytes()
     .len()
@@ -1738,7 +1787,10 @@ fn default_max_blobs_by_root_request() -> usize {
 }
 
 fn default_data_columns_by_root_request() -> usize {
-    max_data_columns_by_root_request_common(default_max_request_data_column_sidecars())
+    max_data_columns_by_root_request_common(
+        default_max_request_blocks_deneb(),
+        default_number_of_columns(),
+    )
 }
 
 impl Default for Config {
@@ -1857,10 +1909,9 @@ impl Config {
 
             gas_limit_adjustment_factor: spec.gas_limit_adjustment_factor,
 
-            gossip_max_size: spec.gossip_max_size,
+            max_payload_size: spec.max_payload_size,
             max_request_blocks: spec.max_request_blocks,
             min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
-            max_chunk_size: spec.max_chunk_size,
             ttfb_timeout: spec.ttfb_timeout,
             resp_timeout: spec.resp_timeout,
             attestation_propagation_slot_range: spec.attestation_propagation_slot_range,
@@ -1886,6 +1937,7 @@ impl Config {
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
             samples_per_slot: spec.samples_per_slot,
             custody_requirement: spec.custody_requirement,
+            max_blobs_per_block_fulu: spec.max_blobs_per_block_fulu,
         }
     }
 
@@ -1938,9 +1990,8 @@ impl Config {
             deposit_network_id,
             deposit_contract_address,
             gas_limit_adjustment_factor,
-            gossip_max_size,
+            max_payload_size,
             min_epochs_for_block_requests,
-            max_chunk_size,
             ttfb_timeout,
             resp_timeout,
             message_domain_invalid_snappy,
@@ -1965,6 +2016,7 @@ impl Config {
             data_column_sidecar_subnet_count,
             samples_per_slot,
             custody_requirement,
+            max_blobs_per_block_fulu,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2009,9 +2061,8 @@ impl Config {
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
-            gossip_max_size,
+            max_payload_size,
             min_epochs_for_block_requests,
-            max_chunk_size,
             ttfb_timeout,
             resp_timeout,
             message_domain_invalid_snappy,
@@ -2040,7 +2091,8 @@ impl Config {
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
             max_data_columns_by_root_request: max_data_columns_by_root_request_common(
-                max_request_data_column_sidecars,
+                max_request_blocks_deneb,
+                number_of_columns,
             ),
 
             number_of_columns,
@@ -2048,6 +2100,7 @@ impl Config {
             data_column_sidecar_subnet_count,
             samples_per_slot,
             custody_requirement,
+            max_blobs_per_block_fulu,
 
             ..chain_spec.clone()
         })
@@ -2311,9 +2364,8 @@ mod yaml_tests {
         check_default!(terminal_block_hash);
         check_default!(terminal_block_hash_activation_epoch);
         check_default!(bellatrix_fork_version);
-        check_default!(gossip_max_size);
+        check_default!(max_payload_size);
         check_default!(min_epochs_for_block_requests);
-        check_default!(max_chunk_size);
         check_default!(ttfb_timeout);
         check_default!(resp_timeout);
         check_default!(message_domain_invalid_snappy);
@@ -2338,5 +2390,18 @@ mod yaml_tests {
             int_to_bytes4(ApplicationDomain::Builder.get_domain_constant()),
             [0, 0, 0, 1]
         );
+    }
+
+    #[test]
+    fn test_max_network_limits_overflow() {
+        let mut spec = MainnetEthSpec::default_spec();
+        // Should not overflow
+        let _ = spec.max_message_size();
+        let _ = spec.max_compressed_len();
+
+        spec.max_payload_size *= 10;
+        // Should not overflow even with a 10x increase in max
+        let _ = spec.max_message_size();
+        let _ = spec.max_compressed_len();
     }
 }

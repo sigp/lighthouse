@@ -33,7 +33,7 @@ There are five primary steps to become a validator:
 1. [Start an execution client and Lighthouse beacon node](#step-2-start-an-execution-client-and-lighthouse-beacon-node)
 1. [Import validator keys into Lighthouse](#step-3-import-validator-keys-to-lighthouse)
 1. [Start Lighthouse validator client](#step-4-start-lighthouse-validator-client)
-1. [Submit deposit](#step-5-submit-deposit-32eth-per-validator)
+1. [Submit deposit](#step-5-submit-deposit-a-minimum-of-32eth-to-activate-one-validator)
 
 > **Important note**: The guide below contains both mainnet and testnet instructions. We highly recommend *all* users to **run a testnet validator** prior to staking mainnet ETH.  By far, the best technical learning experience is to run a testnet validator. You can get hands-on experience with all the tools and it's a great way to test your staking
 hardware. 32 ETH is a significant outlay and joining a testnet is a great way to "try before you buy".
@@ -151,13 +151,13 @@ Once this log appears (and there are no errors) the `lighthouse vc` application
 will ensure that the validator starts performing its duties and being rewarded
 by the protocol.
 
-### Step 5: Submit deposit (32ETH per validator)
+### Step 5: Submit deposit (a minimum of 32ETH to activate one validator)
 
-After you have successfully run and synced the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Holesky staking launchpad](https://holesky.launchpad.ethereum.org/en/) for testnet validator) and carefully go through the steps to becoming a validator. Once you are ready, you can submit the deposit by sending 32ETH per validator to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
+After you have successfully run and synced the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Holesky staking launchpad](https://holesky.launchpad.ethereum.org/en/) for testnet validator) and carefully go through the steps to becoming a validator. Once you are ready, you can submit the deposit by sending ETH to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
 
 > **Important note:** Double check that the deposit contract for mainnet is `0x00000000219ab540356cBB839Cbe05303d7705Fa` before you confirm the transaction.
 
-Once the deposit transaction is confirmed, it will take a minimum of ~16 hours to a few days/weeks for the beacon chain to process and activate your validator, depending on the queue. Refer to our [FAQ - Why does it take so long for a validator to be activated](./faq.md#why-does-it-take-so-long-for-a-validator-to-be-activated) for more info.
+Once the deposit transaction is confirmed, it will take a minimum of ~13 minutes to a few days to activate your validator, depending on the queue.
 
 Once your validator is activated, the validator client will start to publish attestations each epoch:
 

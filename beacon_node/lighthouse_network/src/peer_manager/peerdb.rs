@@ -1,6 +1,8 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY;
 use crate::discovery::{peer_id_to_node_id, CombinedKey};
-use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId};
+use crate::{
+    metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId, SyncInfo,
+};
 use itertools::Itertools;
 use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
@@ -15,7 +17,7 @@ use std::{
 use sync_status::SyncStatus;
 use tracing::{debug, error, trace, warn};
 use types::data_column_custody_group::compute_subnets_for_node;
-use types::{ChainSpec, DataColumnSubnetId, EthSpec};
+use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec, Hash256, Slot};
 
 pub mod client;
 pub mod peer_info;
@@ -153,7 +155,7 @@ impl<E: EthSpec> PeerDB<E> {
         matches!(
             self.connection_status(peer_id),
             Some(PeerConnectionStatus::Disconnected { .. })
-                | Some(PeerConnectionStatus::Unknown { .. })
+                | Some(PeerConnectionStatus::Unknown)
                 | None
         ) && !self.score_state_banned_or_disconnected(peer_id)
     }
@@ -735,6 +737,19 @@ impl<E: EthSpec> PeerDB<E> {
             },
         );
 
+        self.update_sync_status(
+            &peer_id,
+            SyncStatus::Synced {
+                // Fill in mock SyncInfo, only for the peer to return `is_synced() == true`.
+                info: SyncInfo {
+                    head_slot: Slot::new(0),
+                    head_root: Hash256::ZERO,
+                    finalized_epoch: Epoch::new(0),
+                    finalized_root: Hash256::ZERO,
+                },
+            },
+        );
+
         if supernode {
             let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
             let all_subnets = (0..spec.data_column_sidecar_subnet_count)
@@ -771,8 +786,8 @@ impl<E: EthSpec> PeerDB<E> {
                 NewConnectionState::Connected { .. }          // We have established a new connection (peer may not have been seen before)
                     | NewConnectionState::Disconnecting { .. }// We are disconnecting from a peer that may not have been registered before
                     | NewConnectionState::Dialing { .. }      // We are dialing a potentially new peer
-                    | NewConnectionState::Disconnected { .. } // Dialing a peer that responds by a different ID can be immediately
-                                                              // disconnected without having being stored in the db before
+                    | NewConnectionState::Disconnected // Dialing a peer that responds by a different ID can be immediately
+                                                       // disconnected without having being stored in the db before
             ) {
                 warn!(%peer_id, ?new_state, "Updating state of unknown peer");
             }

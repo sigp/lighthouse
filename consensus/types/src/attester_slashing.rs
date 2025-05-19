@@ -1,10 +1,12 @@
+use crate::context_deserialize;
 use crate::indexed_attestation::{
     IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
 };
 use crate::{test_utils::TestRandom, EthSpec};
+use crate::{ContextDeserialize, ForkName};
 use derivative::Derivative;
 use rand::{Rng, RngCore};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -25,6 +27,7 @@ use tree_hash_derive::TreeHash;
             TestRandom,
             arbitrary::Arbitrary
         ),
+        context_deserialize(ForkName),
         derivative(PartialEq, Eq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec"),
         arbitrary(bound = "E: EthSpec")
@@ -171,25 +174,27 @@ impl<E: EthSpec> TestRandom for AttesterSlashing<E> {
     }
 }
 
-impl<E: EthSpec> crate::ForkVersionDeserialize for Vec<AttesterSlashing<E>> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::Value,
-        fork_name: crate::ForkName,
-    ) -> Result<Self, D::Error> {
-        if fork_name.electra_enabled() {
-            let slashings: Vec<AttesterSlashingElectra<E>> =
-                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-            Ok(slashings
-                .into_iter()
-                .map(AttesterSlashing::Electra)
-                .collect::<Vec<_>>())
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<AttesterSlashing<E>> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if context.electra_enabled() {
+            <Vec<AttesterSlashingElectra<E>>>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(|vec| {
+                    vec.into_iter()
+                        .map(AttesterSlashing::Electra)
+                        .collect::<Vec<_>>()
+                })
         } else {
-            let slashings: Vec<AttesterSlashingBase<E>> =
-                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-            Ok(slashings
-                .into_iter()
-                .map(AttesterSlashing::Base)
-                .collect::<Vec<_>>())
+            <Vec<AttesterSlashingBase<E>>>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(|vec| {
+                    vec.into_iter()
+                        .map(AttesterSlashing::Base)
+                        .collect::<Vec<_>>()
+                })
         }
     }
 }
