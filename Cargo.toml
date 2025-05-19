@@ -53,6 +53,8 @@ members = [
     "common/warp_utils",
     "common/workspace_members",
 
+    "consensus/context_deserialize",
+    "consensus/context_deserialize_derive",
     "consensus/fixed_bytes",
     "consensus/fork_choice",
     "consensus/int_to_bytes",
@@ -127,6 +129,8 @@ clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 # feature ourselves when desired.
 c-kzg = { version = "1", default-features = false }
 compare_fields_derive = { path = "common/compare_fields_derive" }
+context_deserialize = { path = "consensus/context_deserialize" }
+context_deserialize_derive = { path = "consensus/context_deserialize_derive" }
 criterion = "0.5"
 delay_map = "0.4"
 derivative = "2"
