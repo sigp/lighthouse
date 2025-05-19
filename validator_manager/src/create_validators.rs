@@ -84,7 +84,6 @@ pub fn cli_app() -> Command {
                 .long(COUNT_FLAG)
                 .value_name("VALIDATOR_COUNT")
                 .help("The number of validators to create, regardless of how many already exist")
-                .conflicts_with("at-most")
                 .action(ArgAction::Set)
                 .display_order(0),
         )

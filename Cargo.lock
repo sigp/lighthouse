@@ -1666,6 +1666,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
+name = "context_deserialize"
+version = "0.1.0"
+dependencies = [
+ "milhouse",
+ "serde",
+ "ssz_types",
+]
+
+[[package]]
+name = "context_deserialize_derive"
+version = "0.1.0"
+dependencies = [
+ "context_deserialize",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9390,6 +9410,8 @@ dependencies = [
  "bls",
  "compare_fields",
  "compare_fields_derive",
+ "context_deserialize",
+ "context_deserialize_derive",
  "criterion",
  "derivative",
  "eth2_interop_keypairs",
