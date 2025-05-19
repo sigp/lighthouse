@@ -10,11 +10,13 @@ X86_64_TAG = "x86_64-unknown-linux-gnu"
 BUILD_PATH_X86_64 = "target/$(X86_64_TAG)/release"
 AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
+RISCV64_TAG = "riscv64gc-unknown-linux-gnu"
+BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc,beacon-node-leveldb,beacon-node-redb
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
@@ -63,12 +65,22 @@ install-lcli:
 build-x86_64:
 	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64:
-	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
+	# JEMALLOC_SYS_WITH_LG_PAGE=16 tells jemalloc to support up to 64-KiB
+	# pages, which are commonly used by aarch64 systems.
+	# See: https://github.com/sigp/lighthouse/issues/5244
+	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
+build-riscv64:
+	cross build --bin lighthouse --target riscv64gc-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
 build-lcli-x86_64:
 	cross build --bin lcli --target x86_64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 build-lcli-aarch64:
-	cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+	# JEMALLOC_SYS_WITH_LG_PAGE=16 tells jemalloc to support up to 64-KiB
+	# pages, which are commonly used by aarch64 systems.
+	# See: https://github.com/sigp/lighthouse/issues/5244
+	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+build-lcli-riscv64:
+	cross build --bin lcli --target riscv64gc-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 
 # extracts the current source date for reproducible builds
 SOURCE_DATE := $(shell git log -1 --pretty=%ct)
@@ -120,6 +132,9 @@ build-release-tarballs:
 	$(call tarball_release_binary,$(BUILD_PATH_X86_64),$(X86_64_TAG),"")
 	$(MAKE) build-aarch64
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"")
+	$(MAKE) build-riscv64
+	$(call tarball_release_binary,$(BUILD_PATH_RISCV64),$(RISCV64_TAG),"")
+
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
@@ -253,7 +268,7 @@ lint-fix:
 
 # Also run the lints on the optimized-only tests
 lint-full:
-	RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
+	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
 
 # Runs the makefile in the `ef_tests` repo.
 #
@@ -275,7 +290,7 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	cargo audit --ignore RUSTSEC-2024-0421
+	cargo audit
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:

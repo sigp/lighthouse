@@ -33,26 +33,33 @@ pub struct SlotMap {
 #[derive(Debug)]
 pub struct StateCache<E: EthSpec> {
     finalized_state: Option<FinalizedState<E>>,
-    states: LruCache<Hash256, BeaconState<E>>,
+    // Stores the tuple (state_root, state) as LruCache only returns the value on put and we need
+    // the state_root
+    states: LruCache<Hash256, (Hash256, BeaconState<E>)>,
     block_map: BlockMap,
     max_epoch: Epoch,
+    head_block_root: Hash256,
+    headroom: NonZeroUsize,
 }
 
 #[derive(Debug)]
 pub enum PutStateOutcome {
     Finalized,
     Duplicate,
-    New,
+    /// Includes deleted states as a result of this insertion
+    New(Vec<Hash256>),
 }
 
 #[allow(clippy::len_without_is_empty)]
 impl<E: EthSpec> StateCache<E> {
-    pub fn new(capacity: NonZeroUsize) -> Self {
+    pub fn new(capacity: NonZeroUsize, headroom: NonZeroUsize) -> Self {
         StateCache {
             finalized_state: None,
             states: LruCache::new(capacity),
             block_map: BlockMap::default(),
             max_epoch: Epoch::new(0),
+            head_block_root: Hash256::ZERO,
+            headroom,
         }
     }
 
@@ -96,6 +103,13 @@ impl<E: EthSpec> StateCache<E> {
         // Update finalized state.
         self.finalized_state = Some(FinalizedState { state_root, state });
         Ok(())
+    }
+
+    /// Update the state cache's view of the enshrined head block.
+    ///
+    /// We never prune the unadvanced state for the head block.
+    pub fn update_head_block_root(&mut self, head_block_root: Hash256) {
+        self.head_block_root = head_block_root;
     }
 
     /// Rebase the given state on the finalized state in order to reduce its memory consumption.
@@ -147,18 +161,26 @@ impl<E: EthSpec> StateCache<E> {
         self.max_epoch = std::cmp::max(state.current_epoch(), self.max_epoch);
 
         // If the cache is full, use the custom cull routine to make room.
-        if let Some(over_capacity) = self.len().checked_sub(self.capacity()) {
-            self.cull(over_capacity + 1);
-        }
+        let mut deleted_states =
+            if let Some(over_capacity) = self.len().checked_sub(self.capacity()) {
+                // The `over_capacity` should always be 0, but we add it here just in case.
+                self.cull(over_capacity + self.headroom.get())
+            } else {
+                vec![]
+            };
 
         // Insert the full state into the cache.
-        self.states.put(state_root, state.clone());
+        if let Some((deleted_state_root, _)) =
+            self.states.put(state_root, (state_root, state.clone()))
+        {
+            deleted_states.push(deleted_state_root);
+        }
 
         // Record the connection from block root and slot to this state.
         let slot = state.slot();
         self.block_map.insert(block_root, slot, state_root);
 
-        Ok(PutStateOutcome::New)
+        Ok(PutStateOutcome::New(deleted_states))
     }
 
     pub fn get_by_state_root(&mut self, state_root: Hash256) -> Option<BeaconState<E>> {
@@ -167,7 +189,7 @@ impl<E: EthSpec> StateCache<E> {
                 return Some(finalized_state.state.clone());
             }
         }
-        self.states.get(&state_root).cloned()
+        self.states.get(&state_root).map(|(_, state)| state.clone())
     }
 
     pub fn get_by_block_root(
@@ -211,7 +233,7 @@ impl<E: EthSpec> StateCache<E> {
     /// - Mid-epoch unadvanced states.
     /// - Epoch-boundary states that are too old to be finalized.
     /// - Epoch-boundary states that could be finalized.
-    pub fn cull(&mut self, count: usize) {
+    pub fn cull(&mut self, count: usize) -> Vec<Hash256> {
         let cull_exempt = std::cmp::max(
             1,
             self.len() * CULL_EXEMPT_NUMERATOR / CULL_EXEMPT_DENOMINATOR,
@@ -222,7 +244,8 @@ impl<E: EthSpec> StateCache<E> {
         let mut mid_epoch_state_roots = vec![];
         let mut old_boundary_state_roots = vec![];
         let mut good_boundary_state_roots = vec![];
-        for (&state_root, state) in self.states.iter().skip(cull_exempt) {
+
+        for (&state_root, (_, state)) in self.states.iter().skip(cull_exempt) {
             let is_advanced = state.slot() > state.latest_block_header().slot;
             let is_boundary = state.slot() % E::slots_per_epoch() == 0;
             let could_finalize =
@@ -236,7 +259,8 @@ impl<E: EthSpec> StateCache<E> {
                 }
             } else if is_advanced {
                 advanced_state_roots.push(state_root);
-            } else {
+            } else if state.get_latest_block_root(state_root) != self.head_block_root {
+                // Never prune the head state
                 mid_epoch_state_roots.push(state_root);
             }
 
@@ -248,15 +272,19 @@ impl<E: EthSpec> StateCache<E> {
 
         // Stage 2: delete.
         // This could probably be more efficient in how it interacts with the block map.
-        for state_root in advanced_state_roots
-            .iter()
-            .chain(mid_epoch_state_roots.iter())
-            .chain(old_boundary_state_roots.iter())
-            .chain(good_boundary_state_roots.iter())
+        let state_roots_to_delete = advanced_state_roots
+            .into_iter()
+            .chain(old_boundary_state_roots)
+            .chain(mid_epoch_state_roots)
+            .chain(good_boundary_state_roots)
             .take(count)
-        {
+            .collect::<Vec<_>>();
+
+        for state_root in &state_roots_to_delete {
             self.delete_state(state_root);
         }
+
+        state_roots_to_delete
     }
 }
 

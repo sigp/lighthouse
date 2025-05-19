@@ -5,6 +5,7 @@ use beacon_chain::{
     ChainConfig,
 };
 use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use either::Either;
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
@@ -114,10 +115,10 @@ async fn state_by_root_pruned_from_fork_choice() {
             .unwrap()
             .unwrap();
 
-        assert!(response.metadata.finalized.unwrap());
-        assert!(!response.metadata.execution_optimistic.unwrap());
+        assert!(response.metadata().finalized.unwrap());
+        assert!(!response.metadata().execution_optimistic.unwrap());
 
-        let mut state = response.data;
+        let mut state = response.into_data();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
 }
@@ -845,7 +846,7 @@ pub async fn fork_choice_before_proposal() {
         .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
-        .data
+        .into_data()
         .deconstruct()
         .0;
 
@@ -890,27 +891,50 @@ async fn queue_attestations_from_http() {
     let pre_state = harness.get_current_state();
     let (block, post_state) = harness.make_block(pre_state, attestation_slot).await;
     let block_root = block.0.canonical_root();
+    let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
 
     // Make attestations to the block and POST them to the beacon node on a background thread.
-    let attestations = harness
-        .make_unaggregated_attestations(
-            &all_validators,
-            &post_state,
-            block.0.state_root(),
-            block_root.into(),
-            attestation_slot,
-        )
-        .into_iter()
-        .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
-        .collect::<Vec<_>>();
+    let attestation_future = if fork_name.electra_enabled() {
+        let single_attestations = harness
+            .make_single_attestations(
+                &all_validators,
+                &post_state,
+                block.0.state_root(),
+                block_root.into(),
+                attestation_slot,
+            )
+            .into_iter()
+            .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
+            .collect::<Vec<_>>();
 
-    let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
-    let attestation_future = tokio::spawn(async move {
-        client
-            .post_beacon_pool_attestations_v2(&attestations, fork_name)
-            .await
-            .expect("attestations should be processed successfully")
-    });
+        let attestations = Either::Right(single_attestations);
+
+        tokio::spawn(async move {
+            client
+                .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
+                .await
+                .expect("attestations should be processed successfully")
+        })
+    } else {
+        let attestations = harness
+            .make_unaggregated_attestations(
+                &all_validators,
+                &post_state,
+                block.0.state_root(),
+                block_root.into(),
+                attestation_slot,
+            )
+            .into_iter()
+            .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
+            .collect::<Vec<_>>();
+
+        tokio::spawn(async move {
+            client
+                .post_beacon_pool_attestations_v1(&attestations)
+                .await
+                .expect("attestations should be processed successfully")
+        })
+    };
 
     // In parallel, apply the block. We need to manually notify the reprocess queue, because the
     // `beacon_chain` does not know about the queue and will not update it for us.

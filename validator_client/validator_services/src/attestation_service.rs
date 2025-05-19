@@ -1,44 +1,50 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
-use environment::RuntimeContext;
+use either::Either;
 use futures::future::join_all;
-use slog::{crit, debug, error, info, trace, warn};
+use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 use tree_hash::TreeHash;
 use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
 #[derive(Default)]
-pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
-    duties_service: Option<Arc<DutiesService<T, E>>>,
-    validator_store: Option<Arc<ValidatorStore<T, E>>>,
+pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> {
+    duties_service: Option<Arc<DutiesService<S, T>>>,
+    validator_store: Option<Arc<S>>,
     slot_clock: Option<T>,
-    beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
-    context: Option<RuntimeContext<E>>,
+    beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
+    executor: Option<TaskExecutor>,
+    chain_spec: Option<Arc<ChainSpec>>,
+    disable: bool,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuilder<S, T> {
     pub fn new() -> Self {
         Self {
             duties_service: None,
             validator_store: None,
             slot_clock: None,
             beacon_nodes: None,
-            context: None,
+            executor: None,
+            chain_spec: None,
+            disable: false,
         }
     }
 
-    pub fn duties_service(mut self, service: Arc<DutiesService<T, E>>) -> Self {
+    pub fn duties_service(mut self, service: Arc<DutiesService<S, T>>) -> Self {
         self.duties_service = Some(service);
         self
     }
 
-    pub fn validator_store(mut self, store: Arc<ValidatorStore<T, E>>) -> Self {
+    pub fn validator_store(mut self, store: Arc<S>) -> Self {
         self.validator_store = Some(store);
         self
     }
@@ -48,17 +54,27 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
         self
     }
 
-    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+    pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
         self
     }
 
-    pub fn runtime_context(mut self, context: RuntimeContext<E>) -> Self {
-        self.context = Some(context);
+    pub fn executor(mut self, executor: TaskExecutor) -> Self {
+        self.executor = Some(executor);
         self
     }
 
-    pub fn build(self) -> Result<AttestationService<T, E>, String> {
+    pub fn chain_spec(mut self, chain_spec: Arc<ChainSpec>) -> Self {
+        self.chain_spec = Some(chain_spec);
+        self
+    }
+
+    pub fn disable(mut self, disable: bool) -> Self {
+        self.disable = disable;
+        self
+    }
+
+    pub fn build(self) -> Result<AttestationService<S, T>, String> {
         Ok(AttestationService {
             inner: Arc::new(Inner {
                 duties_service: self
@@ -73,21 +89,27 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationServiceBuilder<T, E> {
                 beacon_nodes: self
                     .beacon_nodes
                     .ok_or("Cannot build AttestationService without beacon_nodes")?,
-                context: self
-                    .context
-                    .ok_or("Cannot build AttestationService without runtime_context")?,
+                executor: self
+                    .executor
+                    .ok_or("Cannot build AttestationService without executor")?,
+                chain_spec: self
+                    .chain_spec
+                    .ok_or("Cannot build AttestationService without chain_spec")?,
+                disable: self.disable,
             }),
         })
     }
 }
 
 /// Helper to minimise `Arc` usage.
-pub struct Inner<T, E: EthSpec> {
-    duties_service: Arc<DutiesService<T, E>>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+pub struct Inner<S, T> {
+    duties_service: Arc<DutiesService<S, T>>,
+    validator_store: Arc<S>,
     slot_clock: T,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    context: RuntimeContext<E>,
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
+    executor: TaskExecutor,
+    chain_spec: Arc<ChainSpec>,
+    disable: bool,
 }
 
 /// Attempts to produce attestations for all known validators 1/3rd of the way through each slot.
@@ -95,11 +117,11 @@ pub struct Inner<T, E: EthSpec> {
 /// If any validators are on the same committee, a single attestation will be downloaded and
 /// returned to the beacon node. This attestation will have a signature from each of the
 /// validators.
-pub struct AttestationService<T, E: EthSpec> {
-    inner: Arc<Inner<T, E>>,
+pub struct AttestationService<S, T> {
+    inner: Arc<Inner<S, T>>,
 }
 
-impl<T, E: EthSpec> Clone for AttestationService<T, E> {
+impl<S, T> Clone for AttestationService<S, T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -107,18 +129,21 @@ impl<T, E: EthSpec> Clone for AttestationService<T, E> {
     }
 }
 
-impl<T, E: EthSpec> Deref for AttestationService<T, E> {
-    type Target = Inner<T, E>;
+impl<S, T> Deref for AttestationService<S, T> {
+    type Target = Inner<S, T>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, T> {
     /// Starts the service which periodically produces attestations.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let log = self.context.log().clone();
+        if self.disable {
+            info!("Attestation service disabled");
+            return Ok(());
+        }
 
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
@@ -127,33 +152,24 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .ok_or("Unable to determine duration to next slot")?;
 
         info!(
-            log,
-            "Attestation production service started";
-            "next_update_millis" => duration_to_next_slot.as_millis()
+            next_update_millis = duration_to_next_slot.as_millis(),
+            "Attestation production service started"
         );
 
-        let executor = self.context.executor.clone();
+        let executor = self.executor.clone();
 
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     sleep(duration_to_next_slot + slot_duration / 3).await;
-                    let log = self.context.log();
 
                     if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
-                        crit!(
-                            log,
-                            "Failed to spawn attestation tasks";
-                            "error" => e
-                        )
+                        crit!(error = e, "Failed to spawn attestation tasks")
                     } else {
-                        trace!(
-                            log,
-                            "Spawned attestation tasks";
-                        )
+                        trace!("Spawned attestation tasks");
                     }
                 } else {
-                    error!(log, "Failed to read slot clock");
+                    error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
                     sleep(slot_duration).await;
                     continue;
@@ -200,7 +216,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .for_each(|(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
-                self.inner.context.executor.spawn_ignoring_error(
+                self.inner.executor.spawn_ignoring_error(
                     self.clone().publish_attestations_and_aggregates(
                         slot,
                         committee_index,
@@ -235,7 +251,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         validator_duties: Vec<DutyAndProof>,
         aggregate_production_instant: Instant,
     ) -> Result<(), ()> {
-        let log = self.context.log();
         let attestations_timer = validator_metrics::start_timer_vec(
             &validator_metrics::ATTESTATION_SERVICE_TIMES,
             &[validator_metrics::ATTESTATIONS],
@@ -255,11 +270,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(move |e| {
                 crit!(
-                    log,
-                    "Error during attestation routine";
-                    "error" => format!("{:?}", e),
-                    "committee_index" => committee_index,
-                    "slot" => slot.as_u64(),
+                    error = format!("{:?}", e),
+                    committee_index,
+                    slot = slot.as_u64(),
+                    "Error during attestation routine"
                 )
             })?;
 
@@ -292,11 +306,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(move |e| {
                 crit!(
-                    log,
-                    "Error during attestation routine";
-                    "error" => format!("{:?}", e),
-                    "committee_index" => committee_index,
-                    "slot" => slot.as_u64(),
+                    error = format!("{:?}", e),
+                    committee_index,
+                    slot = slot.as_u64(),
+                    "Error during attestation routine"
                 )
             })?;
         }
@@ -322,8 +335,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<Option<AttestationData>, String> {
-        let log = self.context.log();
-
         if validator_duties.is_empty() {
             return Ok(None);
         }
@@ -332,7 +343,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .slot_clock
             .now()
             .ok_or("Unable to determine current slot from clock")?
-            .epoch(E::slots_per_epoch());
+            .epoch(S::E::slots_per_epoch());
 
         let attestation_data = self
             .beacon_nodes
@@ -357,36 +368,34 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let attestation_data = attestation_data_ref;
 
             // Ensure that the attestation matches the duties.
-            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
+            if !duty.match_attestation_data::<S::E>(attestation_data, &self.chain_spec) {
                 crit!(
-                    log,
-                    "Inconsistent validator duties during signing";
-                    "validator" => ?duty.pubkey,
-                    "duty_slot" => duty.slot,
-                    "attestation_slot" => attestation_data.slot,
-                    "duty_index" => duty.committee_index,
-                    "attestation_index" => attestation_data.index,
+                    validator = ?duty.pubkey,
+                    duty_slot = %duty.slot,
+                    attestation_slot = %attestation_data.slot,
+                    duty_index = duty.committee_index,
+                    attestation_index = attestation_data.index,
+                    "Inconsistent validator duties during signing"
                 );
                 return None;
             }
 
-            let mut attestation = match Attestation::<E>::empty_for_signing(
+            let mut attestation = match Attestation::empty_for_signing(
                 duty.committee_index,
                 duty.committee_length as usize,
                 attestation_data.slot,
                 attestation_data.beacon_block_root,
                 attestation_data.source,
                 attestation_data.target,
-                &self.context.eth2_config.spec,
+                &self.chain_spec,
             ) {
                 Ok(attestation) => attestation,
                 Err(err) => {
                     crit!(
-                        log,
-                        "Invalid validator duties during signing";
-                        "validator" => ?duty.pubkey,
-                        "duty" => ?duty,
-                        "err" => ?err,
+                        validator = ?duty.pubkey,
+                        ?duty,
+                        ?err,
+                        "Invalid validator duties during signing"
                     );
                     return None;
                 }
@@ -407,24 +416,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     // A pubkey can be missing when a validator was recently
                     // removed via the API.
                     warn!(
-                        log,
-                        "Missing pubkey for attestation";
-                        "info" => "a validator may have recently been removed from this VC",
-                        "pubkey" => ?pubkey,
-                        "validator" => ?duty.pubkey,
-                        "committee_index" => committee_index,
-                        "slot" => slot.as_u64(),
+                        info = "a validator may have recently been removed from this VC",
+                        pubkey = ?pubkey,
+                        validator = ?duty.pubkey,
+                        committee_index = committee_index,
+                        slot = slot.as_u64(),
+                        "Missing pubkey for attestation"
                     );
                     None
                 }
                 Err(e) => {
                     crit!(
-                        log,
-                        "Failed to sign attestation";
-                        "error" => ?e,
-                        "validator" => ?duty.pubkey,
-                        "committee_index" => committee_index,
-                        "slot" => slot.as_u64(),
+                        error = ?e,
+                        validator = ?duty.pubkey,
+                        committee_index,
+                        slot = slot.as_u64(),
+                        "Failed to sign attestation"
                     );
                     None
                 }
@@ -439,14 +446,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .unzip();
 
         if attestations.is_empty() {
-            warn!(log, "No attestations were published");
+            warn!("No attestations were published");
             return Ok(None);
         }
         let fork_name = self
-            .context
-            .eth2_config
-            .spec
-            .fork_name_at_slot::<E>(attestation_data.slot);
+            .chain_spec
+            .fork_name_at_slot::<S::E>(attestation_data.slot);
 
         // Post the attestations to the BN.
         match self
@@ -457,8 +462,33 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     &[validator_metrics::ATTESTATIONS_HTTP_POST],
                 );
                 if fork_name.electra_enabled() {
+                    let single_attestations = attestations
+                        .iter()
+                        .zip(validator_indices)
+                        .filter_map(|(a, i)| {
+                            match a.to_single_attestation_with_attester_index(*i) {
+                                Ok(a) => Some(a),
+                                Err(e) => {
+                                    // This shouldn't happen unless BN and VC are out of sync with
+                                    // respect to the Electra fork.
+                                    error!(
+                                        error = ?e,
+                                        committee_index = attestation_data.index,
+                                        slot = slot.as_u64(),
+                                        "type" = "unaggregated",
+                                        "Unable to convert to SingleAttestation"
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
                     beacon_node
-                        .post_beacon_pool_attestations_v2(attestations, fork_name)
+                        .post_beacon_pool_attestations_v2::<S::E>(
+                            Either::Right(single_attestations),
+                            fork_name,
+                        )
                         .await
                 } else {
                     beacon_node
@@ -469,22 +499,20 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
         {
             Ok(()) => info!(
-                log,
-                "Successfully published attestations";
-                "count" => attestations.len(),
-                "validator_indices" => ?validator_indices,
-                "head_block" => ?attestation_data.beacon_block_root,
-                "committee_index" => attestation_data.index,
-                "slot" => attestation_data.slot.as_u64(),
-                "type" => "unaggregated",
+                count = attestations.len(),
+                validator_indices = ?validator_indices,
+                head_block = ?attestation_data.beacon_block_root,
+                committee_index = attestation_data.index,
+                slot = attestation_data.slot.as_u64(),
+                "type" = "unaggregated",
+                "Successfully published attestations"
             ),
             Err(e) => error!(
-                log,
-                "Unable to publish attestations";
-                "error" => %e,
-                "committee_index" => attestation_data.index,
-                "slot" => slot.as_u64(),
-                "type" => "unaggregated",
+                error = %e,
+                committee_index = attestation_data.index,
+                slot = slot.as_u64(),
+                "type" = "unaggregated",
+                "Unable to publish attestations"
             ),
         }
 
@@ -510,8 +538,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
-        let log = self.context.log();
-
         if !validator_duties
             .iter()
             .any(|duty_and_proof| duty_and_proof.selection_proof.is_some())
@@ -521,10 +547,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         }
 
         let fork_name = self
-            .context
-            .eth2_config
-            .spec
-            .fork_name_at_slot::<E>(attestation_data.slot);
+            .chain_spec
+            .fork_name_at_slot::<S::E>(attestation_data.slot);
 
         let aggregated_attestation = &self
             .beacon_nodes
@@ -545,7 +569,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             format!("Failed to produce an aggregate attestation: {:?}", e)
                         })?
                         .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
-                        .map(|result| result.data)
+                        .map(|result| result.into_data())
                 } else {
                     beacon_node
                         .get_validator_aggregate_attestation_v1(
@@ -568,8 +592,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let duty = &duty_and_proof.duty;
             let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
-            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
-                crit!(log, "Inconsistent validator duties during signing");
+            if !duty.match_attestation_data::<S::E>(attestation_data, &self.chain_spec) {
+                crit!("Inconsistent validator duties during signing");
                 return None;
             }
 
@@ -587,19 +611,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
                     // A pubkey can be missing when a validator was recently
                     // removed via the API.
-                    debug!(
-                        log,
-                        "Missing pubkey for aggregate";
-                        "pubkey" => ?pubkey,
-                    );
+                    debug!(?pubkey, "Missing pubkey for aggregate");
                     None
                 }
                 Err(e) => {
                     crit!(
-                        log,
-                        "Failed to sign aggregate";
-                        "error" => ?e,
-                        "pubkey" => ?duty.pubkey,
+                        error = ?e,
+                        pubkey = ?duty.pubkey,
+                        "Failed to sign aggregate"
                     );
                     None
                 }
@@ -643,14 +662,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
                         let attestation = signed_aggregate_and_proof.message().aggregate();
                         info!(
-                            log,
-                            "Successfully published attestation";
-                            "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
-                            "signatures" => attestation.num_set_aggregation_bits(),
-                            "head_block" => format!("{:?}", attestation.data().beacon_block_root),
-                            "committee_index" => attestation.committee_index(),
-                            "slot" => attestation.data().slot.as_u64(),
-                            "type" => "aggregated",
+                            aggregator = signed_aggregate_and_proof.message().aggregator_index(),
+                            signatures = attestation.num_set_aggregation_bits(),
+                            head_block = format!("{:?}", attestation.data().beacon_block_root),
+                            committee_index = attestation.committee_index(),
+                            slot = attestation.data().slot.as_u64(),
+                            "type" = "aggregated",
+                            "Successfully published attestation"
                         );
                     }
                 }
@@ -658,13 +676,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
                         let attestation = &signed_aggregate_and_proof.message().aggregate();
                         crit!(
-                            log,
-                            "Failed to publish attestation";
-                            "error" => %e,
-                            "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
-                            "committee_index" => attestation.committee_index(),
-                            "slot" => attestation.data().slot.as_u64(),
-                            "type" => "aggregated",
+                            error = %e,
+                            aggregator = signed_aggregate_and_proof.message().aggregator_index(),
+                            committee_index = attestation.committee_index(),
+                            slot = attestation.data().slot.as_u64(),
+                            "type" = "aggregated",
+                            "Failed to publish attestation"
                         );
                     }
                 }
@@ -679,11 +696,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Start the task at `pruning_instant` to avoid interference with other tasks.
     fn spawn_slashing_protection_pruning_task(&self, slot: Slot, pruning_instant: Instant) {
         let attestation_service = self.clone();
-        let executor = self.inner.context.executor.clone();
-        let current_epoch = slot.epoch(E::slots_per_epoch());
+        let executor = self.inner.executor.clone();
+        let current_epoch = slot.epoch(S::E::slots_per_epoch());
 
         // Wait for `pruning_instant` in a regular task, and then switch to a blocking one.
-        self.inner.context.executor.spawn(
+        self.inner.executor.spawn(
             async move {
                 sleep_until(pruning_instant).await;
 

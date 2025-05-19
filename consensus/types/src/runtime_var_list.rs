@@ -1,5 +1,7 @@
+use crate::ContextDeserialize;
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as DeError;
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_types::Error;
 use std::ops::{Deref, Index, IndexMut};
@@ -134,13 +136,13 @@ impl<T: Decode> RuntimeVariableList<T> {
                 )));
             }
 
-            bytes
-                .chunks(<T as Decode>::ssz_fixed_len())
-                .try_fold(Vec::with_capacity(num_items), |mut vec, chunk| {
+            bytes.chunks(<T as Decode>::ssz_fixed_len()).try_fold(
+                Vec::with_capacity(num_items),
+                |mut vec, chunk| {
                     vec.push(<T as Decode>::from_ssz_bytes(chunk)?);
                     Ok(vec)
-                })
-                .map(Into::into)?
+                },
+            )?
         } else {
             ssz::decode_list_of_variable_length_items(bytes, Some(max_len))?
         };
@@ -214,6 +216,28 @@ where
 
     fn ssz_bytes_len(&self) -> usize {
         self.vec.ssz_bytes_len()
+    }
+}
+
+impl<'de, C, T> ContextDeserialize<'de, (C, usize)> for RuntimeVariableList<T>
+where
+    T: ContextDeserialize<'de, C>,
+    C: Clone,
+{
+    fn context_deserialize<D>(deserializer: D, context: (C, usize)) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // first parse out a Vec<C> using the Vec<C> impl you already have
+        let vec: Vec<T> = Vec::context_deserialize(deserializer, context.0)?;
+        if vec.len() > context.1 {
+            return Err(DeError::custom(format!(
+                "RuntimeVariableList lengh {} exceeds max_len {}",
+                vec.len(),
+                context.1
+            )));
+        }
+        Ok(RuntimeVariableList::from_vec(vec, context.1))
     }
 }
 

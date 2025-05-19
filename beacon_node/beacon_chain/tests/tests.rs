@@ -12,9 +12,11 @@ use operation_pool::PersistedOperationPool;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
-    BeaconState, BeaconStateError, BlockImportSource, EthSpec, Hash256, Keypair, MinimalEthSpec,
-    RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, Checkpoint, EthSpec, Hash256, Keypair,
+    MinimalEthSpec, RelativeEpoch, Slot,
 };
+
+type E = MinimalEthSpec;
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
@@ -24,12 +26,22 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
+    get_harness_with_config(
+        validator_count,
+        ChainConfig {
+            reconstruct_historic_states: true,
+            ..Default::default()
+        },
+    )
+}
+
+fn get_harness_with_config(
+    validator_count: usize,
+    chain_config: ChainConfig,
+) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
-        .chain_config(ChainConfig {
-            reconstruct_historic_states: true,
-            ..ChainConfig::default()
-        })
+        .chain_config(chain_config)
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -868,4 +880,166 @@ async fn block_roots_skip_slot_behaviour() {
             .is_none(),
         "WhenSlotSkipped::Prev should return None on a future slot"
     );
+}
+
+async fn pseudo_finalize_test_generic(
+    epochs_per_migration: u64,
+    expect_true_finalization_migration: bool,
+) {
+    // This test ensures that after pseudo finalization, we can still finalize the chain without issues
+    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+
+    let chain_config = ChainConfig {
+        reconstruct_historic_states: true,
+        epochs_per_migration,
+        ..Default::default()
+    };
+    let harness = get_harness_with_config(VALIDATOR_COUNT, chain_config);
+
+    let one_third = VALIDATOR_COUNT / 3;
+    let attesters = (0..one_third).collect();
+
+    // extend the chain, but don't finalize
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(attesters),
+        )
+        .await;
+
+    harness.advance_slot();
+
+    let head = harness.chain.head_snapshot();
+    let state = &head.beacon_state;
+    let split = harness.chain.store.get_split_info();
+
+    assert_eq!(
+        state.slot(),
+        num_blocks_produced,
+        "head should be at the current slot"
+    );
+    assert_eq!(
+        state.current_epoch(),
+        num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
+        "head should be at the expected epoch"
+    );
+    assert_eq!(
+        state.current_justified_checkpoint().epoch,
+        0,
+        "There should be no justified checkpoint"
+    );
+    assert_eq!(
+        state.finalized_checkpoint().epoch,
+        0,
+        "There should be no finalized checkpoint"
+    );
+    assert_eq!(split.slot, 0, "Our split point should be unset");
+
+    let checkpoint = Checkpoint {
+        epoch: head.beacon_state.current_epoch(),
+        root: head.beacon_block_root,
+    };
+
+    // pseudo finalize
+    harness
+        .chain
+        .manually_finalize_state(head.beacon_state_root(), checkpoint)
+        .unwrap();
+
+    let split = harness.chain.store.get_split_info();
+    let pseudo_finalized_slot = split.slot;
+
+    assert_eq!(
+        state.current_justified_checkpoint().epoch,
+        0,
+        "We pseudo finalized, but our justified checkpoint should still be unset"
+    );
+    assert_eq!(
+        state.finalized_checkpoint().epoch,
+        0,
+        "We pseudo finalized, but our finalized checkpoint should still be unset"
+    );
+    assert_eq!(
+        split.slot,
+        head.beacon_state.slot(),
+        "We pseudo finalized, our split point should be at the current head slot"
+    );
+
+    // finalize the chain
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    let head = harness.chain.head_snapshot();
+    let state = &head.beacon_state;
+    let split = harness.chain.store.get_split_info();
+
+    assert_eq!(
+        state.slot(),
+        num_blocks_produced * 2,
+        "head should be at the current slot"
+    );
+    assert_eq!(
+        state.current_epoch(),
+        (num_blocks_produced * 2) / MinimalEthSpec::slots_per_epoch(),
+        "head should be at the expected epoch"
+    );
+    assert_eq!(
+        state.current_justified_checkpoint().epoch,
+        state.current_epoch() - 1,
+        "the head should be justified one behind the current epoch"
+    );
+    let finalized_epoch = state.finalized_checkpoint().epoch;
+    assert_eq!(
+        finalized_epoch,
+        state.current_epoch() - 2,
+        "the head should be finalized two behind the current epoch"
+    );
+
+    let expected_split_slot = if pseudo_finalized_slot.epoch(E::slots_per_epoch())
+        + epochs_per_migration
+        > finalized_epoch
+    {
+        pseudo_finalized_slot
+    } else {
+        finalized_epoch.start_slot(E::slots_per_epoch())
+    };
+    assert_eq!(
+        split.slot, expected_split_slot,
+        "We finalized, our split point should be updated according to epochs_per_migration"
+    );
+
+    // In the case that we did not process the true finalization migration (due to
+    // epochs_per_migration), check that the chain finalized *despite* the absence of the split
+    // block in fork choice.
+    // This is a regression test for https://github.com/sigp/lighthouse/pull/7105
+    if !expect_true_finalization_migration {
+        assert_eq!(expected_split_slot, pseudo_finalized_slot);
+        assert!(!harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&split.block_root));
+    }
+}
+
+#[tokio::test]
+async fn pseudo_finalize_basic() {
+    let epochs_per_migration = 0;
+    let expect_true_migration = true;
+    pseudo_finalize_test_generic(epochs_per_migration, expect_true_migration).await;
+}
+
+#[tokio::test]
+async fn pseudo_finalize_with_lagging_split_update() {
+    let epochs_per_migration = 10;
+    let expect_true_migration = false;
+    pseudo_finalize_test_generic(epochs_per_migration, expect_true_migration).await;
 }

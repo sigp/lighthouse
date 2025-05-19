@@ -717,12 +717,23 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
     }
 }
 
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(
+        derive(Debug, Clone, PartialEq, Serialize, Deserialize),
+        serde(bound = "E: EthSpec", rename_all = "camelCase")
+    )
+)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
-pub struct BlobAndProofV1<E: EthSpec> {
+pub struct BlobAndProof<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<E>,
+    /// KZG proof for the blob (Deneb)
+    #[superstruct(only(V1))]
     pub proof: KzgProof,
+    /// KZG cell proofs for the extended blob (PeerDAS)
+    #[superstruct(only(V2))]
+    pub proofs: KzgProofs<E>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -989,5 +1000,156 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
             version: json.version,
             commit: json.commit.try_into()?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ssz::Encode;
+    use types::{
+        ConsolidationRequest, DepositRequest, MainnetEthSpec, PublicKeyBytes, RequestType,
+        SignatureBytes, WithdrawalRequest,
+    };
+
+    use super::*;
+
+    fn create_request_string<T: Encode>(prefix: u8, request_bytes: &T) -> String {
+        format!(
+            "0x{:02x}{}",
+            prefix,
+            hex::encode(request_bytes.as_ssz_bytes())
+        )
+    }
+
+    /// Tests all error conditions except ssz decoding errors
+    ///
+    /// ***
+    /// Elements of the list MUST be ordered by request_type in ascending order.
+    /// Elements with empty request_data MUST be excluded from the list.
+    /// If any element is out of order, has a length of 1-byte or shorter,
+    /// or more than one element has the same type byte, client software MUST return -32602: Invalid params error.
+    /// ***
+    #[test]
+    fn test_invalid_execution_requests() {
+        let deposit_request = DepositRequest {
+            pubkey: PublicKeyBytes::empty(),
+            withdrawal_credentials: Hash256::random(),
+            amount: 32,
+            signature: SignatureBytes::empty(),
+            index: 0,
+        };
+
+        let consolidation_request = ConsolidationRequest {
+            source_address: Address::random(),
+            source_pubkey: PublicKeyBytes::empty(),
+            target_pubkey: PublicKeyBytes::empty(),
+        };
+
+        let withdrawal_request = WithdrawalRequest {
+            amount: 32,
+            source_address: Address::random(),
+            validator_pubkey: PublicKeyBytes::empty(),
+        };
+
+        // First check a valid request with all requests
+        assert!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
+                create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
+                create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
+            ]))
+            .is_ok()
+        );
+
+        // Single requests
+        assert!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
+            ]))
+            .is_ok()
+        );
+
+        assert!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
+            ]))
+            .is_ok()
+        );
+
+        assert!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
+            ]))
+            .is_ok()
+        );
+
+        // Out of order
+        assert!(matches!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
+                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
+            ]))
+            .unwrap_err(),
+            RequestsError::InvalidOrdering
+        ));
+
+        assert!(matches!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
+                create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
+            ]))
+            .unwrap_err(),
+            RequestsError::InvalidOrdering
+        ));
+
+        assert!(matches!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
+                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
+            ]))
+            .unwrap_err(),
+            RequestsError::InvalidOrdering
+        ));
+
+        // Multiple requests of same type
+        assert!(matches!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
+                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
+            ]))
+            .unwrap_err(),
+            RequestsError::InvalidOrdering
+        ));
+
+        // Invalid prefix
+        assert!(matches!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(42, &deposit_request),
+            ]))
+            .unwrap_err(),
+            RequestsError::InvalidPrefix(42)
+        ));
+
+        // Prefix followed by no data
+        assert!(matches!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
+                create_request_string(
+                    RequestType::Consolidation.to_u8(),
+                    &Vec::<ConsolidationRequest>::new()
+                ),
+            ]))
+            .unwrap_err(),
+            RequestsError::EmptyRequest(1)
+        ));
+        // Empty request
+        assert!(matches!(
+            ExecutionRequests::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+                create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
+                "0x".to_string()
+            ]))
+            .unwrap_err(),
+            RequestsError::EmptyRequest(1)
+        ));
     }
 }

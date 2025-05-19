@@ -1,11 +1,12 @@
-use beacon_node::ClientConfig as Config;
-
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
 };
-use beacon_node::beacon_chain::graffiti_calculator::GraffitiOrigin;
+use beacon_node::{
+    beacon_chain::graffiti_calculator::GraffitiOrigin,
+    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config,
+};
 use beacon_processor::BeaconProcessorConfig;
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
@@ -719,6 +720,40 @@ fn builder_user_agent() {
     );
 }
 
+#[test]
+fn test_builder_disable_ssz_flag() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert!(
+                !config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .disable_builder_ssz_requests,
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-disable-ssz"),
+        None,
+        |config| {
+            assert!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .disable_builder_ssz_requests,
+            );
+        },
+    );
+}
+
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
     use sensitive_url::SensitiveUrl;
 
@@ -1239,7 +1274,7 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 15;
+    let number_of_boot_nodes = 17;
 
     CommandLineTest::new()
         .run_with_zero_port()
@@ -1838,7 +1873,7 @@ fn block_cache_size_flag() {
 fn state_cache_size_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(32)));
 }
 #[test]
 fn state_cache_size_flag() {
@@ -1846,6 +1881,21 @@ fn state_cache_size_flag() {
         .flag("state-cache-size", Some("64"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(64)));
+}
+#[test]
+fn state_cache_headroom_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_headroom, new_non_zero_usize(1)));
+}
+#[test]
+fn state_cache_headroom_flag() {
+    CommandLineTest::new()
+        .flag("state-cache-headroom", Some("16"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.state_cache_headroom, new_non_zero_usize(16))
+        });
 }
 #[test]
 fn historic_state_cache_size_flag() {
@@ -1937,7 +1987,7 @@ fn prune_blobs_on_startup_false() {
 fn epochs_per_blob_prune_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(config.store.epochs_per_blob_prune == 1));
+        .with_config(|config| assert_eq!(config.store.epochs_per_blob_prune, 256));
 }
 #[test]
 fn epochs_per_blob_prune_on_startup_five() {
@@ -2381,20 +2431,20 @@ fn monitoring_endpoint() {
 
 // Tests for Logger flags.
 #[test]
-fn default_log_color_flag() {
+fn default_logfile_color_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.logger_config.log_color);
+            assert!(!config.logger_config.logfile_color);
         });
 }
 #[test]
-fn enabled_log_color_flag() {
+fn enabled_logfile_color_flag() {
     CommandLineTest::new()
-        .flag("log-color", None)
+        .flag("logfile-color", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.logger_config.log_color);
+            assert!(config.logger_config.logfile_color);
         });
 }
 #[test]
@@ -2503,9 +2553,8 @@ fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.network.enable_light_client_server);
-            assert!(!config.chain.enable_light_client_server);
-            assert!(!config.http_api.enable_light_client_server);
+            assert!(config.network.enable_light_client_server);
+            assert!(config.chain.enable_light_client_server);
         });
 }
 
@@ -2521,13 +2570,49 @@ fn light_client_server_enabled() {
 }
 
 #[test]
-fn light_client_http_server_enabled() {
+fn light_client_server_disabled() {
     CommandLineTest::new()
-        .flag("http", None)
-        .flag("light-client-server", None)
+        .flag("disable-light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.http_api.enable_light_client_server);
+            assert!(!config.network.enable_light_client_server);
+            assert!(!config.chain.enable_light_client_server);
+        });
+}
+
+#[test]
+fn light_client_http_server_disabled() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("disable-light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_light_client_server);
+            assert!(!config.chain.enable_light_client_server);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("sync-tolerance-epochs", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.sync_tolerance_epochs, 0);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.sync_tolerance_epochs,
+                DEFAULT_SYNC_TOLERANCE_EPOCHS
+            );
         });
 }
 
@@ -2673,7 +2758,7 @@ fn genesis_state_url_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.genesis_state_url, None);
-            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(180));
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(300));
         });
 }
 
@@ -2690,4 +2775,80 @@ fn genesis_state_url_value() {
             );
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
         });
+}
+
+#[test]
+fn beacon_node_backend_override() {
+    CommandLineTest::new()
+        .flag("beacon-node-backend", Some("leveldb"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.backend, BeaconNodeBackend::LevelDb);
+        });
+}
+
+#[test]
+fn block_publishing_delay_for_testing() {
+    CommandLineTest::new()
+        .flag("delay-block-publishing", Some("2.5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.block_publishing_delay,
+                Some(Duration::from_secs_f64(2.5f64))
+            );
+        });
+}
+
+#[test]
+fn data_column_publishing_delay_for_testing() {
+    CommandLineTest::new()
+        .flag("delay-data-column-publishing", Some("3.5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.data_column_publishing_delay,
+                Some(Duration::from_secs_f64(3.5f64))
+            );
+        });
+}
+
+#[test]
+fn invalid_block_roots_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut file =
+        File::create(dir.path().join("invalid-block-roots")).expect("Unable to create file");
+    file.write_all(b"2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359, 2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f358, 0x3db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f358")
+        .expect("Unable to write to file");
+    CommandLineTest::new()
+        .flag(
+            "invalid-block-roots",
+            dir.path().join("invalid-block-roots").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.invalid_block_roots.len(), 3))
+}
+
+#[test]
+fn invalid_block_roots_default_holesky() {
+    use beacon_node::beacon_chain::chain_config::INVALID_HOLESKY_BLOCK_ROOT;
+    CommandLineTest::new()
+        .flag("network", Some("holesky"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.invalid_block_roots.len(), 1);
+            assert!(config
+                .chain
+                .invalid_block_roots
+                .contains(&*INVALID_HOLESKY_BLOCK_ROOT));
+        })
+}
+
+#[test]
+fn invalid_block_roots_default_mainnet() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.invalid_block_roots.is_empty());
+        })
 }

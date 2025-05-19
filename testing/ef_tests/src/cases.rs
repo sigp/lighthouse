@@ -13,12 +13,13 @@ mod bls_fast_aggregate_verify;
 mod bls_sign_msg;
 mod bls_verify_msg;
 mod common;
+mod compute_columns_for_custody_groups;
 mod epoch_processing;
 mod fork;
 mod fork_choice;
 mod genesis_initialization;
 mod genesis_validity;
-mod get_custody_columns;
+mod get_custody_groups;
 mod kzg_blob_to_kzg_commitment;
 mod kzg_compute_blob_kzg_proof;
 mod kzg_compute_cells_and_kzg_proofs;
@@ -49,11 +50,12 @@ pub use bls_fast_aggregate_verify::*;
 pub use bls_sign_msg::*;
 pub use bls_verify_msg::*;
 pub use common::SszStaticType;
+pub use compute_columns_for_custody_groups::*;
 pub use epoch_processing::*;
 pub use fork::ForkTest;
 pub use genesis_initialization::*;
 pub use genesis_validity::*;
-pub use get_custody_columns::*;
+pub use get_custody_groups::*;
 pub use kzg_blob_to_kzg_commitment::*;
 pub use kzg_compute_blob_kzg_proof::*;
 pub use kzg_compute_cells_and_kzg_proofs::*;
@@ -82,25 +84,28 @@ pub use transition::TransitionTest;
 ///
 /// The feature tests can be run with one of the following methods:
 /// 1. `handler.run_for_feature(feature_name)` for new tests that are not on existing fork, i.e. a
-///     new handler. This will be temporary and the test will need to be updated to use
-///     `handle.run()` once the feature is incorporated into a fork.
+///    new handler. This will be temporary and the test will need to be updated to use
+///    `handle.run()` once the feature is incorporated into a fork.
 /// 2. `handler.run()` for tests that are already on existing forks, but with new test vectors for
-///     the feature. In this case the `handler.is_enabled_for_feature` will need to be implemented
-///     to return `true` for the feature in order for the feature test vector to be tested.
+///    the feature. In this case the `handler.is_enabled_for_feature` will need to be implemented
+///    to return `true` for the feature in order for the feature test vector to be tested.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FeatureName {
-    Eip7594,
+    // TODO(fulu): to be removed once we start using Fulu types for test vectors.
+    // Existing SSZ types for PeerDAS (Fulu) are the same as Electra, so the test vectors get
+    // loaded as Electra types (default serde behaviour for untagged enums).
+    Fulu,
 }
 
 impl FeatureName {
     pub fn list_all() -> Vec<FeatureName> {
-        vec![FeatureName::Eip7594]
+        vec![FeatureName::Fulu]
     }
 
     /// `ForkName` to use when running the feature tests.
     pub fn fork_name(&self) -> ForkName {
         match self {
-            FeatureName::Eip7594 => ForkName::Deneb,
+            FeatureName::Fulu => ForkName::Electra,
         }
     }
 }
@@ -108,7 +113,7 @@ impl FeatureName {
 impl Display for FeatureName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FeatureName::Eip7594 => f.write_str("eip7594"),
+            FeatureName::Fulu => f.write_str("fulu"),
         }
     }
 }

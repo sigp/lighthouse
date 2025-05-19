@@ -1,6 +1,6 @@
 use crate::AttestationStats;
 use itertools::Itertools;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use types::{
     attestation::{AttestationBase, AttestationElectra},
     superstruct, AggregateSignature, Attestation, AttestationData, BeaconState, BitList, BitVector,
@@ -119,6 +119,18 @@ impl<E: EthSpec> CompactAttestationRef<'_, E> {
         }
     }
 
+    pub fn get_committee_indices_map(&self) -> HashSet<u64> {
+        match self.indexed {
+            CompactIndexedAttestation::Base(_) => HashSet::from([self.data.index]),
+            CompactIndexedAttestation::Electra(indexed_att) => indexed_att
+                .committee_bits
+                .iter()
+                .enumerate()
+                .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+                .collect(),
+        }
+    }
+
     pub fn clone_as_attestation(&self) -> Attestation<E> {
         match self.indexed {
             CompactIndexedAttestation::Base(indexed_att) => Attestation::Base(AttestationBase {
@@ -214,7 +226,7 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
                 .is_zero()
     }
 
-    /// Returns `true` if aggregated, otherwise `false`.
+    /// Returns `true` if aggregated, otherwise `false`.
     pub fn aggregate_same_committee(&mut self, other: &Self) -> bool {
         if self.committee_bits != other.committee_bits {
             return false;
@@ -268,7 +280,11 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
     }
 
     pub fn committee_index(&self) -> Option<u64> {
-        self.get_committee_indices().first().copied()
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .find(|&(_, bit)| bit)
+            .map(|(index, _)| index as u64)
     }
 
     pub fn get_committee_indices(&self) -> Vec<u64> {

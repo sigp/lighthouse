@@ -32,16 +32,14 @@ rand = { workspace = true }
 redb = { version = "2.1.4", optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
 ssz_types = { workspace = true }
 strum = { workspace = true }
+tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]
-logging = { workspace = true }
 maplit = { workspace = true }
 rayon = { workspace = true }
 tempfile = { workspace = true }
-

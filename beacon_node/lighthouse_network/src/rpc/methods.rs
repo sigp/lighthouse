@@ -6,7 +6,6 @@ use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::U256, VariableList};
-use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -15,12 +14,13 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
-use types::ForkName;
 use types::{
-    blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
-    Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
+    blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar,
+    DataColumnsByRootIdentifier, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList,
+    SignedBeaconBlock, Slot,
 };
+use types::{ForkContext, ForkName};
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
@@ -138,7 +138,7 @@ pub struct MetaData<E: EthSpec> {
     #[superstruct(only(V2, V3))]
     pub syncnets: EnrSyncCommitteeBitfield<E>,
     #[superstruct(only(V3))]
-    pub custody_subnet_count: u64,
+    pub custody_group_count: u64,
 }
 
 impl<E: EthSpec> MetaData<E> {
@@ -181,13 +181,13 @@ impl<E: EthSpec> MetaData<E> {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: Default::default(),
-                custody_subnet_count: spec.custody_requirement,
+                custody_group_count: spec.custody_requirement,
             }),
             MetaData::V2(metadata) => MetaData::V3(MetaDataV3 {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: metadata.syncnets.clone(),
-                custody_subnet_count: spec.custody_requirement,
+                custody_group_count: spec.custody_requirement,
             }),
             md @ MetaData::V3(_) => md.clone(),
         }
@@ -364,7 +364,7 @@ impl DataColumnsByRangeRequest {
         DataColumnsByRangeRequest {
             start_slot: 0,
             count: 0,
-            columns: vec![0; spec.number_of_columns],
+            columns: vec![0; spec.number_of_columns as usize],
         }
         .as_ssz_bytes()
         .len()
@@ -411,6 +411,27 @@ impl OldBlocksByRangeRequest {
     }
 }
 
+impl From<BlocksByRangeRequest> for OldBlocksByRangeRequest {
+    fn from(req: BlocksByRangeRequest) -> Self {
+        match req {
+            BlocksByRangeRequest::V1(ref req) => {
+                OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                })
+            }
+            BlocksByRangeRequest::V2(ref req) => {
+                OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                })
+            }
+        }
+    }
+}
+
 /// Request a number of beacon block bodies from a peer.
 #[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
 #[derive(Clone, Debug, PartialEq)]
@@ -420,15 +441,19 @@ pub struct BlocksByRootRequest {
 }
 
 impl BlocksByRootRequest {
-    pub fn new(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
-        let block_roots =
-            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
+    pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+        let max_request_blocks = fork_context
+            .spec
+            .max_request_blocks(fork_context.current_fork());
+        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
         Self::V2(BlocksByRootRequestV2 { block_roots })
     }
 
-    pub fn new_v1(block_roots: Vec<Hash256>, spec: &ChainSpec) -> Self {
-        let block_roots =
-            RuntimeVariableList::from_vec(block_roots, spec.max_request_blocks as usize);
+    pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+        let max_request_blocks = fork_context
+            .spec
+            .max_request_blocks(fork_context.current_fork());
+        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
         Self::V1(BlocksByRootRequestV1 { block_roots })
     }
 }
@@ -441,9 +466,11 @@ pub struct BlobsByRootRequest {
 }
 
 impl BlobsByRootRequest {
-    pub fn new(blob_ids: Vec<BlobIdentifier>, spec: &ChainSpec) -> Self {
-        let blob_ids =
-            RuntimeVariableList::from_vec(blob_ids, spec.max_request_blob_sidecars as usize);
+    pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Self {
+        let max_request_blob_sidecars = fork_context
+            .spec
+            .max_request_blob_sidecars(fork_context.current_fork());
+        let blob_ids = RuntimeVariableList::from_vec(blob_ids, max_request_blob_sidecars);
         Self { blob_ids }
     }
 }
@@ -452,31 +479,20 @@ impl BlobsByRootRequest {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DataColumnsByRootRequest {
     /// The list of beacon block roots and column indices being requested.
-    pub data_column_ids: RuntimeVariableList<DataColumnIdentifier>,
+    pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier>,
 }
 
 impl DataColumnsByRootRequest {
-    pub fn new(data_column_ids: Vec<DataColumnIdentifier>, spec: &ChainSpec) -> Self {
-        let data_column_ids = RuntimeVariableList::from_vec(
-            data_column_ids,
-            spec.max_request_data_column_sidecars as usize,
-        );
+    pub fn new(
+        data_column_ids: Vec<DataColumnsByRootIdentifier>,
+        max_request_blocks: usize,
+    ) -> Self {
+        let data_column_ids = RuntimeVariableList::from_vec(data_column_ids, max_request_blocks);
         Self { data_column_ids }
     }
 
-    pub fn new_single(block_root: Hash256, index: ColumnIndex, spec: &ChainSpec) -> Self {
-        Self::new(vec![DataColumnIdentifier { block_root, index }], spec)
-    }
-
-    pub fn group_by_ordered_block_root(&self) -> Vec<(Hash256, Vec<ColumnIndex>)> {
-        let mut column_indexes_by_block = BTreeMap::<Hash256, Vec<ColumnIndex>>::new();
-        for request_id in self.data_column_ids.as_slice() {
-            column_indexes_by_block
-                .entry(request_id.block_root)
-                .or_default()
-                .push(request_id.index);
-        }
-        column_indexes_by_block.into_iter().collect()
+    pub fn max_requested(&self) -> usize {
+        self.data_column_ids.iter().map(|id| id.columns.len()).sum()
     }
 }
 
@@ -551,7 +567,7 @@ pub enum RpcSuccessResponse<E: EthSpec> {
     Pong(Ping),
 
     /// A response to a META_DATA request.
-    MetaData(MetaData<E>),
+    MetaData(Arc<MetaData<E>>),
 }
 
 /// Indicates which response is being terminated by a stream termination response.
@@ -577,6 +593,20 @@ pub enum ResponseTermination {
 
     /// Light client updates by range stream termination.
     LightClientUpdatesByRange,
+}
+
+impl ResponseTermination {
+    pub fn as_protocol(&self) -> Protocol {
+        match self {
+            ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
+            ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
+            ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
+            ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
+            ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
+            ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
+            ResponseTermination::LightClientUpdatesByRange => Protocol::LightClientUpdatesByRange,
+        }
+    }
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -835,21 +865,5 @@ impl std::fmt::Display for DataColumnsByRootRequest {
             "Request: DataColumnsByRoot: Number of Requested Data Column Ids: {}",
             self.data_column_ids.len()
         )
-    }
-}
-
-impl slog::KV for StatusMessage {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        use slog::Value;
-        serializer.emit_arguments("fork_digest", &format_args!("{:?}", self.fork_digest))?;
-        Value::serialize(&self.finalized_epoch, record, "finalized_epoch", serializer)?;
-        serializer.emit_arguments("finalized_root", &format_args!("{}", self.finalized_root))?;
-        Value::serialize(&self.head_slot, record, "head_slot", serializer)?;
-        serializer.emit_arguments("head_root", &format_args!("{}", self.head_root))?;
-        slog::Result::Ok(())
     }
 }

@@ -1,3 +1,4 @@
+use crate::context_deserialize;
 use crate::{
     test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec,
     FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
@@ -23,6 +24,7 @@ use tree_hash_derive::TreeHash;
     TestRandom,
     TreeHash,
 )]
+#[context_deserialize(ForkName)]
 pub struct Validator {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
@@ -56,7 +58,7 @@ impl Validator {
         };
 
         let max_effective_balance = validator.get_max_effective_balance(spec, fork_name);
-        // safe math is unnecessary here since the spec.effecive_balance_increment is never <= 0
+        // safe math is unnecessary here since the spec.effective_balance_increment is never <= 0
         validator.effective_balance = std::cmp::min(
             amount - (amount % spec.effective_balance_increment),
             max_effective_balance,
@@ -195,7 +197,7 @@ impl Validator {
     /// Returns `true` if the validator is fully withdrawable at some epoch.
     ///
     /// Calls the correct function depending on the provided `fork_name`.
-    pub fn is_fully_withdrawable_at(
+    pub fn is_fully_withdrawable_validator(
         &self,
         balance: u64,
         epoch: Epoch,
@@ -203,14 +205,14 @@ impl Validator {
         current_fork: ForkName,
     ) -> bool {
         if current_fork.electra_enabled() {
-            self.is_fully_withdrawable_at_electra(balance, epoch, spec)
+            self.is_fully_withdrawable_validator_electra(balance, epoch, spec)
         } else {
-            self.is_fully_withdrawable_at_capella(balance, epoch, spec)
+            self.is_fully_withdrawable_validator_capella(balance, epoch, spec)
         }
     }
 
     /// Returns `true` if the validator is fully withdrawable at some epoch.
-    fn is_fully_withdrawable_at_capella(
+    fn is_fully_withdrawable_validator_capella(
         &self,
         balance: u64,
         epoch: Epoch,
@@ -222,7 +224,7 @@ impl Validator {
     /// Returns `true` if the validator is fully withdrawable at some epoch.
     ///
     /// Modified in electra as part of EIP 7251.
-    fn is_fully_withdrawable_at_electra(
+    fn is_fully_withdrawable_validator_electra(
         &self,
         balance: u64,
         epoch: Epoch,
@@ -249,7 +251,6 @@ impl Validator {
         }
     }
 
-    /// TODO(electra): refactor these functions and make it simpler.. this is a mess
     /// Returns `true` if the validator is partially withdrawable.
     fn is_partially_withdrawable_validator_capella(&self, balance: u64, spec: &ChainSpec) -> bool {
         self.has_eth1_withdrawal_credential(spec)

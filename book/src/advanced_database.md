@@ -61,6 +61,26 @@ that we have observed are:
   to apply. We observed no significant performance benefit from `--hierarchy-exponents 5,7,11`, and
   a substantial increase in space consumed.
 
+The following table lists the data for different configurations. Note that the disk space requirement is for the `chain_db` and `freezer_db`, excluding the `blobs_db`.
+
+| Hierarchy Exponents | Storage Requirement | Sequential Slot Query | Uncached Query | Time to Sync |
+|---|---|---|---|---|
+| 5,9,11,13,16,18,21 (default) | 418 GiB | 250-700 ms | up to 10 s | 1 week |
+| 5,7,11 (frequent snapshots) | 589 GiB | 250-700 ms | up to 6 s | 1 week |
+| 0,5,7,11 (per-slot diffs) | 2500 GiB | 250-700 ms | up to 4 s | 7 weeks |
+
+[Jim](https://github.com/mcdee) has done some experiments to study the response time of querying random slots (uncached query) for `--hierarchy-exponents 0,5,7,11` (per-slot diffs) and `--hierarchy-exponents 5,9,11,13,17,21` (per-epoch diffs), as show in the figures below. From the figures, two points can be concluded:
+
+- response time (y-axis) increases with slot number (x-axis) due to state growth.
+- response time for per-slot configuration in general is 2x faster than that of per-epoch.
+
+In short, setting different configurations is a trade-off between disk space requirement, sync time and response time. The data presented here is useful to help users choosing the configuration that suit their needs.
+
+_We acknowledge the data provided by [Jim](https://github.com/mcdee) and his consent for us to share it here._
+
+![Response time for per-epoch archive](./imgs/per-epoch.png)
+![Response time for per-slot archive](./imgs/per-slot.png)
+
 If in doubt, we recommend running with the default configuration! It takes a long time to
 reconstruct states in any given configuration, so it might be some time before the optimal
 configuration is determined.

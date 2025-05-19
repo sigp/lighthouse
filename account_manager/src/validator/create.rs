@@ -6,14 +6,13 @@ use account_utils::{
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
-use directory::{
-    ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR,
-};
+use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
 use environment::Environment;
 use eth2_wallet_manager::WalletManager;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::ffi::OsStr;
 use std::fs;
+use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
@@ -156,8 +155,10 @@ pub fn cli_run<E: EthSpec>(
         ));
     }
 
-    ensure_dir_exists(&validator_dir)?;
-    ensure_dir_exists(&secrets_dir)?;
+    create_dir_all(&validator_dir)
+        .map_err(|e| format!("Could not create validator dir at {validator_dir:?}: {e:?}"))?;
+    create_dir_all(&secrets_dir)
+        .map_err(|e| format!("Could not create secrets dir at {secrets_dir:?}: {e:?}"))?;
 
     eprintln!("secrets-dir path {:?}", secrets_dir);
     eprintln!("wallets-dir path {:?}", wallet_base_dir);

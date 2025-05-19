@@ -12,6 +12,7 @@ BN
 BNs
 BTC
 BTEC
+Btrfs
 Casper
 CentOS
 Chiado
@@ -38,6 +39,7 @@ Exercism
 Extractable
 FFG
 Geth
+GiB
 Gitcoin
 Gnosis
 Goerli
@@ -64,6 +66,7 @@ Nethermind
 NodeJS
 NullLogger
 PathBuf
+Pectra
 PowerShell
 PPA
 Pre
@@ -91,6 +94,7 @@ TLS
 TODOs
 UDP
 UI
+Uncached
 UPnP
 USD
 UX
@@ -100,6 +104,7 @@ VCs
 VPN
 Withdrawable
 WSL
+XFS
 YAML
 aarch
 anonymize
@@ -162,6 +167,7 @@ keypair
 keypairs
 keystore
 keystores
+leveldb
 linter
 linux
 localhost
@@ -191,9 +197,11 @@ pre
 pubkey
 pubkeys
 rc
+redb
 reimport
 resync
 roadmap
+routable
 rustfmt
 rustup
 schemas
@@ -218,6 +226,7 @@ tweakers
 ui
 unadvanced
 unaggregated
+uncached
 unencrypted
 unfinalized
 untrusted
@@ -228,6 +237,7 @@ validators
 validator's
 vc
 virt
+walkthrough
 webapp
 withdrawable
 yaml

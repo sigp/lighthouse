@@ -7,6 +7,7 @@ edition = { workspace = true }
 
 [dependencies]
 eth2 = { workspace = true }
+health_metrics = { workspace = true }
 lighthouse_version = { workspace = true }
 metrics = { workspace = true }
 regex = { workspace = true }
@@ -14,7 +15,7 @@ reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-slog = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }

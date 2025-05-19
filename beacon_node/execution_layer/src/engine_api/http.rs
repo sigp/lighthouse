@@ -61,6 +61,7 @@ pub const ENGINE_GET_CLIENT_VERSION_V1: &str = "engine_getClientVersionV1";
 pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_BLOBS_V1: &str = "engine_getBlobsV1";
+pub const ENGINE_GET_BLOBS_V2: &str = "engine_getBlobsV2";
 pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// This error is returned during a `chainId` call by Geth.
@@ -87,6 +88,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
     ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_BLOBS_V1,
+    ENGINE_GET_BLOBS_V2,
 ];
 
 /// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
@@ -708,7 +710,7 @@ impl HttpJsonRpc {
         }
     }
 
-    pub async fn get_blobs<E: EthSpec>(
+    pub async fn get_blobs_v1<E: EthSpec>(
         &self,
         versioned_hashes: Vec<Hash256>,
     ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
@@ -716,6 +718,20 @@ impl HttpJsonRpc {
 
         self.rpc_request(
             ENGINE_GET_BLOBS_V1,
+            params,
+            ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
+    }
+
+    pub async fn get_blobs_v2<E: EthSpec>(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+    ) -> Result<Vec<Option<BlobAndProofV2<E>>>, Error> {
+        let params = json!([versioned_hashes]);
+
+        self.rpc_request(
+            ENGINE_GET_BLOBS_V2,
             params,
             ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
         )
@@ -829,7 +845,8 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn new_payload_v5_fulu<E: EthSpec>(
+    // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
+    pub async fn new_payload_v4_fulu<E: EthSpec>(
         &self,
         new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
@@ -844,7 +861,7 @@ impl HttpJsonRpc {
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
-                ENGINE_NEW_PAYLOAD_V5,
+                ENGINE_NEW_PAYLOAD_V4,
                 params,
                 ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -1134,6 +1151,7 @@ impl HttpJsonRpc {
             get_payload_v5: capabilities.contains(ENGINE_GET_PAYLOAD_V5),
             get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
             get_blobs_v1: capabilities.contains(ENGINE_GET_BLOBS_V1),
+            get_blobs_v2: capabilities.contains(ENGINE_GET_BLOBS_V2),
         })
     }
 
@@ -1263,10 +1281,11 @@ impl HttpJsonRpc {
                 }
             }
             NewPayloadRequest::Fulu(new_payload_request_fulu) => {
-                if engine_capabilities.new_payload_v5 {
-                    self.new_payload_v5_fulu(new_payload_request_fulu).await
+                // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
+                if engine_capabilities.new_payload_v4 {
+                    self.new_payload_v4_fulu(new_payload_request_fulu).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
             }
         }
