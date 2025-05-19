@@ -1,7 +1,9 @@
-use crate::test_utils::TestRandom;
-use crate::{ChainSpec, Domain, EthSpec, Fork, Hash256, SecretKey, Signature, SignedRoot, Slot};
-
+use crate::context_deserialize;
 use crate::slot_data::SlotData;
+use crate::test_utils::TestRandom;
+use crate::{
+    ChainSpec, Domain, EthSpec, Fork, ForkName, Hash256, SecretKey, Signature, SignedRoot, Slot,
+};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -20,6 +22,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct SyncCommitteeMessage {
     pub slot: Slot,
     pub beacon_block_root: Hash256,

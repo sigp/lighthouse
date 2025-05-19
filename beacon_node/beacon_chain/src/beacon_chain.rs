@@ -6115,7 +6115,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         payload_attributes: payload_attributes.into(),
                     },
                     metadata: Default::default(),
-                    version: Some(self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot)),
+                    version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
                 }));
             }
         }
