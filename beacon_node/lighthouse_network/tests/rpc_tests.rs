@@ -1505,8 +1505,10 @@ fn test_request_too_large(
             let mut is_response_received = false;
             let mut is_disconnected = false;
             loop {
-                if (expected_response.is_none() || (expected_response.is_some() && is_response_received))
-                    && is_disconnected {
+                if (expected_response.is_none()
+                    || (expected_response.is_some() && is_response_received))
+                    && is_disconnected
+                {
                     // End the test.
                     return;
                 }
@@ -1514,9 +1516,15 @@ fn test_request_too_large(
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         debug!(?request, %peer_id, "Sending RPC request");
-                        sender.send_request(peer_id, app_request_id, request.clone()).unwrap();
+                        sender
+                            .send_request(peer_id, app_request_id, request.clone())
+                            .unwrap();
                     }
-                    NetworkEvent::ResponseReceived { app_request_id, response, .. } => {
+                    NetworkEvent::ResponseReceived {
+                        app_request_id,
+                        response,
+                        ..
+                    } => {
                         debug!(?app_request_id, ?response, "Received response");
                         if let Some(r) = &expected_response {
                             assert_eq!(&response, r);
