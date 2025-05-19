@@ -60,7 +60,7 @@ Exit epoch in approximately 1920 secs
 
 ## Generate pre-signed exit message without broadcasting
 
-You can also generate a pre-signed exit message without broadcasting voluntary exit to the network. To do so, use the `--presign` flag:
+You can also generate a pre-signed exit message without broadcasting it to the network. To do so, use the `--presign` flag:
 
 ```bash
 lighthouse account validator exit --network hoodi --keystore /path/to/keystore --presign
