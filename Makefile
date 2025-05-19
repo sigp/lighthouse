@@ -82,6 +82,37 @@ build-lcli-aarch64:
 build-lcli-riscv64:
 	cross build --bin lcli --target riscv64gc-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 
+# extracts the current source date for reproducible builds
+SOURCE_DATE := $(shell git log -1 --pretty=%ct)
+
+# Default image for x86_64
+RUST_IMAGE_AMD64 ?= rust:1.82-bullseye@sha256:ac7fe7b0c9429313c0fe87d3a8993998d1fe2be9e3e91b5e2ec05d3a09d87128
+
+# Reproducible build for x86_64
+build-reproducible-x86_64:
+	DOCKER_BUILDKIT=1 docker build \
+		--build-arg RUST_TARGET="x86_64-unknown-linux-gnu" \
+		--build-arg RUST_IMAGE=$(RUST_IMAGE_AMD64) \
+		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
+		-f Dockerfile.reproducible \
+		-t lighthouse:reproducible-amd64 .
+
+# Default image for arm64
+RUST_IMAGE_ARM64 ?= rust:1.82-bullseye@sha256:3c1b8b6487513ad4e753d008b960260f5bcc81bf110883460f6ed3cd72bf439b
+
+# Reproducible build for aarch64
+build-reproducible-aarch64:
+	DOCKER_BUILDKIT=1 docker build \
+		--platform linux/arm64 \
+		--build-arg RUST_TARGET="aarch64-unknown-linux-gnu" \
+		--build-arg RUST_IMAGE=$(RUST_IMAGE_ARM64) \
+		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
+		-f Dockerfile.reproducible \
+		-t lighthouse:reproducible-arm64 .
+
+# Build both architectures
+build-reproducible-all: build-reproducible-x86_64 build-reproducible-aarch64
+
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
 	cp $(1)/lighthouse $(BIN_DIR)/lighthouse

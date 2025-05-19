@@ -38,7 +38,7 @@ We recommend running Siren's container next to your beacon node (on the same ser
     specified as well as the validator clients `API_TOKEN`, which can be obtained from the [`Validator Client Authorization Header`](./api_vc_auth_header.md).
     Note that the HTTP API ports must be accessible from within docker and cannot just be listening
     on localhost. This means using the
- `--http-address 0.0.0.0` flag on the beacon node and validator client.
+ `--http-address 0.0.0.0` flag on the beacon node and, and both `--http-address 0.0.0.0` and `--unencrypted-http-transport` flags on the validator client.
 
  1. Run the containers with docker compose
 
