@@ -4,7 +4,7 @@ use crate::block_verification::{
     BlockSlashInfo,
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
-use crate::observed_data_sidecars::{ObservationStrategy, Observe};
+use crate::observed_data_sidecars::{DoNotObserve, ObservationStrategy, Observe};
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
@@ -129,6 +129,10 @@ pub enum GossipDataColumnError {
         slot: Slot,
         index: ColumnIndex,
     },
+    /// A column has already been processed from non-gossip source and have not yet been seen on
+    /// the gossip network.
+    /// This column should be accepted and forwarded over gossip.
+    PriorKnownUnpublished,
     /// Data column index must be between 0 and `NUMBER_OF_COLUMNS` (exclusive).
     ///
     /// ## Peer scoring
@@ -179,6 +183,16 @@ pub struct GossipVerifiedDataColumn<T: BeaconChainTypes, O: ObservationStrategy 
     block_root: Hash256,
     data_column: KzgVerifiedDataColumn<T::EthSpec>,
     _phantom: PhantomData<O>,
+}
+
+impl<T: BeaconChainTypes, O: ObservationStrategy> Clone for GossipVerifiedDataColumn<T, O> {
+    fn clone(&self) -> Self {
+        Self {
+            block_root: self.block_root,
+            data_column: self.data_column.clone(),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O> {
@@ -444,6 +458,21 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
     verify_is_first_sidecar(chain, &data_column)?;
+
+    // Check if the data column is already in the DA checker. If it is, we know that it has passed
+    // all checks even though it hasn't been seen on the gossip network.
+    // NOTE: but we cannot return `Ok` here, because we don't want this data column to be re-imported.
+    if chain
+        .data_availability_checker
+        .is_data_column_cached(&data_column.block_root(), &data_column)
+    {
+        if O::observe() {
+            observe_gossip_data_column(&data_column, chain)?;
+        }
+        // TODO should this really be an error?
+        return Err(GossipDataColumnError::PriorKnownUnpublished);
+    }
+
     verify_column_inclusion_proof(&data_column)?;
     let parent_block = verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
@@ -463,7 +492,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
         .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
 
     if O::observe() {
-        observe_gossip_data_column(&kzg_verified_data_column.data, chain)?;
+        observe_gossip_data_column(&data_column, chain)?;
     }
 
     Ok(GossipVerifiedDataColumn {
@@ -727,6 +756,20 @@ fn verify_sidecar_not_from_future_slot<T: BeaconChainTypes>(
         });
     }
     Ok(())
+}
+
+impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T, DoNotObserve> {
+    pub fn observe(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedDataColumn<T, Observe>, GossipDataColumnError> {
+        observe_gossip_data_column(self.data_column.as_data_column(), chain)?;
+        Ok(GossipVerifiedDataColumn {
+            block_root: self.block_root,
+            data_column: self.data_column,
+            _phantom: PhantomData,
+        })
+    }
 }
 
 pub fn observe_gossip_data_column<T: BeaconChainTypes>(

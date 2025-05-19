@@ -3146,7 +3146,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        engine_get_blobs_output: EngineGetBlobsOutput<T::EthSpec>,
+        engine_get_blobs_output: EngineGetBlobsOutput<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its blobs again.
@@ -3161,7 +3161,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // process_engine_blobs is called for both pre and post PeerDAS. However, post PeerDAS
         // consumers don't expect the blobs event to fire erratically.
         if let EngineGetBlobsOutput::Blobs(blobs) = &engine_get_blobs_output {
-            self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
+            self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().map(|b| b.as_blob()));
         }
 
         let r = self
@@ -3574,15 +3574,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
-    fn check_blobs_for_slashability(
+    fn check_blobs_for_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
-        blobs: &FixedBlobSidecarList<T::EthSpec>,
+        blobs: impl IntoIterator<Item = &'a BlobSidecar<T::EthSpec>>,
     ) -> Result<(), BlockError> {
         let mut slashable_cache = self.observed_slashable.write();
         for header in blobs
-            .iter()
-            .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
+            .into_iter()
+            .map(|b| b.signed_block_header.clone())
             .unique()
         {
             if verify_header_signature::<T, BlockError>(self, &header).is_ok() {
@@ -3609,7 +3609,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        self.check_blobs_for_slashability(block_root, &blobs)?;
+        self.check_blobs_for_slashability(block_root, blobs.iter().flatten().map(Arc::as_ref))?;
         let availability = self
             .data_availability_checker
             .put_rpc_blobs(block_root, blobs)?;
@@ -3622,16 +3622,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        engine_get_blobs_output: EngineGetBlobsOutput<T::EthSpec>,
+        engine_get_blobs_output: EngineGetBlobsOutput<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let availability = match engine_get_blobs_output {
             EngineGetBlobsOutput::Blobs(blobs) => {
-                self.check_blobs_for_slashability(block_root, &blobs)?;
+                self.check_blobs_for_slashability(block_root, blobs.iter().map(|b| b.as_blob()))?;
                 self.data_availability_checker
                     .put_engine_blobs(block_root, blobs)?
             }
             EngineGetBlobsOutput::CustodyColumns(data_columns) => {
-                self.check_columns_for_slashability(block_root, &data_columns)?;
+                self.check_columns_for_slashability(
+                    block_root,
+                    data_columns.iter().map(|c| c.as_data_column()),
+                )?;
                 self.data_availability_checker
                     .put_engine_data_columns(block_root, data_columns)?
             }
@@ -3649,7 +3652,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        self.check_columns_for_slashability(block_root, &custody_columns)?;
+        self.check_columns_for_slashability(
+            block_root,
+            custody_columns.iter().map(|c| c.as_ref()),
+        )?;
 
         // This slot value is purely informative for the consumers of
         // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
@@ -3661,14 +3667,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
-    fn check_columns_for_slashability(
+    fn check_columns_for_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
-        custody_columns: &DataColumnSidecarList<T::EthSpec>,
+        custody_columns: impl IntoIterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
     ) -> Result<(), BlockError> {
         let mut slashable_cache = self.observed_slashable.write();
         // Assumes all items in custody_columns are for the same block_root
-        if let Some(column) = custody_columns.first() {
+        if let Some(column) = custody_columns.into_iter().next() {
             let header = &column.signed_block_header;
             if verify_header_signature::<T, BlockError>(self, header).is_ok() {
                 slashable_cache

@@ -9,6 +9,7 @@
 //! supernodes.
 
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
+use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_data_sidecars::DoNotObserve;
 use crate::{
@@ -26,24 +27,17 @@ use tracing::debug;
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconStateError, Blob, BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec,
-    FullPayload, Hash256, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
+    BeaconStateError, Blob, BlobSidecar, ChainSpec, ColumnIndex, EthSpec, FullPayload, Hash256,
+    KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
 };
 
-/// Blobs or data column to be published to the gossip network.
-pub enum BlobsOrDataColumns<T: BeaconChainTypes> {
+/// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
+/// gossip network. The blobs / data columns have not been marked as observed yet, as they may not
+/// be published immediately.
+pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
     Blobs(Vec<GossipVerifiedBlob<T, DoNotObserve>>),
-    DataColumns(DataColumnSidecarList<T::EthSpec>),
-}
-
-/// Result from engine get blobs to be passed onto `DataAvailabilityChecker`.
-///
-/// The blobs are retrieved from a trusted EL and columns are computed locally, therefore they are
-/// considered valid without requiring extra validation.
-pub enum EngineGetBlobsOutput<E: EthSpec> {
-    Blobs(FixedBlobSidecarList<E>),
     /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
-    CustodyColumns(DataColumnSidecarList<E>),
+    CustodyColumns(Vec<GossipVerifiedDataColumn<T, DoNotObserve>>),
 }
 
 #[derive(Debug)]
@@ -56,6 +50,7 @@ pub enum FetchEngineBlobError {
     ExecutionLayerMissing,
     InternalError(String),
     GossipBlob(GossipBlobError),
+    GossipDataColumn(GossipDataColumnError),
     RequestFailed(ExecutionLayerError),
     RuntimeShutdown,
 }
@@ -67,7 +62,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     custody_columns: HashSet<ColumnIndex>,
-    publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
+    publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let versioned_hashes = if let Some(kzg_commitments) = block
         .message()
@@ -110,7 +105,7 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     versioned_hashes: Vec<VersionedHash>,
-    publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + Sized,
+    publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + Sized,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let num_expected_blobs = versioned_hashes.len();
     let execution_layer = chain
@@ -157,7 +152,7 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
     // and be accepted (and propagated) while we are waiting to publish. Just before publishing
     // we will observe the blobs/columns and only proceed with publishing if they are not yet seen.
     let blobs_to_import_and_publish = fixed_blob_sidecar_list
-        .iter()
+        .into_iter()
         .filter_map(|opt_blob| {
             let blob = opt_blob.as_ref()?;
             match GossipVerifiedBlob::<T, DoNotObserve>::new(blob.clone(), blob.index, &chain) {
@@ -171,7 +166,9 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         .map_err(FetchEngineBlobError::GossipBlob)?;
 
     if !blobs_to_import_and_publish.is_empty() {
-        publish_fn(BlobsOrDataColumns::Blobs(blobs_to_import_and_publish));
+        publish_fn(EngineGetBlobsOutput::Blobs(
+            blobs_to_import_and_publish.clone(),
+        ));
     }
 
     debug!(num_fetched_blobs, "Processing engine blobs");
@@ -180,7 +177,7 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         .process_engine_blobs(
             block.slot(),
             block_root,
-            EngineGetBlobsOutput::Blobs(fixed_blob_sidecar_list.clone()),
+            EngineGetBlobsOutput::Blobs(blobs_to_import_and_publish),
         )
         .await
         .map_err(FetchEngineBlobError::BlobProcessingError)?;
@@ -194,7 +191,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     versioned_hashes: Vec<VersionedHash>,
     custody_columns_indices: HashSet<ColumnIndex>,
-    publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
+    publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let num_expected_blobs = versioned_hashes.len();
     let execution_layer = chain
@@ -281,8 +278,8 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
     blobs: Vec<Blob<T::EthSpec>>,
     proofs: Vec<KzgProofs<T::EthSpec>>,
     custody_columns_indices: HashSet<ColumnIndex>,
-    publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
-) -> Result<DataColumnSidecarList<T::EthSpec>, FetchEngineBlobError> {
+    publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
+) -> Result<Vec<GossipVerifiedDataColumn<T, DoNotObserve>>, FetchEngineBlobError> {
     let chain_cloned = chain.clone();
     chain
         .spawn_blocking_handle(
@@ -314,8 +311,35 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
                     })
                     .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
-                publish_fn(BlobsOrDataColumns::DataColumns(custody_columns.clone()));
-                Ok(custody_columns)
+                // Gossip verify data columns before publishing. This prevents blobs with invalid
+                // KZG proofs from the EL making it into the data availability checker. We do not
+                // immediately add these blobs to the observed blobs/columns cache because we want
+                // to allow blobs/columns to arrive on gossip and be accepted (and propagated) while
+                // we are waiting to publish. Just before publishing we will observe the blobs/columns
+                // and only proceed with publishing if they are not yet seen.
+                let columns_to_import_and_publish = custody_columns
+                    .into_iter()
+                    .filter_map(|col| {
+                        let col_index = col.index;
+                        match GossipVerifiedDataColumn::<T, DoNotObserve>::new(
+                            col,
+                            col_index,
+                            &chain_cloned,
+                        ) {
+                            Ok(verified) => Some(Ok(verified)),
+                            // Ignore already seen data columns
+                            Err(GossipDataColumnError::PriorKnown { .. }) => None,
+                            Err(e) => Some(Err(e)),
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(FetchEngineBlobError::GossipDataColumn)?;
+
+                publish_fn(EngineGetBlobsOutput::CustodyColumns(
+                    columns_to_import_and_publish.clone(),
+                ));
+
+                Ok(columns_to_import_and_publish)
             },
             "compute_and_publish_data_columns",
         )

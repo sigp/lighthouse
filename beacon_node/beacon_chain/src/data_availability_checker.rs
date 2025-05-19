@@ -17,7 +17,7 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, Hash256,
+    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
     RuntimeVariableList, SignedBeaconBlock,
 };
 
@@ -32,6 +32,7 @@ use crate::data_column_verification::{
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
+use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -155,6 +156,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
+    /// Check if the exact data column is in the availability cache.
+    pub fn is_data_column_cached(
+        &self,
+        block_root: &Hash256,
+        data_column: &DataColumnSidecar<T::EthSpec>,
+    ) -> bool {
+        self.availability_cache
+            .peek_pending_components(block_root, |components| {
+                components.is_some_and(|components| {
+                    let cached_column_opt = components.get_cached_data_column(data_column.index);
+                    cached_column_opt.is_some_and(|cached| *cached == *data_column)
+                })
+            })
+    }
+
     /// Get a blob from the availability cache.
     pub fn get_blob(
         &self,
@@ -219,21 +235,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     /// Put a list of blobs received from the EL pool into the availability cache.
-    ///
-    /// This DOES NOT perform KZG verification because the KZG proofs should have been constructed
-    /// immediately prior to calling this function so they are assumed to be valid.
-    pub fn put_engine_blobs(
+    pub fn put_engine_blobs<O: ObservationStrategy>(
         &self,
         block_root: Hash256,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
+        blobs: Vec<GossipVerifiedBlob<T, O>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let seen_timestamp = self
-            .slot_clock
-            .now_duration()
-            .ok_or(AvailabilityCheckError::SlotClockError)?;
         self.availability_cache.put_kzg_verified_blobs(
             block_root,
-            KzgVerifiedBlobList::from_verified(blobs.iter().flatten().cloned(), seen_timestamp),
+            KzgVerifiedBlobList::from_verified(blobs.into_iter().map(|b| b.into_inner())),
         )
     }
 
@@ -248,18 +257,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// This method is used if the EL already has the blobs and returns them via the `getBlobsV2`
     /// engine method.
     /// More details in [fetch_blobs.rs](https://github.com/sigp/lighthouse/blob/44f8add41ea2252769bb967864af95b3c13af8ca/beacon_node/beacon_chain/src/fetch_blobs.rs).
-    pub fn put_engine_data_columns(
+    pub fn put_engine_data_columns<O: ObservationStrategy>(
         &self,
         block_root: Hash256,
-        data_columns: DataColumnSidecarList<T::EthSpec>,
+        data_columns: Vec<GossipVerifiedDataColumn<T, O>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let kzg_verified_custody_columns = data_columns
             .into_iter()
-            .map(|d| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::from_verified(d),
-                )
-            })
+            .map(|d| KzgVerifiedCustodyDataColumn::from_asserted_custody(d.into_inner()))
             .collect::<Vec<_>>();
 
         self.availability_cache
