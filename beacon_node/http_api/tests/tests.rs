@@ -5850,7 +5850,9 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let global_validator_supply = state_opt.as_ref().map(|state| state.balances().iter().sum::<u64>());
+            let global_validator_supply = state_opt
+                .as_ref()
+                .map(|state| state.balances().iter().sum::<u64>());
 
             let api_global_validator_supply = self
                 .client
