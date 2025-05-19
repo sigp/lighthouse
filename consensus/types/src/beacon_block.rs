@@ -2,7 +2,7 @@ use crate::attestation::AttestationBase;
 use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
@@ -765,23 +765,21 @@ impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
     }
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
+impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> ContextDeserialize<'de, ForkName>
     for BeaconBlock<E, Payload>
 {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         Ok(map_fork_name!(
-            fork_name,
+            context,
             Self,
-            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
-                "BeaconBlock failed to deserialize: {:?}",
-                e
-            )))?
+            serde::Deserialize::deserialize(deserializer)?
         ))
     }
 }
+
 pub enum BlockImportSource {
     Gossip,
     Lookup,

@@ -1,5 +1,6 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::SignedBeaconBlockHeader;
+use crate::{ForkName, SignedBeaconBlockHeader};
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -23,6 +24,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct ProposerSlashing {
     pub signed_header_1: SignedBeaconBlockHeader,
     pub signed_header_2: SignedBeaconBlockHeader,
