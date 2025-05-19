@@ -1516,8 +1516,8 @@ fn test_request_too_large(
                         debug!(?request, %peer_id, "Sending RPC request");
                         sender.send_request(peer_id, app_request_id, request.clone()).unwrap();
                     }
-                    NetworkEvent::ResponseReceived { id, response, .. } => {
-                        debug!(?id, ?response, "Received response");
+                    NetworkEvent::ResponseReceived { app_request_id, response, .. } => {
+                        debug!(?app_request_id, ?response, "Received response");
                         if let Some(r) = &expected_response {
                             assert_eq!(&response, r);
                             is_response_received = true;
