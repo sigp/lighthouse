@@ -1216,7 +1216,7 @@ fn test_delayed_rpc_response() {
                         app_request_id: _,
                         response,
                     } => {
-                        debug!(%request_id, "Sender received");
+                        debug!(%request_id, elapsed = ?request_sent_at.elapsed(), "Sender received response");
                         assert_eq!(response, rpc_response);
 
                         match request_id {
