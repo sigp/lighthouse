@@ -709,7 +709,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validator_balances"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp_utils::json::json_no_body())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
