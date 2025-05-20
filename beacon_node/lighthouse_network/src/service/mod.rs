@@ -1507,6 +1507,7 @@ impl<E: EthSpec> Network<E> {
                 message_id: id,
                 message: gs_msg,
             } => {
+                self.track_bytes_received_per_client(propagation_source, gs_msg.data.len());
                 // Note: We are keeping track here of the peer that sent us the message, not the
                 // peer that originally published the message.
                 match PubsubMessage::decode(&gs_msg.topic, &gs_msg.data, &self.fork_context) {
@@ -2220,5 +2221,24 @@ impl<E: EthSpec> Network<E> {
                 None
             }
         }
+    }
+
+    pub fn track_bytes_received_per_client(&mut self, peer_id: PeerId, bytes_len: usize) {
+        let client = self.network_globals.client(&peer_id).kind.to_string();
+        // update metric for bytes received per client
+        metrics::inc_counter_vec_by(
+            &metrics::BYTES_RECEIVED_PER_CLIENT,
+            &[&client],
+            bytes_len as u64,
+        );
+    }
+
+    pub fn track_messages_received_per_client(&mut self, peer_id: PeerId, object_type: &'static str) {
+        let client = self.network_globals.client(&peer_id).kind.to_string();
+        // update metric for bytes received per client
+        metrics::inc_counter_vec(
+            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
+            &[&client, object_type]
+        );
     }
 }

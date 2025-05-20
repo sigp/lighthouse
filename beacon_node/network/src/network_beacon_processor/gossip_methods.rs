@@ -214,19 +214,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
-        let attestation_size = attestation.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            attestation_size,
-        );
-
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
         let result = match self
             .chain
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
@@ -254,21 +241,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         packages: GossipAttestationBatch<T::EthSpec>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
-        for package in &packages {
-            let attestation_size = package.attestation.as_ssz_bytes().len() as u64;
-            let client = self.network_globals.client(&package.peer_id).kind.to_string();
-
-            // TODO: account for reprocessing?
-            metrics::inc_counter_vec_by(
-                &metrics::BYTES_RECEIVED_PER_CLIENT,
-                &[&client],
-                attestation_size,
-            );
-            metrics::inc_counter_vec(
-                &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-                &[&client]
-            );
-        }
         let attestations_and_subnets = packages
             .iter()
             .map(|package| (package.attestation.as_ref(), Some(package.subnet_id)));
@@ -447,8 +419,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
-        let attestation_size = single_attestation.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
         let conversion_result = self.chain.with_committee_cache(
             single_attestation.data.target.root,
             single_attestation
@@ -475,15 +445,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match conversion_result {
             Ok(Ok(attestation)) => {
-                metrics::inc_counter_vec_by(
-                    &metrics::BYTES_RECEIVED_PER_CLIENT,
-                    &[&client],
-                    attestation_size,
-                );
-                metrics::inc_counter_vec(
-                    &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-                    &[&client]
-                );
                 let slot = attestation.data().slot;
                 if let Err(e) = self.send_unaggregated_attestation(
                     message_id.clone(),
@@ -598,18 +559,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
-        let aggregate_size = aggregate.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            aggregate_size,
-        );
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
 
         let result = match self
@@ -641,21 +590,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
-        for package in &packages {
-            let aggregate_size = package.aggregate.as_ssz_bytes().len() as u64;
-            let client = self.network_globals.client(&package.peer_id).kind.to_string();
-
-            // Record attestation bytes received per client
-            metrics::inc_counter_vec_by(
-                &metrics::BYTES_RECEIVED_PER_CLIENT,
-                &[&client],
-                aggregate_size,
-            );
-            metrics::inc_counter_vec(
-                &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-                &[&client]
-            );
-        }
         let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
 
         let results = match self
@@ -825,20 +759,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             &metrics::BEACON_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME,
             delay,
         );
-        let column_size = column_sidecar.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        // Record attestation bytes received per client
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            column_size,
-        );
-
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
+        
         match self
             .chain
             .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), *subnet_id)
@@ -981,20 +902,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::set_gauge(&metrics::BEACON_BLOB_DELAY_GOSSIP, delay.as_millis() as i64);
-        let blob_size = blob_sidecar.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        // Record attestation bytes received per client
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            blob_size,
-        );
-
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
 
         match self
             .chain
@@ -1305,19 +1212,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         invalid_block_storage: InvalidBlockStorage,
         seen_duration: Duration,
     ) {
-        let block_size = block.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        // Record attestation bytes received per client
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            block_size,
-        );
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
         if let Some(gossip_verified_block) = self
             .process_gossip_unverified_block(
                 message_id,
@@ -1807,19 +1701,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         voluntary_exit: SignedVoluntaryExit,
     ) {
         let validator_index = voluntary_exit.message.validator_index;
-        let exit_size = voluntary_exit.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        // Record attestation bytes received per client
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            exit_size,
-        );
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
 
         let exit = match self.chain.verify_voluntary_exit_for_gossip(voluntary_exit) {
             Ok(ObservationOutcome::New(exit)) => exit,
@@ -1876,20 +1757,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         proposer_slashing: ProposerSlashing,
     ) {
         let validator_index = proposer_slashing.signed_header_1.message.proposer_index;
-        let slashing_size = proposer_slashing.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        // Record attestation bytes received per client
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            slashing_size,
-        );
-
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
 
         let slashing = match self
             .chain
@@ -1949,20 +1816,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         attester_slashing: AttesterSlashing<T::EthSpec>,
     ) {
-        let slashing_size = attester_slashing.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        // Record attestation bytes received per client
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            slashing_size,
-        );
-
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
         let slashing = match self
             .chain
             .verify_attester_slashing_for_gossip(attester_slashing)
@@ -2017,20 +1870,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let validator_index = bls_to_execution_change.message.validator_index;
         let address = bls_to_execution_change.message.to_execution_address;
-        let change_size = bls_to_execution_change.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        // Record attestation bytes received per client
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            change_size,
-        );
-
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
 
         let change = match self
             .chain
@@ -2111,19 +1950,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: SyncSubnetId,
         seen_timestamp: Duration,
     ) {
-        let sync_signature_size = sync_signature.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            sync_signature_size,
-        );
-
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
         let message_slot = sync_signature.slot;
         let sync_signature = match self
             .chain
@@ -2185,19 +2011,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         sync_contribution: SignedContributionAndProof<T::EthSpec>,
         seen_timestamp: Duration,
     ) {
-        let contribution_size = sync_contribution.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            contribution_size,
-        );
-
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
         let contribution_slot = sync_contribution.message.contribution.slot;
         let sync_contribution = match self
             .chain
@@ -2252,19 +2065,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
         seen_timestamp: Duration,
     ) {
-        let finality_update_size = light_client_finality_update.as_ssz_bytes().len() as u64;
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-
-        metrics::inc_counter_vec_by(
-            &metrics::BYTES_RECEIVED_PER_CLIENT,
-            &[&client],
-            finality_update_size,
-        );
-
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client]
-        );
         match self
             .chain
             .verify_finality_update_for_gossip(light_client_finality_update, seen_timestamp)
@@ -2326,19 +2126,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             seen_timestamp,
         ) {
             Ok(verified_light_client_optimistic_update) => {
-                let optimistic_update_size = light_client_optimistic_update.as_ssz_bytes().len() as u64;
-                let client = self.network_globals.client(&peer_id).kind.to_string();
-
-                metrics::inc_counter_vec_by(
-                    &metrics::BYTES_RECEIVED_PER_CLIENT,
-                    &[&client],
-                    optimistic_update_size,
-                );
-
-                metrics::inc_counter_vec(
-                    &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-                    &[&client]
-                );
                 debug!(
                     %peer_id,
                     parent_root = %verified_light_client_optimistic_update.parent_root,

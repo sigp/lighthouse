@@ -677,22 +677,6 @@ pub static SYNC_TIME_PER_CLIENT: LazyLock<Result<HistogramVec>> = LazyLock::new(
     )
 });
 
-pub static BYTES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "bytes_received_per_client",
-        "Total bytes received per client type",
-        &["Client"],
-    )
-});
-
-pub static MESSAGES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "messages_received_per_client",
-        "Total messages received per client type",
-        &["Client"],
-    )
-});
-
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
     inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
