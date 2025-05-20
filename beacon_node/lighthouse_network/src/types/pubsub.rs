@@ -9,7 +9,7 @@ use std::sync::Arc;
 use types::{
     Attestation, AttestationBase, AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra,
     BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    ForkVersionDecode, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
@@ -370,7 +370,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::LightClientFinalityUpdate => {
                         let light_client_finality_update = match fork_context.from_context_bytes(gossip_topic.fork_digest) {
                             Some(&fork_name) => {
-                                    LightClientFinalityUpdate::from_ssz_bytes(data, fork_name)
+                                    LightClientFinalityUpdate::from_ssz_bytes_by_fork(data, fork_name)
                                     .map_err(|e| format!("{:?}", e))?
                             },
                             None => return Err(format!(
@@ -385,7 +385,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::LightClientOptimisticUpdate => {
                         let light_client_optimistic_update = match fork_context.from_context_bytes(gossip_topic.fork_digest) {
                             Some(&fork_name) => {
-                                LightClientOptimisticUpdate::from_ssz_bytes(data, fork_name)
+                                LightClientOptimisticUpdate::from_ssz_bytes_by_fork(data, fork_name)
                                 .map_err(|e| format!("{:?}", e))?
                             },
                             None => return Err(format!(

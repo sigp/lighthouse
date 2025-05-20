@@ -99,9 +99,10 @@ pub fn ssz_decode_state<E: EthSpec>(
 pub fn ssz_decode_light_client_update<E: EthSpec>(
     path: &Path,
     fork_name: &ForkName,
+    spec: &ChainSpec,
 ) -> Result<LightClientUpdate<E>, Error> {
     log_file_access(path);
     ssz_decode_file_with(path, |bytes| {
-        LightClientUpdate::from_ssz_bytes(bytes, fork_name)
+        LightClientUpdate::from_ssz_bytes_by_fork_and_spec(bytes, *fork_name, spec)
     })
 }

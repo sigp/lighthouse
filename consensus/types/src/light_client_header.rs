@@ -1,20 +1,19 @@
 use crate::context_deserialize;
 use crate::ChainSpec;
 use crate::{light_client_update::*, BeaconBlockBody};
+use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
+use crate::{ContextDeserialize, ForkName, ForkVersionDecode};
 use crate::{
-    test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
+    EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
     ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, FixedVector, Hash256,
     SignedBlindedBeaconBlock,
 };
-use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
-use crate::{ContextDeserialize, ForkName};
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
-use ssz::Decode;
-use ssz_derive::{Decode, Encode};
+use ssz::DecodeError;
+use ssz_derive::Encode;
 use std::marker::PhantomData;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
@@ -27,9 +26,7 @@ use tree_hash_derive::TreeHash;
             Serialize,
             Deserialize,
             Derivative,
-            Decode,
             Encode,
-            TestRandom,
             arbitrary::Arbitrary,
             TreeHash,
         ),
@@ -38,7 +35,9 @@ use tree_hash_derive::TreeHash;
         context_deserialize(ForkName),
     )
 )]
-#[derive(Debug, Clone, Serialize, TreeHash, Encode, arbitrary::Arbitrary, PartialEq)]
+#[derive(
+    Debug, Deserialize, Clone, Serialize, TreeHash, Encode, arbitrary::Arbitrary, PartialEq,
+)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
@@ -46,22 +45,8 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientHeader<E: EthSpec> {
     pub beacon: BeaconBlockHeader,
-
-    #[superstruct(
-        only(Capella),
-        partial_getter(rename = "execution_payload_header_capella")
-    )]
-    pub execution: ExecutionPayloadHeaderCapella<E>,
-    #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_header_deneb"))]
-    pub execution: ExecutionPayloadHeaderDeneb<E>,
-    #[superstruct(
-        only(Electra),
-        partial_getter(rename = "execution_payload_header_electra")
-    )]
-    pub execution: ExecutionPayloadHeaderElectra<E>,
-    #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_header_fulu"))]
-    pub execution: ExecutionPayloadHeaderFulu<E>,
-
+    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
+    pub execution: ExecutionPayloadHeader<E>,
     #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
 
@@ -101,47 +86,21 @@ impl<E: EthSpec> LightClientHeader<E> {
         Ok(header)
     }
 
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        let header = match fork_name {
-            ForkName::Altair | ForkName::Bellatrix => {
-                LightClientHeader::Altair(LightClientHeaderAltair::from_ssz_bytes(bytes)?)
-            }
-            ForkName::Capella => {
-                LightClientHeader::Capella(LightClientHeaderCapella::from_ssz_bytes(bytes)?)
-            }
-            ForkName::Deneb => {
-                LightClientHeader::Deneb(LightClientHeaderDeneb::from_ssz_bytes(bytes)?)
-            }
-            ForkName::Electra => {
-                LightClientHeader::Electra(LightClientHeaderElectra::from_ssz_bytes(bytes)?)
-            }
-            ForkName::Fulu => {
-                LightClientHeader::Fulu(LightClientHeaderFulu::from_ssz_bytes(bytes)?)
-            }
-            ForkName::Base => {
-                return Err(ssz::DecodeError::BytesInvalid(format!(
-                    "LightClientHeader decoding for {fork_name} not implemented"
-                )))
-            }
-        };
-
-        Ok(header)
-    }
-
-    /// Custom SSZ decoder that takes a `ForkName` as context.
-    pub fn from_ssz_bytes_for_fork(
-        bytes: &[u8],
-        fork_name: ForkName,
-    ) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes(bytes, fork_name)
-    }
-
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         if fork_name.capella_enabled() {
             ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
         } else {
             0
         }
+    }
+
+    pub fn from_ssz_bytes_dynamic(bytes: &[u8], spec: &ChainSpec) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_type::<BeaconBlockHeader>()?;
+        let mut decoder = builder.build()?;
+        let beacon: BeaconBlockHeader = decoder.decode_next()?;
+        let fork_name = spec.fork_name_at_slot::<E>(beacon.slot);
+        Self::from_ssz_bytes_by_fork(bytes, fork_name)
     }
 }
 
@@ -189,7 +148,7 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
 
         Ok(LightClientHeaderCapella {
             beacon: block.message().block_header(),
-            execution: header,
+            execution: ExecutionPayloadHeader::Capella(header),
             execution_branch: FixedVector::new(execution_branch)?,
             _phantom_data: PhantomData,
         })
@@ -200,7 +159,7 @@ impl<E: EthSpec> Default for LightClientHeaderCapella<E> {
     fn default() -> Self {
         Self {
             beacon: BeaconBlockHeader::empty(),
-            execution: ExecutionPayloadHeaderCapella::default(),
+            execution: ExecutionPayloadHeader::Capella(ExecutionPayloadHeaderCapella::default()),
             execution_branch: FixedVector::default(),
             _phantom_data: PhantomData,
         }
@@ -231,7 +190,7 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
 
         Ok(LightClientHeaderDeneb {
             beacon: block.message().block_header(),
-            execution: header,
+            execution: ExecutionPayloadHeader::Deneb(header),
             execution_branch: FixedVector::new(execution_branch)?,
             _phantom_data: PhantomData,
         })
@@ -242,7 +201,7 @@ impl<E: EthSpec> Default for LightClientHeaderDeneb<E> {
     fn default() -> Self {
         Self {
             beacon: BeaconBlockHeader::empty(),
-            execution: ExecutionPayloadHeaderDeneb::default(),
+            execution: ExecutionPayloadHeader::Deneb(ExecutionPayloadHeaderDeneb::default()),
             execution_branch: FixedVector::default(),
             _phantom_data: PhantomData,
         }
@@ -273,7 +232,7 @@ impl<E: EthSpec> LightClientHeaderElectra<E> {
 
         Ok(LightClientHeaderElectra {
             beacon: block.message().block_header(),
-            execution: header,
+            execution: ExecutionPayloadHeader::Electra(header),
             execution_branch: FixedVector::new(execution_branch)?,
             _phantom_data: PhantomData,
         })
@@ -284,7 +243,7 @@ impl<E: EthSpec> Default for LightClientHeaderElectra<E> {
     fn default() -> Self {
         Self {
             beacon: BeaconBlockHeader::empty(),
-            execution: ExecutionPayloadHeaderElectra::default(),
+            execution: ExecutionPayloadHeader::Electra(ExecutionPayloadHeaderElectra::default()),
             execution_branch: FixedVector::default(),
             _phantom_data: PhantomData,
         }
@@ -315,7 +274,7 @@ impl<E: EthSpec> LightClientHeaderFulu<E> {
 
         Ok(LightClientHeaderFulu {
             beacon: block.message().block_header(),
-            execution: header,
+            execution: ExecutionPayloadHeader::Fulu(header),
             execution_branch: FixedVector::new(execution_branch)?,
             _phantom_data: PhantomData,
         })
@@ -326,7 +285,7 @@ impl<E: EthSpec> Default for LightClientHeaderFulu<E> {
     fn default() -> Self {
         Self {
             beacon: BeaconBlockHeader::empty(),
-            execution: ExecutionPayloadHeaderFulu::default(),
+            execution: ExecutionPayloadHeader::Fulu(ExecutionPayloadHeaderFulu::default()),
             execution_branch: FixedVector::default(),
             _phantom_data: PhantomData,
         }
@@ -370,30 +329,79 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
     }
 }
 
-#[cfg(test)]
-mod tests {
-    // `ssz_tests!` can only be defined once per namespace
-    #[cfg(test)]
-    mod altair {
-        use crate::{LightClientHeaderAltair, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderAltair<MainnetEthSpec>);
-    }
+impl<E: EthSpec> ForkVersionDecode for LightClientHeader<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_type::<BeaconBlockHeader>()?;
 
-    #[cfg(test)]
-    mod capella {
-        use crate::{LightClientHeaderCapella, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderCapella<MainnetEthSpec>);
-    }
-
-    #[cfg(test)]
-    mod deneb {
-        use crate::{LightClientHeaderDeneb, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderDeneb<MainnetEthSpec>);
-    }
-
-    #[cfg(test)]
-    mod electra {
-        use crate::{LightClientHeaderElectra, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderElectra<MainnetEthSpec>);
+        match fork_name {
+            ForkName::Base => Err(ssz::DecodeError::BytesInvalid(format!(
+                "unsupported fork for LightClientHeader: {fork_name}",
+            ))),
+            ForkName::Altair | ForkName::Bellatrix => {
+                let mut decoder = builder.build()?;
+                let beacon = decoder.decode_next()?;
+                Ok(Self::Altair(LightClientHeaderAltair {
+                    beacon,
+                    _phantom_data: PhantomData,
+                }))
+            }
+            ForkName::Capella => {
+                builder.register_type::<ExecutionPayloadHeaderCapella<E>>()?;
+                builder.register_type::<FixedVector<Hash256, ExecutionPayloadProofLen>>()?;
+                let mut decoder = builder.build()?;
+                let beacon = decoder.decode_next()?;
+                let execution = ExecutionPayloadHeader::Capella(decoder.decode_next()?);
+                let execution_branch = decoder.decode_next()?;
+                Ok(Self::Capella(LightClientHeaderCapella {
+                    beacon,
+                    execution,
+                    execution_branch,
+                    _phantom_data: PhantomData,
+                }))
+            }
+            ForkName::Deneb => {
+                builder.register_type::<ExecutionPayloadHeaderDeneb<E>>()?;
+                builder.register_type::<FixedVector<Hash256, ExecutionPayloadProofLen>>()?;
+                let mut decoder = builder.build()?;
+                let beacon = decoder.decode_next()?;
+                let execution = ExecutionPayloadHeader::Deneb(decoder.decode_next()?);
+                let execution_branch = decoder.decode_next()?;
+                Ok(Self::Deneb(LightClientHeaderDeneb {
+                    beacon,
+                    execution,
+                    execution_branch,
+                    _phantom_data: PhantomData,
+                }))
+            }
+            ForkName::Electra => {
+                builder.register_type::<ExecutionPayloadHeaderElectra<E>>()?;
+                builder.register_type::<FixedVector<Hash256, ExecutionPayloadProofLen>>()?;
+                let mut decoder = builder.build()?;
+                let beacon = decoder.decode_next()?;
+                let execution = ExecutionPayloadHeader::Electra(decoder.decode_next()?);
+                let execution_branch = decoder.decode_next()?;
+                Ok(Self::Electra(LightClientHeaderElectra {
+                    beacon,
+                    execution,
+                    execution_branch,
+                    _phantom_data: PhantomData,
+                }))
+            }
+            ForkName::Fulu => {
+                builder.register_type::<ExecutionPayloadHeaderFulu<E>>()?;
+                builder.register_type::<FixedVector<Hash256, ExecutionPayloadProofLen>>()?;
+                let mut decoder = builder.build()?;
+                let beacon = decoder.decode_next()?;
+                let execution = ExecutionPayloadHeader::Fulu(decoder.decode_next()?);
+                let execution_branch = decoder.decode_next()?;
+                Ok(Self::Fulu(LightClientHeaderFulu {
+                    beacon,
+                    execution,
+                    execution_branch,
+                    _phantom_data: PhantomData,
+                }))
+            }
+        }
     }
 }

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
-    ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    ForkName, ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
@@ -282,7 +282,12 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
                 // Safe to `take` from `self.fork_name` as we have all the bytes we need to
                 // decode an ssz object at this point.
                 let fork_name = self.fork_name.take();
-                handle_rpc_response(self.protocol.versioned_protocol, &decoded_buffer, fork_name)
+                handle_rpc_response(
+                    self.protocol.versioned_protocol,
+                    &decoded_buffer,
+                    fork_name,
+                    &self.fork_context.spec,
+                )
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
@@ -664,6 +669,7 @@ fn handle_rpc_response<E: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
     fork_name: Option<ForkName>,
+    spec: &ChainSpec,
 ) -> Result<Option<RpcSuccessResponse<E>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(RpcSuccessResponse::Status(
@@ -773,7 +779,7 @@ fn handle_rpc_response<E: EthSpec>(
         )))),
         SupportedProtocol::LightClientBootstrapV1 => match fork_name {
             Some(fork_name) => Ok(Some(RpcSuccessResponse::LightClientBootstrap(Arc::new(
-                LightClientBootstrap::from_ssz_bytes(decoded_buffer, fork_name)?,
+                LightClientBootstrap::from_ssz_bytes_by_fork(decoded_buffer, fork_name)?,
             )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
@@ -785,7 +791,7 @@ fn handle_rpc_response<E: EthSpec>(
         },
         SupportedProtocol::LightClientOptimisticUpdateV1 => match fork_name {
             Some(fork_name) => Ok(Some(RpcSuccessResponse::LightClientOptimisticUpdate(
-                Arc::new(LightClientOptimisticUpdate::from_ssz_bytes(
+                Arc::new(LightClientOptimisticUpdate::from_ssz_bytes_by_fork(
                     decoded_buffer,
                     fork_name,
                 )?),
@@ -800,7 +806,7 @@ fn handle_rpc_response<E: EthSpec>(
         },
         SupportedProtocol::LightClientFinalityUpdateV1 => match fork_name {
             Some(fork_name) => Ok(Some(RpcSuccessResponse::LightClientFinalityUpdate(
-                Arc::new(LightClientFinalityUpdate::from_ssz_bytes(
+                Arc::new(LightClientFinalityUpdate::from_ssz_bytes_by_fork(
                     decoded_buffer,
                     fork_name,
                 )?),
@@ -815,9 +821,10 @@ fn handle_rpc_response<E: EthSpec>(
         },
         SupportedProtocol::LightClientUpdatesByRangeV1 => match fork_name {
             Some(fork_name) => Ok(Some(RpcSuccessResponse::LightClientUpdatesByRange(
-                Arc::new(LightClientUpdate::from_ssz_bytes(
+                Arc::new(LightClientUpdate::from_ssz_bytes_by_fork_and_spec(
                     decoded_buffer,
-                    &fork_name,
+                    fork_name,
+                    spec,
                 )?),
             ))),
             None => Err(RPCError::ErrorResponse(

@@ -174,11 +174,11 @@ async fn light_client_bootstrap_test() {
         .unwrap();
 
     let bootstrap_slot = match lc_bootstrap {
-        LightClientBootstrap::Altair(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
-        LightClientBootstrap::Capella(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
-        LightClientBootstrap::Deneb(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
-        LightClientBootstrap::Electra(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
-        LightClientBootstrap::Fulu(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
+        LightClientBootstrap::Altair(lc_bootstrap) => lc_bootstrap.header.beacon().slot,
+        LightClientBootstrap::Capella(lc_bootstrap) => lc_bootstrap.header.beacon().slot,
+        LightClientBootstrap::Deneb(lc_bootstrap) => lc_bootstrap.header.beacon().slot,
+        LightClientBootstrap::Electra(lc_bootstrap) => lc_bootstrap.header.beacon().slot,
+        LightClientBootstrap::Fulu(lc_bootstrap) => lc_bootstrap.header.beacon().slot,
     };
 
     assert_eq!(

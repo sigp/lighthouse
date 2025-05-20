@@ -290,9 +290,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
             let fork_name = chain_spec.fork_name_at_epoch(epoch.into());
 
-            let light_client_update =
-                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
-                    .map_err(store::errors::Error::SszDecodeError)?;
+            let light_client_update = LightClientUpdate::from_ssz_bytes_by_fork_and_spec(
+                &light_client_update_bytes,
+                fork_name,
+                chain_spec,
+            )
+            .map_err(store::errors::Error::SszDecodeError)?;
 
             light_client_updates.push(light_client_update);
         }

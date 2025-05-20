@@ -16,11 +16,13 @@ pub struct Metadata {
 impl<E: EthSpec> LoadCase for LightClientVerifyIsBetterUpdate<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let mut light_client_updates = vec![];
+        let spec = &testing_spec::<E>(fork_name);
         let metadata: Metadata = decode::yaml_decode_file(path.join("meta.yaml").as_path())?;
         for index in 0..metadata.updates_count {
             let light_client_update = ssz_decode_light_client_update(
                 &path.join(format!("updates_{}.ssz_snappy", index)),
                 &fork_name,
+                spec,
             )?;
             light_client_updates.push(light_client_update);
         }

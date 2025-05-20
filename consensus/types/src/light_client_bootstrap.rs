@@ -1,17 +1,15 @@
 use crate::context_deserialize;
+use crate::ForkVersionDecode;
 use crate::{
-    light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, ContextDeserialize,
-    EthSpec, FixedVector, ForkName, Hash256, LightClientHeader, LightClientHeaderAltair,
-    LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderElectra,
-    LightClientHeaderFulu, SignedBlindedBeaconBlock, Slot, SyncCommittee,
+    light_client_update::*, BeaconState, ChainSpec, ContextDeserialize, EthSpec, FixedVector,
+    ForkName, Hash256, LightClientHeader, SignedBlindedBeaconBlock, Slot, SyncCommittee,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
-use ssz::{Decode, Encode};
-use ssz_derive::{Decode, Encode};
+use ssz::{DecodeError, Encode};
+use ssz_derive::Encode;
 use std::sync::Arc;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// A LightClientBootstrap is the initializer we send over to light_client nodes
@@ -26,9 +24,7 @@ use tree_hash_derive::TreeHash;
             Serialize,
             Deserialize,
             Derivative,
-            Decode,
             Encode,
-            TestRandom,
             arbitrary::Arbitrary,
             TreeHash,
         ),
@@ -47,16 +43,7 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientBootstrap<E: EthSpec> {
     /// The requested beacon block header.
-    #[superstruct(only(Altair), partial_getter(rename = "header_altair"))]
-    pub header: LightClientHeaderAltair<E>,
-    #[superstruct(only(Capella), partial_getter(rename = "header_capella"))]
-    pub header: LightClientHeaderCapella<E>,
-    #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
-    pub header: LightClientHeaderDeneb<E>,
-    #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
-    pub header: LightClientHeaderElectra<E>,
-    #[superstruct(only(Fulu), partial_getter(rename = "header_fulu"))]
-    pub header: LightClientHeaderFulu<E>,
+    pub header: LightClientHeader<E>,
     /// The `SyncCommittee` used in the requested period.
     pub current_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for sync committee
@@ -89,27 +76,8 @@ impl<E: EthSpec> LightClientBootstrap<E> {
     pub fn get_slot<'a>(&'a self) -> Slot {
         map_light_client_bootstrap_ref!(&'a _, self.to_ref(), |inner, cons| {
             cons(inner);
-            inner.header.beacon.slot
+            inner.header.beacon().slot
         })
-    }
-
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        let bootstrap = match fork_name {
-            ForkName::Altair | ForkName::Bellatrix => {
-                Self::Altair(LightClientBootstrapAltair::from_ssz_bytes(bytes)?)
-            }
-            ForkName::Capella => Self::Capella(LightClientBootstrapCapella::from_ssz_bytes(bytes)?),
-            ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb::from_ssz_bytes(bytes)?),
-            ForkName::Electra => Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?),
-            ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu::from_ssz_bytes(bytes)?),
-            ForkName::Base => {
-                return Err(ssz::DecodeError::BytesInvalid(format!(
-                    "LightClientBootstrap decoding for {fork_name} not implemented"
-                )))
-            }
-        };
-
-        Ok(bootstrap)
     }
 
     #[allow(clippy::arithmetic_side_effects)]
@@ -133,33 +101,34 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         current_sync_committee_branch: Vec<Hash256>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
+        let header = LightClientHeader::block_to_light_client_header(block, chain_spec)?;
         let light_client_bootstrap = match block
             .fork_name(chain_spec)
             .map_err(|_| Error::InconsistentFork)?
         {
             ForkName::Base => return Err(Error::AltairForkNotActive),
             ForkName::Altair | ForkName::Bellatrix => Self::Altair(LightClientBootstrapAltair {
-                header: LightClientHeaderAltair::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella {
-                header: LightClientHeaderCapella::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
             ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
-                header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
-                header: LightClientHeaderElectra::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
             ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu {
-                header: LightClientHeaderFulu::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
@@ -178,33 +147,35 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         let current_sync_committee_branch = beacon_state.compute_current_sync_committee_proof()?;
         let current_sync_committee = beacon_state.current_sync_committee()?.clone();
 
+        let header = LightClientHeader::block_to_light_client_header(block, chain_spec)?;
+
         let light_client_bootstrap = match block
             .fork_name(chain_spec)
             .map_err(|_| Error::InconsistentFork)?
         {
             ForkName::Base => return Err(Error::AltairForkNotActive),
             ForkName::Altair | ForkName::Bellatrix => Self::Altair(LightClientBootstrapAltair {
-                header: LightClientHeaderAltair::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella {
-                header: LightClientHeaderCapella::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
             ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
-                header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
-                header: LightClientHeaderElectra::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
             ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu {
-                header: LightClientHeaderFulu::block_to_light_client_header(block)?,
+                header,
                 current_sync_committee,
                 current_sync_committee_branch: current_sync_committee_branch.into(),
             }),
@@ -251,36 +222,71 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientBootstrap
     }
 }
 
-#[cfg(test)]
-mod tests {
-    // `ssz_tests!` can only be defined once per namespace
-    #[cfg(test)]
-    mod altair {
-        use crate::{LightClientBootstrapAltair, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapAltair<MainnetEthSpec>);
-    }
+impl<E: EthSpec> ForkVersionDecode for LightClientBootstrap<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        // header
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<SyncCommittee<E>>()?;
 
-    #[cfg(test)]
-    mod capella {
-        use crate::{LightClientBootstrapCapella, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapCapella<MainnetEthSpec>);
-    }
-
-    #[cfg(test)]
-    mod deneb {
-        use crate::{LightClientBootstrapDeneb, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapDeneb<MainnetEthSpec>);
-    }
-
-    #[cfg(test)]
-    mod electra {
-        use crate::{LightClientBootstrapElectra, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapElectra<MainnetEthSpec>);
-    }
-
-    #[cfg(test)]
-    mod fulu {
-        use crate::{LightClientBootstrapFulu, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapFulu<MainnetEthSpec>);
+        if fork_name.electra_enabled() {
+            builder.register_type::<FixedVector<Hash256, CurrentSyncCommitteeProofLenElectra>>()?;
+        } else {
+            builder.register_type::<FixedVector<Hash256, CurrentSyncCommitteeProofLen>>()?;
+        }
+        let mut decoder = builder.build()?;
+        let header = decoder.decode_next_with(|bytes| {
+            LightClientHeader::from_ssz_bytes_by_fork(bytes, fork_name)
+        })?;
+        match fork_name {
+            ForkName::Base => Err(ssz::DecodeError::BytesInvalid(format!(
+                "unsupported fork for LightClientBootstrap: {fork_name}",
+            ))),
+            ForkName::Altair | ForkName::Bellatrix => {
+                let current_sync_committee = decoder.decode_next()?;
+                let current_sync_committee_branch = decoder.decode_next()?;
+                Ok(Self::Altair(LightClientBootstrapAltair {
+                    header,
+                    current_sync_committee,
+                    current_sync_committee_branch,
+                }))
+            }
+            ForkName::Capella => {
+                let current_sync_committee = decoder.decode_next()?;
+                let current_sync_committee_branch = decoder.decode_next()?;
+                Ok(Self::Capella(LightClientBootstrapCapella {
+                    header,
+                    current_sync_committee,
+                    current_sync_committee_branch,
+                }))
+            }
+            ForkName::Deneb => {
+                let current_sync_committee = decoder.decode_next()?;
+                let current_sync_committee_branch = decoder.decode_next()?;
+                Ok(Self::Deneb(LightClientBootstrapDeneb {
+                    header,
+                    current_sync_committee,
+                    current_sync_committee_branch,
+                }))
+            }
+            ForkName::Electra => {
+                let current_sync_committee = decoder.decode_next()?;
+                let current_sync_committee_branch = decoder.decode_next()?;
+                Ok(Self::Electra(LightClientBootstrapElectra {
+                    header,
+                    current_sync_committee,
+                    current_sync_committee_branch,
+                }))
+            }
+            ForkName::Fulu => {
+                let current_sync_committee = decoder.decode_next()?;
+                let current_sync_committee_branch = decoder.decode_next()?;
+                Ok(Self::Fulu(LightClientBootstrapFulu {
+                    header,
+                    current_sync_committee,
+                    current_sync_committee_branch,
+                }))
+            }
+        }
     }
 }

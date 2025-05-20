@@ -755,8 +755,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             let fork_name = self.spec.fork_name_at_epoch(epoch.into());
 
-            let light_client_update =
-                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
+            let light_client_update = LightClientUpdate::from_ssz_bytes_by_fork_and_spec(
+                &light_client_update_bytes,
+                fork_name,
+                &self.spec,
+            )?;
 
             return Ok(Some(light_client_update));
         }
@@ -782,8 +785,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             let fork_name = self.spec.fork_name_at_epoch(epoch.into());
 
-            let light_client_update =
-                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
+            let light_client_update = LightClientUpdate::from_ssz_bytes_by_fork_and_spec(
+                &light_client_update_bytes,
+                fork_name,
+                &self.spec,
+            )?;
 
             light_client_updates.push(light_client_update);
 

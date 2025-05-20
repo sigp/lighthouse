@@ -1,23 +1,21 @@
 use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
-use crate::context_deserialize;
 use crate::light_client_header::LightClientHeaderElectra;
 use crate::LightClientHeader;
 use crate::{
-    beacon_state, test_utils::TestRandom, ChainSpec, ContextDeserialize, Epoch, ForkName,
-    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
-    LightClientHeaderFulu, SignedBlindedBeaconBlock,
+    beacon_state, ChainSpec, ContextDeserialize, Epoch, ForkName, LightClientHeaderAltair,
+    LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderFulu,
+    SignedBlindedBeaconBlock,
 };
+use crate::{context_deserialize, ForkVersionDecode};
 use derivative::Derivative;
 use safe_arith::ArithError;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Deserializer, Serialize};
-use ssz::{Decode, Encode};
-use ssz_derive::Decode;
+use ssz::{DecodeError, Encode};
 use ssz_derive::Encode;
 use ssz_types::typenum::{U4, U5, U6, U7};
 use std::sync::Arc;
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 pub const FINALIZED_ROOT_INDEX: usize = 105;
@@ -106,12 +104,10 @@ impl From<milhouse::Error> for Error {
             Debug,
             Clone,
             PartialEq,
-            Serialize,
             Deserialize,
+            Serialize,
             Derivative,
-            Decode,
             Encode,
-            TestRandom,
             arbitrary::Arbitrary,
             TreeHash,
         ),
@@ -128,16 +124,7 @@ impl From<milhouse::Error> for Error {
 #[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientUpdate<E: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
-    #[superstruct(only(Altair), partial_getter(rename = "attested_header_altair"))]
-    pub attested_header: LightClientHeaderAltair<E>,
-    #[superstruct(only(Capella), partial_getter(rename = "attested_header_capella"))]
-    pub attested_header: LightClientHeaderCapella<E>,
-    #[superstruct(only(Deneb), partial_getter(rename = "attested_header_deneb"))]
-    pub attested_header: LightClientHeaderDeneb<E>,
-    #[superstruct(only(Electra), partial_getter(rename = "attested_header_electra"))]
-    pub attested_header: LightClientHeaderElectra<E>,
-    #[superstruct(only(Fulu), partial_getter(rename = "attested_header_fulu"))]
-    pub attested_header: LightClientHeaderFulu<E>,
+    pub attested_header: LightClientHeader<E>,
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<E>>,
     // Merkle proof for next sync committee
@@ -152,16 +139,7 @@ pub struct LightClientUpdate<E: EthSpec> {
     )]
     pub next_sync_committee_branch: NextSyncCommitteeBranchElectra,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
-    #[superstruct(only(Altair), partial_getter(rename = "finalized_header_altair"))]
-    pub finalized_header: LightClientHeaderAltair<E>,
-    #[superstruct(only(Capella), partial_getter(rename = "finalized_header_capella"))]
-    pub finalized_header: LightClientHeaderCapella<E>,
-    #[superstruct(only(Deneb), partial_getter(rename = "finalized_header_deneb"))]
-    pub finalized_header: LightClientHeaderDeneb<E>,
-    #[superstruct(only(Electra), partial_getter(rename = "finalized_header_electra"))]
-    pub finalized_header: LightClientHeaderElectra<E>,
-    #[superstruct(only(Fulu), partial_getter(rename = "finalized_header_fulu"))]
-    pub finalized_header: LightClientHeaderFulu<E>,
+    pub finalized_header: LightClientHeader<E>,
     /// Merkle proof attesting finalized header.
     #[superstruct(
         only(Altair, Capella, Deneb),
@@ -245,10 +223,10 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 };
 
                 Self::Altair(LightClientUpdateAltair {
-                    attested_header,
+                    attested_header: LightClientHeader::Altair(attested_header),
                     next_sync_committee,
                     next_sync_committee_branch: next_sync_committee_branch.into(),
-                    finalized_header,
+                    finalized_header: LightClientHeader::Altair(finalized_header),
                     finality_branch: finality_branch.into(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block_slot,
@@ -269,10 +247,10 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 };
 
                 Self::Capella(LightClientUpdateCapella {
-                    attested_header,
+                    attested_header: LightClientHeader::Capella(attested_header),
                     next_sync_committee,
                     next_sync_committee_branch: next_sync_committee_branch.into(),
-                    finalized_header,
+                    finalized_header: LightClientHeader::Capella(finalized_header),
                     finality_branch: finality_branch.into(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block_slot,
@@ -293,10 +271,10 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 };
 
                 Self::Deneb(LightClientUpdateDeneb {
-                    attested_header,
+                    attested_header: LightClientHeader::Deneb(attested_header),
                     next_sync_committee,
                     next_sync_committee_branch: next_sync_committee_branch.into(),
-                    finalized_header,
+                    finalized_header: LightClientHeader::Deneb(finalized_header),
                     finality_branch: finality_branch.into(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block_slot,
@@ -317,10 +295,10 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 };
 
                 Self::Electra(LightClientUpdateElectra {
-                    attested_header,
+                    attested_header: LightClientHeader::Electra(attested_header),
                     next_sync_committee,
                     next_sync_committee_branch: next_sync_committee_branch.into(),
-                    finalized_header,
+                    finalized_header: LightClientHeader::Electra(finalized_header),
                     finality_branch: finality_branch.into(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block_slot,
@@ -341,10 +319,10 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 };
 
                 Self::Fulu(LightClientUpdateFulu {
-                    attested_header,
+                    attested_header: LightClientHeader::Fulu(attested_header),
                     next_sync_committee,
                     next_sync_committee_branch: next_sync_committee_branch.into(),
-                    finalized_header,
+                    finalized_header: LightClientHeader::Fulu(finalized_header),
                     finality_branch: finality_branch.into(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block_slot,
@@ -357,42 +335,23 @@ impl<E: EthSpec> LightClientUpdate<E> {
         Ok(light_client_update)
     }
 
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: &ForkName) -> Result<Self, ssz::DecodeError> {
-        let update = match fork_name {
-            ForkName::Altair | ForkName::Bellatrix => {
-                Self::Altair(LightClientUpdateAltair::from_ssz_bytes(bytes)?)
-            }
-            ForkName::Capella => Self::Capella(LightClientUpdateCapella::from_ssz_bytes(bytes)?),
-            ForkName::Deneb => Self::Deneb(LightClientUpdateDeneb::from_ssz_bytes(bytes)?),
-            ForkName::Electra => Self::Electra(LightClientUpdateElectra::from_ssz_bytes(bytes)?),
-            ForkName::Fulu => Self::Fulu(LightClientUpdateFulu::from_ssz_bytes(bytes)?),
-            ForkName::Base => {
-                return Err(ssz::DecodeError::BytesInvalid(format!(
-                    "LightClientUpdate decoding for {fork_name} not implemented"
-                )))
-            }
-        };
-
-        Ok(update)
-    }
-
     pub fn attested_header_slot(&self) -> Slot {
         match self {
-            LightClientUpdate::Altair(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Capella(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Deneb(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Electra(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Fulu(update) => update.attested_header.beacon.slot,
+            LightClientUpdate::Altair(update) => update.attested_header.beacon().slot,
+            LightClientUpdate::Capella(update) => update.attested_header.beacon().slot,
+            LightClientUpdate::Deneb(update) => update.attested_header.beacon().slot,
+            LightClientUpdate::Electra(update) => update.attested_header.beacon().slot,
+            LightClientUpdate::Fulu(update) => update.attested_header.beacon().slot,
         }
     }
 
     pub fn finalized_header_slot(&self) -> Slot {
         match self {
-            LightClientUpdate::Altair(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Capella(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Deneb(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Electra(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Fulu(update) => update.finalized_header.beacon.slot,
+            LightClientUpdate::Altair(update) => update.finalized_header.beacon().slot,
+            LightClientUpdate::Capella(update) => update.finalized_header.beacon().slot,
+            LightClientUpdate::Deneb(update) => update.finalized_header.beacon().slot,
+            LightClientUpdate::Electra(update) => update.finalized_header.beacon().slot,
+            LightClientUpdate::Fulu(update) => update.finalized_header.beacon().slot,
         }
     }
 
@@ -529,6 +488,148 @@ impl<E: EthSpec> LightClientUpdate<E> {
             Self::Fulu(_) => func(ForkName::Fulu),
         }
     }
+
+    pub fn from_ssz_bytes_by_fork_and_spec(
+        bytes: &[u8],
+        fork_name: ForkName,
+        spec: &ChainSpec,
+    ) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<SyncCommittee<E>>()?;
+        if fork_name.electra_enabled() {
+            builder.register_type::<NextSyncCommitteeBranchElectra>()?;
+        } else {
+            builder.register_type::<NextSyncCommitteeBranch>()?;
+        }
+        // FINALIZED HEADER
+        builder.register_anonymous_variable_length_item()?;
+        if fork_name.electra_enabled() {
+            builder.register_type::<FinalityBranchElectra>()?;
+        } else {
+            builder.register_type::<FinalityBranch>()?;
+        }
+        builder.register_type::<SyncAggregate<E>>()?;
+        builder.register_type::<Slot>()?;
+        let mut decoder = builder.build()?;
+
+        match fork_name {
+            ForkName::Base => Err(ssz::DecodeError::BytesInvalid(format!(
+                "unsupported fork for LightClientHeader: {fork_name}",
+            ))),
+            ForkName::Altair | ForkName::Bellatrix => {
+                let attested_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_by_fork(bytes, fork_name)
+                })?;
+                let next_sync_committee = decoder.decode_next()?;
+                let next_sync_committee_branch = decoder.decode_next()?;
+                let finalized_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_dynamic(bytes, spec)
+                })?;
+                let finality_branch = decoder.decode_next()?;
+                let sync_aggregate = decoder.decode_next()?;
+                let signature_slot = decoder.decode_next()?;
+
+                Ok(Self::Altair(LightClientUpdateAltair {
+                    attested_header,
+                    next_sync_committee,
+                    next_sync_committee_branch,
+                    finalized_header,
+                    finality_branch,
+                    sync_aggregate,
+                    signature_slot,
+                }))
+            }
+            ForkName::Capella => {
+                let attested_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_by_fork(bytes, fork_name)
+                })?;
+                let next_sync_committee = decoder.decode_next()?;
+                let next_sync_committee_branch = decoder.decode_next()?;
+                let finalized_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_dynamic(bytes, spec)
+                })?;
+                let finality_branch = decoder.decode_next()?;
+                let sync_aggregate = decoder.decode_next()?;
+                let signature_slot = decoder.decode_next()?;
+                Ok(Self::Capella(LightClientUpdateCapella {
+                    attested_header,
+                    next_sync_committee,
+                    next_sync_committee_branch,
+                    finalized_header,
+                    finality_branch,
+                    sync_aggregate,
+                    signature_slot,
+                }))
+            }
+            ForkName::Deneb => {
+                let attested_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_by_fork(bytes, fork_name)
+                })?;
+                let next_sync_committee = decoder.decode_next()?;
+                let next_sync_committee_branch = decoder.decode_next()?;
+                let finalized_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_dynamic(bytes, spec)
+                })?;
+                let finality_branch = decoder.decode_next()?;
+                let sync_aggregate = decoder.decode_next()?;
+                let signature_slot = decoder.decode_next()?;
+                Ok(Self::Deneb(LightClientUpdateDeneb {
+                    attested_header,
+                    next_sync_committee,
+                    next_sync_committee_branch,
+                    finalized_header,
+                    finality_branch,
+                    sync_aggregate,
+                    signature_slot,
+                }))
+            }
+            ForkName::Electra => {
+                let attested_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_by_fork(bytes, fork_name)
+                })?;
+                let next_sync_committee = decoder.decode_next()?;
+                let next_sync_committee_branch = decoder.decode_next()?;
+                let finalized_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_dynamic(bytes, spec)
+                })?;
+                let finality_branch = decoder.decode_next()?;
+                let sync_aggregate = decoder.decode_next()?;
+                let signature_slot = decoder.decode_next()?;
+                Ok(Self::Electra(LightClientUpdateElectra {
+                    attested_header,
+                    next_sync_committee,
+                    next_sync_committee_branch,
+                    finalized_header,
+                    finality_branch,
+                    sync_aggregate,
+                    signature_slot,
+                }))
+            }
+            ForkName::Fulu => {
+                let attested_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_by_fork(bytes, fork_name)
+                })?;
+                let next_sync_committee = decoder.decode_next()?;
+                let next_sync_committee_branch = decoder.decode_next()?;
+                let finalized_header = decoder.decode_next_with(|bytes| {
+                    LightClientHeader::from_ssz_bytes_dynamic(bytes, spec)
+                })?;
+                let finality_branch = decoder.decode_next()?;
+                let sync_aggregate = decoder.decode_next()?;
+                let signature_slot = decoder.decode_next()?;
+                Ok(Self::Fulu(LightClientUpdateFulu {
+                    attested_header,
+                    next_sync_committee,
+                    next_sync_committee_branch,
+                    finalized_header,
+                    finality_branch,
+                    sync_aggregate,
+                    signature_slot,
+                }))
+            }
+        }
+    }
 }
 
 fn is_empty_branch(branch: &[Hash256]) -> bool {
@@ -552,42 +653,6 @@ fn compute_sync_committee_period_at_slot<E: EthSpec>(
 mod tests {
     use super::*;
     use ssz_types::typenum::Unsigned;
-
-    // `ssz_tests!` can only be defined once per namespace
-    #[cfg(test)]
-    mod altair {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateAltair<MainnetEthSpec>);
-    }
-
-    #[cfg(test)]
-    mod capella {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateCapella<MainnetEthSpec>);
-    }
-
-    #[cfg(test)]
-    mod deneb {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateDeneb<MainnetEthSpec>);
-    }
-
-    #[cfg(test)]
-    mod electra {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateElectra<MainnetEthSpec>);
-    }
-
-    #[cfg(test)]
-    mod fulu {
-        use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateFulu<MainnetEthSpec>);
-    }
 
     #[test]
     fn finalized_root_params() {
