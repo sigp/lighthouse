@@ -1,4 +1,5 @@
-use super::{AggregateSignature, EthSpec, SignedRoot};
+use super::{AggregateSignature, EthSpec, ForkName, SignedRoot};
+use crate::context_deserialize;
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeMessage};
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,7 @@ pub enum Error {
 )]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct SyncCommitteeContribution<E: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,

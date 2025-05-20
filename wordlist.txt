@@ -46,6 +46,7 @@ Goerli
 Grafana
 Holesky
 Homebrew
+Hoodi
 Infura
 IPs
 IPv

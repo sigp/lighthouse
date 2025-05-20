@@ -34,7 +34,7 @@ mod validators;
 mod version;
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
-use crate::version::fork_versioned_response;
+use crate::version::beacon_response;
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
@@ -89,18 +89,17 @@ use tokio_stream::{
 use tracing::{debug, error, info, warn};
 use types::AttestationData;
 use types::{
-    fork_versioned_response::EmptyMetadata, Attestation, AttestationShufflingId, AttesterSlashing,
-    BeaconStateError, ChainSpec, Checkpoint, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
-    ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing,
-    RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    Attestation, AttestationShufflingId, AttesterSlashing, BeaconStateError, ChainSpec, Checkpoint,
+    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256, ProposerPreparationData,
+    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
     add_consensus_version_header, add_ssz_content_type_header,
-    execution_optimistic_finalized_fork_versioned_response, inconsistent_fork_rejection,
-    unsupported_version_rejection, V1, V2, V3,
+    execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
+    unsupported_version_rejection, ResponseIncludesVersion, V1, V2, V3,
 };
 use warp::http::StatusCode;
 use warp::hyper::Body;
@@ -710,7 +709,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validator_balances"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp_utils::json::json_no_body())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -1174,8 +1173,8 @@ pub fn serve<T: BeaconChainTypes>(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let (data, execution_optimistic, finalized) = state_id
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
                             |state, execution_optimistic, finalized| {
@@ -1185,15 +1184,23 @@ pub fn serve<T: BeaconChainTypes>(
                                     ));
                                 };
 
-                                Ok((deposits.clone(), execution_optimistic, finalized))
+                                Ok((
+                                    deposits.clone(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
                             },
                         )?;
 
-                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                    execution_optimistic_finalized_beacon_response(
+                        ResponseIncludesVersion::Yes(fork_name),
+                        execution_optimistic,
+                        finalized,
                         data,
-                        execution_optimistic: Some(execution_optimistic),
-                        finalized: Some(finalized),
-                    })
+                    )
+                    .map(|res| warp::reply::json(&res).into_response())
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
         );
@@ -1207,8 +1214,8 @@ pub fn serve<T: BeaconChainTypes>(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let (data, execution_optimistic, finalized) = state_id
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
                             |state, execution_optimistic, finalized| {
@@ -1218,15 +1225,23 @@ pub fn serve<T: BeaconChainTypes>(
                                     ));
                                 };
 
-                                Ok((withdrawals.clone(), execution_optimistic, finalized))
+                                Ok((
+                                    withdrawals.clone(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
                             },
                         )?;
 
-                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                    execution_optimistic_finalized_beacon_response(
+                        ResponseIncludesVersion::Yes(fork_name),
+                        execution_optimistic,
+                        finalized,
                         data,
-                        execution_optimistic: Some(execution_optimistic),
-                        finalized: Some(finalized),
-                    })
+                    )
+                    .map(|res| warp::reply::json(&res).into_response())
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
         );
@@ -1426,21 +1441,30 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp::body::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
         .then(
-            move |block_contents: PublishBlockRequest<T::EthSpec>,
+            move |value: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
+                        &value,
+                        consensus_version,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                    })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local_from_publish_request(block_contents),
+                        ProvenancedBlock::local_from_publish_request(request),
                         chain,
                         &network_tx,
                         BroadcastValidation::default(),
@@ -1496,22 +1520,32 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blocks"))
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp::body::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  block_contents: PublishBlockRequest<T::EthSpec>,
+                  value: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
+                        &value,
+                        consensus_version,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                    })?;
+
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local_from_publish_request(block_contents),
+                        ProvenancedBlock::local_from_publish_request(request),
                         chain,
                         &network_tx,
                         validation_level.broadcast_validation,
@@ -1744,6 +1778,12 @@ pub fn serve<T: BeaconChainTypes>(
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
 
+                    let require_version = match endpoint_version {
+                        V1 => ResponseIncludesVersion::No,
+                        V2 => ResponseIncludesVersion::Yes(fork_name),
+                        _ => return Err(unsupported_version_rejection(endpoint_version)),
+                    };
+
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -1755,9 +1795,8 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => execution_optimistic_finalized_fork_versioned_response(
-                            endpoint_version,
-                            fork_name,
+                        _ => execution_optimistic_finalized_beacon_response(
+                            require_version,
                             execution_optimistic,
                             finalized,
                             block,
@@ -1817,9 +1856,15 @@ pub fn serve<T: BeaconChainTypes>(
                         .attestations()
                         .map(|att| att.clone_as_attestation())
                         .collect::<Vec<_>>();
-                    let res = execution_optimistic_finalized_fork_versioned_response(
-                        endpoint_version,
-                        fork_name,
+
+                    let require_version = match endpoint_version {
+                        V1 => ResponseIncludesVersion::No,
+                        V2 => ResponseIncludesVersion::Yes(fork_name),
+                        _ => return Err(unsupported_version_rejection(endpoint_version)),
+                    };
+
+                    let res = execution_optimistic_finalized_beacon_response(
+                        require_version,
                         execution_optimistic,
                         finalized,
                         &atts,
@@ -1866,9 +1911,8 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => {
                             // Post as a V2 endpoint so we return the fork version.
-                            execution_optimistic_finalized_fork_versioned_response(
-                                V2,
-                                fork_name,
+                            execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::Yes(fork_name),
                                 execution_optimistic,
                                 finalized,
                                 block,
@@ -1922,9 +1966,8 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => {
                             // Post as a V2 endpoint so we return the fork version.
-                            let res = execution_optimistic_finalized_fork_versioned_response(
-                                V2,
-                                fork_name,
+                            let res = execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::Yes(fork_name),
                                 execution_optimistic,
                                 finalized,
                                 &blob_sidecar_list_filtered,
@@ -2084,7 +2127,13 @@ pub fn serve<T: BeaconChainTypes>(
                         })
                         .collect::<Vec<_>>();
 
-                    let res = fork_versioned_response(endpoint_version, fork_name, &attestations)?;
+                    let require_version = match endpoint_version {
+                        V1 => ResponseIncludesVersion::No,
+                        V2 => ResponseIncludesVersion::Yes(fork_name),
+                        _ => return Err(unsupported_version_rejection(endpoint_version)),
+                    };
+
+                    let res = beacon_response(require_version, &attestations);
                     Ok(add_consensus_version_header(
                         warp::reply::json(&res).into_response(),
                         fork_name,
@@ -2173,7 +2222,13 @@ pub fn serve<T: BeaconChainTypes>(
                             })
                             .collect::<Vec<_>>();
 
-                        let res = fork_versioned_response(endpoint_version, fork_name, &slashings)?;
+                        let require_version = match endpoint_version {
+                            V1 => ResponseIncludesVersion::No,
+                            V2 => ResponseIncludesVersion::Yes(fork_name),
+                            _ => return Err(unsupported_version_rejection(endpoint_version)),
+                        };
+
+                        let res = beacon_response(require_version, &slashings);
                         Ok(add_consensus_version_header(
                             warp::reply::json(&res).into_response(),
                             fork_name,
@@ -2609,7 +2664,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let fork_name = chain
                         .spec
-                        .fork_name_at_slot::<T::EthSpec>(*update.signature_slot());
+                        .fork_name_at_slot::<T::EthSpec>(update.get_slot());
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -2621,11 +2676,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
-                            version: Some(fork_name),
-                            metadata: EmptyMetadata {},
-                            data: update,
-                        })
+                        _ => Ok(warp::reply::json(&beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            update,
+                        ))
                         .into_response()),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
@@ -2670,11 +2724,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
-                            version: Some(fork_name),
-                            metadata: EmptyMetadata {},
-                            data: update,
-                        })
+                        _ => Ok(warp::reply::json(&beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            update,
+                        ))
                         .into_response()),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
@@ -2866,7 +2919,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
-            |endpoint_version: EndpointVersion,
+            |_endpoint_version: EndpointVersion,
              state_id: StateId,
              accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -2910,9 +2963,8 @@ pub fn serve<T: BeaconChainTypes>(
                             let fork_name = state
                                 .fork_name(&chain.spec)
                                 .map_err(inconsistent_fork_rejection)?;
-                            let res = execution_optimistic_finalized_fork_versioned_response(
-                                endpoint_version,
-                                fork_name,
+                            let res = execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::Yes(fork_name),
                                 execution_optimistic,
                                 finalized,
                                 &state,
@@ -3262,13 +3314,14 @@ pub fn serve<T: BeaconChainTypes>(
                                 let direction = dir.into();
                                 let state = peer_info.connection_status().clone().into();
 
-                                let state_matches = query.state.as_ref().is_none_or(|states| {
-                                    states.iter().any(|state_param| *state_param == state)
-                                });
-                                let direction_matches =
-                                    query.direction.as_ref().is_none_or(|directions| {
-                                        directions.iter().any(|dir_param| *dir_param == direction)
-                                    });
+                                let state_matches = query
+                                    .state
+                                    .as_ref()
+                                    .is_none_or(|states| states.contains(&state));
+                                let direction_matches = query
+                                    .direction
+                                    .as_ref()
+                                    .is_none_or(|directions| directions.contains(&direction));
 
                                 if state_matches && direction_matches {
                                     peers.push(api_types::PeerData {
@@ -3392,7 +3445,7 @@ pub fn serve<T: BeaconChainTypes>(
                     if endpoint_version == V3 {
                         produce_block_v3(accept_header, chain, slot, query).await
                     } else {
-                        produce_block_v2(endpoint_version, accept_header, chain, slot, query).await
+                        produce_block_v2(accept_header, chain, slot, query).await
                     }
                 })
             },
@@ -3422,8 +3475,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
-                    produce_blinded_block_v2(EndpointVersion(2), accept_header, chain, slot, query)
-                        .await
+                    produce_blinded_block_v2(accept_header, chain, slot, query).await
                 })
             },
         );

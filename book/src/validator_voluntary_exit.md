@@ -27,13 +27,13 @@ After validating the password, the user will be prompted to enter a special exit
 The exit phrase is the following:
 > Exit my validator
 
-Below is an example for initiating a voluntary exit on the Holesky testnet.
+Below is an example for initiating a voluntary exit on the Hoodi testnet.
 
 ```
-$ lighthouse --network holesky account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
+$ lighthouse --network hoodi account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
 
-Running account manager for Holesky network
-validator-dir path: ~/.lighthouse/holesky/validators
+Running account manager for Hoodi network
+validator-dir path: ~/.lighthouse/hoodi/validators
 
 Enter the keystore password for validator in 0xabcd
 
@@ -56,6 +56,27 @@ Voluntary exit has been accepted into the beacon chain, but not yet finalized. F
 Current epoch: 29946, Exit epoch: 29951, Withdrawable epoch: 30207
 Please keep your validator running till exit epoch
 Exit epoch in approximately 1920 secs
+```
+
+## Generate pre-signed exit message without broadcasting
+
+You can also generate a pre-signed exit message without broadcasting it to the network. To do so, use the `--presign` flag:
+
+```bash
+lighthouse account validator exit --network hoodi --keystore /path/to/keystore --presign
+```
+
+It will prompt for the keystore password, which, upon entering the correct password, will generate a pre-signed exit message:
+
+```
+Successfully pre-signed voluntary exit for validator 0x[redacted]. Not publishing.
+{
+  "message": {
+    "epoch": "12959",
+    "validator_index": "123456"
+  },
+  "signature": "0x97deafb740cd56eaf55b671efb35d0ce15cd1835cbcc52e20ee9cdc11e1f4ab8a5f228c378730437eb544ae70e1987cd0d2f925aa3babe686b66df823c90ac4027ef7a06d12c56d536d9bcd3a1d15f02917b170c0aa97ab102d67602a586333f"
+}
 ```
 
 ## Exit via the execution layer
@@ -97,7 +118,7 @@ There are two types of withdrawal credentials, `0x00` and `0x01`. To check which
 
 - A fixed waiting period of 256 epochs (27.3 hours) for the validator's status to become withdrawable.
 
-- A varying time of "validator sweep" that can take up to _n_ days with _n_ listed in the table below.    The "validator sweep" is the process of skimming through all eligible validators by index number for withdrawals (those with type `0x01` and balance above 32ETH). Once the "validator sweep" reaches your validator's index, your staked fund will be fully withdrawn to the withdrawal address set.
+- A varying time of "validator sweep" that can take up to _n_ days with _n_ listed in the table below. The "validator sweep" is the process of skimming through all eligible validators by index number for withdrawals (those with type `0x01` and balance above 32ETH). Once the "validator sweep" reaches your validator's index, your staked fund will be fully withdrawn to the withdrawal address set.
 
 <div align="center">
 
