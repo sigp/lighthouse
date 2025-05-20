@@ -459,17 +459,19 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
     verify_is_first_sidecar(chain, &data_column)?;
 
-    // Check if the data column is already in the DA checker. If it is, we know that it has passed
-    // all checks even though it hasn't been seen on the gossip network.
-    // NOTE: but we cannot return `Ok` here, because we don't want this data column to be re-imported.
+    // Check if the data column is already in the DA checker cache. This happens when data columns
+    // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
+    // it has already passed the gossip checks, even though this particular instance hasn't been
+    // seen / published on the gossip network yet (passed the `verify_is_first_sidecar` check above).
+    // In this case, we should accept it for gossip propagation.
     if chain
         .data_availability_checker
         .is_data_column_cached(&data_column.block_root(), &data_column)
     {
+        // Observe this data column so we don't process it again.
         if O::observe() {
             observe_gossip_data_column(&data_column, chain)?;
         }
-        // TODO should this really be an error?
         return Err(GossipDataColumnError::PriorKnownUnpublished);
     }
 
