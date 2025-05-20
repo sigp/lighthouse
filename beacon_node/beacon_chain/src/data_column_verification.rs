@@ -4,7 +4,7 @@ use crate::block_verification::{
     BlockSlashInfo,
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
-use crate::observed_data_sidecars::{DoNotObserve, ObservationStrategy, Observe};
+use crate::observed_data_sidecars::{ObservationStrategy, Observe};
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
@@ -758,20 +758,6 @@ fn verify_sidecar_not_from_future_slot<T: BeaconChainTypes>(
         });
     }
     Ok(())
-}
-
-impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T, DoNotObserve> {
-    pub fn observe(
-        self,
-        chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedDataColumn<T, Observe>, GossipDataColumnError> {
-        observe_gossip_data_column(self.data_column.as_data_column(), chain)?;
-        Ok(GossipVerifiedDataColumn {
-            block_root: self.block_root,
-            data_column: self.data_column,
-            _phantom: PhantomData,
-        })
-    }
 }
 
 pub fn observe_gossip_data_column<T: BeaconChainTypes>(
