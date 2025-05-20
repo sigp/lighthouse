@@ -2523,10 +2523,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
 
         // Test 1: Invalidate sidecar header signature
 
-        let mut batch_with_invalid_header = available_blocks
-            .iter()
-            .map(|block| block.clone())
-            .collect::<Vec<_>>();
+        let mut batch_with_invalid_header = available_blocks.iter().cloned().collect::<Vec<_>>();
         batch_with_invalid_header[first_block_with_data] = {
             let (block_root, block, block_data) = batch_with_invalid_header[first_block_with_data]
                 .clone()
