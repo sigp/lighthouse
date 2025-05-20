@@ -497,6 +497,7 @@ jobs:
       'op-pool-tests',
       'network-tests',
       'slasher-tests',
+      'http-api-tests',
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',
       'ef-tests-ubuntu',
