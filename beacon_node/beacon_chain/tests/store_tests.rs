@@ -2606,6 +2606,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 );
                 let mut sidecar = data_columns[0].clone_arc();
                 let mut_sidecar = Arc::make_mut(&mut sidecar);
+                if mut_sidecar.kzg_proofs[0] == KzgProof::empty() {
+                    panic!("kzg_proof is already G1_POINT_AT_INFINITY")
+                }
                 mut_sidecar.kzg_proofs[0] = KzgProof::empty();
                 RpcBlock::new_with_custody_columns(
                     Some(block_root),
