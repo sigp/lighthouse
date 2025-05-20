@@ -154,7 +154,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download block: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate block at {:?}", block_id))?
-                        .data;
+                        .into_data();
 
                     if block.slot() == inner_spec.genesis_slot {
                         return Err("Cannot run on the genesis block".to_string());
@@ -165,7 +165,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download parent block: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate parent block at {:?}", block_id))?
-                        .data;
+                        .into_data();
 
                     let state_root = parent_block.state_root();
                     let state_id = StateId::Root(state_root);
@@ -174,7 +174,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download state: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate state at {:?}", state_id))?
-                        .data;
+                        .into_data();
 
                     Ok((pre_state, Some(state_root), block))
                 })

@@ -1,9 +1,10 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    test_utils::TestRandom, ChainSpec, EthSpec, ExecutionPayloadHeaderBellatrix,
-    ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
-    ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
-    ExecutionRequests, ForkName, ForkVersionDecode, ForkVersionDeserialize, SignedRoot, Uint256,
+    test_utils::TestRandom, ChainSpec, ContextDeserialize, EthSpec,
+    ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
+    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, SignedRoot,
+    Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -127,46 +128,58 @@ impl<E: EthSpec> ForkVersionDecode for SignedBuilderBid<E> {
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for BuilderBid<E> {
-    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BuilderBid<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         let convert_err =
             |e| serde::de::Error::custom(format!("BuilderBid failed to deserialize: {:?}", e));
-
-        Ok(match fork_name {
+        Ok(match context {
             ForkName::Bellatrix => {
-                Self::Bellatrix(serde_json::from_value(value).map_err(convert_err)?)
+                Self::Bellatrix(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Fulu => Self::Fulu(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Capella => {
+                Self::Capella(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Deneb => {
+                Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Electra => {
+                Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Fulu => {
+                Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
                     "BuilderBid failed to deserialize: unsupported fork '{}'",
-                    fork_name
+                    context
                 )));
             }
         })
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for SignedBuilderBid<E> {
-    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedBuilderBid<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         #[derive(Deserialize)]
         struct Helper {
-            pub message: serde_json::Value,
-            pub signature: Signature,
+            message: serde_json::Value,
+            signature: Signature,
         }
-        let helper: Helper = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
-        Ok(Self {
-            message: BuilderBid::deserialize_by_fork::<'de, D>(helper.message, fork_name)?,
+        let helper = Helper::deserialize(deserializer)?;
+
+        // Deserialize `data` using ContextDeserialize
+        let message = BuilderBid::<E>::context_deserialize(helper.message, context)
+            .map_err(serde::de::Error::custom)?;
+
+        Ok(SignedBuilderBid {
+            message,
             signature: helper.signature,
         })
     }
