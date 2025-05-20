@@ -210,6 +210,7 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         /// `None` for blinded `PayloadAndBlobs`.
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
         // TODO(electra): this should probably be a separate variant/superstruct
+        // See: https://github.com/sigp/lighthouse/issues/6981
         requests: Option<ExecutionRequests<E>>,
     },
 }
@@ -1979,7 +1980,7 @@ enum InvalidBuilderPayload {
         expected: Option<u64>,
     },
     Fork {
-        payload: Option<ForkName>,
+        payload: ForkName,
         expected: ForkName,
     },
     Signature {
@@ -2012,7 +2013,7 @@ impl fmt::Display for InvalidBuilderPayload {
                 write!(f, "payload block number was {} not {:?}", payload, expected)
             }
             InvalidBuilderPayload::Fork { payload, expected } => {
-                write!(f, "payload fork was {:?} not {}", payload, expected)
+                write!(f, "payload fork was {} not {}", payload, expected)
             }
             InvalidBuilderPayload::Signature { signature, pubkey } => write!(
                 f,
@@ -2115,7 +2116,7 @@ fn verify_builder_bid<E: EthSpec>(
             payload: header.block_number(),
             expected: block_number,
         }))
-    } else if bid.version != Some(current_fork) {
+    } else if bid.version != current_fork {
         Err(Box::new(InvalidBuilderPayload::Fork {
             payload: bid.version,
             expected: current_fork,

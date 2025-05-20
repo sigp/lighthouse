@@ -1,6 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::*;
 
+use context_deserialize_derive::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -24,6 +25,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct BeaconBlockHeader {
     pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64")]

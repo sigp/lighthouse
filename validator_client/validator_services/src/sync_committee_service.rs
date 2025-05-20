@@ -1,6 +1,5 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
-use environment::RuntimeContext;
 use eth2::types::BlockId;
 use futures::future::join_all;
 use futures::future::FutureExt;
@@ -10,6 +9,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
 use types::{
@@ -20,11 +20,11 @@ use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 pub const SUBSCRIPTION_LOOKAHEAD_EPOCHS: u64 = 4;
 
-pub struct SyncCommitteeService<T: SlotClock + 'static, E: EthSpec> {
-    inner: Arc<Inner<T, E>>,
+pub struct SyncCommitteeService<S: ValidatorStore, T: SlotClock + 'static> {
+    inner: Arc<Inner<S, T>>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> Clone for SyncCommitteeService<T, E> {
+impl<S: ValidatorStore, T: SlotClock + 'static> Clone for SyncCommitteeService<S, T> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -32,33 +32,33 @@ impl<T: SlotClock + 'static, E: EthSpec> Clone for SyncCommitteeService<T, E> {
     }
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> Deref for SyncCommitteeService<T, E> {
-    type Target = Inner<T, E>;
+impl<S: ValidatorStore, T: SlotClock + 'static> Deref for SyncCommitteeService<S, T> {
+    type Target = Inner<S, T>;
 
     fn deref(&self) -> &Self::Target {
         self.inner.deref()
     }
 }
 
-pub struct Inner<T: SlotClock + 'static, E: EthSpec> {
-    duties_service: Arc<DutiesService<T, E>>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+pub struct Inner<S: ValidatorStore, T: SlotClock + 'static> {
+    duties_service: Arc<DutiesService<S, T>>,
+    validator_store: Arc<S>,
     slot_clock: T,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    context: RuntimeContext<E>,
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
+    executor: TaskExecutor,
     /// Boolean to track whether the service has posted subscriptions to the BN at least once.
     ///
     /// This acts as a latch that fires once upon start-up, and then never again.
     first_subscription_done: AtomicBool,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
+impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S, T> {
     pub fn new(
-        duties_service: Arc<DutiesService<T, E>>,
-        validator_store: Arc<ValidatorStore<T, E>>,
+        duties_service: Arc<DutiesService<S, T>>,
+        validator_store: Arc<S>,
         slot_clock: T,
-        beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-        context: RuntimeContext<E>,
+        beacon_nodes: Arc<BeaconNodeFallback<T>>,
+        executor: TaskExecutor,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -66,7 +66,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 validator_store,
                 slot_clock,
                 beacon_nodes,
-                context,
+                executor,
                 first_subscription_done: AtomicBool::new(false),
             }),
         }
@@ -80,7 +80,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .spec
             .altair_fork_epoch
             .and_then(|fork_epoch| {
-                let current_epoch = self.slot_clock.now()?.epoch(E::slots_per_epoch());
+                let current_epoch = self.slot_clock.now()?.epoch(S::E::slots_per_epoch());
                 Some(current_epoch >= fork_epoch)
             })
             .unwrap_or(false)
@@ -103,7 +103,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             "Sync committee service started"
         );
 
-        let executor = self.context.executor.clone();
+        let executor = self.executor.clone();
 
         let interval_fut = async move {
             loop {
@@ -156,7 +156,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let Some(slot_duties) = self
             .duties_service
             .sync_duties
-            .get_duties_for_slot(slot, &self.duties_service.spec)
+            .get_duties_for_slot::<S::E>(slot, &self.duties_service.spec)
         else {
             debug!("No duties known for slot {}", slot);
             return Ok(());
@@ -202,7 +202,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         // Spawn one task to publish all of the sync committee signatures.
         let validator_duties = slot_duties.duties;
         let service = self.clone();
-        self.inner.context.executor.spawn(
+        self.inner.executor.spawn(
             async move {
                 service
                     .publish_sync_committee_signatures(slot, block_root, validator_duties)
@@ -214,7 +214,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         let aggregators = slot_duties.aggregators;
         let service = self.clone();
-        self.inner.context.executor.spawn(
+        self.inner.executor.spawn(
             async move {
                 service
                     .publish_sync_committee_aggregates(
@@ -316,7 +316,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     ) {
         for (subnet_id, subnet_aggregators) in aggregators {
             let service = self.clone();
-            self.inner.context.executor.spawn(
+            self.inner.executor.spawn(
                 async move {
                     service
                         .publish_sync_committee_aggregate_for_subnet(
@@ -354,7 +354,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 };
 
                 beacon_node
-                    .get_validator_sync_committee_contribution::<E>(&sync_contribution_data)
+                    .get_validator_sync_committee_contribution(&sync_contribution_data)
                     .await
             })
             .await
@@ -440,7 +440,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     fn spawn_subscription_tasks(&self) {
         let service = self.clone();
 
-        self.inner.context.executor.spawn(
+        self.inner.executor.spawn(
             async move {
                 service.publish_subscriptions().await.unwrap_or_else(|e| {
                     error!(
@@ -463,10 +463,10 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         // At the start of every epoch during the current period, re-post the subscriptions
         // to the beacon node. This covers the case where the BN has forgotten the subscriptions
         // due to a restart, or where the VC has switched to a fallback BN.
-        let current_period = sync_period_of_slot::<E>(slot, spec)?;
+        let current_period = sync_period_of_slot::<S::E>(slot, spec)?;
 
         if !self.first_subscription_done.load(Ordering::Relaxed)
-            || slot.as_u64() % E::slots_per_epoch() == 0
+            || slot.as_u64() % S::E::slots_per_epoch() == 0
         {
             duty_slots.push((slot, current_period));
         }
@@ -474,9 +474,9 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         // Near the end of the current period, push subscriptions for the next period to the
         // beacon node. We aggressively push every slot in the lead-up, as this is the main way
         // that we want to ensure that the BN is subscribed (well in advance).
-        let lookahead_slot = slot + SUBSCRIPTION_LOOKAHEAD_EPOCHS * E::slots_per_epoch();
+        let lookahead_slot = slot + SUBSCRIPTION_LOOKAHEAD_EPOCHS * S::E::slots_per_epoch();
 
-        let lookahead_period = sync_period_of_slot::<E>(lookahead_slot, spec)?;
+        let lookahead_period = sync_period_of_slot::<S::E>(lookahead_slot, spec)?;
 
         if lookahead_period > current_period {
             duty_slots.push((lookahead_slot, lookahead_period));
@@ -494,7 +494,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             match self
                 .duties_service
                 .sync_duties
-                .get_duties_for_slot(duty_slot, spec)
+                .get_duties_for_slot::<S::E>(duty_slot, spec)
             {
                 Some(duties) => subscriptions.extend(subscriptions_from_sync_duties(
                     duties.duties,

@@ -21,7 +21,7 @@ The UI is currently in active development. It resides in the
 See the following Siren specific topics for more context-specific
 information:
 
-- [Configuration Guide](./ui_configuration.md) - Explanation of how to setup
+- [Installation Guide](./ui_installation.md) - Explanation of how to setup
  and configure Siren.
 - [Authentication Guide](./ui_authentication.md) - Explanation of how Siren authentication works and protects validator actions.
 - [Usage](./ui_usage.md) - Details various Siren components.

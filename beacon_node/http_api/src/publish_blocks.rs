@@ -2,7 +2,7 @@ use crate::metrics;
 use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
-use beacon_chain::block_verification_types::AsBlock;
+use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
@@ -123,8 +123,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             "Signed block published to network via HTTP API"
         );
 
-        crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone()))
-            .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
+        crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone())).map_err(
+            |_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)),
+        )?;
 
         Ok(())
     };
@@ -304,7 +305,11 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             );
             let import_result = Box::pin(chain.process_block(
                 block_root,
-                block.clone(),
+                RpcBlock::new_without_blobs(
+                    Some(block_root),
+                    block.clone(),
+                    network_globals.custody_columns_count() as usize,
+                ),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
@@ -504,7 +509,7 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
 ) -> Result<(), BlockError> {
     let pubsub_message = PubsubMessage::BlobSidecar(Box::new((blob.index(), blob.clone_blob())));
     crate::publish_pubsub_message(sender_clone, pubsub_message)
-        .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))
+        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 
 fn publish_column_sidecars<T: BeaconChainTypes>(
@@ -534,7 +539,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         })
         .collect::<Vec<_>>();
     crate::publish_pubsub_messages(sender_clone, pubsub_messages)
-        .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))
+        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 
 async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
@@ -591,7 +596,9 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
                 Err(warp_utils::reject::custom_bad_request(msg))
             }
         }
-        Err(BlockError::BeaconChainError(BeaconChainError::UnableToPublish)) => {
+        Err(BlockError::BeaconChainError(e))
+            if matches!(e.as_ref(), BeaconChainError::UnableToPublish) =>
+        {
             Err(warp_utils::reject::custom_server_error(
                 "unable to publish to network channel".to_string(),
             ))
@@ -787,7 +794,7 @@ fn check_slashable<T: BeaconChainTypes>(
             block_clone.message().proposer_index(),
             block_root,
         )
-        .map_err(|e| BlockError::BeaconChainError(e.into()))?
+        .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
     {
         warn!(
             slot = %block_clone.slot(),

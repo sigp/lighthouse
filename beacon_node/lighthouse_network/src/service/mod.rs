@@ -103,6 +103,8 @@ pub enum NetworkEvent<E: EthSpec> {
     StatusPeer(PeerId),
     NewListenAddr(Multiaddr),
     ZeroListeners,
+    /// A peer has an updated custody group count from MetaData.
+    PeerUpdatedCustodyGroupCount(PeerId),
 }
 
 pub type Gossipsub = gossipsub::Behaviour<SnappyTransform, SubscriptionFilter>;
@@ -223,7 +225,7 @@ impl<E: EthSpec> Network<E> {
 
         let gossipsub_config_params = GossipsubConfigParams {
             message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
-            gossip_max_size: ctx.chain_spec.gossip_max_size as usize,
+            gossipsub_max_transmit_size: ctx.chain_spec.max_message_size(),
         };
         let gs_config = gossipsub_config(
             config.network_load,
@@ -334,7 +336,9 @@ impl<E: EthSpec> Network<E> {
                 )
             });
 
-            let snappy_transform = SnappyTransform::new(gs_config.max_transmit_size());
+            let spec = &ctx.chain_spec;
+            let snappy_transform =
+                SnappyTransform::new(spec.max_payload_size as usize, spec.max_compressed_len());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
                 MessageAuthenticity::Anonymous,
                 gs_config.clone(),
@@ -365,7 +369,7 @@ impl<E: EthSpec> Network<E> {
         };
 
         let network_params = NetworkParams {
-            max_chunk_size: ctx.chain_spec.max_chunk_size as usize,
+            max_payload_size: ctx.chain_spec.max_payload_size as usize,
             ttfb_timeout: ctx.chain_spec.ttfb_timeout(),
             resp_timeout: ctx.chain_spec.resp_timeout(),
         };
@@ -1653,7 +1657,7 @@ impl<E: EthSpec> Network<E> {
             return None;
         }
 
-        // The METADATA and PING RPC responses are handled within the behaviour and not propagated
+        // The PING RPC responses are handled within the behaviour and not propagated
         match event.message {
             Err(handler_err) => {
                 match handler_err {
@@ -1856,9 +1860,11 @@ impl<E: EthSpec> Network<E> {
                         None
                     }
                     RpcSuccessResponse::MetaData(meta_data) => {
-                        self.peer_manager_mut()
+                        let updated_cgc = self
+                            .peer_manager_mut()
                             .meta_data_response(&peer_id, meta_data.as_ref().clone());
-                        None
+                        // Send event after calling into peer_manager so the PeerDB is updated.
+                        updated_cgc.then(|| NetworkEvent::PeerUpdatedCustodyGroupCount(peer_id))
                     }
                     /* Network propagated protocols */
                     RpcSuccessResponse::Status(msg) => {
