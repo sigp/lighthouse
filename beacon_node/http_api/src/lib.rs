@@ -47,7 +47,7 @@ use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use either::Either;
 use eth2::types::{
-    self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
+    self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice, ForkChoiceNode,
     LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
     ValidatorIdentitiesRequestBody, ValidatorStatus, ValidatorsRequestBody,
 };
@@ -93,7 +93,7 @@ use types::{
     CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256, ProposerPreparationData,
     ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData, ContextDeserialize;
 };
 use validator::pubkey_to_validator_index;
 use version::{
