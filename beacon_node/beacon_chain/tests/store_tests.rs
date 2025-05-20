@@ -2577,7 +2577,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .unwrap_err();
         if wss_fork.fulu_enabled() {
             match err {
-                HistoricalBlockError::InvalidSignature(_) => {} // ok
+                HistoricalBlockError::InvalidDataColumnsSignature(_) => {} // ok
                 e => panic!("Unexpected error {e:?}"),
             }
         } else {
