@@ -3673,10 +3673,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         custody_columns: impl IntoIterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
     ) -> Result<(), BlockError> {
         let mut slashable_cache = self.observed_slashable.write();
-        // Assumes all items in custody_columns are for the same block_root
-        if let Some(column) = custody_columns.into_iter().next() {
-            let header = &column.signed_block_header;
-            if verify_header_signature::<T, BlockError>(self, header).is_ok() {
+        for header in custody_columns
+            .into_iter()
+            .map(|c| c.signed_block_header.clone())
+            .unique()
+        {
+            if verify_header_signature::<T, BlockError>(self, &header).is_ok() {
                 slashable_cache
                     .observe_slashable(
                         header.message.slot,
@@ -3685,7 +3687,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                     .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
                 if let Some(slasher) = self.slasher.as_ref() {
-                    slasher.accept_block_header(header.clone());
+                    slasher.accept_block_header(header);
                 }
             }
         }
