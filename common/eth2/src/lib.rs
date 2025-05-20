@@ -307,6 +307,8 @@ impl BeaconNodeHttpClient {
 
         #[derive(serde::Deserialize)]
         struct Helper {
+            // TODO: remove this default once checkpointz follows the spec
+            #[serde(default = "ForkName::latest_stable")]
             version: ForkName,
             #[serde(flatten)]
             metadata: serde_json::Value,
