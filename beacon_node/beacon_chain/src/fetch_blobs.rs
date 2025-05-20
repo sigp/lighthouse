@@ -328,7 +328,8 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
                         ) {
                             Ok(verified) => Some(Ok(verified)),
                             // Ignore already seen data columns
-                            Err(GossipDataColumnError::PriorKnown { .. }) => None,
+                            Err(GossipDataColumnError::PriorKnown { .. })
+                            | Err(GossipDataColumnError::PriorKnownUnpublished) => None,
                             Err(e) => Some(Err(e)),
                         }
                     })

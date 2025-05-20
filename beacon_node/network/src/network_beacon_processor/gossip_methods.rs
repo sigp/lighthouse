@@ -802,7 +802,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             %slot,
                             %block_root,
                             %index,
-                            "Gossip data column already seen via non gossip sources. Accepting the column sidecar without re-processing."
+                            "Gossip data column already processed via the EL. Accepting the column sidecar without re-processing."
                         );
                         self.propagate_validation_result(
                             message_id,
