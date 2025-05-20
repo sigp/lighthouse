@@ -26,8 +26,10 @@ const PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 pub enum HistoricalBlockError {
     /// Block root mismatch, caller should retry with different blocks.
     MismatchedBlockRoot {
+        block_slot: Slot,
         block_root: Hash256,
         expected_block_root: Hash256,
+        oldest_block_parent: Hash256,
     },
     /// Bad signature, caller should retry with different blocks.
     InvalidSignature(String),
@@ -89,10 +91,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut expected_block_root = anchor_info.oldest_block_parent;
 
         for block in blocks.iter().rev() {
+            if block.as_block().slot() >= anchor_info.oldest_block_slot {
+                continue;
+            }
+
             if block.block_root() != expected_block_root {
                 return Err(HistoricalBlockError::MismatchedBlockRoot {
+                    block_slot: block.as_block().slot(),
                     block_root: block.block_root(),
                     expected_block_root,
+                    oldest_block_parent: anchor_info.oldest_block_parent,
                 });
             }
 
