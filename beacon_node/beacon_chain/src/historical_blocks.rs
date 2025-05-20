@@ -114,14 +114,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<usize, HistoricalBlockError> {
+        let anchor_info = self.store.get_anchor_info();
+
+        // Take all blocks with slots less than the oldest block slot.
+        let blocks_to_import = blocks
+            .into_iter()
+            .filter(|block| block.as_block().slot() < anchor_info.oldest_block_slot)
+            .collect::<Vec<_>>();
+
         // First check that chain of blocks is correct
-        self.assert_correct_historical_block_chain(&blocks)?;
+        self.assert_correct_historical_block_chain(&blocks_to_import)?;
 
         // Check that all data columns are present <- faulty failure if missing because we have
         // checked the block root is correct first.
-        let blocks = self
+        let available_blocks_to_import = self
             .data_availability_checker
-            .verify_kzg_for_rpc_blocks(blocks)
+            .verify_kzg_for_rpc_blocks(blocks_to_import)
             .and_then(|blocks| {
                 blocks
                     .into_iter()
@@ -138,7 +146,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .collect::<Result<Vec<_>, _>>()
             })?;
 
-        self.import_historical_block_batch(blocks)
+        self.import_historical_block_batch(available_blocks_to_import)
     }
 
     /// Store a batch of historical blocks in the database.
