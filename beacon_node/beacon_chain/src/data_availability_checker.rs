@@ -20,7 +20,7 @@ use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock,
+    SignedBeaconBlock,
 };
 
 mod error;
@@ -398,6 +398,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let mut results = Vec::with_capacity(blocks.len());
         let all_blobs = blocks
             .iter()
+            // TODO(das): we may want to remove this line. If blobs are present they should be
+            // verified. It's the role of another function to ignore blobs. And this blobs may not
+            // be checked and imported later.
             .filter(|block| self.blobs_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
             .filter_map(|block| block.blobs().cloned())
@@ -412,14 +415,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         let all_data_columns = blocks
             .iter()
-            .filter(|block| self.data_columns_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
             .filter_map(|block| block.custody_columns().cloned())
             .flatten()
             .map(CustodyDataColumn::into_inner)
             .collect::<Vec<_>>();
-        let all_data_columns =
-            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns as usize);
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {

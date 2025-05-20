@@ -36,6 +36,7 @@ use store::{
     BlobInfo, DBColumn, HotColdDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
+use tracing::info;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
 
@@ -2529,6 +2530,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 .clone()
                 .deconstruct();
             if wss_fork.fulu_enabled() {
+                info!(block_slot = %block.slot(), ?block_root, "Corrupting data column header signature");
                 let AvailableBlockData::DataColumns(mut data_columns) = block_data else {
                     panic!("no columns")
                 };
@@ -2546,6 +2548,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                     beacon_chain.spec.clone(),
                 )
             } else {
+                info!(block_slot = %block.slot(), ?block_root, "Corrupting blob header signature");
                 let AvailableBlockData::Blobs(mut blobs) = block_data else {
                     let blocks_have_blobs = available_blocks
                         .into_iter()
@@ -2599,17 +2602,18 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 .clone()
                 .deconstruct();
             if wss_fork.fulu_enabled() {
-                let (data_columns, expected_column_indices) = cols.unwrap();
+                info!(block_slot = %block.slot(), ?block_root, "Corrupting data column KZG proof");
+                let (mut data_columns, expected_column_indices) = cols.unwrap();
                 assert!(
                     !data_columns.is_empty(),
                     "data column sidecars shouldn't be empty"
                 );
-                let mut sidecar = data_columns[0].clone_arc();
-                let mut_sidecar = Arc::make_mut(&mut sidecar);
-                if mut_sidecar.kzg_proofs[0] == KzgProof::empty() {
+                let mut data_column = (*(data_columns[0]).clone_arc()).clone();
+                if data_column.kzg_proofs[0] == KzgProof::empty() {
                     panic!("kzg_proof is already G1_POINT_AT_INFINITY")
                 }
-                mut_sidecar.kzg_proofs[0] = KzgProof::empty();
+                data_column.kzg_proofs[0] = KzgProof::empty();
+                data_columns[0] = CustodyDataColumn::from_asserted_custody(data_column.into());
                 RpcBlock::new_with_custody_columns(
                     Some(block_root),
                     block,
@@ -2619,10 +2623,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 )
                 .unwrap()
             } else {
+                info!(block_slot = %block.slot(), ?block_root, "Corrupting blob KZG proof");
                 let mut blobs = blobs.unwrap();
                 assert!(!blobs.is_empty(), "blob sidecars shouldn't be empty");
-                let mut_sidecar = Arc::make_mut(&mut blobs[0]);
-                mut_sidecar.kzg_proof = KzgProof::empty();
+                let mut blob = (*blobs[0]).clone();
+                blob.kzg_proof = KzgProof::empty();
+                blobs[0] = blob.into();
                 RpcBlock::new(Some(block_root), block, Some(blobs)).unwrap()
             }
         };
