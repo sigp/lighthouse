@@ -47,7 +47,7 @@ macro_rules! uint_wrapper {
             where
                 D: Deserializer<'de>,
             {
-                Ok(<$wrapper_name>::deserialize(deserializer)?)
+                <$wrapper_name>::deserialize(deserializer)
             }
         }
     };
@@ -58,12 +58,12 @@ uint_wrapper!(DecimalU256, alloy_primitives::U256);
 
 /// Trait for types that can be used in SSZ static tests.
 pub trait SszStaticType:
-    serde::de::DeserializeOwned + Encode + for<'de> ContextDeserialize<'de, ForkName> + Clone + PartialEq + Debug + Sync
+    for<'a> ContextDeserialize<'a, ForkName> + Encode + Clone + PartialEq + Debug + Sync
 {
 }
 
 impl<T> SszStaticType for T where
-    T: serde::de::DeserializeOwned + Encode + for<'de> ContextDeserialize<'de, ForkName> + Clone + PartialEq + Debug + Sync
+    T: for<'a> ContextDeserialize<'a, ForkName> + Encode + Clone + PartialEq + Debug + Sync
 {
 }
 

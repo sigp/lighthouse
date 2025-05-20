@@ -1,4 +1,5 @@
 use super::*;
+use context_deserialize::ContextDeserialize;
 use fs2::FileExt;
 use snap::raw::Decoder;
 use std::fs::{self};
@@ -6,7 +7,6 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use types::{BeaconState, LightClientUpdate};
-use context_deserialize::ContextDeserialize;
 
 /// See `log_file_access` for details.
 const ACCESSED_FILE_LOG_FILENAME: &str = ".accessed_file_log.txt";
@@ -47,7 +47,7 @@ where
 
 pub fn context_yaml_decode_file<C>(path: &Path, fork_name: ForkName) -> Result<C, Error>
 where
-    C: for<'de> ContextDeserialize<'de, ForkName>
+    C: for<'de> ContextDeserialize<'de, ForkName>,
 {
     log_file_access(path);
     fs::read_to_string(path)

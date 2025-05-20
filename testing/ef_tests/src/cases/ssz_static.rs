@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::decode::{snappy_decode_file, yaml_decode_file, context_yaml_decode_file};
+use crate::decode::{context_yaml_decode_file, snappy_decode_file, yaml_decode_file};
 use serde::Deserialize;
 use ssz::Decode;
 use tree_hash::TreeHash;
@@ -37,7 +37,10 @@ pub struct SszStaticWithSpec<T> {
     value: T,
 }
 
-fn load_from_dir<T: SszStaticType>(path: &Path, fork_name: ForkName) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
+fn load_from_dir<T: SszStaticType>(
+    path: &Path,
+    fork_name: ForkName,
+) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
     let roots = yaml_decode_file(&path.join("roots.yaml"))?;
     let serialized = snappy_decode_file(&path.join("serialized.ssz_snappy"))
         .expect("serialized.ssz_snappy exists");
