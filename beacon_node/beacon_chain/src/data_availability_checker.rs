@@ -398,9 +398,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let mut results = Vec::with_capacity(blocks.len());
         let all_blobs = blocks
             .iter()
-            // TODO(das): we may want to remove this line. If blobs are present they should be
-            // verified. It's the role of another function to ignore blobs. And this blobs may not
-            // be checked and imported later.
             .filter(|block| self.blobs_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
             .filter_map(|block| block.blobs().cloned())
@@ -415,6 +412,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         let all_data_columns = blocks
             .iter()
+            // TODO(das): we may want to remove this line. If columns are present they should be
+            // verified. The outcome of `data_columns_required_for_block` is time dependant. So we
+            // may end up importing data columns that are not verified.
+            .filter(|block| self.data_columns_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
             .filter_map(|block| block.custody_columns().cloned())
             .flatten()
