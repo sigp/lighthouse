@@ -9804,6 +9804,7 @@ dependencies = [
 name = "validator_store"
 version = "0.1.0"
 dependencies = [
+ "eth2",
  "slashing_protection",
  "types",
 ]
@@ -10059,6 +10060,7 @@ dependencies = [
  "account_utils",
  "async-channel 1.9.0",
  "environment",
+ "eth2",
  "eth2_keystore",
  "eth2_network_config",
  "futures",
