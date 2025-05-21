@@ -129,8 +129,12 @@ pub fn get_beacon_state_validator_identities<T: BeaconChainTypes>(
         .map_state_and_execution_optimistic_and_finalized(
             &chain,
             |state, execution_optimistic, finalized| {
-                let ids_filter_set: Option<HashSet<&ValidatorId>> =
-                    optional_ids.map(|f| HashSet::from_iter(f.iter()));
+                let ids_filter_set: Option<HashSet<&ValidatorId>> = match optional_ids {
+                    // Same logic as validator_balances endpoint above
+                    Some([]) => None,
+                    Some(ids) => Some(HashSet::from_iter(ids.iter())),
+                    None => None,
+                };
 
                 Ok((
                     // From the BeaconState, extract the Validator data and convert it into ValidatorIdentityData type

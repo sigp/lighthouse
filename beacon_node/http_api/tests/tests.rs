@@ -1008,21 +1008,35 @@ impl ApiTester {
                     .map(|res| res.data);
 
                 let expected = state_opt.map(|(state, _execution_optimistic, _finalized)| {
-                    let mut validators = Vec::with_capacity(validator_indices.len());
-
-                    for i in validator_indices {
-                        if i < state.validators().len() as u64 {
-                            // access each validator, and then transform the data into ValidatorIdentityData
-                            let validator = state.validators().get(i as usize).unwrap();
-                            validators.push(ValidatorIdentityData {
-                                index: i,
+                    // If validator_indices is empty, return identities for all validators
+                    if validator_indices.is_empty() {
+                        state
+                            .validators()
+                            .iter()
+                            .enumerate()
+                            .map(|(index, validator)| ValidatorIdentityData {
+                                index: index as u64,
                                 pubkey: validator.pubkey,
                                 activation_epoch: validator.activation_epoch,
-                            });
-                        }
-                    }
+                            })
+                            .collect()
+                    } else {
+                        let mut validators = Vec::with_capacity(validator_indices.len());
 
-                    validators
+                        for i in validator_indices {
+                            if i < state.validators().len() as u64 {
+                                // access each validator, and then transform the data into ValidatorIdentityData
+                                let validator = state.validators().get(i as usize).unwrap();
+                                validators.push(ValidatorIdentityData {
+                                    index: i,
+                                    pubkey: validator.pubkey,
+                                    activation_epoch: validator.activation_epoch,
+                                });
+                            }
+                        }
+
+                        validators
+                    }
                 });
 
                 assert_eq!(result_index_ids, expected, "{:?}", state_id);

@@ -730,13 +730,20 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validator_identities"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
+        .and(warp_utils::json::json_no_body())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              query: ValidatorIdentitiesRequestBody| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                // Prioritise requests for validators at the head. These should be fast to service
+                // and could be required by the validator client.
+                let priority = if let StateId(eth2::types::StateId::Head) = state_id {
+                    Priority::P0
+                } else {
+                    Priority::P1
+                };
+                task_spawner.blocking_json_task(priority, move || {
                     crate::validators::get_beacon_state_validator_identities(
                         state_id,
                         chain,
