@@ -73,6 +73,8 @@ pub enum RouterMessage<E: EthSpec> {
     PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
+    /// The peer has an updated custody group count from METADATA.
+    PeerUpdatedCustodyGroupCount(PeerId),
 }
 
 impl<T: BeaconChainTypes> Router<T> {
@@ -154,6 +156,10 @@ impl<T: BeaconChainTypes> Router<T> {
             // A peer has disconnected
             RouterMessage::PeerDisconnected(peer_id) => {
                 self.send_to_sync(SyncMessage::Disconnect(peer_id));
+            }
+            // A peer has updated CGC
+            RouterMessage::PeerUpdatedCustodyGroupCount(peer_id) => {
+                self.send_to_sync(SyncMessage::UpdatedPeerCgc(peer_id));
             }
             RouterMessage::RPCRequestReceived {
                 peer_id,

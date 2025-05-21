@@ -540,7 +540,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         attestation: single_attestation,
                     },
                     None,
-                    AttnError::BeaconChainError(error),
+                    AttnError::BeaconChainError(Box::new(error)),
                     seen_timestamp,
                 );
             }
@@ -828,7 +828,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::InvalidKzgProof { .. }
                     | GossipDataColumnError::UnexpectedDataColumn
                     | GossipDataColumnError::InvalidColumnIndex(_)
-                    | GossipDataColumnError::InconsistentCommitmentsOrProofLength
+                    | GossipDataColumnError::InconsistentCommitmentsLength { .. }
+                    | GossipDataColumnError::InconsistentProofsLength { .. }
                     | GossipDataColumnError::NotFinalizedDescendant { .. } => {
                         debug!(
                             error = ?err,
@@ -1132,7 +1133,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processing_start_time = Instant::now();
         let block_root = verified_data_column.block_root();
         let data_column_slot = verified_data_column.slot();
-        let data_column_index = verified_data_column.id().index;
+        let data_column_index = verified_data_column.index();
 
         let result = self
             .chain
@@ -1162,7 +1163,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    self.attempt_data_column_reconstruction(block_root).await;
+                    self.attempt_data_column_reconstruction(block_root, true)
+                        .await;
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {
@@ -2778,41 +2780,57 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_to_finalized_block",
                 );
             }
-            AttnError::BeaconChainError(BeaconChainError::DBError(Error::HotColdDBError(
-                HotColdDBError::FinalizedStateNotInHotDatabase { .. },
-            ))) => {
-                debug!(%peer_id, "Attestation for finalized state");
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            e @ AttnError::BeaconChainError(BeaconChainError::MaxCommitteePromises(_)) => {
-                debug!(
-                    target_root = ?failed_att.attestation_data().target.root,
-                    ?beacon_block_root,
-                    slot = ?failed_att.attestation_data().slot,
-                    ?attestation_type,
-                    error = ?e,
-                    %peer_id,
-                    "Dropping attestation"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
             AttnError::BeaconChainError(e) => {
-                /*
-                 * Lighthouse hit an unexpected error whilst processing the attestation. It
-                 * should be impossible to trigger a `BeaconChainError` from the network,
-                 * so we have a bug.
-                 *
-                 * It's not clear if the message is invalid/malicious.
-                 */
-                error!(
-                    ?beacon_block_root,
-                    slot = ?failed_att.attestation_data().slot,
-                    ?attestation_type,
-                    %peer_id,
-                    error = ?e,
-                    "Unable to validate attestation"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                match e.as_ref() {
+                    BeaconChainError::DBError(Error::HotColdDBError(
+                        HotColdDBError::FinalizedStateNotInHotDatabase { .. },
+                    )) => {
+                        debug!(%peer_id, "Attestation for finalized state");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    BeaconChainError::MaxCommitteePromises(e) => {
+                        debug!(
+                            target_root = ?failed_att.attestation_data().target.root,
+                            ?beacon_block_root,
+                            slot = ?failed_att.attestation_data().slot,
+                            ?attestation_type,
+                            error = ?e,
+                            %peer_id,
+                            "Dropping attestation"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    _ => {
+                        /*
+                         * Lighthouse hit an unexpected error whilst processing the attestation. It
+                         * should be impossible to trigger a `BeaconChainError` from the network,
+                         * so we have a bug.
+                         *
+                         * It's not clear if the message is invalid/malicious.
+                         */
+                        error!(
+                            ?beacon_block_root,
+                            slot = ?failed_att.attestation_data().slot,
+                            ?attestation_type,
+                            %peer_id,
+                            error = ?e,
+                            "Unable to validate attestation"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                }
             }
         }
 
