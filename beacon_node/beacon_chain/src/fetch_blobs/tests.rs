@@ -137,7 +137,7 @@ fn expect_fork_choice_contains_block(
 ) {
     mock_adapter
         .expect_fork_choice_contains_block()
-        .returning(move |block_root| block_roots.contains(&block_root));
+        .returning(move |block_root| block_roots.contains(block_root));
 }
 
 fn expect_get_blobs_v2_response(
@@ -181,6 +181,7 @@ fn create_test_block_and_blobs(
     (Arc::new(block), blob_and_proofs)
 }
 
+#[allow(clippy::type_complexity)]
 fn mock_publish_fn() -> (
     impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
     Arc<Mutex<Vec<BlobsOrDataColumns<T>>>>,
