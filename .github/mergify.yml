@@ -4,6 +4,7 @@ pull_request_rules:
       - -closed
       - conflict
       - -author=dependabot[bot]
+      - label=ready-for-review
       - or:
           - -draft # Don't report conflicts on regular draft.
           - and: # Do report conflicts on draft that are scheduled for the next major release.
@@ -22,6 +23,7 @@ pull_request_rules:
   - name: Ask to resolve CI failures
     conditions:
       - -closed
+      - label=ready-for-review
       - or:
           - check-skipped=test-suite-success
           - check-skipped=local-testnet-success
