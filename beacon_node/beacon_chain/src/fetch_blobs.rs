@@ -22,7 +22,7 @@ use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, warn};
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
@@ -212,30 +212,36 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         })
         .map_err(FetchEngineBlobError::RequestFailed)?;
 
-    let (blobs, proofs): (Vec<_>, Vec<_>) = response
+    let Some(blobs_and_proofs) = response else {
+        debug!(num_expected_blobs, "No blobs fetched from the EL");
+        inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
+        return Ok(None);
+    };
+
+    let (blobs, proofs): (Vec<_>, Vec<_>) = blobs_and_proofs
         .into_iter()
-        .filter_map(|blob_and_proof_opt| {
-            blob_and_proof_opt.map(|blob_and_proof| {
-                let BlobAndProofV2 { blob, proofs } = blob_and_proof;
-                (blob, proofs)
-            })
+        .map(|blob_and_proof| {
+            let BlobAndProofV2 { blob, proofs } = blob_and_proof;
+            (blob, proofs)
         })
         .unzip();
 
     let num_fetched_blobs = blobs.len();
     metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
 
-    // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
     if num_fetched_blobs != num_expected_blobs {
-        debug!(
-            info = "Unable to compute data columns",
-            num_fetched_blobs, num_expected_blobs, "Not all blobs fetched from the EL"
+        // This scenario is not supposed to happen if the EL is spec compliant.
+        // It should either return all requested blobs or none, but NOT partial responses.
+        // If we attempt to compute columns with partial blobs, we'd end up with invalid columns.
+        warn!(
+            num_fetched_blobs,
+            num_expected_blobs, "The EL did not return all requested blobs"
         );
         inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
         return Ok(None);
-    } else {
-        inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
     }
+
+    inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
 
     if chain
         .canonical_head
