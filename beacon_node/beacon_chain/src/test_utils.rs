@@ -69,8 +69,6 @@ use types::{typenum::U4294967296, *};
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // Environment variable to read if `fork_from_env` feature is enabled.
 pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
-// Environment variable to read if `ci_logger` feature is enabled.
-pub const CI_LOGGER_DIR_ENV_VAR: &str = "CI_LOGGER_DIR";
 
 // Pre-computed data column sidecar using a single static blob from:
 // `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
