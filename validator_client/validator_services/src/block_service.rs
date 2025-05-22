@@ -1,6 +1,5 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
 use bls::SignatureBytes;
-use eth2::types::{FullBlockContents, PublishBlockRequest};
 use eth2::{BeaconNodeHttpClient, StatusCode};
 use graffiti_file::{determine_graffiti, GraffitiFile};
 use logging::crit;
@@ -13,11 +12,8 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
-use types::{
-    BlindedBeaconBlock, BlockType, ChainSpec, EthSpec, Graffiti, PublicKeyBytes,
-    SignedBlindedBeaconBlock, Slot,
-};
-use validator_store::{Error as ValidatorStoreError, ValidatorStore};
+use types::{BlockType, ChainSpec, EthSpec, Graffiti, PublicKeyBytes, Slot};
+use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
 
 #[derive(Debug)]
 pub enum BlockError {
@@ -335,26 +331,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     ) -> Result<(), BlockError> {
         let signing_timer = validator_metrics::start_timer(&validator_metrics::BLOCK_SIGNING_TIMES);
 
-        let (block, maybe_blobs) = match unsigned_block {
-            UnsignedBlock::Full(block_contents) => {
-                let (block, maybe_blobs) = block_contents.deconstruct();
-                (block.into(), maybe_blobs)
-            }
-            UnsignedBlock::Blinded(block) => (block.into(), None),
-        };
-
         let res = self
             .validator_store
-            .sign_block(*validator_pubkey, block, slot)
-            .await
-            .map(|block| match block {
-                validator_store::SignedBlock::Full(block) => {
-                    SignedBlock::Full(PublishBlockRequest::new(Arc::new(block), maybe_blobs))
-                }
-                validator_store::SignedBlock::Blinded(block) => {
-                    SignedBlock::Blinded(Arc::new(block))
-                }
-            });
+            .sign_block(*validator_pubkey, unsigned_block, slot)
+            .await;
 
         let signed_block = match res {
             Ok(block) => block,
@@ -398,12 +378,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             })
             .await?;
 
+        let metadata = BlockMetadata::from(&signed_block);
         info!(
-            block_type = ?signed_block.block_type(),
-            deposits = signed_block.num_deposits(),
-            attestations = signed_block.num_attestations(),
+            block_type = ?metadata.block_type,
+            deposits = metadata.num_deposits,
+            attestations = metadata.num_attestations,
             graffiti = ?graffiti.map(|g| g.as_utf8_lossy()),
-            slot = signed_block.slot().as_u64(),
+            slot = metadata.slot.as_u64(),
             "Successfully published block"
         );
         Ok(())
@@ -508,7 +489,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         signed_block: &SignedBlock<S::E>,
         beacon_node: BeaconNodeHttpClient,
     ) -> Result<(), BlockError> {
-        let slot = signed_block.slot();
         match signed_block {
             SignedBlock::Full(signed_block) => {
                 let _post_timer = validator_metrics::start_timer_vec(
@@ -518,7 +498,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 beacon_node
                     .post_beacon_blocks_v2_ssz(signed_block, None)
                     .await
-                    .or_else(|e| handle_block_post_error(e, slot))?
+                    .or_else(|e| {
+                        handle_block_post_error(e, signed_block.signed_block().message().slot())
+                    })?
             }
             SignedBlock::Blinded(signed_block) => {
                 let _post_timer = validator_metrics::start_timer_vec(
@@ -528,7 +510,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 beacon_node
                     .post_beacon_blinded_blocks_v2_ssz(signed_block, None)
                     .await
-                    .or_else(|e| handle_block_post_error(e, slot))?
+                    .or_else(|e| handle_block_post_error(e, signed_block.message().slot()))?
             }
         }
         Ok::<_, BlockError>(())
@@ -557,13 +539,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 ))
             })?;
 
-        let unsigned_block = match block_response.data {
-            eth2::types::ProduceBlockV3Response::Full(block) => UnsignedBlock::Full(block),
-            eth2::types::ProduceBlockV3Response::Blinded(block) => UnsignedBlock::Blinded(block),
+        let (block_proposer, unsigned_block) = match block_response.data {
+            eth2::types::ProduceBlockV3Response::Full(block) => {
+                (block.block().proposer_index(), UnsignedBlock::Full(block))
+            }
+            eth2::types::ProduceBlockV3Response::Blinded(block) => {
+                (block.proposer_index(), UnsignedBlock::Blinded(block))
+            }
         };
 
         info!(slot = slot.as_u64(), "Received unsigned block");
-        if proposer_index != Some(unsigned_block.proposer_index()) {
+        if proposer_index != Some(block_proposer) {
             return Err(BlockError::Recoverable(
                 "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
             ));
@@ -573,49 +559,30 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     }
 }
 
-pub enum UnsignedBlock<E: EthSpec> {
-    Full(FullBlockContents<E>),
-    Blinded(BlindedBeaconBlock<E>),
+/// Wrapper for values we want to log about a block we signed, for easy extraction from the possible
+/// variants.
+struct BlockMetadata {
+    block_type: BlockType,
+    slot: Slot,
+    num_deposits: usize,
+    num_attestations: usize,
 }
 
-impl<E: EthSpec> UnsignedBlock<E> {
-    pub fn proposer_index(&self) -> u64 {
-        match self {
-            UnsignedBlock::Full(block) => block.block().proposer_index(),
-            UnsignedBlock::Blinded(block) => block.proposer_index(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum SignedBlock<E: EthSpec> {
-    Full(PublishBlockRequest<E>),
-    Blinded(Arc<SignedBlindedBeaconBlock<E>>),
-}
-
-impl<E: EthSpec> SignedBlock<E> {
-    pub fn block_type(&self) -> BlockType {
-        match self {
-            SignedBlock::Full(_) => BlockType::Full,
-            SignedBlock::Blinded(_) => BlockType::Blinded,
-        }
-    }
-    pub fn slot(&self) -> Slot {
-        match self {
-            SignedBlock::Full(block) => block.signed_block().message().slot(),
-            SignedBlock::Blinded(block) => block.message().slot(),
-        }
-    }
-    pub fn num_deposits(&self) -> usize {
-        match self {
-            SignedBlock::Full(block) => block.signed_block().message().body().deposits().len(),
-            SignedBlock::Blinded(block) => block.message().body().deposits().len(),
-        }
-    }
-    pub fn num_attestations(&self) -> usize {
-        match self {
-            SignedBlock::Full(block) => block.signed_block().message().body().attestations_len(),
-            SignedBlock::Blinded(block) => block.message().body().attestations_len(),
+impl<E: EthSpec> From<&SignedBlock<E>> for BlockMetadata {
+    fn from(value: &SignedBlock<E>) -> Self {
+        match value {
+            SignedBlock::Full(block) => BlockMetadata {
+                block_type: BlockType::Full,
+                slot: block.signed_block().message().slot(),
+                num_deposits: block.signed_block().message().body().deposits().len(),
+                num_attestations: block.signed_block().message().body().attestations_len(),
+            },
+            SignedBlock::Blinded(block) => BlockMetadata {
+                block_type: BlockType::Blinded,
+                slot: block.message().slot(),
+                num_deposits: block.message().body().deposits().len(),
+                num_attestations: block.message().body().attestations_len(),
+            },
         }
     }
 }
