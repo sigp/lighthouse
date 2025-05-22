@@ -20,12 +20,13 @@ mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
+    use eth2::types::FullBlockContents;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
     use initialized_validators::{
         load_pem_certificate, load_pkcs12_identity, InitializedValidators,
     };
-    use logging::test_logger;
+    use lighthouse_validator_store::LighthouseValidatorStore;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
@@ -45,7 +46,9 @@ mod tests {
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
     use url::Url;
-    use validator_store::{Error as ValidatorStoreError, ValidatorStore};
+    use validator_store::{
+        Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore,
+    };
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
@@ -74,6 +77,7 @@ mod tests {
     impl SignedObject for Signature {}
     impl SignedObject for Attestation<E> {}
     impl SignedObject for SignedBeaconBlock<E> {}
+    impl SignedObject for SignedBlock<E> {}
     impl SignedObject for SignedAggregateAndProof<E> {}
     impl SignedObject for SelectionProof {}
     impl SignedObject for SyncSelectionProof {}
@@ -302,7 +306,7 @@ mod tests {
 
     /// A testing rig which holds a `ValidatorStore`.
     struct ValidatorStoreRig {
-        validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+        validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
         _validator_dir: TempDir,
         runtime: Arc<tokio::runtime::Runtime>,
         _runtime_shutdown: async_channel::Sender<()>,
@@ -316,7 +320,6 @@ mod tests {
             using_web3signer: bool,
             spec: Arc<ChainSpec>,
         ) -> Self {
-            let log = test_logger();
             let validator_dir = TempDir::new().unwrap();
 
             let config = initialized_validators::Config::default();
@@ -325,7 +328,6 @@ mod tests {
                 validator_definitions,
                 validator_dir.path().into(),
                 config.clone(),
-                log.clone(),
             )
             .await
             .unwrap();
@@ -340,8 +342,12 @@ mod tests {
             );
             let (runtime_shutdown, exit) = async_channel::bounded(1);
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-            let executor =
-                TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+            let executor = TaskExecutor::new(
+                Arc::downgrade(&runtime),
+                exit,
+                shutdown_tx,
+                "test".to_string(),
+            );
 
             let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
             let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
@@ -351,12 +357,12 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_store::Config {
+            let config = lighthouse_validator_store::Config {
                 enable_web3signer_slashing_protection: slashing_protection_config.local,
                 ..Default::default()
             };
 
-            let validator_store = ValidatorStore::<_, E>::new(
+            let validator_store = LighthouseValidatorStore::<_, E>::new(
                 initialized_validators,
                 slashing_protection,
                 Hash256::repeat_byte(42),
@@ -365,7 +371,6 @@ mod tests {
                 slot_clock,
                 &config,
                 executor,
-                log.clone(),
             );
 
             Self {
@@ -481,7 +486,7 @@ mod tests {
             generate_sig: F,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
             R: Future<Output = S>,
             // We use the `SignedObject` trait to white-list objects for comparison. This avoids
             // accidentally comparing something meaningless like a `()`.
@@ -516,8 +521,8 @@ mod tests {
             web3signer_should_sign: bool,
         ) -> Self
         where
-            F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
-            R: Future<Output = Result<(), ValidatorStoreError>>,
+            F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
+            R: Future<Output = Result<(), lighthouse_validator_store::Error>>,
         {
             for validator_rig in &self.validator_rigs {
                 let result =
@@ -591,10 +596,11 @@ mod tests {
         .assert_signatures_match("beacon_block_base", |pubkey, validator_store| {
             let spec = spec.clone();
             async move {
-                let block = BeaconBlock::Base(BeaconBlockBase::empty(&spec));
+                let block = BeaconBlock::<E>::Base(BeaconBlockBase::empty(&spec));
                 let block_slot = block.slot();
+                let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
                 validator_store
-                    .sign_block(pubkey, block, block_slot)
+                    .sign_block(pubkey, unsigned_block, block_slot)
                     .await
                     .unwrap()
             }
@@ -663,8 +669,10 @@ mod tests {
             async move {
                 let mut altair_block = BeaconBlockAltair::empty(&spec);
                 altair_block.slot = altair_fork_slot;
+                let unsigned_block =
+                    UnsignedBlock::Full(FullBlockContents::Block(altair_block.into()));
                 validator_store
-                    .sign_block(pubkey, BeaconBlock::Altair(altair_block), altair_fork_slot)
+                    .sign_block(pubkey, unsigned_block, altair_fork_slot)
                     .await
                     .unwrap()
             }
@@ -746,12 +754,10 @@ mod tests {
             async move {
                 let mut bellatrix_block = BeaconBlockBellatrix::empty(&spec);
                 bellatrix_block.slot = bellatrix_fork_slot;
+                let unsigned_block =
+                    UnsignedBlock::Full(FullBlockContents::Block(bellatrix_block.into()));
                 validator_store
-                    .sign_block(
-                        pubkey,
-                        BeaconBlock::Bellatrix(bellatrix_block),
-                        bellatrix_fork_slot,
-                    )
+                    .sign_block(pubkey, unsigned_block, bellatrix_fork_slot)
                     .await
                     .unwrap()
             }
@@ -805,7 +811,7 @@ mod tests {
         };
 
         let first_block = || {
-            let mut bellatrix_block = BeaconBlockBellatrix::empty(&spec);
+            let mut bellatrix_block = BeaconBlockBellatrix::<E>::empty(&spec);
             bellatrix_block.slot = bellatrix_fork_slot;
             BeaconBlock::Bellatrix(bellatrix_block)
         };
@@ -870,8 +876,9 @@ mod tests {
         .assert_signatures_match("first_block", |pubkey, validator_store| async move {
             let block = first_block();
             let slot = block.slot();
+            let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
             validator_store
-                .sign_block(pubkey, block, slot)
+                .sign_block(pubkey, unsigned_block, slot)
                 .await
                 .unwrap()
         })
@@ -881,8 +888,9 @@ mod tests {
             move |pubkey, validator_store| async move {
                 let block = double_vote_block();
                 let slot = block.slot();
+                let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
                 validator_store
-                    .sign_block(pubkey, block, slot)
+                    .sign_block(pubkey, unsigned_block, slot)
                     .await
                     .map(|_| ())
             },

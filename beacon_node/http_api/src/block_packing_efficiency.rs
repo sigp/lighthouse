@@ -285,8 +285,10 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
     // Load state for block replay.
     let starting_state_root = first_block.state_root();
 
+    // This branch is reached from the HTTP API. We assume the user wants
+    // to cache states so that future calls are faster.
     let starting_state = chain
-        .get_state(&starting_state_root, Some(prior_slot))
+        .get_state(&starting_state_root, Some(prior_slot), true)
         .and_then(|maybe_state| {
             maybe_state.ok_or(BeaconChainError::MissingBeaconState(starting_state_root))
         })

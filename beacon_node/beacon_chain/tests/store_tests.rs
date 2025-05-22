@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::Error as AttnError;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
@@ -14,8 +15,9 @@ use beacon_chain::{
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use logging::test_logger;
+use logging::create_test_tracing_subscriber;
 use maplit::hashset;
+use rand::rngs::StdRng;
 use rand::Rng;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{state_advance::complete_state_advance, BlockReplayer};
@@ -31,13 +33,15 @@ use store::{
     BlobInfo, DBColumn, HotColdDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
-use tokio::time::sleep;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
 
 // Should ideally be divisible by 3.
 pub const LOW_VALIDATOR_COUNT: usize = 24;
 pub const HIGH_VALIDATOR_COUNT: usize = 64;
+
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
 
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
@@ -59,10 +63,10 @@ fn get_store_generic(
     config: StoreConfig,
     spec: ChainSpec,
 ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
+    create_test_tracing_subscriber();
     let hot_path = db_path.path().join("chain_db");
     let cold_path = db_path.path().join("freezer_db");
     let blobs_path = db_path.path().join("blobs_db");
-    let log = test_logger();
 
     HotColdDB::open(
         &hot_path,
@@ -71,7 +75,6 @@ fn get_store_generic(
         |_, _, _| Ok(()),
         config,
         spec.into(),
-        log,
     )
     .expect("disk store should initialize")
 }
@@ -109,7 +112,6 @@ fn get_harness_generic(
     let harness = TestHarness::builder(MinimalEthSpec)
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .logger(store.logger().clone())
         .fresh_disk_store(store)
         .mock_execution_layer()
         .chain_config(chain_config)
@@ -117,6 +119,17 @@ fn get_harness_generic(
         .build();
     harness.advance_slot();
     harness
+}
+
+fn count_states_descendant_of_block(
+    store: &HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>,
+    block_root: Hash256,
+) -> usize {
+    let summaries = store.load_hot_state_summaries().unwrap();
+    summaries
+        .iter()
+        .filter(|(_, s)| s.latest_block_root == block_root)
+        .count()
 }
 
 #[tokio::test]
@@ -758,6 +771,7 @@ async fn delete_blocks_and_states() {
         .get_state(
             &faulty_head_block.state_root(),
             Some(faulty_head_block.slot()),
+            CACHE_STATE_IN_TESTS,
         )
         .expect("no db error")
         .expect("faulty head state exists");
@@ -771,7 +785,12 @@ async fn delete_blocks_and_states() {
             break;
         }
         store.delete_state(&state_root, slot).unwrap();
-        assert_eq!(store.get_state(&state_root, Some(slot)).unwrap(), None);
+        assert_eq!(
+            store
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+                .unwrap(),
+            None
+        );
     }
 
     // Double-deleting should also be OK (deleting non-existent things is fine)
@@ -1055,7 +1074,11 @@ fn get_state_for_block(harness: &TestHarness, block_root: Hash256) -> BeaconStat
         .unwrap();
     harness
         .chain
-        .get_state(&head_block.state_root(), Some(head_block.slot()))
+        .get_state(
+            &head_block.state_root(),
+            Some(head_block.slot()),
+            CACHE_STATE_IN_TESTS,
+        )
         .unwrap()
         .unwrap()
 }
@@ -1214,7 +1237,7 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
     assert_eq!(rig.get_finalized_checkpoints(), hashset! {});
 
-    assert!(rig.chain.knows_head(&stray_head));
+    rig.assert_knows_head(stray_head.into());
 
     // Trigger finalization
     let finalization_slots: Vec<Slot> = ((canonical_chain_slot + 1)
@@ -1262,7 +1285,7 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         );
     }
 
-    assert!(!rig.chain.knows_head(&stray_head));
+    assert!(!rig.knows_head(&stray_head));
 }
 
 #[tokio::test]
@@ -1388,7 +1411,7 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         );
     }
 
-    assert!(!rig.chain.knows_head(&stray_head));
+    assert!(!rig.knows_head(&stray_head));
     let chain_dump = rig.chain.chain_dump().unwrap();
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 }
@@ -1481,7 +1504,7 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
         );
     }
 
-    assert!(rig.chain.knows_head(&stray_head));
+    rig.assert_knows_head(stray_head.into());
 }
 
 #[tokio::test]
@@ -1565,7 +1588,7 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     // Precondition: Nothing is finalized yet
     assert_eq!(rig.get_finalized_checkpoints(), hashset! {},);
 
-    assert!(rig.chain.knows_head(&stray_head));
+    rig.assert_knows_head(stray_head.into());
 
     // Trigger finalization
     let canonical_slots: Vec<Slot> = (rig.epoch_start_slot(2)..=rig.epoch_start_slot(6))
@@ -1620,7 +1643,7 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
         );
     }
 
-    assert!(!rig.chain.knows_head(&stray_head));
+    assert!(!rig.knows_head(&stray_head));
 }
 
 // This is to check if state outside of normal block processing are pruned correctly.
@@ -1892,7 +1915,10 @@ fn check_all_states_exist<'a>(
     states: impl Iterator<Item = &'a BeaconStateHash>,
 ) {
     for &state_hash in states {
-        let state = harness.chain.get_state(&state_hash.into(), None).unwrap();
+        let state = harness
+            .chain
+            .get_state(&state_hash.into(), None, CACHE_STATE_IN_TESTS)
+            .unwrap();
         assert!(
             state.is_some(),
             "expected state {:?} to be in DB",
@@ -1910,7 +1936,7 @@ fn check_no_states_exist<'a>(
         assert!(
             harness
                 .chain
-                .get_state(&state_root.into(), None)
+                .get_state(&state_root.into(), None, CACHE_STATE_IN_TESTS)
                 .unwrap()
                 .is_none(),
             "state {:?} should not be in the DB",
@@ -2137,64 +2163,6 @@ async fn pruning_test(
 }
 
 #[tokio::test]
-async fn garbage_collect_temp_states_from_failed_block_on_startup() {
-    let db_path = tempdir().unwrap();
-
-    // Wrap these functions to ensure the variables are dropped before we try to open another
-    // instance of the store.
-    let mut store = {
-        let store = get_store(&db_path);
-        let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
-
-        let slots_per_epoch = E::slots_per_epoch();
-
-        let genesis_state = harness.get_current_state();
-        let block_slot = Slot::new(2 * slots_per_epoch);
-        let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
-
-        let (mut block, _) = (*signed_block).clone().deconstruct();
-
-        // Mutate the block to make it invalid, and re-sign it.
-        *block.state_root_mut() = Hash256::repeat_byte(0xff);
-        let proposer_index = block.proposer_index() as usize;
-        let block = Arc::new(block.sign(
-            &harness.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
-            &harness.spec,
-        ));
-
-        // The block should be rejected, but should store a bunch of temporary states.
-        harness.set_current_slot(block_slot);
-        harness
-            .process_block_result((block, None))
-            .await
-            .unwrap_err();
-
-        assert_eq!(
-            store.iter_temporary_state_roots().count(),
-            block_slot.as_usize() - 1
-        );
-        store
-    };
-
-    // Wait until all the references to the store have been dropped, this helps ensure we can
-    // re-open the store later.
-    loop {
-        store = if let Err(store_arc) = Arc::try_unwrap(store) {
-            sleep(Duration::from_millis(500)).await;
-            store_arc
-        } else {
-            break;
-        }
-    }
-
-    // On startup, the store should garbage collect all the temporary states.
-    let store = get_store(&db_path);
-    assert_eq!(store.iter_temporary_state_roots().count(), 0);
-}
-
-#[tokio::test]
 async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
     let db_path = tempdir().unwrap();
 
@@ -2208,6 +2176,7 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
     let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
 
     let (mut block, _) = (*signed_block).clone().deconstruct();
+    let bad_block_parent_root = block.parent_root();
 
     // Mutate the block to make it invalid, and re-sign it.
     *block.state_root_mut() = Hash256::repeat_byte(0xff);
@@ -2226,9 +2195,11 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
         .await
         .unwrap_err();
 
+    // The bad block parent root is the genesis block root. There's `block_slot - 1` temporary
+    // states to remove + the genesis state = block_slot.
     assert_eq!(
-        store.iter_temporary_state_roots().count(),
-        block_slot.as_usize() - 1
+        count_states_descendant_of_block(&store, bad_block_parent_root),
+        block_slot.as_usize(),
     );
 
     // Finalize the chain without the block, which should result in pruning of all temporary states.
@@ -2245,8 +2216,12 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
     // Check that the finalization migration ran.
     assert_ne!(store.get_split_slot(), 0);
 
-    // Check that temporary states have been pruned.
-    assert_eq!(store.iter_temporary_state_roots().count(), 0);
+    // Check that temporary states have been pruned. The genesis block is not a descendant of the
+    // latest finalized checkpoint, so all its states have been pruned from the hot DB, = 0.
+    assert_eq!(
+        count_states_descendant_of_block(&store, bad_block_parent_root),
+        0
+    );
 }
 
 #[tokio::test]
@@ -2344,7 +2319,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .get_or_reconstruct_blobs(&wss_block_root)
         .unwrap();
     let wss_state = full_store
-        .get_state(&wss_state_root, Some(checkpoint_slot))
+        .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
         .unwrap()
         .unwrap();
 
@@ -2359,7 +2334,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .await;
 
     let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
-    let log = harness.chain.logger().clone();
+
     let temp2 = tempdir().unwrap();
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
@@ -2385,7 +2360,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .store(store.clone())
         .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
-        .logger(log.clone())
         .weak_subjectivity_state(
             wss_state,
             wss_block.clone(),
@@ -2399,11 +2373,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .slot_clock(slot_clock)
         .shutdown_sender(shutdown_tx)
         .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
+        .rng(Box::new(StdRng::seed_from_u64(42)))
         .build()
         .expect("should build");
 
@@ -2460,7 +2432,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         // Check that the new block's state can be loaded correctly.
         let mut state = beacon_chain
             .store
-            .get_state(&state_root, Some(slot))
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
@@ -2590,7 +2562,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .unwrap()
         .map(Result::unwrap)
     {
-        let mut state = store.get_state(&state_root, Some(slot)).unwrap().unwrap();
+        let mut state = store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .unwrap();
         assert_eq!(state.slot(), slot);
         assert_eq!(state.canonical_root().unwrap(), state_root);
     }
@@ -2669,12 +2644,17 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert_eq!(split.block_root, valid_fork_block.parent_root());
     assert_ne!(split.state_root, unadvanced_split_state_root);
 
+    let invalid_fork_rpc_block = RpcBlock::new_without_blobs(
+        None,
+        invalid_fork_block.clone(),
+        harness.sampling_column_count,
+    );
     // Applying the invalid block should fail.
     let err = harness
         .chain
         .process_block(
-            invalid_fork_block.canonical_root(),
-            invalid_fork_block.clone(),
+            invalid_fork_rpc_block.block_root(),
+            invalid_fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -2684,11 +2664,16 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert!(matches!(err, BlockError::WouldRevertFinalizedSlot { .. }));
 
     // Applying the valid block should succeed, but it should not become head.
+    let valid_fork_rpc_block = RpcBlock::new_without_blobs(
+        None,
+        valid_fork_block.clone(),
+        harness.sampling_column_count,
+    );
     harness
         .chain
         .process_block(
-            valid_fork_block.canonical_root(),
-            valid_fork_block.clone(),
+            valid_fork_rpc_block.block_root(),
+            valid_fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -2772,8 +2757,8 @@ async fn finalizes_after_resuming_from_db() {
 
     harness
         .chain
-        .persist_head_and_fork_choice()
-        .expect("should persist the head and fork choice");
+        .persist_fork_choice()
+        .expect("should persist fork choice");
     harness
         .chain
         .persist_op_pool()
@@ -2986,11 +2971,13 @@ async fn revert_minority_fork_on_resume() {
     resumed_harness.chain.recompute_head_at_current_slot().await;
     assert_eq!(resumed_harness.head_slot(), fork_slot - 1);
 
-    // Head track should know the canonical head and the rogue head.
-    assert_eq!(resumed_harness.chain.heads().len(), 2);
-    assert!(resumed_harness
-        .chain
-        .knows_head(&resumed_harness.head_block_root().into()));
+    // Fork choice should only know the canonical head. When we reverted the head we also should
+    // have called `reset_fork_choice_to_finalization` which rebuilds fork choice from scratch
+    // without the reverted block.
+    assert_eq!(
+        resumed_harness.chain.heads(),
+        vec![(resumed_harness.head_block_root(), fork_slot - 1)]
+    );
 
     // Apply blocks from the majority chain and trigger finalization.
     let initial_split_slot = resumed_harness.chain.store.get_split_slot();
@@ -3054,7 +3041,6 @@ async fn schema_downgrade_to_min_version() {
         genesis_state_root,
         CURRENT_SCHEMA_VERSION,
         min_version,
-        store.logger().clone(),
     )
     .expect("schema downgrade to minimum version should work");
 
@@ -3064,7 +3050,6 @@ async fn schema_downgrade_to_min_version() {
         genesis_state_root,
         min_version,
         CURRENT_SCHEMA_VERSION,
-        store.logger().clone(),
     )
     .expect("schema upgrade from minimum version should work");
 
@@ -3072,7 +3057,6 @@ async fn schema_downgrade_to_min_version() {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
-        .logger(store.logger().clone())
         .testing_slot_clock(slot_clock)
         .resumed_disk_store(store.clone())
         .mock_execution_layer()
@@ -3090,7 +3074,6 @@ async fn schema_downgrade_to_min_version() {
         genesis_state_root,
         CURRENT_SCHEMA_VERSION,
         min_version_sub_1,
-        harness.logger().clone(),
     )
     .expect_err("should not downgrade below minimum version");
 }
@@ -3420,9 +3403,10 @@ async fn prune_historic_states() {
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let genesis_state_root = harness.chain.genesis_state_root;
+
     let genesis_state = harness
         .chain
-        .get_state(&genesis_state_root, None)
+        .get_state(&genesis_state_root, None, CACHE_STATE_IN_TESTS)
         .unwrap()
         .unwrap();
 
@@ -3443,7 +3427,10 @@ async fn prune_historic_states() {
         .map(Result::unwrap)
         .collect::<Vec<_>>();
     for &(state_root, slot) in &first_epoch_state_roots {
-        assert!(store.get_state(&state_root, Some(slot)).unwrap().is_some());
+        assert!(store
+            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+            .unwrap()
+            .is_some());
     }
 
     store
@@ -3458,7 +3445,10 @@ async fn prune_historic_states() {
     // Ensure all epoch 0 states other than the genesis have been pruned.
     for &(state_root, slot) in &first_epoch_state_roots {
         assert_eq!(
-            store.get_state(&state_root, Some(slot)).unwrap().is_some(),
+            store
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+                .unwrap()
+                .is_some(),
             slot == 0
         );
     }
@@ -3584,7 +3574,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
             harness
                 .chain
                 .store
-                .get_state(&checkpoint.beacon_state_root(), None)
+                .get_state(&checkpoint.beacon_state_root(), None, CACHE_STATE_IN_TESTS)
                 .expect("no error")
                 .expect("state exists")
                 .slot(),
@@ -3646,7 +3636,7 @@ fn check_iterators(harness: &TestHarness) {
             harness
                 .chain
                 .store
-                .get_state(&state_root, Some(slot))
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
                 .unwrap()
                 .is_some(),
             "state {:?} from canonical chain should be in DB",

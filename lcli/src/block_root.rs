@@ -32,9 +32,9 @@ use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use eth2_network_config::Eth2NetworkConfig;
-use log::info;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tracing::info;
 use types::{EthSpec, FullPayload, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -79,7 +79,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download block: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate block at {:?}", block_id))?
-                        .data;
+                        .into_data();
                     Ok::<_, String>(block)
                 })
                 .map_err(|e| format!("Failed to complete task: {:?}", e))?
@@ -102,7 +102,7 @@ pub fn run<E: EthSpec>(
     }
 
     if let Some(block_root) = block_root {
-        info!("Block root is {:?}", block_root);
+        info!(%block_root,"Block root");
     }
 
     Ok(())

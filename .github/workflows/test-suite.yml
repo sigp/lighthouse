@@ -24,8 +24,6 @@ env:
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.LIGHTHOUSE_GITHUB_TOKEN }}
   # Enable self-hosted runners for the sigp repo only.
   SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
-  # Self-hosted runners need to reference a different host for `./watch` tests.
-  WATCH_HOST: ${{ github.repository == 'sigp/lighthouse' && 'host.docker.internal' || 'localhost' }}
   # Disable incremental compilation
   CARGO_INCREMENTAL: 0
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
@@ -198,7 +196,7 @@ jobs:
     - name: Run network tests for all known forks
       run: make test-network
       env:
-        TEST_FEATURES: portable,ci_logger
+        TEST_FEATURES: portable
         CI_LOGGER_DIR: ${{ runner.temp }}/network_test_logs
     - name: Upload logs
       uses: actions/upload-artifact@v4
@@ -297,8 +295,15 @@ jobs:
       with:
           channel: stable
           cache-target: release
-    - name: Run a basic beacon chain sim that starts from Bellatrix
-      run: cargo run --release --bin simulator basic-sim
+    - name: Create log dir
+      run: mkdir ${{ runner.temp }}/basic_simulator_logs
+    - name: Run a basic beacon chain sim that starts from Deneb
+      run: cargo run --release --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
+    - name: Upload logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: basic_simulator_logs
+        path: ${{ runner.temp }}/basic_simulator_logs
   fallback-simulator-ubuntu:
     name: fallback-simulator-ubuntu
     needs: [check-labels]
@@ -311,8 +316,15 @@ jobs:
       with:
           channel: stable
           cache-target: release
+    - name: Create log dir
+      run: mkdir ${{ runner.temp }}/fallback_simulator_logs
     - name: Run a beacon chain sim which tests VC fallback behaviour
-      run: cargo run --release --bin simulator fallback-sim
+      run: cargo run --release --bin simulator fallback-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/fallback_simulator_logs
+    - name: Upload logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: fallback_simulator_logs
+        path: ${{ runner.temp }}/fallback_simulator_logs
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     needs: [check-labels]

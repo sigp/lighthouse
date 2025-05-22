@@ -72,8 +72,6 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use eth2_network_config::Eth2NetworkConfig;
-use log::{debug, info};
-use sloggers::{null::NullLoggerBuilder, Build};
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
@@ -87,6 +85,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::HotColdDB;
+use tracing::{debug, info};
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -155,7 +154,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download block: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate block at {:?}", block_id))?
-                        .data;
+                        .into_data();
 
                     if block.slot() == inner_spec.genesis_slot {
                         return Err("Cannot run on the genesis block".to_string());
@@ -166,7 +165,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download parent block: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate parent block at {:?}", block_id))?
-                        .data;
+                        .into_data();
 
                     let state_root = parent_block.state_root();
                     let state_id = StateId::Root(state_root);
@@ -175,7 +174,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download state: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate state at {:?}", state_id))?
-                        .data;
+                        .into_data();
 
                     Ok((pre_state, Some(state_root), block))
                 })
@@ -196,14 +195,8 @@ pub fn run<E: EthSpec>(
      * Create a `BeaconStore` and `ValidatorPubkeyCache` for block signature verification.
      */
 
-    let store = HotColdDB::open_ephemeral(
-        <_>::default(),
-        spec.clone(),
-        NullLoggerBuilder
-            .build()
-            .map_err(|e| format!("Error on NullLoggerBuilder: {:?}", e))?,
-    )
-    .map_err(|e| format!("Failed to create ephemeral store: {:?}", e))?;
+    let store = HotColdDB::open_ephemeral(<_>::default(), spec.clone())
+        .map_err(|e| format!("Failed to create ephemeral store: {:?}", e))?;
     let store = Arc::new(store);
 
     debug!("Building pubkey cache (might take some time)");

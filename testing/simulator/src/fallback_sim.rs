@@ -3,18 +3,23 @@ use crate::{checks, LocalNetwork};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
+use environment::tracing_common;
 use futures::prelude::*;
+use logging::build_workspace_filter;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
     testing_validator_config, ValidatorFiles,
 };
 use rayon::prelude::*;
 use std::cmp::max;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
+use tracing::Level;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use types::{Epoch, EthSpec, MinimalEthSpec};
-
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 32;
 const ALTAIR_FORK_EPOCH: u64 = 0;
@@ -36,36 +41,43 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
-    let vc_count = matches
+    let (_name, subcommand_matches) = matches.subcommand().expect("subcommand");
+    let vc_count = subcommand_matches
         .get_one::<String>("vc-count")
         .expect("missing vc-count default")
         .parse::<usize>()
         .expect("missing vc-count default");
 
-    let validators_per_vc = matches
+    let validators_per_vc = subcommand_matches
         .get_one::<String>("validators-per-vc")
         .expect("missing validators-per-vc default")
         .parse::<usize>()
         .expect("missing validators-per-vc default");
 
-    let bns_per_vc = matches
+    let bns_per_vc = subcommand_matches
         .get_one::<String>("bns-per-vc")
         .expect("missing bns-per-vc default")
         .parse::<usize>()
         .expect("missing bns-per-vc default");
 
     assert!(bns_per_vc > 1);
-    let speed_up_factor = matches
+    let speed_up_factor = subcommand_matches
         .get_one::<String>("speed-up-factor")
         .expect("missing speed-up-factor default")
         .parse::<u64>()
         .expect("missing speed-up-factor default");
 
-    let log_level = matches
+    let log_level = subcommand_matches
         .get_one::<String>("debug-level")
         .expect("missing debug-level default");
 
-    let continue_after_checks = matches.get_flag("continue-after-checks");
+    let continue_after_checks = subcommand_matches.get_flag("continue-after-checks");
+
+    let log_dir = subcommand_matches
+        .get_one::<String>("log-dir")
+        .map(PathBuf::from);
+
+    let disable_stdout_logging = subcommand_matches.get_flag("disable-stdout-logging");
 
     println!("Fallback Simulator:");
     println!(" vc-count: {}", vc_count);
@@ -73,6 +85,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" bns-per-vc: {}", bns_per_vc);
     println!(" speed-up-factor: {}", speed_up_factor);
     println!(" continue-after-checks: {}", continue_after_checks);
+    println!(" log-dir: {:?}", log_dir);
+    println!(" disable-stdout-logging: {}", disable_stdout_logging);
 
     // Generate the directories and keystores required for the validator clients.
     let validator_files = (0..vc_count)
@@ -89,23 +103,72 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let mut env = EnvironmentBuilder::minimal()
-        .initialize_logger(LoggerConfig {
-            path: None,
-            debug_level: log_level.clone(),
-            logfile_debug_level: log_level.clone(),
+    let (
+        env_builder,
+        logger_config,
+        stdout_logging_layer,
+        file_logging_layer,
+        _sse_logging_layer_opt,
+        libp2p_discv5_layer,
+    ) = tracing_common::construct_logger(
+        LoggerConfig {
+            path: log_dir,
+            debug_level: tracing_common::parse_level(&log_level.clone()),
+            logfile_debug_level: tracing_common::parse_level(&log_level.clone()),
             log_format: None,
             logfile_format: None,
-            log_color: false,
+            log_color: true,
+            logfile_color: false,
             disable_log_timestamp: false,
-            max_log_size: 0,
-            max_log_number: 0,
+            max_log_size: 200,
+            max_log_number: 5,
             compression: false,
             is_restricted: true,
             sse_logging: false,
-        })?
-        .multi_threaded_tokio_runtime()?
-        .build()?;
+            extra_info: false,
+        },
+        matches,
+        EnvironmentBuilder::minimal(),
+    );
+
+    let workspace_filter = build_workspace_filter()?;
+    let mut logging_layers = vec![];
+    if !disable_stdout_logging {
+        logging_layers.push(
+            stdout_logging_layer
+                .with_filter(logger_config.debug_level)
+                .with_filter(workspace_filter.clone())
+                .boxed(),
+        );
+    }
+    if let Some(file_logging_layer) = file_logging_layer {
+        logging_layers.push(
+            file_logging_layer
+                .with_filter(logger_config.logfile_debug_level)
+                .with_filter(workspace_filter)
+                .boxed(),
+        );
+    }
+    if let Some(libp2p_discv5_layer) = libp2p_discv5_layer {
+        logging_layers.push(
+            libp2p_discv5_layer
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(Level::DEBUG.into())
+                        .from_env_lossy(),
+                )
+                .boxed(),
+        );
+    }
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(logging_layers)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging: {e}");
+    }
+
+    let mut env = env_builder.multi_threaded_tokio_runtime()?.build()?;
 
     let mut spec = (*env.eth2_config.spec).clone();
 

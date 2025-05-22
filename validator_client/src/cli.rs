@@ -67,7 +67,6 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "SECRETS_DIRECTORY",
-        conflicts_with = "datadir",
         help = "The directory which contains the password to unlock the validator \
                 voting keypairs. Each password should be contained in a file where the \
                 name is the 0x-prefixed hex representation of the validators voting public \
@@ -99,6 +98,15 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        help = "Disable the performance of attestation duties (and sync committee duties). This \
+                flag should only be used in emergencies to prioritise block proposal duties.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_attesting: bool,
+
+    #[clap(
+        long,
         help = "If present, the validator client will use longer timeouts for requests \
                 made to the beacon node. This flag is generally not recommended, \
                 longer timeouts can cause missed duties when fallbacks are used.",
@@ -106,6 +114,20 @@ pub struct ValidatorClient {
         help_heading = FLAG_HEADER
     )]
     pub use_long_timeouts: bool,
+
+    #[clap(
+        long,
+        requires = "use_long_timeouts",
+        default_value_t = 1,
+        help = "If present, the validator client will use a multiplier for the timeout \
+                when making requests to the beacon node. This only takes effect when \
+                the `--use-long-timeouts` flag is present. The timeouts will be the slot \
+                duration multiplied by this value. This flag is generally not recommended, \
+                longer timeouts can cause missed duties when fallbacks are used.",
+        display_order = 0,
+        help_heading = FLAG_HEADER,
+    )]
+    pub long_timeouts_multiplier: u32,
 
     #[clap(
         long,
@@ -197,6 +219,7 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        requires = "http",
         value_name = "PORT",
         default_value_t = 5062,
         help = "Set the listen TCP port for the RESTful HTTP API server.",
@@ -365,7 +388,7 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "INTEGER",
-        default_value_t = 30_000_000,
+        default_value_t = 36_000_000,
         requires = "builder_proposals",
         help = "The gas limit to be used in all builder proposals for all validators managed \
                 by this validator client. Note this will not necessarily be used if the gas limit \

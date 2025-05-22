@@ -19,8 +19,8 @@ use beacon_chain::{
     block_verification_types::{AsBlock, BlockImportData},
     data_availability_checker::Availability,
     test_utils::{
-        build_log, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
-        BeaconChainHarness, EphemeralHarnessType, LoggerType, NumBlobs,
+        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
+        BeaconChainHarness, EphemeralHarnessType, NumBlobs,
     },
     validator_monitor::timestamp_now,
     AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
@@ -37,9 +37,9 @@ use lighthouse_network::{
     types::SyncState,
     NetworkConfig, NetworkGlobals, PeerId,
 };
-use slog::info;
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
+use tracing::info;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
@@ -55,22 +55,12 @@ type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
 impl TestRig {
     pub fn test_setup() -> Self {
-        let logger_type = if cfg!(feature = "test_logger") {
-            LoggerType::Test
-        } else if cfg!(feature = "ci_logger") {
-            LoggerType::CI
-        } else {
-            LoggerType::Null
-        };
-        let log = build_log(slog::Level::Trace, logger_type);
-
         // Use `fork_from_env` logic to set correct fork epochs
         let spec = test_spec::<E>();
 
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(Arc::new(spec))
-            .logger(log.clone())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .mock_execution_layer()
@@ -95,7 +85,6 @@ impl TestRig {
         let network_config = Arc::new(NetworkConfig::default());
         let globals = Arc::new(NetworkGlobals::new_test_globals(
             Vec::new(),
-            &log,
             network_config,
             chain.spec.clone(),
         ));
@@ -104,7 +93,6 @@ impl TestRig {
             sync_tx,
             chain.clone(),
             harness.runtime.task_executor.clone(),
-            log.clone(),
         );
 
         let fork_name = chain.spec.fork_name_at_slot::<E>(chain.slot().unwrap());
@@ -118,6 +106,8 @@ impl TestRig {
 
         // deterministic seed
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
+
+        init_tracing();
 
         TestRig {
             beacon_processor_rx,
@@ -137,11 +127,9 @@ impl TestRig {
                     required_successes: vec![SAMPLING_REQUIRED_SUCCESSES],
                 },
                 fork_context,
-                log.clone(),
             ),
             harness,
             fork_name,
-            log,
             spec,
         }
     }
@@ -165,7 +153,7 @@ impl TestRig {
     }
 
     pub fn log(&self, msg: &str) {
-        info!(self.log, "TEST_RIG"; "msg" => msg);
+        info!(msg, "TEST_RIG");
     }
 
     pub fn after_deneb(&self) -> bool {
@@ -371,10 +359,13 @@ impl TestRig {
 
     pub fn new_connected_peer(&mut self) -> PeerId {
         let key = self.determinstic_key();
-        self.network_globals
+        let peer_id = self
+            .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec, key)
+            .__add_connected_peer_testing_only(false, &self.harness.spec, key);
+        self.log(&format!("Added new peer for testing {peer_id:?}"));
+        peer_id
     }
 
     pub fn new_connected_supernode_peer(&mut self) -> PeerId {
@@ -474,7 +465,7 @@ impl TestRig {
     ) {
         self.log("parent_lookup_block_response");
         self.send_sync_message(SyncMessage::RpcBlock {
-            request_id: SyncRequestId::SingleBlock { id },
+            sync_request_id: SyncRequestId::SingleBlock { id },
             peer_id,
             beacon_block,
             seen_timestamp: D,
@@ -489,7 +480,7 @@ impl TestRig {
     ) {
         self.log("single_lookup_block_response");
         self.send_sync_message(SyncMessage::RpcBlock {
-            request_id: SyncRequestId::SingleBlock { id },
+            sync_request_id: SyncRequestId::SingleBlock { id },
             peer_id,
             beacon_block,
             seen_timestamp: D,
@@ -507,7 +498,7 @@ impl TestRig {
             blob_sidecar.as_ref().map(|b| b.index)
         ));
         self.send_sync_message(SyncMessage::RpcBlob {
-            request_id: SyncRequestId::SingleBlob { id },
+            sync_request_id: SyncRequestId::SingleBlob { id },
             peer_id,
             blob_sidecar,
             seen_timestamp: D,
@@ -521,7 +512,7 @@ impl TestRig {
         blob_sidecar: Option<Arc<BlobSidecar<E>>>,
     ) {
         self.send_sync_message(SyncMessage::RpcBlob {
-            request_id: SyncRequestId::SingleBlob { id },
+            sync_request_id: SyncRequestId::SingleBlob { id },
             peer_id,
             blob_sidecar,
             seen_timestamp: D,
@@ -597,7 +588,7 @@ impl TestRig {
     fn parent_lookup_failed(&mut self, id: SingleLookupReqId, peer_id: PeerId, error: RPCError) {
         self.send_sync_message(SyncMessage::RpcError {
             peer_id,
-            request_id: SyncRequestId::SingleBlock { id },
+            sync_request_id: SyncRequestId::SingleBlock { id },
             error,
         })
     }
@@ -616,7 +607,7 @@ impl TestRig {
     fn single_lookup_failed(&mut self, id: SingleLookupReqId, peer_id: PeerId, error: RPCError) {
         self.send_sync_message(SyncMessage::RpcError {
             peer_id,
-            request_id: SyncRequestId::SingleBlock { id },
+            sync_request_id: SyncRequestId::SingleBlock { id },
             error,
         })
     }
@@ -628,11 +619,11 @@ impl TestRig {
         }
     }
 
-    fn return_empty_sampling_request(&mut self, (request_id, _): DCByRootId) {
+    fn return_empty_sampling_request(&mut self, (sync_request_id, _): DCByRootId) {
         let peer_id = PeerId::random();
         // Send stream termination
         self.send_sync_message(SyncMessage::RpcDataColumn {
-            request_id,
+            sync_request_id,
             peer_id,
             data_column: None,
             seen_timestamp: timestamp_now(),
@@ -645,10 +636,10 @@ impl TestRig {
         peer_id: PeerId,
         error: RPCError,
     ) {
-        for (request_id, _) in sampling_ids {
+        for (sync_request_id, _) in sampling_ids {
             self.send_sync_message(SyncMessage::RpcError {
                 peer_id,
-                request_id,
+                sync_request_id,
                 error: error.clone(),
             })
         }
@@ -774,14 +765,14 @@ impl TestRig {
 
     fn complete_data_columns_by_root_request(
         &mut self,
-        (request_id, _): DCByRootId,
+        (sync_request_id, _): DCByRootId,
         data_columns: &[Arc<DataColumnSidecar<E>>],
     ) {
         let peer_id = PeerId::random();
         for data_column in data_columns {
             // Send chunks
             self.send_sync_message(SyncMessage::RpcDataColumn {
-                request_id,
+                sync_request_id,
                 peer_id,
                 data_column: Some(data_column.clone()),
                 seen_timestamp: timestamp_now(),
@@ -789,7 +780,7 @@ impl TestRig {
         }
         // Send stream termination
         self.send_sync_message(SyncMessage::RpcDataColumn {
-            request_id,
+            sync_request_id,
             peer_id,
             data_column: None,
             seen_timestamp: timestamp_now(),
@@ -799,17 +790,17 @@ impl TestRig {
     /// Return RPCErrors for all active requests of peer
     fn rpc_error_all_active_requests(&mut self, disconnected_peer_id: PeerId) {
         self.drain_network_rx();
-        while let Ok(request_id) = self.pop_received_network_event(|ev| match ev {
+        while let Ok(sync_request_id) = self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id,
-                request_id: AppRequestId::Sync(id),
+                app_request_id: AppRequestId::Sync(id),
                 ..
             } if *peer_id == disconnected_peer_id => Some(*id),
             _ => None,
         }) {
             self.send_sync_message(SyncMessage::RpcError {
                 peer_id: disconnected_peer_id,
-                request_id,
+                sync_request_id,
                 error: RPCError::Disconnected,
             });
         }
@@ -893,7 +884,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlocksByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
@@ -913,7 +904,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlobsByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
                 .to_vec()
@@ -938,7 +929,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlocksByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
@@ -960,7 +951,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlobsByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
                 .to_vec()
@@ -988,19 +979,15 @@ impl TestRig {
                     NetworkMessage::SendRequest {
                         peer_id: _,
                         request: RequestType::DataColumnsByRoot(request),
-                        request_id: AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
-                    } if request
-                        .data_column_ids
-                        .to_vec()
-                        .iter()
-                        .any(|r| r.block_root == block_root) =>
-                    {
-                        let indices = request
+                        app_request_id:
+                            AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
+                    } => {
+                        let matching = request
                             .data_column_ids
-                            .to_vec()
                             .iter()
-                            .map(|cid| cid.index)
-                            .collect::<Vec<_>>();
+                            .find(|id| id.block_root == block_root)?;
+
+                        let indices = matching.columns.iter().copied().collect();
                         Some((*id, indices))
                     }
                     _ => None,
@@ -1217,8 +1204,12 @@ impl TestRig {
             payload_verification_status: PayloadVerificationStatus::Verified,
             is_valid_merge_transition_block: false,
         };
-        let executed_block =
-            AvailabilityPendingExecutedBlock::new(block, import_data, payload_verification_outcome);
+        let executed_block = AvailabilityPendingExecutedBlock::new(
+            block,
+            import_data,
+            payload_verification_outcome,
+            self.network_globals.custody_columns_count() as usize,
+        );
         match self
             .harness
             .chain
@@ -1306,7 +1297,7 @@ impl TestRig {
                 .sync_manager
                 .get_sampling_request_status(block_root, index)
                 .unwrap_or_else(|| panic!("No request state for {index}"));
-            if !matches!(status, crate::sync::peer_sampling::Status::NoPeers { .. }) {
+            if !matches!(status, crate::sync::peer_sampling::Status::NoPeers) {
                 panic!("expected {block_root} {index} request to be no peers: {status:?}");
             }
         }
@@ -2318,11 +2309,6 @@ mod deneb_only {
             })
         }
 
-        fn log(self, msg: &str) -> Self {
-            self.rig.log(msg);
-            self
-        }
-
         fn trigger_unknown_block_from_attestation(mut self) -> Self {
             let block_root = self.block.canonical_root();
             self.rig
@@ -2624,6 +2610,11 @@ mod deneb_only {
                 // TODO: Should send blobs for processing
                 .expect_block_process()
                 .block_imported()
+        }
+
+        fn log(self, msg: &str) -> Self {
+            self.rig.log(msg);
+            self
         }
 
         fn parent_block_then_empty_parent_blobs(self) -> Self {

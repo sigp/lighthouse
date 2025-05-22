@@ -15,7 +15,7 @@ reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-slog = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
