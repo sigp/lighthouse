@@ -1,4 +1,5 @@
-use super::{AggregateSignature, EthSpec, SignedRoot};
+use super::{AggregateSignature, EthSpec, ForkName, SignedRoot};
+use crate::context_deserialize;
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeMessage};
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,7 @@ pub enum Error {
 )]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct SyncCommitteeContribution<E: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
@@ -42,8 +44,8 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
     ///
     /// - `message`: A single `SyncCommitteeMessage`.
     /// - `subcommittee_index`: The subcommittee this contribution pertains to out of the broader
-    ///     sync committee. This can be determined from the `SyncSubnetId` of the gossip subnet
-    ///     this message was seen on.
+    ///   sync committee. This can be determined from the `SyncSubnetId` of the gossip subnet
+    ///   this message was seen on.
     /// - `validator_sync_committee_index`: The index of the validator **within** the subcommittee.
     pub fn from_message(
         message: &SyncCommitteeMessage,

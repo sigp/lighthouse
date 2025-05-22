@@ -100,20 +100,11 @@ impl CheckpointMap {
 
 /// This cache stores `Eth1CacheData` that could potentially be finalized within 4
 /// future epochs.
+#[derive(Default)]
 pub struct Eth1FinalizationCache {
     by_checkpoint: CheckpointMap,
     pending_eth1: BTreeMap<u64, Eth1Data>,
     last_finalized: Option<Eth1Data>,
-}
-
-impl Default for Eth1FinalizationCache {
-    fn default() -> Self {
-        Self {
-            by_checkpoint: CheckpointMap::new(),
-            pending_eth1: BTreeMap::new(),
-            last_finalized: None,
-        }
-    }
 }
 
 /// Provides a cache of `Eth1CacheData` at epoch boundaries. This is used to
@@ -461,7 +452,7 @@ pub mod tests {
                     let last_finalized_eth1 = eth1s_by_count
                         .range(0..(finalized_deposits + 1))
                         .map(|(_, eth1)| eth1)
-                        .last()
+                        .next_back()
                         .cloned();
                     assert_eq!(
                         eth1cache.finalize(finalized_checkpoint),

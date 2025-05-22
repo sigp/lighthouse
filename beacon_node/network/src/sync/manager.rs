@@ -106,9 +106,12 @@ pub enum SyncMessage<E: EthSpec> {
         head_slot: Option<Slot>,
     },
 
+    /// Peer manager has received a MetaData of a peer with a new or updated CGC value.
+    UpdatedPeerCgc(PeerId),
+
     /// A block has been received from the RPC.
     RpcBlock {
-        request_id: SyncRequestId,
+        sync_request_id: SyncRequestId,
         peer_id: PeerId,
         beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
         seen_timestamp: Duration,
@@ -116,7 +119,7 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A blob has been received from the RPC.
     RpcBlob {
-        request_id: SyncRequestId,
+        sync_request_id: SyncRequestId,
         peer_id: PeerId,
         blob_sidecar: Option<Arc<BlobSidecar<E>>>,
         seen_timestamp: Duration,
@@ -124,7 +127,7 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A data columns has been received from the RPC
     RpcDataColumn {
-        request_id: SyncRequestId,
+        sync_request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<E>>>,
         seen_timestamp: Duration,
@@ -153,7 +156,7 @@ pub enum SyncMessage<E: EthSpec> {
     /// An RPC Error has occurred on a request.
     RpcError {
         peer_id: PeerId,
-        request_id: SyncRequestId,
+        sync_request_id: SyncRequestId,
         error: RPCError,
     },
 
@@ -476,10 +479,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    fn updated_peer_cgc(&mut self, _peer_id: PeerId) {
+        // Try to make progress on custody requests that are waiting for peers
+        for (id, result) in self.network.continue_custody_by_root_requests() {
+            self.on_custody_by_root_result(id, result);
+        }
+
+        // Attempt to resume range sync too
+        self.range_sync.resume(&mut self.network);
+    }
+
     /// Handles RPC errors related to requests that were emitted from the sync manager.
-    fn inject_error(&mut self, peer_id: PeerId, request_id: SyncRequestId, error: RPCError) {
+    fn inject_error(&mut self, peer_id: PeerId, sync_request_id: SyncRequestId, error: RPCError) {
         trace!("Sync manager received a failed RPC");
-        match request_id {
+        match sync_request_id {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
             }
@@ -509,15 +522,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
         // Inject a Disconnected error on all requests associated with the disconnected peer
         // to retry all batches/lookups
-        for request_id in self.network.peer_disconnected(peer_id) {
-            self.inject_error(*peer_id, request_id, RPCError::Disconnected);
+        for sync_request_id in self.network.peer_disconnected(peer_id) {
+            self.inject_error(*peer_id, sync_request_id, RPCError::Disconnected);
         }
 
         // Remove peer from all data structures
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
-        let _ = self
-            .backfill_sync
-            .peer_disconnected(peer_id, &mut self.network);
+        let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.block_lookups.peer_disconnected(peer_id);
 
         // Regardless of the outcome, we update the sync status.
@@ -685,7 +696,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             if new_state.is_synced()
                 && !matches!(
                     old_state,
-                    SyncState::Synced { .. } | SyncState::BackFillSyncing { .. }
+                    SyncState::Synced | SyncState::BackFillSyncing { .. }
                 )
             {
                 self.network.subscribe_core_topics();
@@ -750,26 +761,35 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => {
                 self.add_peers_force_range_sync(&peers, head_root, head_slot);
             }
+            SyncMessage::UpdatedPeerCgc(peer_id) => {
+                debug!(
+                    peer_id = ?peer_id,
+                    "Received updated peer CGC message"
+                );
+                self.updated_peer_cgc(peer_id);
+            }
             SyncMessage::RpcBlock {
-                request_id,
+                sync_request_id,
                 peer_id,
                 beacon_block,
                 seen_timestamp,
             } => {
-                self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
+                self.rpc_block_received(sync_request_id, peer_id, beacon_block, seen_timestamp);
             }
             SyncMessage::RpcBlob {
-                request_id,
+                sync_request_id,
                 peer_id,
                 blob_sidecar,
                 seen_timestamp,
-            } => self.rpc_blob_received(request_id, peer_id, blob_sidecar, seen_timestamp),
+            } => self.rpc_blob_received(sync_request_id, peer_id, blob_sidecar, seen_timestamp),
             SyncMessage::RpcDataColumn {
-                request_id,
+                sync_request_id,
                 peer_id,
                 data_column,
                 seen_timestamp,
-            } => self.rpc_data_column_received(request_id, peer_id, data_column, seen_timestamp),
+            } => {
+                self.rpc_data_column_received(sync_request_id, peer_id, data_column, seen_timestamp)
+            }
             SyncMessage::UnknownParentBlock(peer_id, block, block_root) => {
                 let block_slot = block.slot();
                 let parent_root = block.parent_root();
@@ -845,9 +865,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             SyncMessage::RpcError {
                 peer_id,
-                request_id,
+                sync_request_id,
                 error,
-            } => self.inject_error(peer_id, request_id, error),
+            } => self.inject_error(peer_id, sync_request_id, error),
             SyncMessage::BlockComponentProcessed {
                 process_type,
                 result,
@@ -1018,12 +1038,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn rpc_block_received(
         &mut self,
-        request_id: SyncRequestId,
+        sync_request_id: SyncRequestId,
         peer_id: PeerId,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
-        match request_id {
+        match sync_request_id {
             SyncRequestId::SingleBlock { id } => self.on_single_block_response(
                 id,
                 peer_id,
@@ -1060,12 +1080,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn rpc_blob_received(
         &mut self,
-        request_id: SyncRequestId,
+        sync_request_id: SyncRequestId,
         peer_id: PeerId,
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
-        match request_id {
+        match sync_request_id {
             SyncRequestId::SingleBlob { id } => self.on_single_blob_response(
                 id,
                 peer_id,
@@ -1084,12 +1104,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn rpc_data_column_received(
         &mut self,
-        request_id: SyncRequestId,
+        sync_request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
-        match request_id {
+        match sync_request_id {
             SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(
                     req_id,

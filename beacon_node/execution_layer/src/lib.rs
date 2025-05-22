@@ -4,7 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::BlobAndProofV1;
+use crate::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{strip_prefix, Auth, JwtKey};
@@ -16,8 +16,8 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
-use eth2::types::FullPayloadContents;
-use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
+use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use eth2::types::{BlobsBundle, FullPayloadContents};
 use ethers_core::types::Transaction as EthersTransaction;
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
@@ -129,8 +129,7 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                // TODO(fulu): update this with builder api returning the requests
-                requests: None,
+                requests: Some(builder_bid.execution_requests),
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -210,6 +209,7 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         /// `None` for blinded `PayloadAndBlobs`.
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
         // TODO(electra): this should probably be a separate variant/superstruct
+        // See: https://github.com/sigp/lighthouse/issues/6981
         requests: Option<ExecutionRequests<E>>,
     },
 }
@@ -596,13 +596,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let (payload_ref, maybe_json_blobs_bundle) = payload_and_blobs;
 
         let payload = payload_ref.clone_from_ref();
-        let maybe_blobs_bundle = maybe_json_blobs_bundle
-            .cloned()
-            .map(|blobs_bundle| BlobsBundle {
-                commitments: blobs_bundle.commitments,
-                proofs: blobs_bundle.proofs,
-                blobs: blobs_bundle.blobs,
-            });
+        let maybe_blobs_bundle = maybe_json_blobs_bundle.cloned();
 
         self.inner
             .payload_cache
@@ -1560,10 +1554,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         age_limit: Option<Duration>,
     ) -> Result<Vec<ClientVersionV1>, Error> {
-        self.engine()
+        let versions = self
+            .engine()
             .request(|engine| engine.get_engine_version(age_limit))
             .await
-            .map_err(Into::into)
+            .map_err(Into::<Error>::into)?;
+        metrics::expose_execution_layer_info(&versions);
+
+        Ok(versions)
     }
 
     /// Used during block production to determine if the merge has been triggered.
@@ -1682,7 +1680,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ///
     /// - `Some(true)` if the given `block_hash` is the terminal proof-of-work block.
     /// - `Some(false)` if the given `block_hash` is certainly *not* the terminal proof-of-work
-    ///     block.
+    ///   block.
     /// - `None` if the `block_hash` or its parent were not present on the execution engine.
     /// - `Err(_)` if there was an error connecting to the execution engine.
     ///
@@ -1846,7 +1844,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
-    pub async fn get_blobs(
+    pub async fn get_blobs_v1(
         &self,
         query: Vec<Hash256>,
     ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
@@ -1854,7 +1852,24 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         if capabilities.get_blobs_v1 {
             self.engine()
-                .request(|engine| async move { engine.api.get_blobs(query).await })
+                .request(|engine| async move { engine.api.get_blobs_v1(query).await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn get_blobs_v2(
+        &self,
+        query: Vec<Hash256>,
+    ) -> Result<Vec<Option<BlobAndProofV2<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_blobs_v2 {
+            self.engine()
+                .request(|engine| async move { engine.api.get_blobs_v2(query).await })
                 .await
                 .map_err(Box::new)
                 .map_err(Error::EngineError)
@@ -1968,7 +1983,7 @@ enum InvalidBuilderPayload {
         expected: Option<u64>,
     },
     Fork {
-        payload: Option<ForkName>,
+        payload: ForkName,
         expected: ForkName,
     },
     Signature {
@@ -2001,7 +2016,7 @@ impl fmt::Display for InvalidBuilderPayload {
                 write!(f, "payload block number was {} not {:?}", payload, expected)
             }
             InvalidBuilderPayload::Fork { payload, expected } => {
-                write!(f, "payload fork was {:?} not {}", payload, expected)
+                write!(f, "payload fork was {} not {}", payload, expected)
             }
             InvalidBuilderPayload::Signature { signature, pubkey } => write!(
                 f,
@@ -2104,7 +2119,7 @@ fn verify_builder_bid<E: EthSpec>(
             payload: header.block_number(),
             expected: block_number,
         }))
-    } else if bid.version != Some(current_fork) {
+    } else if bid.version != current_fork {
         Err(Box::new(InvalidBuilderPayload::Fork {
             payload: bid.version,
             expected: current_fork,

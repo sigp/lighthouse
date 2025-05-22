@@ -172,6 +172,18 @@ impl<E: EthSpec> NetworkGlobals<E> {
             .unwrap_or_default()
     }
 
+    pub fn add_trusted_peer(&self, enr: Enr) {
+        self.peers.write().set_trusted_peer(enr);
+    }
+
+    pub fn remove_trusted_peer(&self, enr: Enr) {
+        self.peers.write().unset_trusted_peer(enr);
+    }
+
+    pub fn trusted_peers(&self) -> Vec<PeerId> {
+        self.peers.read().trusted_peers()
+    }
+
     /// Updates the syncing state of the node.
     ///
     /// The old state is returned
@@ -192,6 +204,20 @@ impl<E: EthSpec> NetworkGlobals<E> {
             ))
             .cloned()
             .collect::<Vec<_>>()
+    }
+
+    /// Returns true if the peer is known and is a custodian of `column_index`
+    pub fn is_custody_peer_of(&self, column_index: ColumnIndex, peer_id: &PeerId) -> bool {
+        self.peers
+            .read()
+            .peer_info(peer_id)
+            .map(|info| {
+                info.is_assigned_to_custody_subnet(&DataColumnSubnetId::from_column_index(
+                    column_index,
+                    &self.spec,
+                ))
+            })
+            .unwrap_or(false)
     }
 
     /// Returns the TopicConfig to compute the set of Gossip topics for a given fork

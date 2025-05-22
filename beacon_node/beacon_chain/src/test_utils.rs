@@ -38,8 +38,7 @@ use kzg::{Kzg, TrustedSetup};
 use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
-use parking_lot::Mutex;
-use parking_lot::RwLockWriteGuard;
+use parking_lot::{Mutex, RwLockWriteGuard};
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -70,8 +69,6 @@ use types::{typenum::U4294967296, *};
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // Environment variable to read if `fork_from_env` feature is enabled.
 pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
-// Environment variable to read if `ci_logger` feature is enabled.
-pub const CI_LOGGER_DIR_ENV_VAR: &str = "CI_LOGGER_DIR";
 
 // Pre-computed data column sidecar using a single static blob from:
 // `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
@@ -588,7 +585,8 @@ where
             .chain_config(chain_config)
             .import_all_data_columns(self.import_all_data_columns)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
-            .validator_monitor_config(validator_monitor_config);
+            .validator_monitor_config(validator_monitor_config)
+            .rng(Box::new(StdRng::seed_from_u64(42)));
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
@@ -891,6 +889,28 @@ where
 
     pub fn is_skipped_slot(&self, state: &BeaconState<E>, slot: Slot) -> bool {
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
+    }
+
+    pub fn knows_head(&self, block_hash: &SignedBeaconBlockHash) -> bool {
+        self.chain
+            .heads()
+            .iter()
+            .any(|(head, _)| *head == Hash256::from(*block_hash))
+    }
+
+    pub fn assert_knows_head(&self, head_block_root: Hash256) {
+        let heads = self.chain.heads();
+        if !heads.iter().any(|(head, _)| *head == head_block_root) {
+            let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+            if heads.is_empty() {
+                let nodes = &fork_choice.proto_array().core_proto_array().nodes;
+                panic!("Expected to know head block root {head_block_root:?}, but heads is empty. Nodes: {nodes:#?}");
+            } else {
+                panic!(
+                    "Expected to know head block root {head_block_root:?}, known heads {heads:#?}"
+                );
+            }
+        }
     }
 
     pub async fn make_blinded_block(
@@ -2344,7 +2364,7 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new_without_blobs(Some(block_root), block);
+            return RpcBlock::new_without_blobs(Some(block_root), block, 0);
         }
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
@@ -2395,7 +2415,7 @@ where
                     &self.spec,
                 )?
             } else {
-                RpcBlock::new_without_blobs(Some(block_root), block)
+                RpcBlock::new_without_blobs(Some(block_root), block, 0)
             }
         } else {
             let blobs = blob_items
@@ -2649,10 +2669,7 @@ where
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> AddBlocksResult<E> {
-        assert!(
-            slots.windows(2).all(|w| w[0] <= w[1]),
-            "Slots have to be sorted"
-        ); // slice.is_sorted() isn't stabilized at the moment of writing this
+        assert!(slots.is_sorted(), "Slots have to be in ascending order");
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
@@ -2692,10 +2709,7 @@ where
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> AddBlocksResult<E> {
-        assert!(
-            slots.windows(2).all(|w| w[0] <= w[1]),
-            "Slots have to be sorted"
-        ); // slice.is_sorted() isn't stabilized at the moment of writing this
+        assert!(slots.is_sorted(), "Slots have to be in ascending order");
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
@@ -3172,7 +3186,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
 
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
@@ -3192,7 +3206,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
@@ -3211,7 +3225,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 NumBlobs::None => 0,
             };
             let (bundle, transactions) =
-                execution_layer::test_utils::generate_blobs::<E>(num_blobs).unwrap();
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
             payload.execution_payload.transactions = <_>::default();
             for tx in Vec::from(transactions) {
                 payload.execution_payload.transactions.push(tx).unwrap();
