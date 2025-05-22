@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info_span, warn, Instrument};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
     EmptyBlock, Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, MinimalEthSpec,
@@ -117,7 +117,8 @@ fn test_tcp_status_rpc() {
                     _ => {}
                 }
             }
-        };
+        }
+        .instrument(info_span!("Sender"));
 
         // build the receiver future
         let receiver_future = async {
@@ -141,7 +142,8 @@ fn test_tcp_status_rpc() {
                     _ => {} // Ignore other events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Receiver"));
 
         tokio::select! {
             _ = sender_future => {}
@@ -245,7 +247,8 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                     _ => {} // Ignore other behaviour events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Sender"));
 
         // build the receiver future
         let receiver_future = async {
@@ -286,7 +289,8 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                     _ => {} // Ignore other events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Receiver"));
 
         tokio::select! {
             _ = sender_future => {}
@@ -373,7 +377,8 @@ fn test_blobs_by_range_chunked_rpc() {
                     _ => {} // Ignore other behaviour events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Sender"));
 
         // build the receiver future
         let receiver_future = async {
@@ -407,7 +412,8 @@ fn test_blobs_by_range_chunked_rpc() {
                     _ => {} // Ignore other events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Receiver"));
 
         tokio::select! {
             _ = sender_future => {}
@@ -479,7 +485,8 @@ fn test_tcp_blocks_by_range_over_limit() {
                     _ => {} // Ignore other behaviour events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Sender"));
 
         // build the receiver future
         let receiver_future = async {
@@ -512,7 +519,8 @@ fn test_tcp_blocks_by_range_over_limit() {
                     _ => {} // Ignore other events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Receiver"));
 
         tokio::select! {
             _ = sender_future => {}
@@ -601,7 +609,8 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     _ => {} // Ignore other behaviour events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Sender"));
 
         // determine messages to send (PeerId, RequestId). If some, indicates we still need to send
         // messages
@@ -648,7 +657,8 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     }
                 }
             }
-        };
+        }
+        .instrument(info_span!("Receiver"));
 
         tokio::select! {
             _ = sender_future => {}
@@ -734,7 +744,8 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                     _ => {} // Ignore other behaviour events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Sender"));
 
         // build the receiver future
         let receiver_future = async {
@@ -767,7 +778,8 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                     _ => {} // Ignore other events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Receiver"));
         tokio::select! {
             _ = sender_future => {}
             _ = receiver_future => {}
@@ -877,7 +889,8 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                     _ => {} // Ignore other behaviour events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Sender"));
 
         // build the receiver future
         let receiver_future = async {
@@ -916,7 +929,8 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                     _ => {} // Ignore other events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Receiver"));
         tokio::select! {
             _ = sender_future => {}
             _ = receiver_future => {}
@@ -1015,7 +1029,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     _ => {} // Ignore other behaviour events
                 }
             }
-        };
+        }
+        .instrument(info_span!("Sender"));
 
         // determine messages to send (PeerId, RequestId). If some, indicates we still need to send
         // messages
@@ -1062,7 +1077,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     }
                 }
             }
-        };
+        }
+        .instrument(info_span!("Receiver"));
 
         tokio::select! {
             _ = sender_future => {}
@@ -1115,7 +1131,8 @@ fn goodbye_test(log_level: &str, enable_logging: bool, protocol: Protocol) {
                     _ => {} // Ignore other RPC messages
                 }
             }
-        };
+        }
+        .instrument(info_span!("Sender"));
 
         // build the receiver future
         let receiver_future = async {
@@ -1125,7 +1142,8 @@ fn goodbye_test(log_level: &str, enable_logging: bool, protocol: Protocol) {
                     return;
                 }
             }
-        };
+        }
+        .instrument(info_span!("Receiver"));
 
         let total_future = futures::future::join(sender_future, receiver_future);
 
