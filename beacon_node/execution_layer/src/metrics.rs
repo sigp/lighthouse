@@ -116,3 +116,29 @@ pub static EXECUTION_LAYER_PAYLOAD_BIDS: LazyLock<Result<IntGaugeVec>> = LazyLoc
         &["source"]
     )
 });
+pub static EXECUTION_LAYER_INFO: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "execution_layer_info",
+        "The build of the execution layer connected to lighthouse",
+        &["code", "name", "version", "commit"],
+    )
+});
+
+pub fn reset_execution_layer_info_gauge() {
+    let _ = EXECUTION_LAYER_INFO.as_ref().map(|gauge| gauge.reset());
+}
+
+pub fn expose_execution_layer_info(els: &Vec<crate::ClientVersionV1>) {
+    for el in els {
+        set_gauge_vec(
+            &EXECUTION_LAYER_INFO,
+            &[
+                &el.code.to_string(),
+                &el.name,
+                &el.version,
+                &el.commit.to_string(),
+            ],
+            1,
+        );
+    }
+}

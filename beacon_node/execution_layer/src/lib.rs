@@ -1554,10 +1554,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         age_limit: Option<Duration>,
     ) -> Result<Vec<ClientVersionV1>, Error> {
-        self.engine()
+        let versions = self
+            .engine()
             .request(|engine| engine.get_engine_version(age_limit))
             .await
-            .map_err(Into::into)
+            .map_err(Into::<Error>::into)?;
+        metrics::expose_execution_layer_info(&versions);
+
+        Ok(versions)
     }
 
     /// Used during block production to determine if the merge has been triggered.
