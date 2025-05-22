@@ -36,7 +36,7 @@
 - Deprecate `gossipsub::Config::idle_timeout` in favor of `SwarmBuilder::idle_connection_timeout`.
   See [PR 4648].
 
-<!-- Interal changes:
+<!-- Internal, Interval, Integral changes:
 
 - Allow new clippy lint.
 
