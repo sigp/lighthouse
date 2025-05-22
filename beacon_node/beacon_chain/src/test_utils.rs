@@ -2671,10 +2671,7 @@ where
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> AddBlocksResult<E> {
-        assert!(
-            slots.windows(2).all(|w| w[0] <= w[1]),
-            "Slots have to be sorted"
-        ); // slice.is_sorted() isn't stabilized at the moment of writing this
+        assert!(slots.is_sorted(), "Slots have to be in ascending order");
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
@@ -2714,10 +2711,7 @@ where
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> AddBlocksResult<E> {
-        assert!(
-            slots.windows(2).all(|w| w[0] <= w[1]),
-            "Slots have to be sorted"
-        ); // slice.is_sorted() isn't stabilized at the moment of writing this
+        assert!(slots.is_sorted(), "Slots have to be in ascending order");
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
