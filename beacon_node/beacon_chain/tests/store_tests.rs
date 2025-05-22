@@ -3204,9 +3204,11 @@ async fn deneb_prune_blobs_fork_boundary() {
     spec.deneb_fork_epoch = Some(deneb_fork_epoch);
     let deneb_fork_slot = deneb_fork_epoch.start_slot(E::slots_per_epoch());
 
-    let fulu_fork_epoch = Epoch::new(8);
+    let electra_fork_epoch = Epoch::new(8);
+    spec.electra_fork_epoch = Some(electra_fork_epoch);
+
+    let fulu_fork_epoch = Epoch::new(12);
     spec.fulu_fork_epoch = Some(fulu_fork_epoch);
-    let fulu_fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
 
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
@@ -3214,7 +3216,8 @@ async fn deneb_prune_blobs_fork_boundary() {
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     let blocks_to_deneb = E::slots_per_epoch() * 7;
-    let blocks_to_fulu = E::slots_per_epoch() * 13;
+    let blocks_to_electra = E::slots_per_epoch() * 6;
+    let blocks_to_fulu = E::slots_per_epoch() * 4;
 
     // Finalize to epoch 5 (Deneb).
     harness
@@ -3264,17 +3267,17 @@ async fn deneb_prune_blobs_fork_boundary() {
     assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
     check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
     check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
-
-    // Finalize to epoch 11 (Fulu)
+    // Finalize to epoch 11 (Electra)
+    harness.advance_slot();
     harness
         .extend_chain(
-            blocks_to_fulu as usize,
+            blocks_to_electra as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    // Finalization should be at epoch 11 (Fulu).
+    // Finalization should be at epoch 11 (Electra).
     let finalized_epoch = Epoch::new(11);
     let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
     assert_eq!(
@@ -3286,9 +3289,41 @@ async fn deneb_prune_blobs_fork_boundary() {
     // All blobs since last pruning during Deneb should still be available.
     assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
 
-    let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+    let electra_first_slot = electra_fork_epoch.start_slot(E::slots_per_epoch());
+    // Check that blobs have been pruned up to the pruned slot
     check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
+    // Check that blobs exist from the pruned slot to electra
+    check_blob_existence(&harness, pruned_slot, electra_first_slot - 1, true);
+    // Check that blobs exist from electra to the current head
+    check_blob_existence(&harness, electra_first_slot, harness.head_slot(), true);
+    // Finalize to epoch 15 (Fulu)
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            blocks_to_fulu as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Finalization should be at epoch 15 (Fulu).
+    let finalized_epoch = Epoch::new(15);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    assert_eq!(
+        harness.get_current_state().finalized_checkpoint().epoch,
+        finalized_epoch
+    );
+    assert_eq!(store.get_split_slot(), finalized_slot);
+
+    // All blobs since last pruning during Electra should still be available.
+    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
+
+    let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+    // Check that blobs have been pruned up to the pruned slot
+    check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
+    // Check that blobs exist from the pruned slot to Fulu
     check_blob_existence(&harness, pruned_slot, fulu_first_slot - 1, true);
+    // Check that blobs do not exist from Fulu to the current head
     check_blob_existence(&harness, fulu_first_slot, harness.head_slot(), false);
 
     // Attempt pruning with data availability epochs that precede the fork epoch.
@@ -3296,23 +3331,30 @@ async fn deneb_prune_blobs_fork_boundary() {
     assert!(fulu_fork_epoch < finalized_epoch);
     for data_availability_boundary in [
         Epoch::new(7),
-        fulu_fork_epoch,
+        electra_fork_epoch,
         Epoch::new(9),
         Epoch::new(11),
+        fulu_fork_epoch,
     ] {
         store
             .try_prune_blobs(true, data_availability_boundary)
             .unwrap();
 
         // Check oldest blob slot is not updated.
-        let oldest_slot = if data_availability_boundary < fulu_fork_epoch {
-            data_availability_boundary.start_slot(E::slots_per_epoch())
+        if data_availability_boundary < fulu_fork_epoch {
+            // Pre Fulu fork epochs
+            let oldest_slot = data_availability_boundary.start_slot(E::slots_per_epoch());
+            assert_eq!(store.get_blob_info().oldest_blob_slot, Some(oldest_slot));
+            // Blobs should exist
+            check_blob_existence(&harness, oldest_slot, harness.head_slot(), true);
         } else {
-            fulu_fork_epoch.start_slot(E::slots_per_epoch())
+            // Fulu fork epoch
+            let oldest_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+            // Blobs should not exist
+            check_blob_existence(&harness, oldest_slot, harness.head_slot(), false);
+            // Data columns should exist
+            check_data_column_existence(&harness, oldest_slot, harness.head_slot(), true);
         };
-        assert_eq!(store.get_blob_info().oldest_blob_slot, Some(oldest_slot));
-        check_blob_existence(&harness, Slot::new(0), oldest_slot - 1, false);
-        check_blob_existence(&harness, oldest_slot, harness.head_slot(), true);
     }
 }
 
