@@ -3,9 +3,11 @@ use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
 use crate::observed_data_sidecars::DoNotObserve;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
 use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
+use kzg::Kzg;
 #[cfg(test)]
 use mockall::automock;
 use std::sync::Arc;
+use task_executor::TaskExecutor;
 use types::{BlobSidecar, ChainSpec, Hash256, Slot};
 
 /// An adapter to the `BeaconChain` functionalities to remove `BeaconChain` from direct dependency to enable testing fetch blobs logic.
@@ -27,6 +29,14 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
 
     pub(crate) fn spec(&self) -> &Arc<ChainSpec> {
         &self.spec
+    }
+
+    pub(crate) fn kzg(&self) -> &Arc<Kzg> {
+        &self.chain.kzg
+    }
+
+    pub(crate) fn executor(&self) -> &TaskExecutor {
+        &self.chain.task_executor
     }
 
     pub(crate) async fn get_blobs_v1(

@@ -66,6 +66,7 @@ pub enum FetchEngineBlobError {
     GossipBlob(GossipBlobError),
     RequestFailed(ExecutionLayerError),
     RuntimeShutdown,
+    TokioJoin(tokio::task::JoinError),
 }
 
 /// Fetches blobs from the EL mempool and processes them. It also broadcasts unseen blobs or
@@ -278,7 +279,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     }
 
     let custody_columns = compute_and_publish_data_columns(
-        chain_adapter.chain(),
+        &chain_adapter,
         block.clone(),
         blobs,
         proofs,
@@ -302,15 +303,17 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
 
 /// Offload the data column computation to a blocking task to avoid holding up the async runtime.
 async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
-    chain: &Arc<BeaconChain<T>>,
+    chain_adapter: &FetchBlobsBeaconAdapter<T>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: Vec<Blob<T::EthSpec>>,
     proofs: Vec<KzgProofs<T::EthSpec>>,
     custody_columns_indices: HashSet<ColumnIndex>,
     publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
 ) -> Result<DataColumnSidecarList<T::EthSpec>, FetchEngineBlobError> {
-    let chain_cloned = chain.clone();
-    chain
+    let kzg = chain_adapter.kzg().clone();
+    let spec = chain_adapter.spec().clone();
+    chain_adapter
+        .executor()
         .spawn_blocking_handle(
             move || {
                 let mut timer = metrics::start_timer_vec(
@@ -320,14 +323,9 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
 
                 let blob_refs = blobs.iter().collect::<Vec<_>>();
                 let cell_proofs = proofs.into_iter().flatten().collect();
-                let data_columns_result = blobs_to_data_column_sidecars(
-                    &blob_refs,
-                    cell_proofs,
-                    &block,
-                    &chain_cloned.kzg,
-                    &chain_cloned.spec,
-                )
-                .discard_timer_on_break(&mut timer);
+                let data_columns_result =
+                    blobs_to_data_column_sidecars(&blob_refs, cell_proofs, &block, &kzg, &spec)
+                        .discard_timer_on_break(&mut timer);
                 drop(timer);
 
                 // This filtering ensures we only import and publish the custody columns.
@@ -345,9 +343,9 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
             },
             "compute_and_publish_data_columns",
         )
+        .ok_or(FetchEngineBlobError::RuntimeShutdown)?
         .await
-        .map_err(|e| FetchEngineBlobError::BeaconChainError(Box::new(e)))
-        .and_then(|r| r)
+        .map_err(FetchEngineBlobError::TokioJoin)?
 }
 
 fn build_blob_sidecars<E: EthSpec>(

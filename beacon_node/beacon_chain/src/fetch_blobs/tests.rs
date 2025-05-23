@@ -2,7 +2,7 @@ use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
 use crate::fetch_blobs::{
     fetch_and_process_engine_blobs_inner, BlobsOrDataColumns, FetchEngineBlobError,
 };
-use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use crate::test_utils::{get_kzg, EphemeralHarnessType};
 use crate::AvailabilityProcessingStatus;
 use bls::Signature;
 use eth2::types::BlobsBundle;
@@ -10,6 +10,7 @@ use execution_layer::json_structures::BlobAndProofV2;
 use execution_layer::test_utils::generate_blobs;
 use maplit::hashset;
 use std::sync::{Arc, Mutex};
+use task_executor::test_utils::TestRuntime;
 use types::{
     BeaconBlockFulu, EmptyBlock, EthSpec, ForkName, Hash256, MainnetEthSpec, SignedBeaconBlock,
     SignedBeaconBlockFulu,
@@ -197,21 +198,15 @@ fn mock_publish_fn() -> (
 }
 
 fn mock_beacon_adapter() -> MockFetchBlobsBeaconAdapter<T> {
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-    let validator_count = 1;
-    // Set up a minimal beacon chain - we don't need a real chain for this test.
-    let harness = BeaconChainHarness::builder(E::default())
-        .spec(Arc::new(spec))
-        .deterministic_keypairs(validator_count)
-        .fresh_ephemeral_store()
-        .build();
+    let test_runtime = TestRuntime::default();
+    let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+    let kzg = get_kzg(&spec);
 
     let mut mock_adapter = MockFetchBlobsBeaconAdapter::default();
+    mock_adapter.expect_spec().return_const(spec.clone());
+    mock_adapter.expect_kzg().return_const(kzg.clone());
     mock_adapter
-        .expect_spec()
-        .return_const(harness.spec.clone());
-    mock_adapter
-        .expect_chain()
-        .return_const(harness.chain.clone());
+        .expect_executor()
+        .return_const(test_runtime.task_executor.clone());
     mock_adapter
 }
