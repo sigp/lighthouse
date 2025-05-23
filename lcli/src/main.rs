@@ -675,6 +675,7 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
                     extra_info: false,
                 },
                 "",
+                0o600,
             );
 
     let env = env_builder

@@ -196,7 +196,7 @@ jobs:
     - name: Run network tests for all known forks
       run: make test-network
       env:
-        TEST_FEATURES: portable,ci_logger
+        TEST_FEATURES: portable
         CI_LOGGER_DIR: ${{ runner.temp }}/network_test_logs
     - name: Upload logs
       uses: actions/upload-artifact@v4
