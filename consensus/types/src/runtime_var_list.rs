@@ -6,6 +6,7 @@ use ssz::Decode;
 use ssz_types::Error;
 use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
+use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash};
 
 /// Emulates a SSZ `List`.
 ///
@@ -238,6 +239,36 @@ where
             )));
         }
         Ok(RuntimeVariableList::from_vec(vec, context.1))
+    }
+}
+
+// TODO: test without Send + Sync
+impl<T: tree_hash::TreeHash + Send + Sync> TreeHash for RuntimeVariableList<T> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        let mut hasher = MerkleHasher::with_leaves(self.max_len());
+
+        for item in self.vec.iter() {
+            hasher
+                .write(item.tree_hash_root().as_slice())
+                .expect("RuntimeVariableList should not containe more elements than max");
+        }
+
+        let root = hasher
+            .finish()
+            .expect("RuntimeVariableList should not have a remaining buffer");
+        tree_hash::mix_in_length(&root, self.len())
     }
 }
 

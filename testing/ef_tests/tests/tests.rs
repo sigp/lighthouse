@@ -660,20 +660,16 @@ mod ssz_static {
 
     #[test]
     fn data_column_sidecar() {
-        SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
-        SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
+        SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::fulu_and_later()
+            .run();
+        SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::fulu_and_later()
+            .run();
     }
 
     #[test]
-    #[ignore]
-    // TODO(das): enable once EF tests are updated to latest release.
     fn data_column_by_root_identifier() {
-        // SszStaticHandler::<DataColumnsByRootIdentifier, MinimalEthSpec>::default()
-        //     .run_for_feature(FeatureName::Fulu);
-        // SszStaticHandler::<DataColumnsByRootIdentifier, MainnetEthSpec>::default()
-        //     .run_for_feature(FeatureName::Fulu);
+        SszStaticHandler::<DataColumnsByRootIdentifier, MinimalEthSpec>::fulu_and_later().run();
+        SszStaticHandler::<DataColumnsByRootIdentifier, MainnetEthSpec>::fulu_and_later().run();
     }
 
     #[test]

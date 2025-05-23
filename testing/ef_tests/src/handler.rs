@@ -28,8 +28,11 @@ pub trait Handler {
         Self::Case::is_enabled_for_fork(fork_name)
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        Self::Case::is_enabled_for_feature(feature_name)
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
+        // When a feature is ready to be part of a main fork, it should be removed from here and
+        // the tests should run normally under that fork.
+        false
     }
 
     fn run(&self) {
@@ -367,23 +370,11 @@ where
         self.supported_forks.contains(&fork_name)
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        // TODO(fulu): to be removed once Fulu types start differing from Electra. We currently run Fulu tests as a
-        // "feature" - this means we use Electra types for Fulu SSZ tests (except for PeerDAS types, e.g. `DataColumnSidecar`).
-        //
-        // This ensures we only run the tests **once** for `Fulu`, using the types matching the
-        // correct fork, e.g. `Fulu` uses SSZ types from `Electra` as of spec test version
-        // `v1.5.0-beta.0`, therefore the `Fulu` tests should get included when testing Deneb types.
-        //
-        // e.g. Fulu test vectors are executed in the 2nd line below, but excluded in the 1st
-        // line when testing the type `AttestationElectra`:
-        //
-        // ```
-        // SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
-        // SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only().run();
-        // ```
-        feature_name == FeatureName::Fulu
-            && self.supported_forks.contains(&feature_name.fork_name())
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
+        // When a feature is ready to be part of a main fork, it should be removed from here and
+        // the tests should run normally under that fork.
+        false
     }
 }
 
@@ -405,8 +396,11 @@ where
         BeaconState::<E>::name().into()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
+        // When a feature is ready to be part of a main fork, it should be removed from here and
+        // the tests should run normally under that fork.
+        false
     }
 }
 
@@ -430,8 +424,11 @@ where
         T::name().into()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
+        // When a feature is ready to be part of a main fork, it should be removed from here and
+        // the tests should run normally under that fork.
+        false
     }
 }
 
@@ -920,8 +917,11 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
         "get_custody_groups".into()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
+        // When a feature is ready to be part of a main fork, it should be removed from here and
+        // the tests should run normally under that fork.
+        false
     }
 }
 
@@ -944,8 +944,11 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
         "compute_columns_for_custody_group".into()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
+        // When a feature is ready to be part of a main fork, it should be removed from here and
+        // the tests should run normally under that fork.
+        false
     }
 }
 
@@ -966,10 +969,6 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
 
     fn handler_name(&self) -> String {
         "compute_cells_and_kzg_proofs".into()
-    }
-
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
     }
 }
 
@@ -992,8 +991,11 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
         "verify_cell_kzg_proof_batch".into()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
+        // When a feature is ready to be part of a main fork, it should be removed from here and
+        // the tests should run normally under that fork.
+        false
     }
 }
 
@@ -1016,8 +1018,11 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
         "recover_cells_and_kzg_proofs".into()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
+        // When a feature is ready to be part of a main fork, it should be removed from here and
+        // the tests should run normally under that fork.
+        false
     }
 }
 
@@ -1044,8 +1049,11 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
         fork_name.deneb_enabled()
     }
 
-    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
+        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
+        // When a feature is ready to be part of a main fork, it should be removed from here and
+        // the tests should run normally under that fork.
+        false
     }
 }
 

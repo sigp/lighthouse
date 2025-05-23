@@ -26,7 +26,7 @@ pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
 pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Identifies a set of data columns associated with a specific beacon block.
-#[derive(Encode, Clone, Debug, PartialEq)]
+#[derive(Encode, Clone, Debug, PartialEq, TreeHash)]
 pub struct DataColumnsByRootIdentifier {
     pub block_root: Hash256,
     pub columns: RuntimeVariableList<ColumnIndex>,
