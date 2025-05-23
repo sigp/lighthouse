@@ -9,12 +9,6 @@ default = ["leveldb"]
 leveldb = ["dep:leveldb"]
 redb = ["dep:redb"]
 
-[dev-dependencies]
-beacon_chain = { workspace = true }
-criterion = { workspace = true }
-rand = { workspace = true, features = ["small_rng"] }
-tempfile = { workspace = true }
-
 [dependencies]
 bls = { workspace = true }
 db-key = "0.0.5"
@@ -39,6 +33,12 @@ tracing-subscriber = { workspace = true }
 types = { workspace = true }
 xdelta3 = { workspace = true }
 zstd = { workspace = true }
+
+[dev-dependencies]
+beacon_chain = { workspace = true }
+criterion = { workspace = true }
+rand = { workspace = true, features = ["small_rng"] }
+tempfile = { workspace = true }
 
 [[bench]]
 name = "hdiff"
