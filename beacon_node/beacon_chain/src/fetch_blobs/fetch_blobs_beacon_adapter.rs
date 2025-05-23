@@ -23,10 +23,6 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         Self { chain, spec }
     }
 
-    pub(crate) fn chain(&self) -> &Arc<BeaconChain<T>> {
-        &self.chain
-    }
-
     pub(crate) fn spec(&self) -> &Arc<ChainSpec> {
         &self.spec
     }
