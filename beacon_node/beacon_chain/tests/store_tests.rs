@@ -3622,8 +3622,8 @@ async fn fulu_prune_data_columns_no_finalization() {
 /// Check that data column pruning does not fail trying to prune across the fork boundary.
 #[tokio::test]
 async fn fulu_prune_data_columns_fork_boundary() {
+    let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
     let fulu_fork_epoch = Epoch::new(4);
-    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
     spec.fulu_fork_epoch = Some(fulu_fork_epoch);
     let fulu_fork_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
 
@@ -3632,7 +3632,7 @@ async fn fulu_prune_data_columns_fork_boundary() {
 
     if !store.get_chain_spec().is_peer_das_scheduled() {
         // No-op if PeerDAS not scheduled.
-        panic!("TEST");
+        panic!("PeerDAS not scheduled");
         //return;
     }
 

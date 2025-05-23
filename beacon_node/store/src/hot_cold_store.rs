@@ -2733,6 +2733,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         let blob_info = self.get_blob_info();
+        let data_column_info = self.get_data_column_info();
         let Some(oldest_blob_slot) = blob_info.oldest_blob_slot else {
             error!("Slot of oldest blob is not known");
             return Err(HotColdDBError::BlobPruneLogicError.into());
@@ -2822,6 +2823,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             self.blobs_db
                 .delete_if(DBColumn::BeaconDataColumn, remove_data_column_if)?;
+
+            let new_data_column_info = DataColumnInfo {
+                oldest_data_column_slot: Some(end_slot + 1),
+            };
+            let op =
+                self.compare_and_set_data_column_info(data_column_info, new_data_column_info)?;
+            self.do_atomically_with_block_and_blobs_cache(vec![StoreOp::KeyValueOp(op)])?;
         }
 
         // Remove deleted blobs from the cache.
