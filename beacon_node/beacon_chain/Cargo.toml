@@ -5,10 +5,6 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = { workspace = true }
 autotests = false # using a single test binary compiles faster
 
-[[bench]]
-name = "benches"
-harness = false
-
 [features]
 default = ["participation_metrics"]
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
@@ -16,11 +12,6 @@ participation_metrics = []  # Exposes validator participation metrics to Prometh
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
 portable = ["bls/supranational-portable"]
 test_backfill = []
-
-[dev-dependencies]
-criterion = { workspace = true }
-maplit = { workspace = true }
-serde_json = { workspace = true }
 
 [dependencies]
 alloy-primitives = { workspace = true }
@@ -74,6 +65,15 @@ tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 types = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+maplit = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "benches"
+harness = false
 
 [[test]]
 name = "beacon_chain_tests"

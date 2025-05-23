@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "account_manager",
-
     "beacon_node",
     "beacon_node/beacon_chain",
     "beacon_node/beacon_processor",
@@ -17,9 +16,7 @@ members = [
     "beacon_node/operation_pool",
     "beacon_node/store",
     "beacon_node/timer",
-
     "boot_node",
-
     "common/account_utils",
     "common/clap_utils",
     "common/compare_fields",
@@ -52,7 +49,6 @@ members = [
     "common/validator_dir",
     "common/warp_utils",
     "common/workspace_members",
-
     "consensus/context_deserialize",
     "consensus/context_deserialize_derive",
     "consensus/fixed_bytes",
@@ -64,23 +60,17 @@ members = [
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
     "consensus/types",
-
     "crypto/bls",
     "crypto/eth2_key_derivation",
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
     "crypto/kzg",
-
     "database_manager",
-
     "lcli",
-
     "lighthouse",
     "lighthouse/environment",
-
     "slasher",
     "slasher/service",
-
     "testing/ef_tests",
     "testing/eth1_test_rig",
     "testing/execution_engine_integration",
@@ -89,8 +79,6 @@ members = [
     "testing/state_transition_vectors",
     "testing/validator_test_rig",
     "testing/web3signer_tests",
-
-
     "validator_client",
     "validator_client/beacon_node_fallback",
     "validator_client/doppelganger_service",
@@ -103,7 +91,6 @@ members = [
     "validator_client/slashing_protection",
     "validator_client/validator_metrics",
     "validator_client/validator_services",
-
     "validator_manager",
 ]
 resolver = "2"
@@ -112,63 +99,107 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
+account_utils = { path = "common/account_utils" }
+alloy-consensus = "0.3.0"
 alloy-primitives = { version = "0.8", features = ["rlp", "getrandom"] }
 alloy-rlp = "0.3.4"
-alloy-consensus = "0.3.0"
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
 axum = "0.7.7"
+beacon_chain = { path = "beacon_node/beacon_chain" }
+beacon_node = { path = "beacon_node" }
+beacon_node_fallback = { path = "validator_client/beacon_node_fallback" }
+beacon_processor = { path = "beacon_node/beacon_processor" }
 bincode = "1"
 bitvec = "1"
+bls = { path = "crypto/bls" }
 byteorder = "1"
 bytes = "1"
-cargo_metadata = "0.19"
-clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
 c-kzg = { version = "1", default-features = false }
+cargo_metadata = "0.19"
+clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
+clap_utils = { path = "common/clap_utils" }
+compare_fields = { path = "common/compare_fields" }
 compare_fields_derive = { path = "common/compare_fields_derive" }
 context_deserialize = { path = "consensus/context_deserialize" }
 context_deserialize_derive = { path = "consensus/context_deserialize_derive" }
 criterion = "0.5"
 delay_map = "0.4"
+deposit_contract = { path = "common/deposit_contract" }
 derivative = "2"
+directory = { path = "common/directory" }
 dirs = "3"
-either = "1.9"
-rust_eth_kzg = "0.5.4"
 discv5 = { version = "0.9", features = ["libp2p"] }
+doppelganger_service = { path = "validator_client/doppelganger_service" }
+either = "1.9"
 env_logger = "0.9"
+environment = { path = "lighthouse/environment" }
+eth1 = { path = "beacon_node/eth1" }
+eth1_test_rig = { path = "testing/eth1_test_rig" }
+eth2 = { path = "common/eth2" }
+eth2_config = { path = "common/eth2_config" }
+eth2_key_derivation = { path = "crypto/eth2_key_derivation" }
+eth2_keystore = { path = "crypto/eth2_keystore" }
+eth2_network_config = { path = "common/eth2_network_config" }
+eth2_wallet = { path = "crypto/eth2_wallet" }
 ethereum_hashing = "0.7.0"
 ethereum_serde_utils = "0.7"
 ethereum_ssz = "0.8.2"
 ethereum_ssz_derive = "0.8.2"
 ethers-core = "1"
+ethers-middleware = { version = "1", default-features = false }
 ethers-providers = { version = "1", default-features = false }
 ethers-signers = { version = "1", default-features = false }
-ethers-middleware = { version = "1", default-features = false }
+execution_layer = { path = "beacon_node/execution_layer" }
 exit-future = "0.2"
+filesystem = { path = "common/filesystem" }
+fixed_bytes = { path = "consensus/fixed_bytes" }
 fnv = "1"
+fork_choice = { path = "consensus/fork_choice" }
 fs2 = "0.4"
 futures = "0.3"
-graffiti_file = { path = "validator_client/graffiti_file" }
+genesis = { path = "beacon_node/genesis" }
 gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "61b2820" }
-hex = "0.4"
+graffiti_file = { path = "validator_client/graffiti_file" }
 hashlink = "0.9.0"
+health_metrics = { path = "common/health_metrics" }
+hex = "0.4"
+http_api = { path = "beacon_node/http_api" }
 hyper = "1"
+initialized_validators = { path = "validator_client/initialized_validators" }
+int_to_bytes = { path = "consensus/int_to_bytes" }
 itertools = "0.10"
+kzg = { path = "crypto/kzg" }
 libsecp256k1 = "0.7"
+lighthouse_network = { path = "beacon_node/lighthouse_network" }
+lighthouse_validator_store = { path = "validator_client/lighthouse_validator_store" }
+lighthouse_version = { path = "common/lighthouse_version" }
+lockfile = { path = "common/lockfile" }
 log = "0.4"
+logging = { path = "common/logging" }
 logroller = "0.1.8"
 lru = "0.12"
+lru_cache = { path = "common/lru_cache" }
+malloc_utils = { path = "common/malloc_utils" }
 maplit = "1"
+merkle_proof = { path = "consensus/merkle_proof" }
+metrics = { path = "common/metrics" }
 milhouse = "0.5"
 mockito = "1.5.0"
+monitoring_api = { path = "common/monitoring_api" }
+network = { path = "beacon_node/network" }
+node_test_rig = { path = "testing/node_test_rig" }
 num_cpus = "1"
 once_cell = "1.17.1"
+operation_pool = { path = "beacon_node/operation_pool" }
 parking_lot = "0.12"
 paste = "1"
+pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 prometheus = { version = "0.13", default-features = false }
+proto_array = { path = "consensus/proto_array" }
 quickcheck = "1"
 quickcheck_macros = "1"
 quote = "1"
@@ -186,18 +217,30 @@ reqwest = { version = "0.11", default-features = false, features = [
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
+rust_eth_kzg = "0.5.4"
+safe_arith = { path = "consensus/safe_arith" }
+sensitive_url = { path = "common/sensitive_url" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_repr = "0.1"
 serde_yaml = "0.9"
 sha2 = "0.9"
+signing_method = { path = "validator_client/signing_method" }
+slasher = { path = "slasher", default-features = false }
+slashing_protection = { path = "validator_client/slashing_protection" }
+slot_clock = { path = "common/slot_clock" }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
 ssz_types = "0.10"
+state_processing = { path = "consensus/state_processing" }
+store = { path = "beacon_node/store" }
 strum = { version = "0.24", features = ["derive"] }
 superstruct = "0.8"
+swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
 syn = "1"
 sysinfo = "0.26"
+system_health = { path = "common/system_health" }
+task_executor = { path = "common/task_executor" }
 tempfile = "3"
 tokio = { version = "1", features = [
     "rt-multi-thread",
@@ -214,72 +257,10 @@ tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tree_hash = "0.9"
 tree_hash_derive = "0.9"
-url = "2"
-uuid = { version = "0.8", features = ["serde", "v4"] }
-warp = { version = "0.3.7", default-features = false, features = ["tls"] }
-zeroize = { version = "1", features = ["zeroize_derive", "serde"] }
-zip = "0.6"
-
-# Local crates.
-account_utils = { path = "common/account_utils" }
-beacon_chain = { path = "beacon_node/beacon_chain" }
-beacon_node = { path = "beacon_node" }
-beacon_node_fallback = { path = "validator_client/beacon_node_fallback" }
-beacon_processor = { path = "beacon_node/beacon_processor" }
-bls = { path = "crypto/bls" }
-clap_utils = { path = "common/clap_utils" }
-compare_fields = { path = "common/compare_fields" }
-deposit_contract = { path = "common/deposit_contract" }
-directory = { path = "common/directory" }
-doppelganger_service = { path = "validator_client/doppelganger_service" }
-environment = { path = "lighthouse/environment" }
-eth1 = { path = "beacon_node/eth1" }
-eth1_test_rig = { path = "testing/eth1_test_rig" }
-eth2 = { path = "common/eth2" }
-eth2_config = { path = "common/eth2_config" }
-eth2_key_derivation = { path = "crypto/eth2_key_derivation" }
-eth2_keystore = { path = "crypto/eth2_keystore" }
-eth2_network_config = { path = "common/eth2_network_config" }
-eth2_wallet = { path = "crypto/eth2_wallet" }
-execution_layer = { path = "beacon_node/execution_layer" }
-fixed_bytes = { path = "consensus/fixed_bytes" }
-filesystem = { path = "common/filesystem" }
-fork_choice = { path = "consensus/fork_choice" }
-genesis = { path = "beacon_node/genesis" }
-health_metrics = { path = "common/health_metrics" }
-http_api = { path = "beacon_node/http_api" }
-initialized_validators = { path = "validator_client/initialized_validators" }
-int_to_bytes = { path = "consensus/int_to_bytes" }
-kzg = { path = "crypto/kzg" }
-metrics = { path = "common/metrics" }
-lighthouse_network = { path = "beacon_node/lighthouse_network" }
-lighthouse_validator_store = { path = "validator_client/lighthouse_validator_store" }
-lighthouse_version = { path = "common/lighthouse_version" }
-workspace_members = { path = "common/workspace_members" }
-lockfile = { path = "common/lockfile" }
-logging = { path = "common/logging" }
-lru_cache = { path = "common/lru_cache" }
-malloc_utils = { path = "common/malloc_utils" }
-merkle_proof = { path = "consensus/merkle_proof" }
-monitoring_api = { path = "common/monitoring_api" }
-network = { path = "beacon_node/network" }
-node_test_rig = { path = "testing/node_test_rig" }
-operation_pool = { path = "beacon_node/operation_pool" }
-pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
-proto_array = { path = "consensus/proto_array" }
-safe_arith = { path = "consensus/safe_arith" }
-sensitive_url = { path = "common/sensitive_url" }
-signing_method = { path = "validator_client/signing_method" }
-slasher = { path = "slasher", default-features = false }
-slashing_protection = { path = "validator_client/slashing_protection" }
-slot_clock = { path = "common/slot_clock" }
-state_processing = { path = "consensus/state_processing" }
-store = { path = "beacon_node/store" }
-swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
-system_health = { path = "common/system_health" }
-task_executor = { path = "common/task_executor" }
 types = { path = "consensus/types" }
 unused_port = { path = "common/unused_port" }
+url = "2"
+uuid = { version = "0.8", features = ["serde", "v4"] }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 validator_http_api = { path = "validator_client/http_api" }
@@ -288,8 +269,12 @@ validator_metrics = { path = "validator_client/validator_metrics" }
 validator_services = { path = "validator_client/validator_services" }
 validator_store = { path = "validator_client/validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
+warp = { version = "0.3.7", default-features = false, features = ["tls"] }
 warp_utils = { path = "common/warp_utils" }
+workspace_members = { path = "common/workspace_members" }
 xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9febb584ba93b9d16bb2ae3825a" }
+zeroize = { version = "1", features = ["zeroize_derive", "serde"] }
+zip = "0.6"
 zstd = "0.13"
 
 [profile.maxperf]

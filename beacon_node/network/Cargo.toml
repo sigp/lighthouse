@@ -4,17 +4,12 @@ version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
-[dev-dependencies]
-bls = { workspace = true }
-eth2 = { workspace = true }
-eth2_network_config = { workspace = true }
-genesis = { workspace = true }
-gossipsub = { workspace = true }
-k256 = "0.13.4"
-kzg = { workspace = true }
-matches = "0.1.8"
-rand_chacha = "0.3.1"
-serde_json = { workspace = true }
+[features]
+# NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill
+disable-backfill = []
+fork_from_env = ["beacon_chain/fork_from_env"]
+portable = ["beacon_chain/portable"]
+test_logger = []
 
 [dependencies]
 alloy-primitives = { workspace = true }
@@ -51,9 +46,14 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 types = { workspace = true }
 
-[features]
-# NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill
-disable-backfill = []
-fork_from_env = ["beacon_chain/fork_from_env"]
-portable = ["beacon_chain/portable"]
-test_logger = []
+[dev-dependencies]
+bls = { workspace = true }
+eth2 = { workspace = true }
+eth2_network_config = { workspace = true }
+genesis = { workspace = true }
+gossipsub = { workspace = true }
+k256 = "0.13.4"
+kzg = { workspace = true }
+matches = "0.1.8"
+rand_chacha = "0.3.1"
+serde_json = { workspace = true }
