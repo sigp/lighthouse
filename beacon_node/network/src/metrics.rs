@@ -677,6 +677,13 @@ pub static SYNC_TIME_PER_CLIENT: LazyLock<Result<HistogramVec>> = LazyLock::new(
     )
 });
 
+pub static GOSSIP_MESSAGES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "gossip_messages_received_per_client",
+        "Total messages received per client type and object type",
+        &["client", "object_type"],
+    )
+});
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
     inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);

@@ -228,13 +228,6 @@ pub static BYTES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock
     )
 });
 
-pub static MESSAGES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "messages_received_per_client",
-        "Total messages received per client",
-        &["client", "object_type"],
-    )
-});
 pub fn scrape_discovery_metrics() {
     let metrics =
         discv5::metrics::Metrics::from(discv5::Discv5::<discv5::DefaultProtocolId>::raw_metrics());
