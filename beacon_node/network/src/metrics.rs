@@ -677,9 +677,9 @@ pub static SYNC_TIME_PER_CLIENT: LazyLock<Result<HistogramVec>> = LazyLock::new(
     )
 });
 
-pub static GOSSIP_MESSAGES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+pub static MESSAGES_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
-        "gossip_messages_received_per_client",
+        "messages_received_per_client",
         "Total messages received per client type and object type",
         &["client", "object_type"],
     )

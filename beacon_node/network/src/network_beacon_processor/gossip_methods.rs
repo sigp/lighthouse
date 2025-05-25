@@ -344,7 +344,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
                 );
-                self.track_messages_received_per_client(peer_id, "attestation");
+                self.track_messages_received_per_client(peer_id, "gossip_attestation");
 
                 if let Err(e) = self
                     .chain
@@ -447,7 +447,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match conversion_result {
             Ok(Ok(attestation)) => {
                 let slot = attestation.data().slot;
-                self.track_messages_received_per_client(peer_id, "attestation");
+                self.track_messages_received_per_client(peer_id, "gossip_attestation");
                 if let Err(e) = self.send_unaggregated_attestation(
                     message_id.clone(),
                     peer_id,
@@ -685,7 +685,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL,
                 );
-                self.track_messages_received_per_client(peer_id, "aggregate");
+                self.track_messages_received_per_client(peer_id, "gossip_aggregate");
 
                 if let Err(e) = self
                     .chain
@@ -1071,7 +1071,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self.chain.process_gossip_blob(verified_blob).await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "blob");
-        self.track_messages_received_per_client(peer_id, "blob");
+        self.track_messages_received_per_client(peer_id, "gossip_blob");
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
@@ -1544,7 +1544,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         invalid_block_storage: InvalidBlockStorage,
         _seen_duration: Duration,
     ) {
-        self.track_messages_received_per_client(peer_id, "block");
+        self.track_messages_received_per_client(peer_id, "gossip_block");
         let processing_start_time = Instant::now();
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
@@ -1740,7 +1740,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL);
-        self.track_messages_received_per_client(peer_id, "voluntary_exit");
+        self.track_messages_received_per_client(peer_id, "gossip_voluntary_exit");
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -1802,7 +1802,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL);
-        self.track_messages_received_per_client(peer_id, "proposer_slashing");
+        self.track_messages_received_per_client(peer_id, "gossip_proposer_slashing");
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -1856,7 +1856,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL);
-        self.track_messages_received_per_client(peer_id, "attester_slashing");
+        self.track_messages_received_per_client(peer_id, "gossip_attester_slashing");
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -1926,7 +1926,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_VERIFIED_TOTAL);
-        self.track_messages_received_per_client(peer_id, "bls_to_execution_change");
+        self.track_messages_received_per_client(peer_id, "gossip_bls_to_execution_change");
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -1981,7 +1981,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // If the message is still timely, propagate it.
         self.propagate_sync_message_if_timely(message_slot, message_id, peer_id);
-        self.track_messages_received_per_client(peer_id, "sync_committee_message");
+        self.track_messages_received_per_client(peer_id, "gossip_sync_committee_message");
 
         // Register the sync signature with any monitored validators.
         self.chain
@@ -2055,7 +2055,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 &self.chain.slot_clock,
             );
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_VERIFIED_TOTAL);
-        self.track_messages_received_per_client(peer_id, "sync_committee_contribution");
+        self.track_messages_received_per_client(peer_id, "gossip_sync_committee_contribution");
 
         if let Err(e) = self
             .chain
@@ -2083,7 +2083,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         {
             Ok(_verified_light_client_finality_update) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-                self.track_messages_received_per_client(peer_id, "finality_update");
+                self.track_messages_received_per_client(peer_id, "gossip_finality_update");
             }
             Err(e) => {
                 metrics::register_finality_update_error(&e);
@@ -2146,7 +2146,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-                self.track_messages_received_per_client(peer_id, "optimistic_update");
+                self.track_messages_received_per_client(peer_id, "gossip_optimistic_update");
             }
             Err(e) => {
                 match e {

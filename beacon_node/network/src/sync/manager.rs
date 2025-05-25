@@ -1087,7 +1087,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             let client_version = self.network.client_version(&peer_id).to_string();
 
             metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client] );
-            metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT_VERSION, &[&client, &client_version]);
 
 
             self.block_lookups
@@ -1162,7 +1161,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             let client_version = self.network.client_version(&peer_id).to_string();
 
             metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client] );
-            metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT_VERSION, &[&client, &client_version]);
             self.block_lookups
                 .on_download_response::<BlobRequestState<T::EthSpec>>(
                     id,
