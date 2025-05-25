@@ -19,6 +19,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct SignedBlsToExecutionChange {
     pub message: BlsToExecutionChange,
     pub signature: Signature,

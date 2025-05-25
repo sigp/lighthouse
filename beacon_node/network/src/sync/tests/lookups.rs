@@ -107,6 +107,8 @@ impl TestRig {
         // deterministic seed
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
 
+        init_tracing();
+
         TestRig {
             beacon_processor_rx,
             beacon_processor_rx_queue: vec![],
