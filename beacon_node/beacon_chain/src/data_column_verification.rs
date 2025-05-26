@@ -214,6 +214,16 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         )
     }
 
+    /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
+    #[cfg(test)]
+    pub(crate) fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
+        Self {
+            block_root: column_sidecar.block_root(),
+            data_column: KzgVerifiedDataColumn::__new_for_testing(column_sidecar),
+            _phantom: Default::default(),
+        }
+    }
+
     pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
         self.data_column.as_data_column()
     }
@@ -257,11 +267,9 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         verify_kzg_for_data_column(data_column, kzg)
     }
 
-    /// Create a `KzgVerifiedDataColumn` from `data_column` that are already KZG verified.
-    ///
-    /// This should be used with caution, as used incorrectly it could result in KZG verification
-    /// being skipped and invalid data_columns being deemed valid.
-    pub fn from_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
+    /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
+    #[cfg(test)]
+    pub(crate) fn __new_for_testing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
         Self { data: data_column }
     }
 

@@ -14,11 +14,11 @@ graffiti_file = { workspace = true }
 logging = { workspace = true }
 parking_lot = { workspace = true }
 safe_arith = { workspace = true }
-slot_clock =  { workspace = true }
+slot_clock = { workspace = true }
 task_executor = { workspace = true }
-tokio =  { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
-tree_hash =  { workspace = true }
-types =  { workspace = true }
+tree_hash = { workspace = true }
+types = { workspace = true }
 validator_metrics = { workspace = true }
 validator_store = { workspace = true }

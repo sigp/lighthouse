@@ -20,6 +20,7 @@ mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
+    use eth2::types::FullBlockContents;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
     use initialized_validators::{
@@ -45,7 +46,9 @@ mod tests {
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
     use url::Url;
-    use validator_store::{Error as ValidatorStoreError, SignedBlock, ValidatorStore};
+    use validator_store::{
+        Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore,
+    };
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
@@ -595,8 +598,9 @@ mod tests {
             async move {
                 let block = BeaconBlock::<E>::Base(BeaconBlockBase::empty(&spec));
                 let block_slot = block.slot();
+                let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
                 validator_store
-                    .sign_block(pubkey, block.into(), block_slot)
+                    .sign_block(pubkey, unsigned_block, block_slot)
                     .await
                     .unwrap()
             }
@@ -665,12 +669,10 @@ mod tests {
             async move {
                 let mut altair_block = BeaconBlockAltair::empty(&spec);
                 altair_block.slot = altair_fork_slot;
+                let unsigned_block =
+                    UnsignedBlock::Full(FullBlockContents::Block(altair_block.into()));
                 validator_store
-                    .sign_block(
-                        pubkey,
-                        BeaconBlock::<E>::Altair(altair_block).into(),
-                        altair_fork_slot,
-                    )
+                    .sign_block(pubkey, unsigned_block, altair_fork_slot)
                     .await
                     .unwrap()
             }
@@ -752,12 +754,10 @@ mod tests {
             async move {
                 let mut bellatrix_block = BeaconBlockBellatrix::empty(&spec);
                 bellatrix_block.slot = bellatrix_fork_slot;
+                let unsigned_block =
+                    UnsignedBlock::Full(FullBlockContents::Block(bellatrix_block.into()));
                 validator_store
-                    .sign_block(
-                        pubkey,
-                        BeaconBlock::<E>::Bellatrix(bellatrix_block).into(),
-                        bellatrix_fork_slot,
-                    )
+                    .sign_block(pubkey, unsigned_block, bellatrix_fork_slot)
                     .await
                     .unwrap()
             }
@@ -876,8 +876,9 @@ mod tests {
         .assert_signatures_match("first_block", |pubkey, validator_store| async move {
             let block = first_block();
             let slot = block.slot();
+            let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
             validator_store
-                .sign_block(pubkey, block.into(), slot)
+                .sign_block(pubkey, unsigned_block, slot)
                 .await
                 .unwrap()
         })
@@ -887,8 +888,9 @@ mod tests {
             move |pubkey, validator_store| async move {
                 let block = double_vote_block();
                 let slot = block.slot();
+                let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
                 validator_store
-                    .sign_block(pubkey, block.into(), slot)
+                    .sign_block(pubkey, unsigned_block, slot)
                     .await
                     .map(|_| ())
             },

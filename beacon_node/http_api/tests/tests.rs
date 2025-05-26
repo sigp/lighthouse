@@ -927,18 +927,32 @@ impl ApiTester {
                     .map(|res| res.data);
 
                 let expected = state_opt.map(|(state, _execution_optimistic, _finalized)| {
-                    let mut validators = Vec::with_capacity(validator_indices.len());
+                    // If validator_indices is empty, return balances for all validators
+                    if validator_indices.is_empty() {
+                        state
+                            .balances()
+                            .iter()
+                            .enumerate()
+                            .map(|(index, balance)| ValidatorBalanceData {
+                                index: index as u64,
+                                balance: *balance,
+                            })
+                            .collect()
+                    } else {
+                        // Same behaviour as before for the else branch
+                        let mut validators = Vec::with_capacity(validator_indices.len());
 
-                    for i in validator_indices {
-                        if i < state.balances().len() as u64 {
-                            validators.push(ValidatorBalanceData {
-                                index: i,
-                                balance: *state.balances().get(i as usize).unwrap(),
-                            });
+                        for i in validator_indices {
+                            if i < state.balances().len() as u64 {
+                                validators.push(ValidatorBalanceData {
+                                    index: i,
+                                    balance: *state.balances().get(i as usize).unwrap(),
+                                });
+                            }
                         }
-                    }
 
-                    validators
+                        validators
+                    }
                 });
 
                 assert_eq!(result_index_ids, expected, "{:?}", state_id);
