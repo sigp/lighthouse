@@ -3,6 +3,7 @@ use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERA
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
+use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use itertools::{process_results, Itertools};
 use lighthouse_network::rpc::methods::{
@@ -278,7 +279,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let mut send_blob_count = 0;
 
         let mut blob_list_results = HashMap::new();
+        let mut is_fulu_by_root = HashMap::new();
         for id in request.blob_ids.as_slice() {
+            let BlobIdentifier {
+                block_root: root,
+                index,
+            } = id;
+
+            if !is_fulu_by_root.contains_key(root) {
+                let epoch = if let Some(block) = self.chain.data_availability_checker.get_execution_valid_block(&root) {
+                    block.message().epoch()
+                }   else if let Some(block) = self.chain.early_attester_cache.get_block(*root) {
+                    block.message().epoch()
+                } else if let Some(block) = self.chain.store.get_cached_block(root) {
+                    block.message().epoch()
+                } else if let Ok(Some(block)) = self.chain.store.get_blinded_block(root) {
+                    block.message().epoch()
+                } else {
+                    // If we can't find the block in either cache, we can't determine the epoch.
+                    continue;
+                };
+
+                is_fulu_by_root.insert(*root, self.chain.spec.is_peer_das_enabled_for_epoch(epoch));
+            }
+
+            if *is_fulu_by_root.get(root).unwrap() {
+                continue;
+            }
+
             // First attempt to get the blobs from the RPC cache.
             if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
                 self.send_response(
@@ -288,11 +316,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 send_blob_count += 1;
             } else {
-                let BlobIdentifier {
-                    block_root: root,
-                    index,
-                } = id;
-
                 let blob_list_result = match blob_list_results.entry(root) {
                     Entry::Vacant(entry) => {
                         entry.insert(self.chain.get_blobs_checking_early_attester_cache(root))

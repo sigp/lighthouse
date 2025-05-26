@@ -1,4 +1,4 @@
-//#![cfg(not(debug_assertions))] // Tests are too slow in debug.
+#![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::{
@@ -17,7 +17,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use itertools::Itertools;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest, MetaDataV3};
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::{
     discv5::enr::{self, CombinedKey},
@@ -26,12 +26,11 @@ use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
 };
 use slot_clock::SlotClock;
-use tracing::debug;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{blob_sidecar::FixedBlobSidecarList, ChainSpec};
+use types::{blob_sidecar::FixedBlobSidecarList, BlobIdentifier, ChainSpec, RuntimeVariableList};
 use types::{
     Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, DataColumnSidecarList,
     DataColumnSubnetId, Epoch, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof,
@@ -445,6 +444,18 @@ impl TestRig {
                 )
                 .unwrap();
         }
+    }
+
+    pub fn enqueue_blobs_by_root_request(&self, blob_ids: RuntimeVariableList<BlobIdentifier>) {
+        self.network_beacon_processor
+            .send_blobs_by_roots_request(
+                PeerId::random(),
+                InboundRequestId::new_unchecked(42, 24),
+                BlobsByRootRequest {
+                    blob_ids,
+                },
+            )
+            .unwrap();
     }
 
     pub fn enqueue_blobs_by_range_request(&self, start_slot: u64, count: u64) {
@@ -1233,18 +1244,16 @@ async fn test_blobs_by_range(
     rig: &mut TestRig,
     start_slot: u64,
     slot_count: u64,
-    //blob_count_expected: usize,
 ) {
     rig.enqueue_blobs_by_range_request(start_slot, slot_count);
 
     let mut blob_count = 0;
-    for slot in start_slot..slot_count {
+    for slot in start_slot..(start_slot + slot_count) {
         let root = rig
             .chain
             .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
             .unwrap();
-        debug!("slot and root {} {:?}", slot, root);
-        blob_count += root
+        let slot_blob_count = root
             .map(|root| {
                 rig.chain
                     .get_blobs(&root)
@@ -1252,7 +1261,13 @@ async fn test_blobs_by_range(
                     .unwrap_or(0)
             })
             .unwrap_or(0);
+        if rig.chain.spec.is_peer_das_enabled_for_epoch(Slot::new(slot).epoch(SLOTS_PER_EPOCH)) {
+            // If peer DAS is enabled, we expect the slot to have 0 blobs.
+            assert_eq!(slot_blob_count, 0);
+        }
+        blob_count += slot_blob_count;
     }
+
     let mut actual_count = 0;
     while let Some(next) = rig._network_rx.recv().await {
         if let NetworkMessage::SendResponse {
@@ -1270,55 +1285,120 @@ async fn test_blobs_by_range(
             panic!("unexpected message {:?}", next);
         }
     }
-    debug!("{} {} {} {}", start_slot, slot_count, blob_count, actual_count);
     assert_eq!(blob_count, actual_count);
 }
 
 #[tokio::test]
 async fn test_blobs_by_range_pre_fulu() {
-    if test_spec::<E>().deneb_fork_epoch.is_none() {
+    if test_spec::<E>().deneb_fork_epoch.is_none() || test_spec::<E>().is_peer_das_scheduled() {
         return;
     };
-    let rig_slot = 64;
+    let rig_slot = 2 * SLOTS_PER_EPOCH;
     let mut rig = TestRig::new(rig_slot).await;
-    let slot_count = 32;
-    test_blobs_by_range(&mut rig, 0, slot_count).await;
-    test_blobs_by_range(&mut rig, 0, slot_count).await;
-    test_blobs_by_range(&mut rig, 0, 16).await;
-    test_blobs_by_range(&mut rig, 8, 16).await;
-    test_blobs_by_range(&mut rig, 32, slot_count).await;
+
+    // Test blobs by range.
+    test_blobs_by_range(&mut rig, 0, 32).await;
+    // Test duplicated request.
+    test_blobs_by_range(&mut rig, 0, 32).await;
+    // Test more random ranges.
+    test_blobs_by_range(&mut rig, 7, 23).await;
+    test_blobs_by_range(&mut rig, 0, 64).await;
+    test_blobs_by_range(&mut rig, 14, 64).await;
 }
 
 #[tokio::test]
 async fn test_blobs_by_range_fulu() {
-    //if !test_spec::<E>().is_peer_das_scheduled() {
-    //    return;
-    //}
-
-    let fulu_epoch = Slot::new(SLOTS_PER_EPOCH * 4).epoch(SLOTS_PER_EPOCH);
-
-    let pre_fulu_start_slot = 0;//SLOTS_PER_EPOCH;// + (3 % SLOTS_PER_EPOCH);
-    let fulu_start_slot = SLOTS_PER_EPOCH * 6;// + (7 % SLOTS_PER_EPOCH);
-    let slot_count = SLOTS_PER_EPOCH;// + 1;
-    let slot_count_long = SLOTS_PER_EPOCH * 5;// + (2 % SLOTS_PER_EPOCH);
-
-    let test_cases = vec![
-        (0, slot_count_long),
-        //(pre_fulu_start_slot, slot_count),
-        //(pre_fulu_start_slot, 0),
-        //(pre_fulu_start_slot, slot_count_long),
-        //(fulu_start_slot, slot_count),
-        //(fulu_start_slot, 0),
-    ];
-
-    for (start_slot, count) in test_cases {
-        let mut rig = TestRig::new_parametric_with_custom_fulu_epoch(
-            SLOTS_PER_EPOCH * 8,
-            BeaconProcessorConfig::default().enable_backfill_rate_limiting,
-            fulu_epoch,
-        )
-        .await;
-
-        test_blobs_by_range(&mut rig, start_slot, count).await;
+    if !test_spec::<E>().is_peer_das_scheduled() {
+        return;
     }
+
+    let fulu_epoch = Slot::new(2 * SLOTS_PER_EPOCH).epoch(SLOTS_PER_EPOCH);
+
+    let mut rig = TestRig::new_parametric_with_custom_fulu_epoch(
+        SLOTS_PER_EPOCH * 5,
+        BeaconProcessorConfig::default().enable_backfill_rate_limiting,
+        fulu_epoch,
+    )
+    .await;
+
+    // Test deprecation from Fulu epoch.
+    test_blobs_by_range(&mut rig, 0, 96).await;
+    test_blobs_by_range(&mut rig, 32, 96).await;
+    test_blobs_by_range(&mut rig, 64, 128).await;
+    test_blobs_by_range(&mut rig, 93, 121).await;
+}
+
+async fn test_blobs_by_root(
+    rig: &mut TestRig,
+    slots_and_indices: &[(u64, u64)],
+) {
+    let mut blob_count = 0;
+    let mut blob_ids = RuntimeVariableList::empty(slots_and_indices.len());
+    for (slot, index) in slots_and_indices {
+        let root = rig
+            .chain
+            .block_root_at_slot(Slot::new(*slot), WhenSlotSkipped::None)
+            .unwrap();
+        let slot_blob_count = root
+            .map(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .map(|list| list.len())
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+        if rig.chain.spec.is_peer_das_enabled_for_epoch(Slot::new(*slot).epoch(SLOTS_PER_EPOCH)) {
+            // If peer DAS is enabled, we expect the slot to have 0 blobs.
+            assert_eq!(slot_blob_count, 0);
+        }
+        blob_count += slot_blob_count;
+        let blob_id = BlobIdentifier {
+            block_root: root.unwrap(),
+            index: *index,
+        };
+        blob_ids.push(blob_id).unwrap();
+    }
+
+    rig.enqueue_blobs_by_root_request(blob_ids);
+
+    let mut actual_count = 0;
+    while let Some(next) = rig._network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    assert_eq!(blob_count, actual_count);
+}
+
+#[tokio::test]
+async fn test_blobs_by_root_fulu() {
+    if !test_spec::<E>().is_peer_das_scheduled() {
+        return;
+    }
+
+    let fulu_epoch = Slot::new(2 * SLOTS_PER_EPOCH).epoch(SLOTS_PER_EPOCH);
+
+    let mut rig = TestRig::new_parametric_with_custom_fulu_epoch(
+        SLOTS_PER_EPOCH * 5,
+        BeaconProcessorConfig::default().enable_backfill_rate_limiting,
+        fulu_epoch,
+    )
+    .await;
+
+    // Test blobs by root. Fulu slots should not have blobs.
+    test_blobs_by_root(&mut rig, &[(0, 0)]).await;
+    test_blobs_by_root(&mut rig, &[(3, 0), (4, 0), (5, 0)]).await;
+    test_blobs_by_root(&mut rig, &[(32, 0), (65, 0), (120, 0)]).await;
+    test_blobs_by_root(&mut rig, &[(93, 0), (9, 0), (25, 0)]).await;
 }
