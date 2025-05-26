@@ -702,7 +702,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         if fork_name.deneb_enabled() {
             // get random number between 0 and Max Blobs
             let mut rng = self.rng.lock();
-            let max_blobs = self.spec.max_blobs_per_block_by_fork(fork_name) as usize;
+            // TODO(EIP-7892): see FIXME below
+            // FIXME: this will break with BPO forks. This function needs to calculate the epoch based on block timestamp..
+            let max_blobs = self.spec.max_blobs_per_block_within_fork(fork_name) as usize;
             let num_blobs = rng.gen::<usize>() % (max_blobs + 1);
             let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
             for tx in Vec::from(transactions) {
