@@ -642,23 +642,6 @@ impl ChainSpec {
         }
     }
 
-    pub fn get_max_blobs_per_block_by_schedule(&self, epoch: Epoch) -> Option<u64> {
-        self.fulu_fork_epoch.and_then(|fulu_epoch| {
-            if epoch >= fulu_epoch {
-                let mut blob_schedule = self.blob_schedule.clone();
-                blob_schedule.sort_by(|a, b| b.epoch.cmp(&a.epoch));
-                for entry in blob_schedule {
-                    if epoch >= entry.epoch {
-                        return Some(entry.max_blobs_per_block);
-                    }
-                }
-                None
-            } else {
-                None
-            }
-        })
-    }
-
     /// Returns the highest possible value for max_request_blobs based on enabled forks.
     ///
     /// This is useful for upper bounds in testing.
@@ -674,19 +657,24 @@ impl ChainSpec {
     /// NOTE: this function is *technically* not spec compliant, but
     /// I'm told this is what the other clients are doing for `devnet-0`..
     pub fn max_blobs_per_block(&self, epoch: Epoch) -> u64 {
-        if let Some(fulu_epoch) = self.fulu_fork_epoch {
-            if epoch >= fulu_epoch {
-                return self
-                    .get_max_blobs_per_block_by_schedule(epoch)
-                    .unwrap_or(self.max_blobs_per_block_electra);
+        match self.fulu_fork_epoch {
+            Some(fulu_epoch) if epoch >= fulu_epoch => {
+                let mut max_blobs_per_block = self.max_blobs_per_block_electra;
+                let mut blob_schedule = self.blob_schedule.clone();
+                blob_schedule.sort_by_key(|entry| entry.epoch);
+                for entry in blob_schedule {
+                    if epoch < entry.epoch {
+                        return max_blobs_per_block;
+                    }
+                    max_blobs_per_block = entry.max_blobs_per_block;
+                }
+                max_blobs_per_block
             }
+            _ => match self.electra_fork_epoch {
+                Some(electra_epoch) if epoch >= electra_epoch => self.max_blobs_per_block_electra,
+                _ => self.max_blobs_per_block,
+            },
         }
-        if let Some(electra_epoch) = self.electra_fork_epoch {
-            if epoch >= electra_epoch {
-                return self.max_blobs_per_block_electra;
-            }
-        }
-        self.max_blobs_per_block
     }
 
     // TODO(EIP-7892): remove this once we have fork-version changes on BPO forks
