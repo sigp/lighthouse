@@ -3545,7 +3545,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(slasher) = self.slasher.as_ref() {
             slasher.accept_block_header(blob.signed_block_header());
         }
-        let availability = self.data_availability_checker.put_gossip_blob(blob)?;
+        let availability = self
+            .data_availability_checker
+            .put_gossip_verified_blobs(blob.block_root(), std::iter::once(blob))?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await
@@ -3568,7 +3570,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let availability = self
             .data_availability_checker
-            .put_gossip_data_columns(block_root, data_columns)?;
+            .put_gossip_verified_data_columns(block_root, data_columns)?;
 
         self.process_availability(slot, availability, publish_fn)
             .await
@@ -3628,7 +3630,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             EngineGetBlobsOutput::Blobs(blobs) => {
                 self.check_blobs_for_slashability(block_root, blobs.iter().map(|b| b.as_blob()))?;
                 self.data_availability_checker
-                    .put_engine_blobs(block_root, blobs)?
+                    .put_gossip_verified_blobs(block_root, blobs)?
             }
             EngineGetBlobsOutput::CustodyColumns(data_columns) => {
                 self.check_columns_for_slashability(
@@ -3636,7 +3638,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     data_columns.iter().map(|c| c.as_data_column()),
                 )?;
                 self.data_availability_checker
-                    .put_engine_data_columns(block_root, data_columns)?
+                    .put_gossip_verified_data_columns(block_root, data_columns)?
             }
         };
 
@@ -3673,6 +3675,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         custody_columns: impl IntoIterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
     ) -> Result<(), BlockError> {
         let mut slashable_cache = self.observed_slashable.write();
+        // Process all unique block headers - previous logic assumed all headers were identical and
+        // only processed the first one. However, we should not make assumptions about data received
+        // from RPC.
         for header in custody_columns
             .into_iter()
             .map(|c| c.signed_block_header.clone())

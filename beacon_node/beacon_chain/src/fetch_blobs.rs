@@ -317,6 +317,9 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
                 // to allow blobs/columns to arrive on gossip and be accepted (and propagated) while
                 // we are waiting to publish. Just before publishing we will observe the blobs/columns
                 // and only proceed with publishing if they are not yet seen.
+                // TODO(das): we may want to just perform kzg proof verification here, since the
+                // `DataColumnSidecar` and inclusion proof is computed just above and is unnecessary
+                // to verify them.
                 let columns_to_import_and_publish = custody_columns
                     .into_iter()
                     .filter_map(|col| {
@@ -327,10 +330,30 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
                             &chain_cloned,
                         ) {
                             Ok(verified) => Some(Ok(verified)),
-                            // Ignore already seen data columns
-                            Err(GossipDataColumnError::PriorKnown { .. })
-                            | Err(GossipDataColumnError::PriorKnownUnpublished) => None,
-                            Err(e) => Some(Err(e)),
+                            Err(e) => match e {
+                                // Ignore already seen data columns
+                                GossipDataColumnError::PriorKnown { .. }
+                                | GossipDataColumnError::PriorKnownUnpublished => None,
+                                GossipDataColumnError::BeaconChainError(_)
+                                | GossipDataColumnError::ProposalSignatureInvalid
+                                | GossipDataColumnError::UnknownValidator(_)
+                                | GossipDataColumnError::IsNotLaterThanParent { .. }
+                                | GossipDataColumnError::InvalidKzgProof(_)
+                                | GossipDataColumnError::InvalidSubnetId { .. }
+                                | GossipDataColumnError::FutureSlot { .. }
+                                | GossipDataColumnError::PastFinalizedSlot { .. }
+                                | GossipDataColumnError::PubkeyCacheTimeout
+                                | GossipDataColumnError::ProposerIndexMismatch { .. }
+                                | GossipDataColumnError::ParentUnknown { .. }
+                                | GossipDataColumnError::NotFinalizedDescendant { .. }
+                                | GossipDataColumnError::InvalidInclusionProof
+                                | GossipDataColumnError::InvalidColumnIndex(_)
+                                | GossipDataColumnError::UnexpectedDataColumn
+                                | GossipDataColumnError::InconsistentCommitmentsLength { .. }
+                                | GossipDataColumnError::InconsistentProofsLength { .. } => {
+                                    Some(Err(e))
+                                }
+                            },
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()
