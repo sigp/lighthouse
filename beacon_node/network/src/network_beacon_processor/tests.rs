@@ -101,17 +101,21 @@ impl TestRig {
     pub async fn new_parametric_with_custom_fulu_epoch(
         chain_length: u64,
         enable_backfill_rate_limiting: bool,
-        fulu_epoch: Epoch
+        fulu_epoch: Epoch,
     ) -> Self {
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
         spec.fulu_fork_epoch = Some(fulu_epoch);
         let spec = Arc::new(spec);
-        
+
         Self::new_parametric_inner(spec, chain_length, enable_backfill_rate_limiting).await
     }
 
-    async fn new_parametric_inner(spec: Arc<ChainSpec>, chain_length: u64, enable_backfill_rate_limiting: bool) -> Self {
+    async fn new_parametric_inner(
+        spec: Arc<ChainSpec>,
+        chain_length: u64,
+        enable_backfill_rate_limiting: bool,
+    ) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
@@ -451,9 +455,7 @@ impl TestRig {
             .send_blobs_by_roots_request(
                 PeerId::random(),
                 InboundRequestId::new_unchecked(42, 24),
-                BlobsByRootRequest {
-                    blob_ids,
-                },
+                BlobsByRootRequest { blob_ids },
             )
             .unwrap();
     }
@@ -463,10 +465,7 @@ impl TestRig {
             .send_blobs_by_range_request(
                 PeerId::random(),
                 InboundRequestId::new_unchecked(42, 24),
-                BlobsByRangeRequest {
-                    start_slot,
-                    count,
-                },
+                BlobsByRangeRequest { start_slot, count },
             )
             .unwrap();
     }
@@ -1240,11 +1239,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     .await;
 }
 
-async fn test_blobs_by_range(
-    rig: &mut TestRig,
-    start_slot: u64,
-    slot_count: u64,
-) {
+async fn test_blobs_by_range(rig: &mut TestRig, start_slot: u64, slot_count: u64) {
     rig.enqueue_blobs_by_range_request(start_slot, slot_count);
 
     let mut blob_count = 0;
@@ -1261,7 +1256,11 @@ async fn test_blobs_by_range(
                     .unwrap_or(0)
             })
             .unwrap_or(0);
-        if rig.chain.spec.is_peer_das_enabled_for_epoch(Slot::new(slot).epoch(SLOTS_PER_EPOCH)) {
+        if rig
+            .chain
+            .spec
+            .is_peer_das_enabled_for_epoch(Slot::new(slot).epoch(SLOTS_PER_EPOCH))
+        {
             // If peer DAS is enabled, we expect the slot to have 0 blobs.
             assert_eq!(slot_blob_count, 0);
         }
@@ -1328,10 +1327,7 @@ async fn test_blobs_by_range_fulu() {
     test_blobs_by_range(&mut rig, 93, 121).await;
 }
 
-async fn test_blobs_by_root(
-    rig: &mut TestRig,
-    slots_and_indices: &[(u64, u64)],
-) {
+async fn test_blobs_by_root(rig: &mut TestRig, slots_and_indices: &[(u64, u64)]) {
     let mut blob_count = 0;
     let mut blob_ids = RuntimeVariableList::empty(slots_and_indices.len());
     for (slot, index) in slots_and_indices {
@@ -1347,7 +1343,11 @@ async fn test_blobs_by_root(
                     .unwrap_or(0)
             })
             .unwrap_or(0);
-        if rig.chain.spec.is_peer_das_enabled_for_epoch(Slot::new(*slot).epoch(SLOTS_PER_EPOCH)) {
+        if rig
+            .chain
+            .spec
+            .is_peer_das_enabled_for_epoch(Slot::new(*slot).epoch(SLOTS_PER_EPOCH))
+        {
             // If peer DAS is enabled, we expect the slot to have 0 blobs.
             assert_eq!(slot_blob_count, 0);
         }

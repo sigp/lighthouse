@@ -288,9 +288,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             } = id;
 
             if !is_fulu_by_root.contains_key(root) {
-                let epoch = if let Some(block) = self.chain.data_availability_checker.get_execution_valid_block(&root) {
+                let epoch = if let Some(block) = self
+                    .chain
+                    .data_availability_checker
+                    .get_execution_valid_block(root)
+                {
                     block.message().epoch()
-                }   else if let Some(block) = self.chain.early_attester_cache.get_block(*root) {
+                } else if let Some(block) = self.chain.early_attester_cache.get_block(*root) {
                     block.message().epoch()
                 } else if let Some(block) = self.chain.store.get_cached_block(root) {
                     block.message().epoch()
@@ -951,7 +955,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // Check Fulu/PeerDAS is in the range. Blobs are not served since then.
-        if self.chain.spec.is_peer_das_enabled_for_epoch(request_end_epoch) {
+        if self
+            .chain
+            .spec
+            .is_peer_das_enabled_for_epoch(request_end_epoch)
+        {
             // Fulu epoch is Some type by the condition above.
             let fulu_epoch = self.chain.spec.fulu_fork_epoch.unwrap();
             let fulu_start_slot = fulu_epoch.start_slot(T::EthSpec::slots_per_epoch());
