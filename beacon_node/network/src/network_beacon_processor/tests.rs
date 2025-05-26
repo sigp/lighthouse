@@ -1350,8 +1350,9 @@ async fn test_blobs_by_root(rig: &mut TestRig, slots_and_indices: &[(u64, u64)])
         {
             // If peer DAS is enabled, we expect the slot to have 0 blobs.
             assert_eq!(slot_blob_count, 0);
+        } else if slot_blob_count > 0 {
+            blob_count += 1;
         }
-        blob_count += slot_blob_count;
         let blob_id = BlobIdentifier {
             block_root: root.unwrap(),
             index: *index,
@@ -1365,7 +1366,7 @@ async fn test_blobs_by_root(rig: &mut TestRig, slots_and_indices: &[(u64, u64)])
     while let Some(next) = rig._network_rx.recv().await {
         if let NetworkMessage::SendResponse {
             peer_id: _,
-            response: Response::BlobsByRange(blob),
+            response: Response::BlobsByRoot(blob),
             inbound_request_id: _,
         } = next
         {
