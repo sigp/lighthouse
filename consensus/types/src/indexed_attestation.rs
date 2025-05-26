@@ -1,4 +1,7 @@
-use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
+use crate::context_deserialize;
+use crate::{
+    test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, ForkName, VariableList,
+};
 use core::slice::Iter;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
@@ -29,6 +32,7 @@ use tree_hash_derive::TreeHash;
             arbitrary::Arbitrary,
             TreeHash,
         ),
+        context_deserialize(ForkName),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),

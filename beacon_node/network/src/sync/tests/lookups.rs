@@ -107,6 +107,8 @@ impl TestRig {
         // deterministic seed
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
 
+        init_tracing();
+
         TestRig {
             beacon_processor_rx,
             beacon_processor_rx_queue: vec![],
@@ -357,10 +359,13 @@ impl TestRig {
 
     pub fn new_connected_peer(&mut self) -> PeerId {
         let key = self.determinstic_key();
-        self.network_globals
+        let peer_id = self
+            .network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec, key)
+            .__add_connected_peer_testing_only(false, &self.harness.spec, key);
+        self.log(&format!("Added new peer for testing {peer_id:?}"));
+        peer_id
     }
 
     pub fn new_connected_supernode_peer(&mut self) -> PeerId {
@@ -976,18 +981,13 @@ impl TestRig {
                         request: RequestType::DataColumnsByRoot(request),
                         app_request_id:
                             AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
-                    } if request
-                        .data_column_ids
-                        .to_vec()
-                        .iter()
-                        .any(|r| r.block_root == block_root) =>
-                    {
-                        let indices = request
+                    } => {
+                        let matching = request
                             .data_column_ids
-                            .to_vec()
                             .iter()
-                            .map(|cid| cid.index)
-                            .collect::<Vec<_>>();
+                            .find(|id| id.block_root == block_root)?;
+
+                        let indices = matching.columns.iter().copied().collect();
                         Some((*id, indices))
                     }
                     _ => None,

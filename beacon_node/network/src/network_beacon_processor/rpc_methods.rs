@@ -67,7 +67,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn check_peer_relevance(
         &self,
         remote: &StatusMessage,
-    ) -> Result<Option<String>, BeaconChainError> {
+    ) -> Result<Option<String>, Box<BeaconChainError>> {
         let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
@@ -113,7 +113,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if self
                     .chain
                     .block_root_at_slot(remote_finalized_slot, WhenSlotSkipped::Prev)
-                    .map(|root_opt| root_opt != Some(remote.finalized_root))?
+                    .map(|root_opt| root_opt != Some(remote.finalized_root))
+                    .map_err(Box::new)?
                 {
                     Some("Different finalized chain".to_string())
                 } else {
@@ -383,24 +384,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
 
-        for data_column_id in request.data_column_ids.as_slice() {
-            match self.chain.get_data_column_checking_all_caches(
-                data_column_id.block_root,
-                data_column_id.index,
+        for data_column_ids_by_root in request.data_column_ids.as_slice() {
+            match self.chain.get_data_columns_checking_all_caches(
+                data_column_ids_by_root.block_root,
+                data_column_ids_by_root.columns.as_slice(),
             ) {
-                Ok(Some(data_column)) => {
-                    send_data_column_count += 1;
-                    self.send_response(
-                        peer_id,
-                        inbound_request_id,
-                        Response::DataColumnsByRoot(Some(data_column)),
-                    );
+                Ok(data_columns) => {
+                    send_data_column_count += data_columns.len();
+                    for data_column in data_columns {
+                        self.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::DataColumnsByRoot(Some(data_column)),
+                        );
+                    }
                 }
-                Ok(None) => {} // no-op
                 Err(e) => {
                     // TODO(das): lower log level when feature is stabilized
                     error!(
-                        block_root = ?data_column_id.block_root,
+                        block_root = ?data_column_ids_by_root.block_root,
                         %peer_id,
                         error = ?e,
                         "Error getting data column"
@@ -412,7 +414,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         debug!(
             %peer_id,
-            request = ?request.group_by_ordered_block_root(),
+            request = ?request.data_column_ids,
             returned = send_data_column_count,
             "Received DataColumnsByRoot Request"
         );
