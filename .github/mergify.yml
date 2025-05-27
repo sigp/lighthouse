@@ -48,17 +48,17 @@ pull_request_rules:
       # CI workflows approvals.
       - check-success=test-suite-success
       - check-success=local-testnet-success
-      - "#review-requested > 0"
+      # Update the label only if there are no more change requests from any reviewers and no unresolved threads.
+      # This rule ensures that a PR with passing CI can be marked as `waiting-on-author`.
+      - or:
+         - "#changes-requested-reviews-by = 0"
+         - "#review-threads-unresolved = 0"
     actions:
       label:
         remove:
           - waiting-on-author
         add:
           - ready-for-review
-      comment:
-        message: >
-          All required checks have passed and there are no merge conflicts.
-          This pull request may now be ready for another review.
 
   - name: Close stale pull request after 30 days of inactivity
     conditions:
