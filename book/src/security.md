@@ -1,6 +1,5 @@
 # Security
 
-========
 Lighthouse takes security seriously. Please see our security policy on GitHub for our PGP key and information on reporting vulnerabilities:
 
 - [GitHub: Security Policy](https://github.com/sigp/lighthouse/blob/stable/SECURITY.md)

@@ -1,6 +1,6 @@
 use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -15,7 +15,7 @@ pub type Transactions<E> = VariableList<
 pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
         derive(
             Default,
@@ -30,6 +30,7 @@ pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawal
             Derivative,
             arbitrary::Arbitrary
         ),
+        context_deserialize(ForkName),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec")
@@ -40,7 +41,7 @@ pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawal
     map_ref_into(ExecutionPayloadHeader)
 )]
 #[derive(
-    Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary,
+    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
 )]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(bound = "E: EthSpec", untagged)]
@@ -82,12 +83,12 @@ pub struct ExecutionPayload<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub withdrawals: Withdrawals<E>,
-    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
 }
@@ -102,8 +103,9 @@ impl<'a, E: EthSpec> ExecutionPayloadRef<'a, E> {
     }
 }
 
-impl<E: EthSpec> ExecutionPayload<E> {
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
+    /// SSZ decode with explicit fork variant.
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         match fork_name {
             ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(format!(
                 "unsupported fork for ExecutionPayload: {fork_name}",
@@ -114,9 +116,12 @@ impl<E: EthSpec> ExecutionPayload<E> {
             ForkName::Capella => ExecutionPayloadCapella::from_ssz_bytes(bytes).map(Self::Capella),
             ForkName::Deneb => ExecutionPayloadDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
             ForkName::Electra => ExecutionPayloadElectra::from_ssz_bytes(bytes).map(Self::Electra),
+            ForkName::Fulu => ExecutionPayloadFulu::from_ssz_bytes(bytes).map(Self::Fulu),
         }
     }
+}
 
+impl<E: EthSpec> ExecutionPayload<E> {
     #[allow(clippy::arithmetic_side_effects)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_bellatrix_size() -> usize {
@@ -127,68 +132,37 @@ impl<E: EthSpec> ExecutionPayload<E> {
             // Max size of variable length `transactions` field
             + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
     }
-
-    #[allow(clippy::arithmetic_side_effects)]
-    /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_capella_size() -> usize {
-        // Fixed part
-        ExecutionPayloadCapella::<E>::default().as_ssz_bytes().len()
-            // Max size of variable length `extra_data` field
-            + (E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
-            // Max size of variable length `transactions` field
-            + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
-            // Max size of variable length `withdrawals` field
-            + (E::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
-    }
-
-    #[allow(clippy::arithmetic_side_effects)]
-    /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_deneb_size() -> usize {
-        // Fixed part
-        ExecutionPayloadDeneb::<E>::default().as_ssz_bytes().len()
-            // Max size of variable length `extra_data` field
-            + (E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
-            // Max size of variable length `transactions` field
-            + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
-            // Max size of variable length `withdrawals` field
-            + (E::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
-    }
-
-    #[allow(clippy::arithmetic_side_effects)]
-    /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_electra_size() -> usize {
-        // Fixed part
-        ExecutionPayloadElectra::<E>::default().as_ssz_bytes().len()
-            // Max size of variable length `extra_data` field
-            + (E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
-            // Max size of variable length `transactions` field
-            + (E::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + E::max_bytes_per_transaction()))
-            // Max size of variable length `withdrawals` field
-            + (E::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
-    }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayload<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayload<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         let convert_err = |e| {
             serde::de::Error::custom(format!("ExecutionPayload failed to deserialize: {:?}", e))
         };
-
-        Ok(match fork_name {
-            ForkName::Bellatrix => {
-                Self::Bellatrix(serde_json::from_value(value).map_err(convert_err)?)
-            }
-            ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),
+        Ok(match context {
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayload failed to deserialize: unsupported fork '{}'",
-                    fork_name
-                )));
+                    context
+                )))
+            }
+            ForkName::Bellatrix => {
+                Self::Bellatrix(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Capella => {
+                Self::Capella(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Deneb => {
+                Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Electra => {
+                Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Fulu => {
+                Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })
     }
@@ -201,6 +175,7 @@ impl<E: EthSpec> ExecutionPayload<E> {
             ExecutionPayload::Capella(_) => ForkName::Capella,
             ExecutionPayload::Deneb(_) => ForkName::Deneb,
             ExecutionPayload::Electra(_) => ForkName::Electra,
+            ExecutionPayload::Fulu(_) => ForkName::Fulu,
         }
     }
 }

@@ -235,14 +235,14 @@ pub fn observe_nat() -> NatState {
 
     let libp2p_ipv4 = lighthouse_network::metrics::get_int_gauge(
         &lighthouse_network::metrics::NAT_OPEN,
-        &["libp2p"],
+        &["libp2p_ipv4"],
     )
     .map(|g| g.get() == 1)
     .unwrap_or_default();
 
     let libp2p_ipv6 = lighthouse_network::metrics::get_int_gauge(
         &lighthouse_network::metrics::NAT_OPEN,
-        &["libp2p"],
+        &["libp2p_ipv6"],
     )
     .map(|g| g.get() == 1)
     .unwrap_or_default();

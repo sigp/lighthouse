@@ -1,4 +1,4 @@
-use crate::metrics;
+use crate::metrics::{self, register_process_result_metrics};
 use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
 use crate::sync::BatchProcessResult;
 use crate::sync::{
@@ -18,11 +18,11 @@ use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
 };
 use lighthouse_network::PeerAction;
-use slog::{debug, error, info, warn};
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlockImportSource, DataColumnSidecar, DataColumnSidecarList, Epoch, Hash256};
@@ -112,11 +112,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Check if the block is already being imported through another source
         let Some(handle) = duplicate_cache.check_and_insert(block_root) else {
             debug!(
-                self.log,
-                "Gossip block is being processed";
-                "action" => "sending rpc block to reprocessing queue",
-                "block_root" => %block_root,
-                "process_type" => ?process_type,
+                action = "sending rpc block to reprocessing queue",
+                %block_root,
+                ?process_type,
+                "Gossip block is being processed"
             );
 
             // Send message to work reprocess queue to retry the block
@@ -133,7 +132,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             });
 
             if reprocess_tx.try_send(reprocess_msg).is_err() {
-                error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %block_root)
+                error!(source = "rpc", %block_root,"Failed to inform block import")
             };
             return;
         };
@@ -144,13 +143,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let commitments_formatted = block.as_block().commitments_formatted();
 
         debug!(
-            self.log,
-            "Processing RPC block";
-            "block_root" => ?block_root,
-            "proposer" => block.message().proposer_index(),
-            "slot" => block.slot(),
-            "commitments" => commitments_formatted,
-            "process_type" => ?process_type,
+            ?block_root,
+            proposer = block.message().proposer_index(),
+            slot = %block.slot(),
+            commitments_formatted,
+            ?process_type,
+            "Processing RPC block"
         );
 
         let signed_beacon_block = block.block_cloned();
@@ -163,21 +161,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 NotifyExecutionLayer::Yes,
             )
             .await;
-
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
+        register_process_result_metrics(&result, metrics::BlockSource::Rpc, "block");
 
         // RPC block imported, regardless of process type
         match result.as_ref() {
             Ok(AvailabilityProcessingStatus::Imported(hash)) => {
-                info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %hash);
-
+                info!(
+                    %slot,
+                    %hash,
+                    "New RPC block received",
+                );
                 // Trigger processing for work referencing this block.
                 let reprocess_msg = ReprocessQueueMessage::BlockImported {
                     block_root: *hash,
                     parent_root,
                 };
                 if reprocess_tx.try_send(reprocess_msg).is_err() {
-                    error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
+                    error!(
+                        source = "rpc",
+                        block_root = %hash,
+                        "Failed to inform block import"
+                    );
                 };
                 self.chain.block_times_cache.write().set_time_observed(
                     *hash,
@@ -266,12 +270,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let commitments = format_kzg_commitments(&commitments);
 
         debug!(
-            self.log,
-            "RPC blobs received";
-            "indices" => ?indices,
-            "block_root" => %block_root,
-            "slot" => %slot,
-            "commitments" => commitments,
+            ?indices,
+            %block_root,
+            %slot,
+            commitments,
+            "RPC blobs received"
         );
 
         if let Ok(current_slot) = self.chain.slot() {
@@ -286,41 +289,38 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         let result = self.chain.process_rpc_blobs(slot, block_root, blobs).await;
+        register_process_result_metrics(&result, metrics::BlockSource::Rpc, "blobs");
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(hash)) => {
                 debug!(
-                    self.log,
-                    "Block components retrieved";
-                    "result" => "imported block and blobs",
-                    "slot" => %slot,
-                    "block_hash" => %hash,
+                    result = "imported block and blobs",
+                    %slot,
+                    block_hash = %hash,
+                    "Block components retrieved"
                 );
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
                 debug!(
-                    self.log,
-                    "Missing components over rpc";
-                    "block_hash" => %block_root,
-                    "slot" => %slot,
+                    block_hash = %block_root,
+                    %slot,
+                    "Missing components over rpc"
                 );
             }
             Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
-                    self.log,
-                    "Blobs have already been imported";
-                    "block_hash" => %block_root,
-                    "slot" => %slot,
+                    block_hash = %block_root,
+                    %slot,
+                    "Blobs have already been imported"
                 );
             }
             Err(e) => {
                 warn!(
-                    self.log,
-                    "Error when importing rpc blobs";
-                    "error" => ?e,
-                    "block_hash" => %block_root,
-                    "slot" => %slot,
+                    error = ?e,
+                    block_hash = %block_root,
+                    %slot,
+                    "Error when importing rpc blobs"
                 );
             }
         }
@@ -336,35 +336,59 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-        _seen_timestamp: Duration,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
+        // custody_columns must always have at least one element
+        let Some(slot) = custody_columns.first().map(|d| d.slot()) else {
+            return;
+        };
+
+        if let Ok(current_slot) = self.chain.slot() {
+            if current_slot == slot {
+                let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
+                metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
+            }
+        }
+
+        let mut indices = custody_columns.iter().map(|d| d.index).collect::<Vec<_>>();
+        indices.sort_unstable();
+        debug!(
+            ?indices,
+            %block_root,
+            %slot,
+            "RPC custody data columns received"
+        );
+
         let mut result = self
             .chain
             .process_rpc_custody_columns(custody_columns)
             .await;
+        register_process_result_metrics(&result, metrics::BlockSource::Rpc, "custody_columns");
 
         match &result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(hash) => {
                     debug!(
-                        self.log,
-                        "Block components retrieved";
-                        "result" => "imported block and custody columns",
-                        "block_hash" => %hash,
+                        result = "imported block and custody columns",
+                        block_hash = %hash,
+                        "Block components retrieved"
                     );
                     self.chain.recompute_head_at_current_slot().await;
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
                     debug!(
-                        self.log,
-                        "Missing components over rpc";
-                        "block_hash" => %block_root,
+                        block_hash = %block_root,
+                        "Missing components over rpc"
                     );
                     // Attempt reconstruction here before notifying sync, to avoid sending out more requests
                     // that we may no longer need.
-                    if let Some(availability) =
-                        self.attempt_data_column_reconstruction(block_root).await
+                    // We don't publish columns reconstructed from rpc columns to the gossip network,
+                    // as these are likely historic columns.
+                    let publish_columns = false;
+                    if let Some(availability) = self
+                        .attempt_data_column_reconstruction(block_root, publish_columns)
+                        .await
                     {
                         result = Ok(availability)
                     }
@@ -372,17 +396,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             },
             Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
-                    self.log,
-                    "Custody columns have already been imported";
-                    "block_hash" => %block_root,
+                    block_hash = %block_root,
+                    "Custody columns have already been imported"
                 );
             }
             Err(e) => {
                 warn!(
-                    self.log,
-                    "Error when importing rpc custody columns";
-                    "error" => ?e,
-                    "block_hash" => %block_root,
+                    error = ?e,
+                    block_hash = %block_root,
+                    "Error when importing rpc custody columns"
                 );
             }
         }
@@ -432,27 +454,29 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .await
                 {
                     (imported_blocks, Ok(_)) => {
-                        debug!(self.log, "Batch processed";
-                            "batch_epoch" => epoch,
-                            "first_block_slot" => start_slot,
-                            "chain" => chain_id,
-                            "last_block_slot" => end_slot,
-                            "processed_blocks" => sent_blocks,
-                            "service"=> "sync");
+                        debug!(
+                            batch_epoch = %epoch,
+                            first_block_slot = start_slot,
+                            chain = chain_id,
+                            last_block_slot = end_slot,
+                            processed_blocks = sent_blocks,
+                            service= "sync",
+                            "Batch processed");
                         BatchProcessResult::Success {
                             sent_blocks,
                             imported_blocks,
                         }
                     }
                     (imported_blocks, Err(e)) => {
-                        debug!(self.log, "Batch processing failed";
-                            "batch_epoch" => epoch,
-                            "first_block_slot" => start_slot,
-                            "chain" => chain_id,
-                            "last_block_slot" => end_slot,
-                            "imported_blocks" => imported_blocks,
-                            "error" => %e.message,
-                            "service" => "sync");
+                        debug!(
+                            batch_epoch = %epoch,
+                            first_block_slot = start_slot,
+                            chain = chain_id,
+                            last_block_slot = end_slot,
+                            imported_blocks,
+                            error = %e.message,
+                            service = "sync",
+                            "Batch processing failed");
                         match e.peer_action {
                             Some(penalty) => BatchProcessResult::FaultyFailure {
                                 imported_blocks,
@@ -479,27 +503,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 match self.process_backfill_blocks(downloaded_blocks) {
                     (imported_blocks, Ok(_)) => {
-                        debug!(self.log, "Backfill batch processed";
-                            "batch_epoch" => epoch,
-                            "first_block_slot" => start_slot,
-                            "last_block_slot" => end_slot,
-                            "processed_blocks" => sent_blocks,
-                            "processed_blobs" => n_blobs,
-                            "processed_data_columns" => n_data_columns,
-                            "service"=> "sync");
+                        debug!(
+                            batch_epoch = %epoch,
+                            first_block_slot = start_slot,
+                            keep_execution_payload = !self.chain.store.get_config().prune_payloads,
+                            last_block_slot = end_slot,
+                            processed_blocks = sent_blocks,
+                            processed_blobs = n_blobs,
+                            processed_data_columns = n_data_columns,
+                            service= "sync",
+                            "Backfill batch processed");
                         BatchProcessResult::Success {
                             sent_blocks,
                             imported_blocks,
                         }
                     }
                     (_, Err(e)) => {
-                        debug!(self.log, "Backfill batch processing failed";
-                            "batch_epoch" => epoch,
-                            "first_block_slot" => start_slot,
-                            "last_block_slot" => end_slot,
-                            "processed_blobs" => n_blobs,
-                            "error" => %e.message,
-                            "service" => "sync");
+                        debug!(
+                            batch_epoch = %epoch,
+                            first_block_slot = start_slot,
+                            last_block_slot = end_slot,
+                            processed_blobs = n_blobs,
+                            error = %e.message,
+                            service = "sync",
+                            "Backfill batch processing failed"
+                        );
                         match e.peer_action {
                             Some(penalty) => BatchProcessResult::FaultyFailure {
                                 imported_blocks: 0,
@@ -628,11 +656,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         expected_block_root,
                     } => {
                         debug!(
-                            self.log,
-                            "Backfill batch processing error";
-                            "error" => "mismatched_block_root",
-                            "block_root" => ?block_root,
-                            "expected_root" => ?expected_block_root
+                            error = "mismatched_block_root",
+                            ?block_root,
+                            expected_root = ?expected_block_root,
+                            "Backfill batch processing error"
                         );
                         // The peer is faulty if they send blocks with bad roots.
                         Some(PeerAction::LowToleranceError)
@@ -640,33 +667,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     HistoricalBlockError::InvalidSignature
                     | HistoricalBlockError::SignatureSet(_) => {
                         warn!(
-                            self.log,
-                            "Backfill batch processing error";
-                            "error" => ?e
+                            error = ?e,
+                            "Backfill batch processing error"
                         );
                         // The peer is faulty if they bad signatures.
                         Some(PeerAction::LowToleranceError)
                     }
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
                         warn!(
-                            self.log,
-                            "Backfill batch processing error";
-                            "error" => "pubkey_cache_timeout"
+                            error = "pubkey_cache_timeout",
+                            "Backfill batch processing error"
                         );
                         // This is an internal error, do not penalize the peer.
                         None
                     }
                     HistoricalBlockError::IndexOutOfBounds => {
                         error!(
-                            self.log,
-                            "Backfill batch OOB error";
-                            "error" => ?e,
+                            error = ?e,
+                            "Backfill batch OOB error"
                         );
                         // This should never occur, don't penalize the peer.
                         None
                     }
                     HistoricalBlockError::StoreError(e) => {
-                        warn!(self.log, "Backfill batch processing error"; "error" => ?e);
+                        warn!(error = ?e, "Backfill batch processing error");
                         // This is an internal error, don't penalize the peer.
                         None
                     } //
@@ -709,19 +733,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if present_slot + FUTURE_SLOT_TOLERANCE >= block_slot {
                     // The block is too far in the future, drop it.
                     warn!(
-                        self.log, "Block is ahead of our slot clock";
-                        "msg" => "block for future slot rejected, check your time",
-                        "present_slot" => present_slot,
-                        "block_slot" => block_slot,
-                        "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                        msg = "block for future slot rejected, check your time",
+                        %present_slot,
+                        %block_slot,
+                        FUTURE_SLOT_TOLERANCE,
+                        "Block is ahead of our slot clock"
                     );
                 } else {
                     // The block is in the future, but not too far.
                     debug!(
-                        self.log, "Block is slightly ahead of our slot clock. Ignoring.";
-                        "present_slot" => present_slot,
-                        "block_slot" => block_slot,
-                        "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
+                        %present_slot,
+                        %block_slot,
+                        FUTURE_SLOT_TOLERANCE,
+                        "Block is slightly ahead of our slot clock. Ignoring."
                     );
                 }
 
@@ -735,18 +759,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
             }
             BlockError::WouldRevertFinalizedSlot { .. } => {
-                debug!(self.log, "Finalized or earlier block processed";);
+                debug!("Finalized or earlier block processed");
                 Ok(())
             }
+            BlockError::NotFinalizedDescendant { block_parent_root } => {
+                debug!(
+                    "Not syncing to a chain that conflicts with the canonical or manual finalized checkpoint"
+                );
+                Err(ChainSegmentFailed {
+                    message: format!(
+                        "Block with parent_root {} conflicts with our checkpoint state",
+                        block_parent_root
+                    ),
+                    peer_action: Some(PeerAction::Fatal),
+                })
+            }
             BlockError::GenesisBlock => {
-                debug!(self.log, "Genesis block was processed");
+                debug!("Genesis block was processed");
                 Ok(())
             }
             BlockError::BeaconChainError(e) => {
                 warn!(
-                    self.log, "BlockProcessingFailure";
-                    "msg" => "unexpected condition in processing block.",
-                    "outcome" => ?e,
+                    msg = "unexpected condition in processing block.",
+                    outcome = ?e,
+                    "BlockProcessingFailure"
                 );
 
                 Err(ChainSegmentFailed {
@@ -759,10 +795,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if !epe.penalize_peer() {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
                     // Pause the syncing while the EL recovers
-                    debug!(self.log,
-                        "Execution layer verification failed";
-                        "outcome" => "pausing sync",
-                        "err" => ?err
+                    debug!(
+                        outcome = "pausing sync",
+                        ?err,
+                        "Execution layer verification failed"
                     );
                     Err(ChainSegmentFailed {
                         message: format!("Execution layer offline. Reason: {:?}", err),
@@ -770,9 +806,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         peer_action: None,
                     })
                 } else {
-                    debug!(self.log,
-                        "Invalid execution payload";
-                        "error" => ?err
+                    debug!(
+                        error = ?err,
+                        "Invalid execution payload"
                     );
                     Err(ChainSegmentFailed {
                         message: format!(
@@ -785,10 +821,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             ref err @ BlockError::ParentExecutionPayloadInvalid { ref parent_root } => {
                 warn!(
-                    self.log,
-                    "Failed to sync chain built on invalid parent";
-                    "parent_root" => ?parent_root,
-                    "advice" => "check execution node for corruption then restart it and Lighthouse",
+                    ?parent_root,
+                    advice = "check execution node for corruption then restart it and Lighthouse",
+                    "Failed to sync chain built on invalid parent"
                 );
                 Err(ChainSegmentFailed {
                     message: format!("Peer sent invalid block. Reason: {err:?}"),
@@ -798,11 +833,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: Some(PeerAction::LowToleranceError),
                 })
             }
+            // Penalise peers for sending us banned blocks.
+            BlockError::KnownInvalidExecutionPayload(block_root) => {
+                warn!(?block_root, "Received block known to be invalid",);
+                Err(ChainSegmentFailed {
+                    message: format!("Banned block: {block_root:?}"),
+                    peer_action: Some(PeerAction::Fatal),
+                })
+            }
             other => {
                 debug!(
-                    self.log, "Invalid block received";
-                    "msg" => "peer sent invalid block",
-                    "outcome" => %other,
+                    msg = "peer sent invalid block",
+                    outcome = %other,
+                    "Invalid block received"
                 );
 
                 Err(ChainSegmentFailed {

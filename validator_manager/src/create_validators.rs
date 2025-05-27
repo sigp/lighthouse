@@ -84,7 +84,6 @@ pub fn cli_app() -> Command {
                 .long(COUNT_FLAG)
                 .value_name("VALIDATOR_COUNT")
                 .help("The number of validators to create, regardless of how many already exist")
-                .conflicts_with("at-most")
                 .action(ArgAction::Set)
                 .display_order(0),
         )
@@ -286,7 +285,7 @@ struct ValidatorsAndDeposits {
 }
 
 impl ValidatorsAndDeposits {
-    async fn new<'a, E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<Self, String> {
+    async fn new<E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<Self, String> {
         let CreateConfig {
             // The output path is handled upstream.
             output_path: _,
@@ -545,7 +544,7 @@ pub async fn cli_run<E: EthSpec>(
     }
 }
 
-async fn run<'a, E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
+async fn run<E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
     let output_path = config.output_path.clone();
 
     if !output_path.exists() {

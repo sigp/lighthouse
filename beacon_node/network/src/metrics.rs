@@ -2,7 +2,8 @@ use beacon_chain::{
     attestation_verification::Error as AttnError,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
-    sync_committee_verification::Error as SyncCommitteeError,
+    sync_committee_verification::Error as SyncCommitteeError, AvailabilityProcessingStatus,
+    BlockError,
 };
 use fnv::FnvHashMap;
 use lighthouse_network::{
@@ -11,11 +12,19 @@ use lighthouse_network::{
 };
 pub use metrics::*;
 use std::sync::{Arc, LazyLock};
+use strum::AsRefStr;
 use strum::IntoEnumIterator;
+use types::DataColumnSubnetId;
 use types::EthSpec;
 
 pub const SUCCESS: &str = "SUCCESS";
 pub const FAILURE: &str = "FAILURE";
+
+#[derive(Debug, AsRefStr)]
+pub(crate) enum BlockSource {
+    Gossip,
+    Rpc,
+}
 
 pub static BEACON_BLOCK_MESH_PEERS_PER_CLIENT: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
@@ -56,6 +65,36 @@ pub static SYNC_COMMITTEE_SUBSCRIPTION_REQUESTS: LazyLock<Result<IntCounter>> =
         try_create_int_counter(
             "validator_sync_committee_subnet_subscriptions_total",
             "Count of validator sync committee subscription requests.",
+        )
+    });
+
+/*
+ * Beacon processor
+ */
+pub static BEACON_PROCESSOR_MISSING_COMPONENTS: LazyLock<Result<IntCounterVec>> = LazyLock::new(
+    || {
+        try_create_int_counter_vec(
+            "beacon_processor_missing_components_total",
+            "Total number of imported individual block components that resulted in missing components",
+            &["source", "component"],
+        )
+    },
+);
+pub static BEACON_PROCESSOR_IMPORT_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_processor_import_errors_total",
+            "Total number of block components that were not verified",
+            &["source", "component", "type"],
+        )
+    });
+pub static BEACON_PROCESSOR_GET_BLOCK_ROOTS_TIME: LazyLock<Result<HistogramVec>> =
+    LazyLock::new(|| {
+        try_create_histogram_vec_with_buckets(
+            "beacon_processor_get_block_roots_time_seconds",
+            "Time to complete get_block_roots when serving by_range requests",
+            decimal_buckets(-3, -1),
+            &["source"],
         )
     });
 
@@ -345,8 +384,15 @@ pub static PEERS_PER_SYNC_TYPE: LazyLock<Result<IntGaugeVec>> = LazyLock::new(||
 });
 pub static PEERS_PER_COLUMN_SUBNET: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(
-        "peers_per_column_subnet",
+        "sync_peers_per_column_subnet",
         "Number of connected peers per column subnet",
+        &["subnet_id"],
+    )
+});
+pub static PEERS_PER_CUSTODY_COLUMN_SUBNET: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "sync_peers_per_custody_column_subnet",
+        "Number of connected peers per custody column subnet",
         &["subnet_id"],
     )
 });
@@ -606,6 +652,37 @@ pub fn register_sync_committee_error(error: &SyncCommitteeError) {
     inc_counter_vec(&GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
 
+pub(crate) fn register_process_result_metrics(
+    result: &std::result::Result<AvailabilityProcessingStatus, BlockError>,
+    source: BlockSource,
+    block_component: &'static str,
+) {
+    match result {
+        Ok(status) => match status {
+            AvailabilityProcessingStatus::Imported { .. } => match source {
+                BlockSource::Gossip => {
+                    inc_counter(&BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
+                }
+                BlockSource::Rpc => {
+                    inc_counter(&BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
+                }
+            },
+            AvailabilityProcessingStatus::MissingComponents { .. } => {
+                inc_counter_vec(
+                    &BEACON_PROCESSOR_MISSING_COMPONENTS,
+                    &[source.as_ref(), block_component],
+                );
+            }
+        },
+        Err(error) => {
+            inc_counter_vec(
+                &BEACON_PROCESSOR_IMPORT_ERRORS_PER_TYPE,
+                &[source.as_ref(), block_component, error.as_ref()],
+            );
+        }
+    }
+}
+
 pub fn from_result<T, E>(result: &std::result::Result<T, E>) -> &str {
     match result {
         Ok(_) => SUCCESS,
@@ -686,16 +763,42 @@ pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>)
 
     // count per sync status, the number of connected peers
     let mut peers_per_sync_type = FnvHashMap::default();
-    for sync_type in network_globals
-        .peers
-        .read()
-        .connected_peers()
-        .map(|(_peer_id, info)| info.sync_status().as_str())
-    {
+    let mut peers_per_column_subnet = FnvHashMap::default();
+
+    for (_, info) in network_globals.peers.read().connected_peers() {
+        let sync_type = info.sync_status().as_str();
         *peers_per_sync_type.entry(sync_type).or_default() += 1;
+
+        for subnet in info.custody_subnets_iter() {
+            *peers_per_column_subnet.entry(*subnet).or_default() += 1;
+        }
     }
 
     for (sync_type, peer_count) in peers_per_sync_type {
         set_gauge_entry(&PEERS_PER_SYNC_TYPE, &[sync_type], peer_count);
+    }
+
+    let all_column_subnets =
+        (0..network_globals.spec.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new);
+    let custody_column_subnets = network_globals.sampling_subnets.iter();
+
+    // Iterate all subnet values to set to zero the empty entries in peers_per_column_subnet
+    for subnet in all_column_subnets {
+        set_gauge_entry(
+            &PEERS_PER_COLUMN_SUBNET,
+            &[&format!("{subnet}")],
+            peers_per_column_subnet.get(&subnet).copied().unwrap_or(0),
+        );
+    }
+
+    // Registering this metric is a duplicate for supernodes but helpful for fullnodes. This way
+    // operators can monitor the health of only the subnets of their interest without complex
+    // Grafana queries.
+    for subnet in custody_column_subnets {
+        set_gauge_entry(
+            &PEERS_PER_CUSTODY_COLUMN_SUBNET,
+            &[&format!("{subnet}")],
+            peers_per_column_subnet.get(subnet).copied().unwrap_or(0),
+        );
     }
 }

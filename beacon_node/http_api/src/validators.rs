@@ -29,7 +29,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                         .enumerate()
                         // filter by validator id(s) if provided
                         .filter(|(index, (validator, _))| {
-                            ids_filter_set.as_ref().map_or(true, |ids_set| {
+                            ids_filter_set.as_ref().is_none_or(|ids_set| {
                                 ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
                                     || ids_set.contains(&ValidatorId::Index(*index as u64))
                             })
@@ -42,7 +42,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                                 far_future_epoch,
                             );
 
-                            let status_matches = query_statuses.as_ref().map_or(true, |statuses| {
+                            let status_matches = query_statuses.as_ref().is_none_or(|statuses| {
                                 statuses.contains(&status)
                                     || statuses.contains(&status.superstatus())
                             });
@@ -81,8 +81,13 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
         .map_state_and_execution_optimistic_and_finalized(
             &chain,
             |state, execution_optimistic, finalized| {
-                let ids_filter_set: Option<HashSet<&ValidatorId>> =
-                    optional_ids.map(|f| HashSet::from_iter(f.iter()));
+                let ids_filter_set: Option<HashSet<&ValidatorId>> = match optional_ids {
+                    // if optional_ids (the request data body) is [], returns a `None`, so that later when calling .is_none_or() will return True
+                    // Hence, all validators will pass through .filter(), and balances of all validators are returned, in accordance to the spec
+                    Some([]) => None,
+                    Some(ids) => Some(HashSet::from_iter(ids.iter())),
+                    None => None,
+                };
 
                 Ok((
                     state
@@ -92,7 +97,7 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
                         .enumerate()
                         // filter by validator id(s) if provided
                         .filter(|(index, (validator, _))| {
-                            ids_filter_set.as_ref().map_or(true, |ids_set| {
+                            ids_filter_set.as_ref().is_none_or(|ids_set| {
                                 ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
                                     || ids_set.contains(&ValidatorId::Index(*index as u64))
                             })

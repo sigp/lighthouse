@@ -1,14 +1,15 @@
+use crate::context_deserialize;
 use crate::ChainSpec;
-use crate::ForkName;
-use crate::ForkVersionDeserialize;
 use crate::{light_client_update::*, BeaconBlockBody};
 use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderElectra, FixedVector, Hash256, SignedBlindedBeaconBlock,
+    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, FixedVector, Hash256,
+    SignedBlindedBeaconBlock,
 };
 use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
+use crate::{ContextDeserialize, ForkName};
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
@@ -17,7 +18,7 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Altair, Capella, Deneb, Electra),
+    variants(Altair, Capella, Deneb, Electra, Fulu),
     variant_attributes(
         derive(
             Debug,
@@ -34,11 +35,10 @@ use tree_hash_derive::TreeHash;
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
+        context_deserialize(ForkName),
     )
 )]
-#[derive(
-    Debug, Clone, Serialize, TreeHash, Encode, Deserialize, arbitrary::Arbitrary, PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, arbitrary::Arbitrary, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
@@ -59,8 +59,10 @@ pub struct LightClientHeader<E: EthSpec> {
         partial_getter(rename = "execution_payload_header_electra")
     )]
     pub execution: ExecutionPayloadHeaderElectra<E>,
+    #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_header_fulu"))]
+    pub execution: ExecutionPayloadHeaderFulu<E>,
 
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
 
     #[ssz(skip_serializing, skip_deserializing)]
@@ -92,6 +94,9 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Electra => LightClientHeader::Electra(
                 LightClientHeaderElectra::block_to_light_client_header(block)?,
             ),
+            ForkName::Fulu => {
+                LightClientHeader::Fulu(LightClientHeaderFulu::block_to_light_client_header(block)?)
+            }
         };
         Ok(header)
     }
@@ -109,6 +114,9 @@ impl<E: EthSpec> LightClientHeader<E> {
             }
             ForkName::Electra => {
                 LightClientHeader::Electra(LightClientHeaderElectra::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Fulu => {
+                LightClientHeader::Fulu(LightClientHeaderFulu::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
@@ -283,28 +291,82 @@ impl<E: EthSpec> Default for LightClientHeaderElectra<E> {
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Altair | ForkName::Bellatrix => serde_json::from_value(value)
-                .map(|light_client_header| Self::Altair(light_client_header))
-                .map_err(serde::de::Error::custom),
-            ForkName::Capella => serde_json::from_value(value)
-                .map(|light_client_header| Self::Capella(light_client_header))
-                .map_err(serde::de::Error::custom),
-            ForkName::Deneb => serde_json::from_value(value)
-                .map(|light_client_header| Self::Deneb(light_client_header))
-                .map_err(serde::de::Error::custom),
-            ForkName::Electra => serde_json::from_value(value)
-                .map(|light_client_header| Self::Electra(light_client_header))
-                .map_err(serde::de::Error::custom),
-            ForkName::Base => Err(serde::de::Error::custom(format!(
-                "LightClientHeader deserialization for {fork_name} not implemented"
-            ))),
+impl<E: EthSpec> LightClientHeaderFulu<E> {
+    pub fn block_to_light_client_header(
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<Self, Error> {
+        let payload = block
+            .message()
+            .execution_payload()?
+            .execution_payload_fulu()?;
+
+        let header = ExecutionPayloadHeaderFulu::from(payload);
+        let beacon_block_body = BeaconBlockBody::from(
+            block
+                .message()
+                .body_fulu()
+                .map_err(|_| Error::BeaconBlockBodyError)?
+                .to_owned(),
+        );
+
+        let execution_branch = beacon_block_body
+            .to_ref()
+            .block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
+
+        Ok(LightClientHeaderFulu {
+            beacon: block.message().block_header(),
+            execution: header,
+            execution_branch: FixedVector::new(execution_branch)?,
+            _phantom_data: PhantomData,
+        })
+    }
+}
+
+impl<E: EthSpec> Default for LightClientHeaderFulu<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            execution: ExecutionPayloadHeaderFulu::default(),
+            execution_branch: FixedVector::default(),
+            _phantom_data: PhantomData,
         }
+    }
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let convert_err = |e| {
+            serde::de::Error::custom(format!(
+                "LightClientFinalityUpdate failed to deserialize: {:?}",
+                e
+            ))
+        };
+        Ok(match context {
+            ForkName::Base => {
+                return Err(serde::de::Error::custom(format!(
+                    "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
+                    context
+                )))
+            }
+            ForkName::Altair | ForkName::Bellatrix => {
+                Self::Altair(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Capella => {
+                Self::Capella(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Deneb => {
+                Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Electra => {
+                Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Fulu => {
+                Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+        })
     }
 }
 

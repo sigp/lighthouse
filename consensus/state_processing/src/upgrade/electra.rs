@@ -1,8 +1,10 @@
+use bls::Signature;
+use itertools::Itertools;
 use safe_arith::SafeArith;
 use std::mem;
 use types::{
     BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, Epoch, EpochCache,
-    EthSpec, Fork,
+    EthSpec, Fork, PendingDeposit,
 };
 
 /// Transform a `Deneb` state into an `Electra` state.
@@ -12,13 +14,15 @@ pub fn upgrade_to_electra<E: EthSpec>(
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
 
+    let activation_exit_epoch = spec.compute_activation_exit_epoch(epoch)?;
     let earliest_exit_epoch = pre_state
         .validators()
         .iter()
         .filter(|v| v.exit_epoch != spec.far_future_epoch)
         .map(|v| v.exit_epoch)
         .max()
-        .unwrap_or(epoch)
+        .unwrap_or(activation_exit_epoch)
+        .max(activation_exit_epoch)
         .safe_add(1)?;
 
     // The total active balance cache must be built before the consolidation churn limit
@@ -38,29 +42,45 @@ pub fn upgrade_to_electra<E: EthSpec>(
 
     // Add validators that are not yet active to pending balance deposits
     let validators = post.validators().clone();
-    let mut pre_activation = validators
+    let pre_activation = validators
         .iter()
         .enumerate()
         .filter(|(_, validator)| validator.activation_epoch == spec.far_future_epoch)
+        .sorted_by_key(|(index, validator)| (validator.activation_eligibility_epoch, *index))
+        .map(|(index, _)| index)
         .collect::<Vec<_>>();
 
-    // Sort the indices by activation_eligibility_epoch and then by index
-    pre_activation.sort_by(|(index_a, val_a), (index_b, val_b)| {
-        if val_a.activation_eligibility_epoch == val_b.activation_eligibility_epoch {
-            index_a.cmp(index_b)
-        } else {
-            val_a
-                .activation_eligibility_epoch
-                .cmp(&val_b.activation_eligibility_epoch)
-        }
-    });
-
     // Process validators to queue entire balance and reset them
-    for (index, _) in pre_activation {
-        post.queue_entire_balance_and_reset_validator(index, spec)?;
+    for index in pre_activation {
+        let balance = post
+            .balances_mut()
+            .get_mut(index)
+            .ok_or(Error::UnknownValidator(index))?;
+        let balance_copy = *balance;
+        *balance = 0_u64;
+
+        let validator = post
+            .validators_mut()
+            .get_mut(index)
+            .ok_or(Error::UnknownValidator(index))?;
+        validator.effective_balance = 0;
+        validator.activation_eligibility_epoch = spec.far_future_epoch;
+        let pubkey = validator.pubkey;
+        let withdrawal_credentials = validator.withdrawal_credentials;
+
+        post.pending_deposits_mut()?
+            .push(PendingDeposit {
+                pubkey,
+                withdrawal_credentials,
+                amount: balance_copy,
+                signature: Signature::infinity()?.into(),
+                slot: spec.genesis_slot,
+            })
+            .map_err(Error::MilhouseError)?;
     }
 
     // Ensure early adopters of compounding credentials go through the activation churn
+    let validators = post.validators().clone();
     for (index, validator) in validators.iter().enumerate() {
         if validator.has_compounding_withdrawal_credential(spec) {
             post.queue_excess_active_balance(index, spec)?;
@@ -137,7 +157,7 @@ pub fn upgrade_state_to_electra<E: EthSpec>(
         earliest_exit_epoch,
         consolidation_balance_to_consume: 0,
         earliest_consolidation_epoch,
-        pending_balance_deposits: Default::default(),
+        pending_deposits: Default::default(),
         pending_partial_withdrawals: Default::default(),
         pending_consolidations: Default::default(),
         // Caches

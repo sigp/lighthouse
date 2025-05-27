@@ -1,10 +1,9 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
-use eth2::lighthouse::StandardAttestationRewards;
-use eth2::types::ValidatorId;
+use eth2::types::{
+    IdealAttestationRewards, StandardAttestationRewards, TotalAttestationRewards, ValidatorId,
+};
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
-use slog::debug;
 use state_processing::common::base::{self, SqrtTotalActiveBalance};
 use state_processing::per_epoch_processing::altair::{
     process_inactivity_updates_slow, process_justification_and_finalization,
@@ -29,6 +28,7 @@ use store::consts::altair::{
     PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
     TIMELY_TARGET_FLAG_INDEX,
 };
+use tracing::debug;
 use types::consts::altair::WEIGHT_DENOMINATOR;
 use types::{BeaconState, Epoch, EthSpec, RelativeEpoch};
 
@@ -38,7 +38,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         epoch: Epoch,
         validators: Vec<ValidatorId>,
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
-        debug!(self.log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
+        debug!(
+            %epoch,
+            validator_count = validators.len(),
+            "computing attestation rewards"
+        );
 
         // Get state
         let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
@@ -47,17 +51,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .state_root_at_slot(state_slot)?
             .ok_or(BeaconChainError::NoStateForSlot(state_slot))?;
 
+        // This branch is reached from the HTTP API. We assume the user wants
+        // to cache states so that future calls are faster.
         let state = self
-            .get_state(&state_root, Some(state_slot))?
+            .get_state(&state_root, Some(state_slot), true)?
             .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
 
-        match state {
-            BeaconState::Base(_) => self.compute_attestation_rewards_base(state, validators),
-            BeaconState::Altair(_)
-            | BeaconState::Bellatrix(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => self.compute_attestation_rewards_altair(state, validators),
+        if state.fork_name_unchecked().altair_enabled() {
+            self.compute_attestation_rewards_altair(state, validators)
+        } else {
+            self.compute_attestation_rewards_base(state, validators)
         }
     }
 
@@ -178,7 +181,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let base_reward_per_increment =
                 BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
-            for effective_balance_eth in 1..=self.max_effective_balance_increment_steps()? {
+            for effective_balance_eth in
+                1..=self.max_effective_balance_increment_steps(previous_epoch)?
+            {
                 let effective_balance =
                     effective_balance_eth.safe_mul(spec.effective_balance_increment)?;
                 let base_reward =
@@ -215,10 +220,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Return 0s for unknown/inactive validator indices.
             let Ok(validator) = state.get_validator(validator_index) else {
                 debug!(
-                    self.log,
-                    "No rewards for inactive/unknown validator";
-                    "index" => validator_index,
-                    "epoch" => previous_epoch
+                    index = validator_index,
+                    epoch = %previous_epoch,
+                    "No rewards for inactive/unknown validator"
                 );
                 total_rewards.push(TotalAttestationRewards {
                     validator_index: validator_index as u64,
@@ -324,11 +328,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    fn max_effective_balance_increment_steps(&self) -> Result<u64, BeaconChainError> {
+    fn max_effective_balance_increment_steps(
+        &self,
+        rewards_epoch: Epoch,
+    ) -> Result<u64, BeaconChainError> {
         let spec = &self.spec;
-        let max_steps = spec
-            .max_effective_balance
-            .safe_div(spec.effective_balance_increment)?;
+        let fork_name = spec.fork_name_at_epoch(rewards_epoch);
+        let max_effective_balance = spec.max_effective_balance_for_fork(fork_name);
+        let max_steps = max_effective_balance.safe_div(spec.effective_balance_increment)?;
         Ok(max_steps)
     }
 
@@ -389,7 +396,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut ideal_attestation_rewards_list = Vec::new();
         let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_balances.current_epoch());
-        for effective_balance_step in 1..=self.max_effective_balance_increment_steps()? {
+        for effective_balance_step in
+            1..=self.max_effective_balance_increment_steps(previous_epoch)?
+        {
             let effective_balance =
                 effective_balance_step.safe_mul(spec.effective_balance_increment)?;
             let base_reward =

@@ -97,7 +97,7 @@ impl GenericExecutionEngine for GethEngine {
             .arg(datadir.path().to_str().unwrap())
             .arg("--http")
             .arg("--http.api")
-            .arg("engine,eth,personal")
+            .arg("engine,eth")
             .arg("--http.port")
             .arg(http_port.to_string())
             .arg("--authrpc.port")

@@ -5,10 +5,10 @@ use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilde
 use account_utils::{random_password, read_mnemonic_from_cli, STDIN_INPUTS_FLAG};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
-use directory::ensure_dir_exists;
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 use validator_dir::Builder as ValidatorDirBuilder;
 pub const CMD: &str = "recover";
@@ -91,8 +91,10 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
     eprintln!("secrets-dir path: {:?}", secrets_dir);
 
-    ensure_dir_exists(&validator_dir)?;
-    ensure_dir_exists(&secrets_dir)?;
+    create_dir_all(&validator_dir)
+        .map_err(|e| format!("Could not create validator dir at {validator_dir:?}: {e:?}"))?;
+    create_dir_all(&secrets_dir)
+        .map_err(|e| format!("Could not create secrets dir at {secrets_dir:?}: {e:?}"))?;
 
     eprintln!();
     eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");

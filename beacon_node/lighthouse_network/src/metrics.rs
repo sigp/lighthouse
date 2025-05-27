@@ -93,11 +93,11 @@ pub static PEERS_PER_CLIENT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     )
 });
 
-pub static PEERS_PER_CUSTODY_SUBNET_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+pub static PEERS_PER_CUSTODY_GROUP_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(
-        "peers_per_custody_subnet_count",
-        "The current count of peers by custody subnet count",
-        &["custody_subnet_count"],
+        "peers_per_custody_group_count",
+        "The current count of peers by custody group count",
+        &["custody_group_count"],
     )
 });
 
@@ -203,6 +203,20 @@ pub static REPORT_PEER_MSGS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| 
         "libp2p_report_peer_msgs_total",
         "Number of peer reports per msg",
         &["msg"],
+    )
+});
+
+pub static OUTBOUND_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "outbound_request_idling_seconds",
+        "The time our own request remained idle in the self-limiter",
+    )
+});
+
+pub static RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "response_idling_seconds",
+        "The time our response remained idle in the response limiter",
     )
 });
 

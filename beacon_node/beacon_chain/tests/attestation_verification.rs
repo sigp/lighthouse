@@ -36,6 +36,9 @@ pub const VALIDATOR_COUNT: usize = 256;
 
 pub const CAPELLA_FORK_EPOCH: usize = 1;
 
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
+
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
@@ -431,10 +434,12 @@ impl GossipTester {
             .chain
             .verify_aggregated_attestation_for_gossip(&aggregate)
             .err()
-            .expect(&format!(
-                "{} should error during verify_aggregated_attestation_for_gossip",
-                desc
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} should error during verify_aggregated_attestation_for_gossip",
+                    desc
+                )
+            });
         inspect_err(&self, err);
 
         /*
@@ -449,10 +454,12 @@ impl GossipTester {
             .unwrap();
 
         assert_eq!(results.len(), 2);
-        let batch_err = results.pop().unwrap().err().expect(&format!(
-            "{} should error during batch_verify_aggregated_attestations_for_gossip",
-            desc
-        ));
+        let batch_err = results.pop().unwrap().err().unwrap_or_else(|| {
+            panic!(
+                "{} should error during batch_verify_aggregated_attestations_for_gossip",
+                desc
+            )
+        });
         inspect_err(&self, batch_err);
 
         self
@@ -475,10 +482,12 @@ impl GossipTester {
             .chain
             .verify_unaggregated_attestation_for_gossip(&attn, Some(subnet_id))
             .err()
-            .expect(&format!(
-                "{} should error during verify_unaggregated_attestation_for_gossip",
-                desc
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} should error during verify_unaggregated_attestation_for_gossip",
+                    desc
+                )
+            });
         inspect_err(&self, err);
 
         /*
@@ -496,10 +505,12 @@ impl GossipTester {
             )
             .unwrap();
         assert_eq!(results.len(), 2);
-        let batch_err = results.pop().unwrap().err().expect(&format!(
-            "{} should error during batch_verify_unaggregated_attestations_for_gossip",
-            desc
-        ));
+        let batch_err = results.pop().unwrap().err().unwrap_or_else(|| {
+            panic!(
+                "{} should error during batch_verify_unaggregated_attestations_for_gossip",
+                desc
+            )
+        });
         inspect_err(&self, batch_err);
 
         self
@@ -816,7 +827,7 @@ async fn aggregated_gossip_verification() {
                 let (index, sk) = tester.non_aggregator();
                 *a = SignedAggregateAndProof::from_aggregate(
                     index as u64,
-                    tester.valid_aggregate.message().aggregate().clone(),
+                    tester.valid_aggregate.message().aggregate(),
                     None,
                     &sk,
                     &chain.canonical_head.cached_head().head_fork(),
@@ -1217,7 +1228,11 @@ async fn attestation_that_skips_epochs() {
 
     let mut state = harness
         .chain
-        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .get_state(
+            &earlier_block.state_root(),
+            Some(earlier_slot),
+            CACHE_STATE_IN_TESTS,
+        )
         .expect("should not error getting state")
         .expect("should find state");
 
@@ -1321,9 +1336,14 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .await;
 
     let current_slot = harness.get_current_slot();
+
     let mut state = harness
         .chain
-        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .get_state(
+            &earlier_block.state_root(),
+            Some(earlier_slot),
+            CACHE_STATE_IN_TESTS,
+        )
         .expect("should not error getting state")
         .expect("should find state");
 
@@ -1391,7 +1411,11 @@ async fn attestation_to_finalized_block() {
 
     let mut state = harness
         .chain
-        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .get_state(
+            &earlier_block.state_root(),
+            Some(earlier_slot),
+            CACHE_STATE_IN_TESTS,
+        )
         .expect("should not error getting state")
         .expect("should find state");
 

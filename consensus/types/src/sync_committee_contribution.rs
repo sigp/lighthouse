@@ -1,7 +1,7 @@
-use super::{AggregateSignature, EthSpec, SignedRoot};
+use super::{AggregateSignature, EthSpec, ForkName, SignedRoot};
+use crate::context_deserialize;
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeMessage};
-use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -10,8 +10,8 @@ use tree_hash_derive::TreeHash;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     AlreadySigned(usize),
-    SubnetCountIsZero(ArithError),
 }
 
 /// An aggregation of `SyncCommitteeMessage`s, used in creating a `SignedContributionAndProof`.
@@ -29,6 +29,7 @@ pub enum Error {
 )]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct SyncCommitteeContribution<E: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
@@ -43,8 +44,8 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
     ///
     /// - `message`: A single `SyncCommitteeMessage`.
     /// - `subcommittee_index`: The subcommittee this contribution pertains to out of the broader
-    ///     sync committee. This can be determined from the `SyncSubnetId` of the gossip subnet
-    ///     this message was seen on.
+    ///   sync committee. This can be determined from the `SyncSubnetId` of the gossip subnet
+    ///   this message was seen on.
     /// - `validator_sync_committee_index`: The index of the validator **within** the subcommittee.
     pub fn from_message(
         message: &SyncCommitteeMessage,
@@ -53,7 +54,7 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
     ) -> Result<Self, Error> {
         let mut bits = BitVector::new();
         bits.set(validator_sync_committee_index, true)
-            .map_err(Error::SszTypesError)?;
+            .map_err(Error::BitfieldError)?;
         Ok(Self {
             slot: message.slot,
             beacon_block_root: message.beacon_block_root,

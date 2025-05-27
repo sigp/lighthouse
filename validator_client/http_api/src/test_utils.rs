@@ -1,8 +1,8 @@
+use crate::api_secret::PK_FILENAME;
 use crate::{ApiSecret, Config as HttpConfig, Context};
 use account_utils::validator_definitions::ValidatorDefinitions;
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
-    ZeroizeString,
 };
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
@@ -14,20 +14,20 @@ use eth2::{
 use eth2_keystore::KeystoreBuilder;
 use initialized_validators::key_cache::{KeyCache, CACHE_FILENAME};
 use initialized_validators::{InitializedValidators, OnDecryptFailure};
-use logging::test_logger;
+use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
-use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
-use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
+use validator_services::block_service::BlockService;
+use zeroize::Zeroizing;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -54,7 +54,7 @@ pub struct Web3SignerValidatorScenario {
 pub struct ApiTester {
     pub client: ValidatorClientHttpClient,
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
-    pub validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+    pub validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
     pub url: SensitiveUrl,
     pub api_token: String,
     pub test_runtime: TestRuntime,
@@ -69,10 +69,9 @@ impl ApiTester {
     }
 
     pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-        let log = test_logger();
-
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
+        let token_path = tempdir().unwrap().path().join(PK_FILENAME);
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -80,12 +79,11 @@ impl ApiTester {
             validator_defs,
             validator_dir.path().into(),
             Default::default(),
-            log.clone(),
         )
         .await
         .unwrap();
 
-        let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
+        let api_secret = ApiSecret::create_or_open(token_path).unwrap();
         let api_pubkey = api_secret.api_token();
 
         let config = ValidatorStoreConfig {
@@ -103,16 +101,15 @@ impl ApiTester {
 
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(ValidatorStore::<_, E>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
             spec.clone(),
-            Some(Arc::new(DoppelgangerService::new(log.clone()))),
+            Some(Arc::new(DoppelgangerService::default())),
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            log.clone(),
         ));
 
         validator_store
@@ -124,7 +121,7 @@ impl ApiTester {
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
-            block_service: None,
+            block_service: None::<BlockService<LighthouseValidatorStore<_, _>, _>>,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
@@ -132,10 +129,8 @@ impl ApiTester {
             graffiti_flag: Some(Graffiti::default()),
             spec,
             config: http_config,
-            log,
             sse_logging_components: None,
             slot_clock,
-            _phantom: PhantomData,
         });
         let ctx = context;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -143,7 +138,7 @@ impl ApiTester {
             // It's not really interesting why this triggered, just that it happened.
             let _ = shutdown_rx.await;
         };
-        let (listening_socket, server) = super::serve(ctx, server_shutdown).unwrap();
+        let (listening_socket, server) = super::serve::<_, E>(ctx, server_shutdown).unwrap();
 
         tokio::spawn(server);
 
@@ -177,6 +172,7 @@ impl ApiTester {
             allow_origin: None,
             allow_keystore_export: true,
             store_passwords_in_secrets_dir: false,
+            http_token_path: tempdir().unwrap().path().join(PK_FILENAME),
         }
     }
 
@@ -199,8 +195,8 @@ impl ApiTester {
     }
 
     pub fn invalid_token_client(&self) -> ValidatorClientHttpClient {
-        let tmp = tempdir().unwrap();
-        let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
+        let tmp = tempdir().unwrap().path().join("invalid-token.txt");
+        let api_secret = ApiSecret::create_or_open(tmp).unwrap();
         let invalid_pubkey = api_secret.api_token();
         ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap()
     }
@@ -248,9 +244,9 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetElectra>()
+            .get_lighthouse_spec::<ConfigAndPresetFulu>()
             .await
-            .map(|res| ConfigAndPreset::Electra(res.data))
+            .map(|res| ConfigAndPreset::Fulu(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
 
@@ -321,7 +317,7 @@ impl ApiTester {
             .collect::<Vec<_>>();
 
         let (response, mnemonic) = if s.specify_mnemonic {
-            let mnemonic = ZeroizeString::from(random_mnemonic().phrase().to_string());
+            let mnemonic = Zeroizing::from(random_mnemonic().phrase().to_string());
             let request = CreateValidatorsMnemonicRequest {
                 mnemonic: mnemonic.clone(),
                 key_derivation_path_offset: s.key_derivation_path_offset,
@@ -641,7 +637,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_builder_proposals(&validator.voting_pubkey),
+                .get_builder_proposals_testing_only(&validator.voting_pubkey),
             builder_proposals
         );
 
