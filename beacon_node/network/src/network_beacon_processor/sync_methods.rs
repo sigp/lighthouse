@@ -383,8 +383,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                     // Attempt reconstruction here before notifying sync, to avoid sending out more requests
                     // that we may no longer need.
-                    if let Some(availability) =
-                        self.attempt_data_column_reconstruction(block_root).await
+                    // We don't publish columns reconstructed from rpc columns to the gossip network,
+                    // as these are likely historic columns.
+                    let publish_columns = false;
+                    if let Some(availability) = self
+                        .attempt_data_column_reconstruction(block_root, publish_columns)
+                        .await
                     {
                         result = Ok(availability)
                     }

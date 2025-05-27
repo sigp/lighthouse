@@ -7,7 +7,7 @@ use types::{
     EthSpec, Fork, PendingDeposit,
 };
 
-/// Transform a `Deneb` state into an `Electra` state.
+/// Transform a `Electra` state into an `Eip7805s` state.
 pub fn upgrade_to_eip7805<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,

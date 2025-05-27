@@ -7,6 +7,8 @@ use beacon_chain::{
 };
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::NetworkConfig;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
@@ -76,6 +78,7 @@ impl TestBeaconChain {
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
                 .shutdown_sender(shutdown_tx)
+                .rng(Box::new(StdRng::seed_from_u64(42)))
                 .build()
                 .expect("should build"),
         );

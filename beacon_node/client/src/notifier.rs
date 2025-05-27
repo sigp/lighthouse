@@ -355,7 +355,7 @@ async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
         if !beacon_chain.is_time_to_prepare_for_capella(current_slot) {
             error!(
                 info = "you need an execution engine to validate blocks, see: \
-                https://lighthouse-book.sigmaprime.io/merge-migration.html",
+                https://lighthouse-book.sigmaprime.io/archived_merge_migration.html",
                 "Execution endpoint required"
             );
         }
@@ -435,7 +435,7 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
         if !beacon_chain.is_time_to_prepare_for_deneb(current_slot) {
             error!(
                 info = "you need a Capella enabled execution engine to validate blocks, see: \
-                           https://lighthouse-book.sigmaprime.io/merge-migration.html",
+                           https://lighthouse-book.sigmaprime.io/archived_merge_migration.html",
                 "Execution endpoint required"
             );
         }
@@ -601,8 +601,7 @@ async fn eip7805_readiness_logging<T: BeaconChainTypes>(
     match beacon_chain.check_eip7805_readiness().await {
         Eip7805Readiness::Ready => {
             info!(
-                info =
-                    "ensure the execution endpoint is updated to the latest eip7805 release",
+                info = "ensure the execution endpoint is updated to the latest eip7805 release",
                 "Ready for Eip7805"
             )
         }

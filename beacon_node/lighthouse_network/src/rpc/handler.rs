@@ -141,7 +141,7 @@ where
     /// Waker, to be sure the handler gets polled when needed.
     waker: Option<std::task::Waker>,
 
-    /// Timeout that will me used for inbound and outbound responses.
+    /// Timeout that will be used for inbound and outbound responses.
     resp_timeout: Duration,
 }
 
@@ -314,6 +314,7 @@ where
             }
             return;
         };
+
         // If the response we are sending is an error, report back for handling
         if let RpcResponse::Error(ref code, ref reason) = response {
             self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
@@ -331,6 +332,7 @@ where
                     "Response not sent. Deactivated handler");
             return;
         }
+
         inbound_info.pending_items.push_back(response);
     }
 }

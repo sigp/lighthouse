@@ -71,6 +71,22 @@ fn validators_and_secrets_dir_flags() {
 }
 
 #[test]
+fn datadir_and_secrets_dir_flags() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("datadir", dir.path().join("data").to_str())
+        .flag("secrets-dir", dir.path().join("secrets").to_str())
+        .run_with_no_datadir()
+        .with_config(|config| {
+            assert_eq!(
+                config.validator_dir,
+                dir.path().join("data").join("validators")
+            );
+            assert_eq!(config.secrets_dir, dir.path().join("secrets"));
+        });
+}
+
+#[test]
 fn validators_dir_alias_flags() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
@@ -301,6 +317,14 @@ fn missing_unencrypted_http_transport_flag() {
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
 #[test]
+#[should_panic]
+fn missing_http_http_port_flag() {
+    CommandLineTest::new()
+        .flag("http-port", Some("9090"))
+        .run()
+        .with_config(|config| assert_eq!(config.http_api.listen_port, 9090));
+}
+#[test]
 fn http_port_flag() {
     CommandLineTest::new()
         .flag("http", None)
@@ -481,7 +505,7 @@ fn no_doppelganger_protection_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.validator_store.gas_limit == Some(30_000_000)));
+        .with_config(|config| assert!(config.validator_store.gas_limit == Some(36_000_000)));
 }
 #[test]
 fn gas_limit_flag() {

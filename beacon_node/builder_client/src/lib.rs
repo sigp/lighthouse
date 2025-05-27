@@ -1,7 +1,7 @@
+use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder_bid::SignedBuilderBid;
-use eth2::types::fork_versioned_response::EmptyMetadata;
 use eth2::types::{
-    ContentType, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, ForkVersionDeserialize,
+    ContentType, ContextDeserialize, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode,
     ForkVersionedResponse, PublicKeyBytes, SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
@@ -119,7 +119,7 @@ impl BuilderHttpClient {
     }
 
     async fn get_with_header<
-        T: DeserializeOwned + ForkVersionDecode + ForkVersionDeserialize,
+        T: DeserializeOwned + ForkVersionDecode + for<'de> ContextDeserialize<'de, ForkName>,
         U: IntoUrl,
     >(
         &self,
@@ -147,7 +147,7 @@ impl BuilderHttpClient {
                 self.ssz_available.store(true, Ordering::SeqCst);
                 T::from_ssz_bytes_by_fork(&response_bytes, fork_name)
                     .map(|data| ForkVersionedResponse {
-                        version: Some(fork_name),
+                        version: fork_name,
                         metadata: EmptyMetadata {},
                         data,
                     })
@@ -155,7 +155,15 @@ impl BuilderHttpClient {
             }
             ContentType::Json => {
                 self.ssz_available.store(false, Ordering::SeqCst);
-                serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson)
+                let mut de = serde_json::Deserializer::from_slice(&response_bytes);
+                let data =
+                    T::context_deserialize(&mut de, fork_name).map_err(Error::InvalidJson)?;
+
+                Ok(ForkVersionedResponse {
+                    version: fork_name,
+                    metadata: EmptyMetadata {},
+                    data,
+                })
             }
         }
     }

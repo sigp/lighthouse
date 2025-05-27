@@ -14,14 +14,14 @@ pub enum GossipInclusionListError {
     ValidatorNotInCommittee,
     TooManyTransactions,
     InvalidSignature,
-    BeaconChainError(BeaconChainError),
+    BeaconChainError(Box<BeaconChainError>),
     PriorInclusionListKnown,
     // TODO: equivocation e.g. PriorInclusionListKnown
 }
 
 impl From<BeaconChainError> for GossipInclusionListError {
     fn from(value: BeaconChainError) -> Self {
-        Self::BeaconChainError(value)
+        Self::BeaconChainError(value.into())
     }
 }
 
@@ -80,9 +80,9 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
         let validator_index = signed_il.message.validator_index as usize;
         let pubkey = chain.validator_pubkey(validator_index)?;
         let Some(pubkey) = pubkey else {
-            return Err(GossipInclusionListError::BeaconChainError(
+            return Err(GossipInclusionListError::BeaconChainError(Box::new(
                 BeaconChainError::ValidatorIndexUnknown(validator_index),
-            ));
+            )));
         };
         signed_il.signature.verify(&pubkey, message);
 
