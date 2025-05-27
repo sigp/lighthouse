@@ -1,6 +1,7 @@
+use crate::data_column_verification::GossipVerifiedDataColumn;
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
 use crate::fetch_blobs::{
-    fetch_and_process_engine_blobs_inner, BlobsOrDataColumns, FetchEngineBlobError,
+    fetch_and_process_engine_blobs_inner, EngineGetBlobsOutput, FetchEngineBlobError,
 };
 use crate::test_utils::{get_kzg, EphemeralHarnessType};
 use crate::AvailabilityProcessingStatus;
@@ -148,6 +149,9 @@ async fn test_fetch_blobs_v2_success() {
     // All blobs returned, fork choice doesn't contain block
     mock_get_blobs_v2_response(&mut mock_adapter, Some(blobs_and_proofs));
     mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
+    mock_adapter
+        .expect_verify_data_column_for_gossip()
+        .returning(|c| Ok(GossipVerifiedDataColumn::__new_for_testing(c)));
     mock_process_engine_blobs_result(
         &mut mock_adapter,
         Ok(AvailabilityProcessingStatus::Imported(block_root)),
@@ -174,16 +178,16 @@ async fn test_fetch_blobs_v2_success() {
     assert!(
         matches!(
             published_columns,
-            BlobsOrDataColumns::DataColumns (columns) if columns.len() == custody_columns.len()
+            EngineGetBlobsOutput::CustodyColumns(columns) if columns.len() == custody_columns.len()
         ),
         "should publish custody columns"
     );
 }
 
-/// Extract the `BlobsOrDataColumns` passed to the `publish_fn`.
+/// Extract the `EngineGetBlobsOutput` passed to the `publish_fn`.
 fn extract_published_blobs(
-    publish_fn_args: Arc<Mutex<Vec<BlobsOrDataColumns<T>>>>,
-) -> BlobsOrDataColumns<T> {
+    publish_fn_args: Arc<Mutex<Vec<EngineGetBlobsOutput<T>>>>,
+) -> EngineGetBlobsOutput<T> {
     let mut calls = publish_fn_args.lock().unwrap();
     assert_eq!(calls.len(), 1);
     calls.pop().unwrap()
@@ -250,8 +254,8 @@ fn create_test_block_and_blobs(
 
 #[allow(clippy::type_complexity)]
 fn mock_publish_fn() -> (
-    impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
-    Arc<Mutex<Vec<BlobsOrDataColumns<T>>>>,
+    impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
+    Arc<Mutex<Vec<EngineGetBlobsOutput<T>>>>,
 ) {
     // Keep track of the arguments captured by `publish_fn`.
     let captured_args = Arc::new(Mutex::new(vec![]));

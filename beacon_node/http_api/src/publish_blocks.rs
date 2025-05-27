@@ -424,6 +424,14 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                     );
                     Ok(None)
                 }
+                Err(GossipDataColumnError::PriorKnownUnpublished) => {
+                    debug!(
+                        column_index,
+                        %slot,
+                        "Data column for publication already known via the EL"
+                    );
+                    Ok(None)
+                }
                 Err(e) => {
                     error!(
                         column_index,
