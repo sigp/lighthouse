@@ -2775,6 +2775,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Ignore,
                         );
                     }
+                    BeaconChainError::AttestationValidationError(e) => {
+                        // Failures from `get_attesting_indices` end up here.
+                        debug!(
+                            %peer_id,
+                            block_root = ?beacon_block_root,
+                            attestation_slot = %failed_att.attestation_data().slot,
+                            error = ?e,
+                            "Rejecting attestation that failed validation"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::MidToleranceError,
+                            "attn_validation_error",
+                        );
+                    }
                     _ => {
                         /*
                          * Lighthouse hit an unexpected error whilst processing the attestation. It
