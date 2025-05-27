@@ -7,13 +7,10 @@ edition = { workspace = true }
 
 [dependencies]
 clap = { workspace = true }
-env_logger = { workspace = true }
 environment = { workspace = true }
-eth2_network_config = { workspace = true }
 execution_layer = { workspace = true }
 futures = { workspace = true }
 kzg = { workspace = true }
-logging = { workspace = true }
 node_test_rig = { path = "../node_test_rig" }
 parking_lot = { workspace = true }
 rayon = { workspace = true }
