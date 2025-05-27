@@ -145,10 +145,20 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "GRAFFITI",
+        conflicts_with = "graffiti_client",
         help = "Specify your custom graffiti to be included in blocks.",
         display_order = 0
     )]
     pub graffiti: Option<String>,
+
+    #[clap(
+        long,
+        value_name = "GRAFFITI",
+        conflicts_with = "graffiti",
+        help = "When used, client version info will be automatically appended to user custom graffiti.",
+        display_order = 0
+    )]
+    pub graffiti_client: Option<String>,
 
     #[clap(
         long,
