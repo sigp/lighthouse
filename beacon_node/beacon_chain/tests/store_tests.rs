@@ -3219,6 +3219,7 @@ async fn deneb_prune_blobs_fork_boundary() {
     let blocks_to_electra = E::slots_per_epoch() * 6;
     let blocks_to_fulu = E::slots_per_epoch() * 4;
 
+    // Extend the chain to epoch 7
     // Finalize to epoch 5 (Deneb).
     harness
         .extend_chain(
@@ -3267,6 +3268,8 @@ async fn deneb_prune_blobs_fork_boundary() {
     assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
     check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
     check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
+    
+    // Extend the chain to epoch 13
     // Finalize to epoch 11 (Electra)
     harness.advance_slot();
     harness
@@ -3296,6 +3299,8 @@ async fn deneb_prune_blobs_fork_boundary() {
     check_blob_existence(&harness, pruned_slot, electra_first_slot - 1, true);
     // Check that blobs exist from electra to the current head
     check_blob_existence(&harness, electra_first_slot, harness.head_slot(), true);
+    
+    // Extend the chain to epoch 17
     // Finalize to epoch 15 (Fulu)
     harness.advance_slot();
     harness
