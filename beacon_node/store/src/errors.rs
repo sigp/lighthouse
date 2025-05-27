@@ -57,7 +57,7 @@ pub enum Error {
     #[cfg(feature = "leveldb")]
     LevelDbError(LevelDBError),
     #[cfg(feature = "redb")]
-    RedbError(redb::Error),
+    RedbError(Box<redb::Error>),
     CacheBuildError(EpochCacheError),
     RandaoMixOutOfBounds,
     MilhouseError(milhouse::Error),
@@ -161,49 +161,49 @@ impl From<LevelDBError> for Error {
 #[cfg(feature = "redb")]
 impl From<redb::Error> for Error {
     fn from(e: redb::Error) -> Self {
-        Error::RedbError(e)
+        Error::RedbError(Box::new(e))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::TableError> for Error {
     fn from(e: redb::TableError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::TransactionError> for Error {
     fn from(e: redb::TransactionError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::DatabaseError> for Error {
     fn from(e: redb::DatabaseError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::StorageError> for Error {
     fn from(e: redb::StorageError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::CommitError> for Error {
     fn from(e: redb::CommitError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::CompactionError> for Error {
     fn from(e: redb::CompactionError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 

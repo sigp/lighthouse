@@ -1,5 +1,6 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::{ConsolidationRequest, DepositRequest, EthSpec, Hash256, WithdrawalRequest};
+use crate::{ConsolidationRequest, DepositRequest, EthSpec, ForkName, Hash256, WithdrawalRequest};
 use alloy_primitives::Bytes;
 use derivative::Derivative;
 use ethereum_hashing::{DynamicContext, Sha256Context};
@@ -33,6 +34,7 @@ pub type ConsolidationRequests<E> =
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[context_deserialize(ForkName)]
 pub struct ExecutionRequests<E: EthSpec> {
     pub deposits: DepositRequests<E>,
     pub withdrawals: WithdrawalRequests<E>,

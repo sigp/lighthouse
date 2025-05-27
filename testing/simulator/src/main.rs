@@ -25,15 +25,15 @@ pub type E = MinimalEthSpec;
 
 fn main() {
     let matches = cli_app().get_matches();
-    match matches.subcommand() {
-        Some(("basic-sim", matches)) => match basic_sim::run_basic_sim(matches) {
+    match matches.subcommand_name() {
+        Some("basic-sim") => match basic_sim::run_basic_sim(&matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);
                 std::process::exit(1)
             }
         },
-        Some(("fallback-sim", matches)) => match fallback_sim::run_fallback_sim(matches) {
+        Some("fallback-sim") => match fallback_sim::run_fallback_sim(&matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);

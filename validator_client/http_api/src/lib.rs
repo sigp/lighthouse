@@ -13,6 +13,7 @@ use graffiti::{delete_graffiti, get_graffiti, set_graffiti};
 
 use create_signed_voluntary_exit::create_signed_voluntary_exit;
 use graffiti_file::{determine_graffiti, GraffitiFile};
+use lighthouse_validator_store::LighthouseValidatorStore;
 use validator_store::ValidatorStore;
 
 use account_utils::{
@@ -41,7 +42,6 @@ use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
-use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -77,11 +77,11 @@ impl From<String> for Error {
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<T: SlotClock, E: EthSpec> {
+pub struct Context<T: SlotClock, E> {
     pub task_executor: TaskExecutor,
     pub api_secret: ApiSecret,
-    pub block_service: Option<BlockService<T, E>>,
-    pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
+    pub block_service: Option<BlockService<LighthouseValidatorStore<T, E>, T>>,
+    pub validator_store: Option<Arc<LighthouseValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
     pub secrets_dir: Option<PathBuf>,
     pub graffiti_file: Option<GraffitiFile>,
@@ -90,7 +90,6 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub config: Config,
     pub sse_logging_components: Option<SSELoggingComponents>,
     pub slot_clock: T,
-    pub _phantom: PhantomData<E>,
 }
 
 /// Configuration for the HTTP server.
@@ -320,7 +319,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("validators"))
         .and(warp::path::end())
         .and(validator_store_filter.clone())
-        .then(|validator_store: Arc<ValidatorStore<T, E>>| {
+        .then(|validator_store: Arc<LighthouseValidatorStore<T, E>>| {
             blocking_json_task(move || {
                 let validators = validator_store
                     .initialized_validators()
@@ -345,7 +344,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .then(
-            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
+            |validator_pubkey: PublicKey, validator_store: Arc<LighthouseValidatorStore<T, E>>| {
                 blocking_json_task(move || {
                     let validator = validator_store
                         .initialized_validators()
@@ -395,7 +394,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(graffiti_file_filter.clone())
         .and(graffiti_flag_filter)
         .then(
-            |validator_store: Arc<ValidatorStore<T, E>>,
+            |validator_store: Arc<LighthouseValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
              graffiti_flag: Option<Graffiti>| {
                 blocking_json_task(move || {
@@ -424,33 +423,35 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("health"))
         .and(warp::path::end())
         .and(block_service_filter.clone())
-        .then(|block_filter: BlockService<T, E>| async move {
-            let mut result: HashMap<String, Vec<CandidateInfo>> = HashMap::new();
+        .then(
+            |block_filter: BlockService<LighthouseValidatorStore<T, E>, T>| async move {
+                let mut result: HashMap<String, Vec<CandidateInfo>> = HashMap::new();
 
-            let mut beacon_nodes = Vec::new();
-            for node in &*block_filter.beacon_nodes.candidates.read().await {
-                beacon_nodes.push(CandidateInfo {
-                    index: node.index,
-                    endpoint: node.beacon_node.to_string(),
-                    health: *node.health.read().await,
-                });
-            }
-            result.insert("beacon_nodes".to_string(), beacon_nodes);
-
-            if let Some(proposer_nodes_list) = &block_filter.proposer_nodes {
-                let mut proposer_nodes = Vec::new();
-                for node in &*proposer_nodes_list.candidates.read().await {
-                    proposer_nodes.push(CandidateInfo {
+                let mut beacon_nodes = Vec::new();
+                for node in &*block_filter.beacon_nodes.candidates.read().await {
+                    beacon_nodes.push(CandidateInfo {
                         index: node.index,
                         endpoint: node.beacon_node.to_string(),
                         health: *node.health.read().await,
                     });
                 }
-                result.insert("proposer_nodes".to_string(), proposer_nodes);
-            }
+                result.insert("beacon_nodes".to_string(), beacon_nodes);
 
-            blocking_json_task(move || Ok(api_types::GenericResponse::from(result))).await
-        });
+                if let Some(proposer_nodes_list) = &block_filter.proposer_nodes {
+                    let mut proposer_nodes = Vec::new();
+                    for node in &*proposer_nodes_list.candidates.read().await {
+                        proposer_nodes.push(CandidateInfo {
+                            index: node.index,
+                            endpoint: node.beacon_node.to_string(),
+                            health: *node.health.read().await,
+                        });
+                    }
+                    result.insert("proposer_nodes".to_string(), proposer_nodes);
+                }
+
+                blocking_json_task(move || Ok(api_types::GenericResponse::from(result))).await
+            },
+        );
 
     // POST lighthouse/validators/
     let post_validators = warp::path("lighthouse")
@@ -466,14 +467,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             move |body: Vec<api_types::ValidatorRequest>,
                   validator_dir: PathBuf,
                   secrets_dir: PathBuf,
-                  validator_store: Arc<ValidatorStore<T, E>>,
+                  validator_store: Arc<LighthouseValidatorStore<T, E>>,
                   spec: Arc<ChainSpec>,
                   task_executor: TaskExecutor| {
                 blocking_json_task(move || {
                     let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                     if let Some(handle) = task_executor.handle() {
                         let (validators, mnemonic) =
-                            handle.block_on(create_validators_mnemonic(
+                            handle.block_on(create_validators_mnemonic::<_, _, E>(
                                 None,
                                 None,
                                 &body,
@@ -511,7 +512,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             move |body: api_types::CreateValidatorsMnemonicRequest,
                   validator_dir: PathBuf,
                   secrets_dir: PathBuf,
-                  validator_store: Arc<ValidatorStore<T, E>>,
+                  validator_store: Arc<LighthouseValidatorStore<T, E>>,
                   spec: Arc<ChainSpec>,
                   task_executor: TaskExecutor| {
                 blocking_json_task(move || {
@@ -525,7 +526,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 ))
                             })?;
                         let (validators, _mnemonic) =
-                            handle.block_on(create_validators_mnemonic(
+                            handle.block_on(create_validators_mnemonic::<_, _, E>(
                                 Some(mnemonic),
                                 Some(body.key_derivation_path_offset),
                                 &body.validators,
@@ -558,7 +559,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             move |body: api_types::KeystoreValidatorsPostRequest,
                   validator_dir: PathBuf,
                   secrets_dir: PathBuf,
-                  validator_store: Arc<ValidatorStore<T, E>>,
+                  validator_store: Arc<LighthouseValidatorStore<T, E>>,
                   task_executor: TaskExecutor| {
                 blocking_json_task(move || {
                     // Check to ensure the password is correct.
@@ -644,7 +645,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(task_executor_filter.clone())
         .then(
             |body: Vec<api_types::Web3SignerValidatorRequest>,
-             validator_store: Arc<ValidatorStore<T, E>>,
+             validator_store: Arc<LighthouseValidatorStore<T, E>>,
              task_executor: TaskExecutor| {
                 blocking_json_task(move || {
                     if let Some(handle) = task_executor.handle() {
@@ -672,7 +673,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 ),
                             })
                             .collect();
-                        handle.block_on(create_validators_web3signer(
+                        handle.block_on(create_validators_web3signer::<_, E>(
                             web3signers,
                             &validator_store,
                         ))?;
@@ -698,7 +699,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
-             validator_store: Arc<ValidatorStore<T, E>>,
+             validator_store: Arc<LighthouseValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
              task_executor: TaskExecutor| {
                 blocking_json_task(move || {
@@ -851,7 +852,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .then(
-            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
+            |validator_pubkey: PublicKey, validator_store: Arc<LighthouseValidatorStore<T, E>>| {
                 blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
@@ -892,7 +893,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(
             |validator_pubkey: PublicKey,
              request: api_types::UpdateFeeRecipientRequest,
-             validator_store: Arc<ValidatorStore<T, E>>| {
+             validator_store: Arc<LighthouseValidatorStore<T, E>>| {
                 blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
@@ -928,7 +929,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .then(
-            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
+            |validator_pubkey: PublicKey, validator_store: Arc<LighthouseValidatorStore<T, E>>| {
                 blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
@@ -964,7 +965,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .then(
-            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
+            |validator_pubkey: PublicKey, validator_store: Arc<LighthouseValidatorStore<T, E>>| {
                 blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
@@ -997,7 +998,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(
             |validator_pubkey: PublicKey,
              request: api_types::UpdateGasLimitRequest,
-             validator_store: Arc<ValidatorStore<T, E>>| {
+             validator_store: Arc<LighthouseValidatorStore<T, E>>| {
                 blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
@@ -1033,7 +1034,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .then(
-            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>| {
+            |validator_pubkey: PublicKey, validator_store: Arc<LighthouseValidatorStore<T, E>>| {
                 blocking_json_task(move || {
                     if validator_store
                         .initialized_validators()
@@ -1074,13 +1075,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(
             |pubkey: PublicKey,
              query: api_types::VoluntaryExitQuery,
-             validator_store: Arc<ValidatorStore<T, E>>,
+             validator_store: Arc<LighthouseValidatorStore<T, E>>,
              slot_clock: T,
              task_executor: TaskExecutor| {
                 blocking_json_task(move || {
                     if let Some(handle) = task_executor.handle() {
                         let signed_voluntary_exit =
-                            handle.block_on(create_signed_voluntary_exit(
+                            handle.block_on(create_signed_voluntary_exit::<T, E>(
                                 pubkey,
                                 query.epoch,
                                 validator_store,
@@ -1106,7 +1107,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(graffiti_flag_filter)
         .then(
             |pubkey: PublicKey,
-             validator_store: Arc<ValidatorStore<T, E>>,
+             validator_store: Arc<LighthouseValidatorStore<T, E>>,
              graffiti_flag: Option<Graffiti>| {
                 blocking_json_task(move || {
                     let graffiti = get_graffiti(pubkey.clone(), validator_store, graffiti_flag)?;
@@ -1130,7 +1131,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(
             |pubkey: PublicKey,
              query: SetGraffitiRequest,
-             validator_store: Arc<ValidatorStore<T, E>>,
+             validator_store: Arc<LighthouseValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>| {
                 blocking_json_task(move || {
                     if graffiti_file.is_some() {
@@ -1155,7 +1156,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(graffiti_file_filter.clone())
         .then(
             |pubkey: PublicKey,
-             validator_store: Arc<ValidatorStore<T, E>>,
+             validator_store: Arc<LighthouseValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>| {
                 blocking_json_task(move || {
                     if graffiti_file.is_some() {
@@ -1172,7 +1173,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores.and(validator_store_filter.clone()).then(
-        |validator_store: Arc<ValidatorStore<T, E>>| {
+        |validator_store: Arc<LighthouseValidatorStore<T, E>>| {
             blocking_json_task(move || Ok(keystores::list(validator_store)))
         },
     );
@@ -1188,7 +1189,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             move |request, validator_dir, secrets_dir, validator_store, task_executor| {
                 let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                 blocking_json_task(move || {
-                    keystores::import(
+                    keystores::import::<_, E>(
                         request,
                         validator_dir,
                         secrets_dir,
@@ -1210,7 +1211,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     // GET /eth/v1/remotekeys
     let get_std_remotekeys = std_remotekeys.and(validator_store_filter.clone()).then(
-        |validator_store: Arc<ValidatorStore<T, E>>| {
+        |validator_store: Arc<LighthouseValidatorStore<T, E>>| {
             blocking_json_task(move || Ok(remotekeys::list(validator_store)))
         },
     );
@@ -1221,7 +1222,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
         .then(|request, validator_store, task_executor| {
-            blocking_json_task(move || remotekeys::import(request, validator_store, task_executor))
+            blocking_json_task(move || {
+                remotekeys::import::<_, E>(request, validator_store, task_executor)
+            })
         });
 
     // DELETE /eth/v1/remotekeys

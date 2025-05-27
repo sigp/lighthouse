@@ -1,5 +1,6 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::Epoch;
+use crate::{Epoch, ForkName};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -19,6 +20,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct PendingPartialWithdrawal {
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,

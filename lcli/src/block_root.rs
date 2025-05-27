@@ -79,7 +79,7 @@ pub fn run<E: EthSpec>(
                         .await
                         .map_err(|e| format!("Failed to download block: {:?}", e))?
                         .ok_or_else(|| format!("Unable to locate block at {:?}", block_id))?
-                        .data;
+                        .into_data();
                     Ok::<_, String>(block)
                 })
                 .map_err(|e| format!("Failed to complete task: {:?}", e))?
