@@ -50,7 +50,7 @@ pull_request_rules:
       - check-success=local-testnet-success
       # Update the label only if there are no more change requests from any reviewers and no unresolved threads.
       # This rule ensures that a PR with passing CI can be marked as `waiting-on-author`.
-      - or:
+      - and:
          - "#changes-requested-reviews-by = 0"
          - "#review-threads-unresolved = 0"
     actions:
