@@ -17,7 +17,7 @@ pub enum EpochProcessingSummary<E: EthSpec> {
     Altair {
         progressive_balances: ProgressiveBalancesCache,
         current_epoch_total_active_balance: u64,
-        participation: ParticipationEpochSummary<E>,
+        participation: Box<ParticipationEpochSummary<E>>,
         sync_committee: Arc<SyncCommittee<E>>,
     },
 }

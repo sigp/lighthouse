@@ -60,13 +60,13 @@ use types::{Attestation, EthSpec, ForkName, SingleAttestation};
 pub enum Error {
     Validation(AttestationError),
     Publication,
-    ForkChoice(#[allow(dead_code)] BeaconChainError),
+    ForkChoice(#[allow(dead_code)] Box<BeaconChainError>),
     AggregationPool(#[allow(dead_code)] AttestationError),
     ReprocessDisabled,
     ReprocessFull,
     ReprocessTimeout,
     InvalidJson(#[allow(dead_code)] serde_json::Error),
-    FailedConversion(#[allow(dead_code)] BeaconChainError),
+    FailedConversion(#[allow(dead_code)] Box<BeaconChainError>),
 }
 
 enum PublishAttestationResult {
@@ -164,7 +164,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     }
 
     if let Err(e) = fc_result {
-        Err(Error::ForkChoice(e))
+        Err(Error::ForkChoice(Box::new(e)))
     } else if let Err(e) = naive_aggregation_result {
         Err(Error::AggregationPool(e))
     } else {
@@ -213,7 +213,7 @@ fn convert_to_attestation<'a, T: BeaconChainTypes>(
                         beacon_block_root,
                     }))
                 }
-                Err(e) => Err(Error::FailedConversion(e)),
+                Err(e) => Err(Error::FailedConversion(Box::new(e))),
             }
         }
     }

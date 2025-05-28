@@ -1,5 +1,6 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::{EthSpec, FixedVector, SyncSubnetId};
+use crate::{EthSpec, FixedVector, ForkName, SyncSubnetId};
 use bls::PublicKeyBytes;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,7 @@ impl From<ArithError> for Error {
 )]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct SyncCommittee<E: EthSpec> {
     pub pubkeys: FixedVector<PublicKeyBytes, E::SyncCommitteeSize>,
     pub aggregate_pubkey: PublicKeyBytes,

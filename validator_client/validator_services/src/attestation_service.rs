@@ -569,7 +569,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                             format!("Failed to produce an aggregate attestation: {:?}", e)
                         })?
                         .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
-                        .map(|result| result.data)
+                        .map(|result| result.into_data())
                 } else {
                     beacon_node
                         .get_validator_aggregate_attestation_v1(

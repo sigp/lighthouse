@@ -6,6 +6,11 @@ edition = { workspace = true }
 autotests = false
 rust-version = "1.83.0"
 
+# Prevent cargo-udeps from flagging the dummy package `target_check`, which exists only
+# to assert properties of the compilation target.
+[package.metadata.cargo-udeps.ignore]
+normal = ["target_check"]
+
 [features]
 default = ["slasher-lmdb", "beacon-node-leveldb"]
 # Writes debugging .ssz files to /tmp during block processing.
@@ -31,12 +36,6 @@ beacon-node-redb = ["store/redb"]
 
 # Deprecated. This is now enabled by default on non windows targets.
 jemalloc = []
-
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-malloc_utils = { workspace = true, features = ["jemalloc"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-malloc_utils = { workspace = true }
 
 [dependencies]
 account_manager = { "path" = "../account_manager" }
@@ -69,6 +68,12 @@ unused_port = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+malloc_utils = { workspace = true, features = ["jemalloc"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+malloc_utils = { workspace = true }
+
 [dev-dependencies]
 beacon_node_fallback = { workspace = true }
 beacon_processor = { workspace = true }
@@ -85,8 +90,3 @@ zeroize = { workspace = true }
 [[test]]
 name = "lighthouse_tests"
 path = "tests/main.rs"
-
-# Prevent cargo-udeps from flagging the dummy package `target_check`, which exists only
-# to assert properties of the compilation target.
-[package.metadata.cargo-udeps.ignore]
-normal = ["target_check"]
