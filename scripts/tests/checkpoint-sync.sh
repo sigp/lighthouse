@@ -10,7 +10,8 @@ ENCLAVE_NAME=sync-testnet
 CONFIG=$SCRIPT_DIR/checkpoint-sync-config.yaml
 POLL_INTERVAL_SECS=5
 TARGET_BACKFILL_SLOTS=256
-TIMEOUT_SECS=$((10 * 60))
+TIMEOUT_MINS=10
+TIMEOUT_SECS=$((TIMEOUT_MINS * 60))
 start_time=$(date +%s)
 
 # Start the nodes
