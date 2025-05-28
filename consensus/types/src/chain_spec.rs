@@ -243,7 +243,7 @@ pub struct ChainSpec {
     /*
      * Networking Fulu
      */
-    blob_schedule: Vec<BPOFork>,
+    blob_schedule: BlobSchedule,
 
     /*
      * Networking Derived
@@ -658,18 +658,10 @@ impl ChainSpec {
     /// I'm told this is what the other clients are doing for `devnet-0`..
     pub fn max_blobs_per_block(&self, epoch: Epoch) -> u64 {
         match self.fulu_fork_epoch {
-            Some(fulu_epoch) if epoch >= fulu_epoch => {
-                let mut max_blobs_per_block = self.max_blobs_per_block_electra;
-                let mut blob_schedule = self.blob_schedule.clone();
-                blob_schedule.sort_by_key(|entry| entry.epoch);
-                for entry in blob_schedule {
-                    if epoch < entry.epoch {
-                        return max_blobs_per_block;
-                    }
-                    max_blobs_per_block = entry.max_blobs_per_block;
-                }
-                max_blobs_per_block
-            }
+            Some(fulu_epoch) if epoch >= fulu_epoch => self
+                .blob_schedule
+                .max_blobs_for_epoch(epoch)
+                .unwrap_or(self.max_blobs_per_block_electra),
             _ => match self.electra_fork_epoch {
                 Some(electra_epoch) if epoch >= electra_epoch => self.max_blobs_per_block_electra,
                 _ => self.max_blobs_per_block,
@@ -689,7 +681,7 @@ impl ChainSpec {
             // Find the max blobs per block in the fork schedule
             // This logic will need to be more complex once there are forks beyond Fulu
             let mut max_blobs_per_block = self.max_blobs_per_block_electra;
-            for entry in self.blob_schedule.iter() {
+            for entry in &self.blob_schedule {
                 if entry.max_blobs_per_block > max_blobs_per_block {
                     max_blobs_per_block = entry.max_blobs_per_block;
                 }
@@ -1031,7 +1023,7 @@ impl ChainSpec {
             /*
              * Networking Fulu specific
              */
-            blob_schedule: default_blob_schedule(),
+            blob_schedule: BlobSchedule::default(),
 
             /*
              * Application specific
@@ -1365,7 +1357,7 @@ impl ChainSpec {
             /*
              * Networking Fulu specific
              */
-            blob_schedule: default_blob_schedule(),
+            blob_schedule: BlobSchedule::default(),
 
             /*
              * Application specific
@@ -1392,6 +1384,67 @@ pub struct BPOFork {
     epoch: Epoch,
     #[serde(with = "serde_utils::quoted_u64")]
     max_blobs_per_block: u64,
+}
+
+// A wrapper around a vector of BPOFork to ensure that the vector is reverse
+// sorted by epoch.
+#[derive(arbitrary::Arbitrary, Serialize, Debug, PartialEq, Clone)]
+pub struct BlobSchedule(Vec<BPOFork>);
+
+impl<'de> Deserialize<'de> for BlobSchedule {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let vec = Vec::<BPOFork>::deserialize(deserializer)?;
+        Ok(BlobSchedule::new(vec))
+    }
+}
+
+impl BlobSchedule {
+    pub fn new(mut vec: Vec<BPOFork>) -> Self {
+        // reverse sort by epoch
+        vec.sort_by(|a, b| b.epoch.cmp(&a.epoch));
+        Self(vec)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn max_blobs_for_epoch(&self, epoch: Epoch) -> Option<u64> {
+        self.0
+            .iter()
+            .find(|entry| epoch >= entry.epoch)
+            .map(|entry| entry.max_blobs_per_block)
+    }
+
+    pub const fn default() -> Self {
+        // TODO(EIP-7892): think about what the default should be
+        Self(vec![])
+    }
+
+    pub fn as_vec(&self) -> &Vec<BPOFork> {
+        &self.0
+    }
+}
+
+impl<'a> IntoIterator for &'a BlobSchedule {
+    type Item = &'a BPOFork;
+    type IntoIter = std::slice::Iter<'a, BPOFork>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl IntoIterator for BlobSchedule {
+    type Item = BPOFork;
+    type IntoIter = std::vec::IntoIter<BPOFork>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
 }
 
 /// Exact implementation of the *config* object from the Ethereum spec (YAML/JSON).
@@ -1594,9 +1647,9 @@ pub struct Config {
     #[serde(default = "default_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
-    #[serde(default = "default_blob_schedule")]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    blob_schedule: Vec<BPOFork>,
+    #[serde(default = "BlobSchedule::default")]
+    #[serde(skip_serializing_if = "BlobSchedule::is_empty")]
+    blob_schedule: BlobSchedule,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1732,11 +1785,6 @@ const fn default_max_per_epoch_activation_exit_churn_limit() -> u64 {
 
 const fn default_max_blobs_per_block_electra() -> u64 {
     9
-}
-
-const fn default_blob_schedule() -> Vec<BPOFork> {
-    // TODO(EIP-7892): think about what the default should be
-    vec![]
 }
 
 const fn default_attestation_propagation_slot_range() -> u64 {
@@ -2419,6 +2467,44 @@ mod yaml_tests {
             spec.max_blobs_per_block(Epoch::new(18446744073709551615)),
             20
         );
+
+        // blob schedule is reverse sorted by epoch
+        assert_eq!(
+            config.blob_schedule.as_vec(),
+            &vec![
+                BPOFork {
+                    epoch: Epoch::new(1584),
+                    max_blobs_per_block: 20
+                },
+                BPOFork {
+                    epoch: Epoch::new(1280),
+                    max_blobs_per_block: 9
+                },
+                BPOFork {
+                    epoch: Epoch::new(1024),
+                    max_blobs_per_block: 18
+                },
+                BPOFork {
+                    epoch: Epoch::new(768),
+                    max_blobs_per_block: 15
+                },
+                BPOFork {
+                    epoch: Epoch::new(512),
+                    max_blobs_per_block: 12
+                },
+            ]
+        );
+
+        // test max_blobs_per_block_within_fork
+        assert_eq!(
+            spec.max_blobs_per_block_within_fork(ForkName::Deneb),
+            default_max_blobs_per_block()
+        );
+        assert_eq!(
+            spec.max_blobs_per_block_within_fork(ForkName::Electra),
+            default_max_blobs_per_block_electra()
+        );
+        assert_eq!(spec.max_blobs_per_block_within_fork(ForkName::Fulu), 20);
     }
 
     #[test]
