@@ -40,19 +40,27 @@ poll_node() {
   local url=${node_urls[$node_type]}
 
   response=$(curl -s "${url}/lighthouse/syncing")
-  status=$(echo "$response" | jq -r '.data | keys[0] // "Unknown"')
+
+  if [ -z "$response" ] || [ "$response" = "null" ]; then
+    echo "${node_type} status: No response or null response"
+    return
+  fi
 
   # Print syncing status
-  if [ "$status" != "null" ] && [ "$status" != "Unknown" ]; then
+  sync_state=$(echo "$response" | jq -r 'if (.data | type) == "object" then "object" else "string" end' 2>/dev/null)
+
+  if [ "$sync_state" = "object" ]; then
+    status=$(echo "$response" | jq -r '.data | keys[0] // "Unknown"')
     fields=$(echo "$response" | jq -r ".data.${status} | to_entries | map(\"\(.key): \(.value)\") | join(\", \")")
     echo "${node_type} status: ${status}, ${fields}"
   else
-    echo "${node_type} status: Unknown sync state"
+    status=$(echo "$response" | jq -r '.data' 2>/dev/null)
+    echo "${node_type} status: ${status:-Unknown}"
   fi
 
   # Check for completion criteria
   if [ "$status" = "BackFillSyncing" ]; then
-    completed=$(echo "$response" | jq -r ".data.${status}.completed")
+    completed=$(echo "$response" | jq -r ".data.${status}.completed // 0")
     if [ "$completed" -ge "$TARGET_BACKFILL_SLOTS" ]; then
       mark_node_complete "$node_type"
     fi
