@@ -1,4 +1,4 @@
-use crate::data_column_verification::GossipVerifiedDataColumn;
+use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
 use crate::fetch_blobs::{
     fetch_and_process_engine_blobs_inner, EngineGetBlobsOutput, FetchEngineBlobError,
@@ -131,6 +131,52 @@ async fn test_fetch_blobs_v2_block_imported_after_el_response() {
     .await
     .expect("fetch blobs should succeed");
 
+    assert_eq!(processing_status, None);
+    assert_eq!(
+        publish_fn_args.lock().unwrap().len(),
+        0,
+        "no columns should be published"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_fetch_blobs_v2_no_new_columns_to_import() {
+    let mut mock_adapter = mock_beacon_adapter();
+    let (publish_fn, publish_fn_args) = mock_publish_fn();
+    let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter);
+    let block_root = block.canonical_root();
+
+    // **GIVEN**:
+    // All blobs returned
+    mock_get_blobs_v2_response(&mut mock_adapter, Some(blobs_and_proofs));
+    // block not yet imported into fork choice
+    mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
+    // All data columns already seen on gossip
+    mock_adapter
+        .expect_verify_data_column_for_gossip()
+        .returning(|c| {
+            Err(GossipDataColumnError::PriorKnown {
+                proposer: c.block_proposer_index(),
+                slot: c.slot(),
+                index: c.index,
+            })
+        });
+    // No blobs should be processed
+    mock_adapter.expect_process_engine_blobs().times(0);
+
+    // **WHEN**: Trigger `fetch_blobs` on the block
+    let custody_columns = hashset![0, 1, 2];
+    let processing_status = fetch_and_process_engine_blobs_inner(
+        mock_adapter,
+        block_root,
+        block,
+        custody_columns.clone(),
+        publish_fn,
+    )
+    .await
+    .expect("fetch blobs should succeed");
+
+    // **THEN**: Should NOT be processed and no columns should be published.
     assert_eq!(processing_status, None);
     assert_eq!(
         publish_fn_args.lock().unwrap().len(),
