@@ -18,29 +18,8 @@ POLL_INTERVAL_SECS=5
 TARGET_BACKFILL_SLOTS=1024
 # Timeout for this test, if the node(s) fail to backfill `TARGET_BACKFILL_SLOTS` slots, fail the test.
 TIMEOUT_MINS=10
-# ------------------------------------------------------
-
 TIMEOUT_SECS=$((TIMEOUT_MINS * 60))
-start_time=$(date +%s)
-
-# Start the nodes
-$SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -n $CONFIG
-
-# Get all beacon API URLs
-supernode_url=$(kurtosis port print $ENCLAVE_NAME cl-1-lighthouse-geth http)
-fullnode_url=$(kurtosis port print $ENCLAVE_NAME cl-2-lighthouse-geth http)
-
-# Initialize statuses
-declare -A node_completed
-declare -A node_complete_time
-declare -A node_urls
-
-node_urls["supernode"]="$supernode_url"
-node_urls["fullnode"]="$fullnode_url"
-node_completed["supernode"]=false
-node_completed["fullnode"]=false
-
-echo "Polling sync status until backfill reaches ${TARGET_BACKFILL_SLOTS} slots or timeout of ${TIMEOUT_MINS} mins"
+# ------------------------------------------------------
 
 # Polls a single node's sync status
 poll_node() {
@@ -97,6 +76,31 @@ exit_and_dump_logs() {
     echo "Test completed with exit code $exit_code."
     exit $exit_code
 }
+
+# Start the nodes
+$SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -n $CONFIG
+if [ $? -ne 0 ]; then
+  echo "Failed to start local testnet"
+  exit_and_dump_logs 1
+fi
+
+start_time=$(date +%s)
+
+# Get all beacon API URLs
+supernode_url=$(kurtosis port print $ENCLAVE_NAME cl-1-lighthouse-geth http)
+fullnode_url=$(kurtosis port print $ENCLAVE_NAME cl-2-lighthouse-geth http)
+
+# Initialize statuses
+declare -A node_completed
+declare -A node_complete_time
+declare -A node_urls
+
+node_urls["supernode"]="$supernode_url"
+node_urls["fullnode"]="$fullnode_url"
+node_completed["supernode"]=false
+node_completed["fullnode"]=false
+
+echo "Polling sync status until backfill reaches ${TARGET_BACKFILL_SLOTS} slots or timeout of ${TIMEOUT_MINS} mins"
 
 while [ "${node_completed[supernode]}" = false ] || [ "${node_completed[fullnode]}" = false ]; do
   current_time=$(date +%s)
