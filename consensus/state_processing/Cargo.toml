@@ -4,10 +4,18 @@ version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Michael Sproul <michael@sigmaprime.io>"]
 edition = { workspace = true }
 
-[dev-dependencies]
-beacon_chain = { workspace = true }
-env_logger = { workspace = true }
-tokio = { workspace = true }
+[features]
+default = ["legacy-arith"]
+fake_crypto = ["bls/fake_crypto"]
+legacy-arith = ["types/legacy-arith"]
+arbitrary-fuzz = [
+    "types/arbitrary-fuzz",
+    "merkle_proof/arbitrary",
+    "ethereum_ssz/arbitrary",
+    "ssz_types/arbitrary",
+    "tree_hash/arbitrary",
+]
+portable = ["bls/supranational-portable"]
 
 [dependencies]
 arbitrary = { workspace = true }
@@ -30,15 +38,7 @@ test_random_derive = { path = "../../common/test_random_derive" }
 tree_hash = { workspace = true }
 types = { workspace = true }
 
-[features]
-default = ["legacy-arith"]
-fake_crypto = ["bls/fake_crypto"]
-legacy-arith = ["types/legacy-arith"]
-arbitrary-fuzz = [
-  "types/arbitrary-fuzz",
-  "merkle_proof/arbitrary",
-  "ethereum_ssz/arbitrary",
-  "ssz_types/arbitrary",
-  "tree_hash/arbitrary",
-]
-portable = ["bls/supranational-portable"]
+[dev-dependencies]
+beacon_chain = { workspace = true }
+env_logger = { workspace = true }
+tokio = { workspace = true }

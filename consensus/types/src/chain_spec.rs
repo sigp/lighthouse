@@ -1,6 +1,6 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
-use crate::data_column_sidecar::DataColumnIdentifier;
+use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
@@ -1754,15 +1754,21 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     .len()
 }
 
-fn max_data_columns_by_root_request_common(max_request_data_column_sidecars: u64) -> usize {
-    let max_request_data_column_sidecars = max_request_data_column_sidecars as usize;
-    let empty_data_column_id = DataColumnIdentifier {
+fn max_data_columns_by_root_request_common(
+    max_request_blocks: u64,
+    number_of_columns: u64,
+) -> usize {
+    let max_request_blocks = max_request_blocks as usize;
+    let number_of_columns = number_of_columns as usize;
+
+    let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        index: 0,
+        columns: RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns),
     };
-    RuntimeVariableList::from_vec(
-        vec![empty_data_column_id; max_request_data_column_sidecars],
-        max_request_data_column_sidecars,
+
+    RuntimeVariableList::<DataColumnsByRootIdentifier>::from_vec(
+        vec![empty_data_columns_by_root_id; max_request_blocks],
+        max_request_blocks,
     )
     .as_ssz_bytes()
     .len()
@@ -1781,7 +1787,10 @@ fn default_max_blobs_by_root_request() -> usize {
 }
 
 fn default_data_columns_by_root_request() -> usize {
-    max_data_columns_by_root_request_common(default_max_request_data_column_sidecars())
+    max_data_columns_by_root_request_common(
+        default_max_request_blocks_deneb(),
+        default_number_of_columns(),
+    )
 }
 
 impl Default for Config {
@@ -2082,7 +2091,8 @@ impl Config {
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
             max_data_columns_by_root_request: max_data_columns_by_root_request_common(
-                max_request_data_column_sidecars,
+                max_request_blocks_deneb,
+                number_of_columns,
             ),
 
             number_of_columns,

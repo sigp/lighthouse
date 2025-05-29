@@ -117,19 +117,16 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn get_blobs<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a BlobSidecarList<E>> {
         self.blob_cache.get(block_root)
     }
-    pub fn get_data_columns(&mut self, block_root: &Hash256) -> Option<DataColumnSidecarList<E>> {
-        self.data_column_cache
-            .get(block_root)
-            .map(|map| map.values().cloned().collect::<Vec<_>>())
-    }
-    pub fn get_data_column<'a>(
-        &'a mut self,
+    // Note: data columns are all individually cached, hence there's no guarantee that
+    // `data_column_cache.get(block_root)` will return all custody columns.
+    pub fn get_data_column(
+        &mut self,
         block_root: &Hash256,
         column_index: &ColumnIndex,
-    ) -> Option<&'a Arc<DataColumnSidecar<E>>> {
+    ) -> Option<Arc<DataColumnSidecar<E>>> {
         self.data_column_cache
             .get(block_root)
-            .and_then(|map| map.get(column_index))
+            .and_then(|map| map.get(column_index).cloned())
     }
     pub fn delete_block(&mut self, block_root: &Hash256) {
         let _ = self.block_cache.pop(block_root);
@@ -2031,38 +2028,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             })
     }
 
-    /// Fetch columns for a given block from the store.
+    /// Fetch all columns for a given block from the store.
     pub fn get_data_columns(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<DataColumnSidecarList<E>>, Error> {
-        if let Some(columns) = self.block_cache.lock().get_data_columns(block_root) {
-            metrics::inc_counter(&metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT);
-            return Ok(Some(columns));
-        }
+        let column_indices = self.get_data_column_keys(*block_root)?;
 
-        let columns = self
-            .blobs_db
-            .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())
-            .take_while(|res| {
-                res.as_ref()
-                    .is_ok_and(|(key, _)| key.starts_with(block_root.as_slice()))
-            })
-            .map(|result| {
-                let (_key, value) = result?;
-                let column = DataColumnSidecar::<E>::from_ssz_bytes(&value).map(Arc::new)?;
-                self.block_cache
-                    .lock()
-                    .put_data_column(*block_root, column.clone());
-                Ok(column)
-            })
-            .collect::<Result<DataColumnSidecarList<E>, Error>>()?;
+        let columns: DataColumnSidecarList<E> = column_indices
+            .into_iter()
+            .filter_map(|col_index| self.get_data_column(block_root, &col_index).transpose())
+            .collect::<Result<_, _>>()?;
 
-        if columns.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(columns))
-        }
+        Ok((!columns.is_empty()).then_some(columns))
     }
 
     /// Fetch blobs for a given block from the store.
@@ -2127,7 +2105,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .get_data_column(block_root, column_index)
         {
             metrics::inc_counter(&metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT);
-            return Ok(Some(data_column.clone()));
+            return Ok(Some(data_column));
         }
 
         match self.blobs_db.get_bytes(
@@ -2523,26 +2501,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Run a compaction pass on the freezer DB to free up space used by deleted states.
     pub fn compact_freezer(&self) -> Result<(), Error> {
-        let current_schema_columns = vec![
+        let columns = vec![
             DBColumn::BeaconColdStateSummary,
             DBColumn::BeaconStateSnapshot,
             DBColumn::BeaconStateDiff,
             DBColumn::BeaconStateRoots,
         ];
-
-        // We can remove this once schema V21 has been gone for a while.
-        let previous_schema_columns = vec![
-            DBColumn::BeaconState,
-            DBColumn::BeaconStateSummary,
-            DBColumn::BeaconBlockRootsChunked,
-            DBColumn::BeaconStateRootsChunked,
-            DBColumn::BeaconRestorePoint,
-            DBColumn::BeaconHistoricalRoots,
-            DBColumn::BeaconRandaoMixes,
-            DBColumn::BeaconHistoricalSummaries,
-        ];
-        let mut columns = current_schema_columns;
-        columns.extend(previous_schema_columns);
 
         for column in columns {
             info!(?column, "Starting compaction");
@@ -2893,31 +2857,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // migrating to the tree-states schema (delete everything in the freezer then start afresh).
         let mut cold_ops = vec![];
 
-        let current_schema_columns = vec![
+        let columns = vec![
             DBColumn::BeaconColdStateSummary,
             DBColumn::BeaconStateSnapshot,
             DBColumn::BeaconStateDiff,
             DBColumn::BeaconStateRoots,
         ];
-
-        // This function is intended to be able to clean up leftover V21 freezer database stuff in
-        // the case where the V22 schema upgrade failed *after* commiting the version increment but
-        // *before* cleaning up the freezer DB.
-        //
-        // We can remove this once schema V21 has been gone for a while.
-        let previous_schema_columns = vec![
-            DBColumn::BeaconState,
-            DBColumn::BeaconStateSummary,
-            DBColumn::BeaconBlockRootsChunked,
-            DBColumn::BeaconStateRootsChunked,
-            DBColumn::BeaconRestorePoint,
-            DBColumn::BeaconHistoricalRoots,
-            DBColumn::BeaconRandaoMixes,
-            DBColumn::BeaconHistoricalSummaries,
-        ];
-
-        let mut columns = current_schema_columns;
-        columns.extend(previous_schema_columns);
 
         for column in columns {
             for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {

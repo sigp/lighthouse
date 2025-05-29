@@ -18,6 +18,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct PendingDeposit {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,

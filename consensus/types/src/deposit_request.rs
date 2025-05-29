@@ -1,5 +1,6 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::{Hash256, PublicKeyBytes};
+use crate::{ForkName, Hash256, PublicKeyBytes};
 use bls::SignatureBytes;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -20,6 +21,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct DepositRequest {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,

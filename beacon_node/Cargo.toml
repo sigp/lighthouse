@@ -11,9 +11,6 @@ edition = { workspace = true }
 name = "beacon_node"
 path = "src/lib.rs"
 
-[dev-dependencies]
-node_test_rig = { path = "../testing/node_test_rig" }
-
 [features]
 write_ssz_files = [
     "beacon_chain/write_ssz_files",
@@ -45,3 +42,6 @@ task_executor = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 unused_port = { workspace = true }
+
+[dev-dependencies]
+node_test_rig = { path = "../testing/node_test_rig" }

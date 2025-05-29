@@ -219,6 +219,7 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        requires = "http",
         value_name = "PORT",
         default_value_t = 5062,
         help = "Set the listen TCP port for the RESTful HTTP API server.",
