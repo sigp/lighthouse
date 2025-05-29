@@ -8,15 +8,22 @@
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 ENCLAVE_NAME=sync-testnet
 CONFIG=$SCRIPT_DIR/checkpoint-sync-config.yaml
+
+# Test configuration
+# ------------------------------------------------------
+# Interval for polling the /lighthouse/syncing endpoint for sync status
 POLL_INTERVAL_SECS=5
+# Target number of slots to backfill to complete this test.
 TARGET_BACKFILL_SLOTS=256
+# Timeout for this test, if the node(s) fail to backfill `TARGET_BACKFILL_SLOTS` slots, fail the test.
 TIMEOUT_MINS=10
+# ------------------------------------------------------
+
 TIMEOUT_SECS=$((TIMEOUT_MINS * 60))
 start_time=$(date +%s)
 
 # Start the nodes
-kurtosis run github.com/ethpandaops/ethereum-package --enclave "$ENCLAVE_NAME" --args-file "$CONFIG" \
-  --image-download always --non-blocking-tasks
+$SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -n $CONFIG
 
 # Get all beacon API URLs
 supernode_url=$(kurtosis port print $ENCLAVE_NAME cl-1-lighthouse-geth http)
@@ -64,12 +71,11 @@ poll_node() {
     if [ "$completed" -ge "$TARGET_BACKFILL_SLOTS" ]; then
       mark_node_complete "$node_type"
     fi
-  elif [ "$status" = "Synced" ]; then
-    mark_node_complete "$node_type"
   fi
-
-  # For other states (SyncingFinalized, SyncingHead, SyncTransition, Stalled, Unknown),
+  # For other states (Synced, SyncingFinalized, SyncingHead, SyncTransition, Stalled, Unknown),
   # we continue polling
+  # NOTE: there is a bug where Lighthouse briefly switch to "Synced" before completing backfilling. We ignore this state
+  # as it's unlikely for the node complete backfill in 10 minutes on Sepolia.
 }
 
 # Marks a node as complete and record time
@@ -82,13 +88,21 @@ mark_node_complete() {
   fi
 }
 
+exit_and_dump_logs() {
+    local exit_code=$1
+    echo "Shutting down..."
+    $SCRIPT_DIR/../local_testnet/stop_local_testnet.sh $ENCLAVE_NAME
+    echo "Test completed with exit code $exit_code."
+    exit $exit_code
+}
+
 while [ "${node_completed[supernode]}" = false ] || [ "${node_completed[fullnode]}" = false ]; do
   current_time=$(date +%s)
   elapsed=$((current_time - start_time))
 
   if [ "$elapsed" -ge "$TIMEOUT_SECS" ]; then
     echo "ERROR: Nodes timed out syncing after ${TIMEOUT_MINS} minutes. Exiting."
-    exit 1
+    exit_and_dump_logs 1
   fi
 
   # Poll each node that hasn't completed yet
@@ -104,3 +118,4 @@ done
 echo "Sync test complete! Both supernode and fullnode have synced to HEAD and backfilled ${TARGET_BACKFILL_SLOTS} slots."
 echo "Supernode time: $((node_complete_time[supernode] - start_time)) seconds"
 echo "Fullnode time: $((node_complete_time[fullnode] - start_time)) seconds"
+exit_and_dump_logs 0

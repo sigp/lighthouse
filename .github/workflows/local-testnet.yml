@@ -199,4 +199,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check that success job is dependent on all others
-        run: ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success checkpoint-sync-test
+        run: |
+          exclude_jobs=checkpoint-sync-test
+          ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success "$exclude_jobs" 
