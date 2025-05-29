@@ -9,7 +9,7 @@ EXCLUDE_JOBS_REGEX=${3:-}
 
 yq '... comments="" | .jobs | map(. | key) | .[]' < "$YAML" |
   grep -v "$SUCCESS_JOB" |
-  { [ -n "$EXCLUDE_JOBS_REGEX" ] && grep -v "$EXCLUDE_JOBS_REGEX" || cat; } |
+  { [ -n "$EXCLUDE_JOBS_REGEX" ] && grep -Ev "$EXCLUDE_JOBS_REGEX" || cat; } |
   sort > all_jobs.txt
 
 yq "... comments=\"\" | .jobs.$SUCCESS_JOB.needs[]" < "$YAML" | grep -v "$SUCCESS_JOB" | sort > dep_jobs.txt

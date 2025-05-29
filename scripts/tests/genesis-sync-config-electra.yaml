@@ -1,0 +1,20 @@
+# Kurtosis config file for testing sync on a local devnet.
+participants:
+  - cl_type: lighthouse
+    cl_image: lighthouse:local
+    count: 2
+  # nodes without validators, used for testing sync.
+  - cl_type: lighthouse
+    cl_image: lighthouse:local
+    validator_count: 0
+network_params:
+  seconds_per_slot: 6
+  electra_fork_epoch: 0
+additional_services:
+  - assertoor
+  - tx_fuzz
+  - spamoor
+global_log_level: debug
+assertoor_params:
+  run_stability_check: false
+  run_block_proposal_check: false
