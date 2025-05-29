@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 #
-# Checkpoint sync to a live network (Sepolia).
+# Checkpoint sync to a live network.
 #
 # Start with checkpoint sync and let the node(s) sync to head and perform backfill for a specified number of slots.
 # This test ensures we cover all sync components (range, lookup, backfill) and measures sync speed
 # to detect any performance regressions.
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-ENCLAVE_NAME=sync-testnet
-CONFIG=$SCRIPT_DIR/checkpoint-sync-config.yaml
+
+ENCLAVE_NAME=${1:-sync-testnet}
+CONFIG=${2:-$SCRIPT_DIR/checkpoint-sync-config-sepolia.yaml}
 
 # Test configuration
 # ------------------------------------------------------
 # Interval for polling the /lighthouse/syncing endpoint for sync status
 POLL_INTERVAL_SECS=5
 # Target number of slots to backfill to complete this test.
-TARGET_BACKFILL_SLOTS=256
+TARGET_BACKFILL_SLOTS=1024
 # Timeout for this test, if the node(s) fail to backfill `TARGET_BACKFILL_SLOTS` slots, fail the test.
 TIMEOUT_MINS=10
 # ------------------------------------------------------
@@ -75,7 +76,8 @@ poll_node() {
   # For other states (Synced, SyncingFinalized, SyncingHead, SyncTransition, Stalled, Unknown),
   # we continue polling
   # NOTE: there is a bug where Lighthouse briefly switch to "Synced" before completing backfilling. We ignore this state
-  # as it's unlikely for the node complete backfill in 10 minutes on Sepolia.
+  # as it's unlikely a node is fully synced without going through backfilling `TARGET_BACKFILL_SLOTS` slots (only
+  # possible on a new network).
 }
 
 # Marks a node as complete and record time
