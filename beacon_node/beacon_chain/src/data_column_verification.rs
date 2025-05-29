@@ -129,6 +129,10 @@ pub enum GossipDataColumnError {
         slot: Slot,
         index: ColumnIndex,
     },
+    /// A column has already been processed from non-gossip source and have not yet been seen on
+    /// the gossip network.
+    /// This column should be accepted and forwarded over gossip.
+    PriorKnownUnpublished,
     /// Data column index must be between 0 and `NUMBER_OF_COLUMNS` (exclusive).
     ///
     /// ## Peer scoring
@@ -181,6 +185,16 @@ pub struct GossipVerifiedDataColumn<T: BeaconChainTypes, O: ObservationStrategy 
     _phantom: PhantomData<O>,
 }
 
+impl<T: BeaconChainTypes, O: ObservationStrategy> Clone for GossipVerifiedDataColumn<T, O> {
+    fn clone(&self) -> Self {
+        Self {
+            block_root: self.block_root,
+            data_column: self.data_column.clone(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O> {
     pub fn new(
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
@@ -198,6 +212,16 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 )
             },
         )
+    }
+
+    /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
+    #[cfg(test)]
+    pub(crate) fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
+        Self {
+            block_root: column_sidecar.block_root(),
+            data_column: KzgVerifiedDataColumn::__new_for_testing(column_sidecar),
+            _phantom: Default::default(),
+        }
     }
 
     pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
@@ -243,11 +267,9 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         verify_kzg_for_data_column(data_column, kzg)
     }
 
-    /// Create a `KzgVerifiedDataColumn` from `data_column` that are already KZG verified.
-    ///
-    /// This should be used with caution, as used incorrectly it could result in KZG verification
-    /// being skipped and invalid data_columns being deemed valid.
-    pub fn from_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
+    /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
+    #[cfg(test)]
+    pub(crate) fn __new_for_testing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
         Self { data: data_column }
     }
 
@@ -444,6 +466,23 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
     verify_is_first_sidecar(chain, &data_column)?;
+
+    // Check if the data column is already in the DA checker cache. This happens when data columns
+    // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
+    // it has already passed the gossip checks, even though this particular instance hasn't been
+    // seen / published on the gossip network yet (passed the `verify_is_first_sidecar` check above).
+    // In this case, we should accept it for gossip propagation.
+    if chain
+        .data_availability_checker
+        .is_data_column_cached(&data_column.block_root(), &data_column)
+    {
+        // Observe this data column so we don't process it again.
+        if O::observe() {
+            observe_gossip_data_column(&data_column, chain)?;
+        }
+        return Err(GossipDataColumnError::PriorKnownUnpublished);
+    }
+
     verify_column_inclusion_proof(&data_column)?;
     let parent_block = verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
@@ -463,7 +502,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
         .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
 
     if O::observe() {
-        observe_gossip_data_column(&kzg_verified_data_column.data, chain)?;
+        observe_gossip_data_column(&data_column, chain)?;
     }
 
     Ok(GossipVerifiedDataColumn {
