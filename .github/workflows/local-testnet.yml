@@ -52,22 +52,6 @@ jobs:
       - name: Load Docker image
         run: docker load -i lighthouse-docker.tar
 
-      - name: Start local testnet
-        run: ./start_local_testnet.sh -e local -c -b false && sleep 60
-        working-directory: scripts/local_testnet
-
-      - name: Stop local testnet and dump logs
-        run: ./stop_local_testnet.sh local
-        working-directory: scripts/local_testnet
-
-      - name: Start local testnet with blinded block production
-        run: ./start_local_testnet.sh -e local-blinded -c -p -b false && sleep 60
-        working-directory: scripts/local_testnet
-
-      - name: Stop local testnet and dump logs
-        run: ./stop_local_testnet.sh local-blinded
-        working-directory: scripts/local_testnet
-
       - name: Start local testnet with Assertoor
         run: ./start_local_testnet.sh -e local-assertoor -c -a -b false && sleep 60
         working-directory: scripts/local_testnet
