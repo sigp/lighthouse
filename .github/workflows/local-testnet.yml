@@ -192,14 +192,14 @@ jobs:
 
   # Test syncing from genesis on a local testnet. Aims to cover forwarding syncing both short and long distances.
   genesis-sync-test:
-    name: genesis-sync-test-${{ matrix.fork }}-${{ matrix.offline_mins }}m
+    name: genesis-sync-test-${{ matrix.fork }}-${{ matrix.offline_secs }}m
     runs-on: ubuntu-latest
     needs: dockerfile-ubuntu
     if: contains(github.event.pull_request.labels.*.name, 'syncing')
     strategy:
       matrix:
         fork: [electra, fulu]
-        offline_mins: [2, 5]
+        offline_secs: [ 120, 300]
     steps:
       - uses: actions/checkout@v4
 
@@ -228,9 +228,9 @@ jobs:
 
       - name: Run the sync test script
         run: |
-          enclave_name=sync-${{ matrix.fork }}-${{ matrix.offline_mins }}
+          enclave_name=sync-${{ matrix.fork }}-${{ matrix.offline_secs }}
           config=./scripts/tests/genesis-sync-config-${{ matrix.fork }}.yaml
-          ./kurtosis-sync-test/synctest.sh -t "${{ matrix.offline_mins }}" "$enclave_name" "$config"
+          ./kurtosis-sync-test/synctest.sh -t "${{ matrix.offline_secs }}" "$enclave_name" "$config"
 
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
