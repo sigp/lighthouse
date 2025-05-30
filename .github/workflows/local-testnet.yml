@@ -154,10 +154,7 @@ jobs:
     if: contains(github.event.pull_request.labels.*.name, 'syncing')
     strategy:
       matrix:
-        # TODO(das): disabling devnet test until we support checkpoint sync without downloading blobs via HTTP (checkpointz servers need to be supernodes)
-        # https://github.com/sigp/lighthouse/issues/6837
-        # network: [sepolia, devnet]
-        network: [sepolia]
+        network: [sepolia, devnet]
     steps:
       - uses: actions/checkout@v4
 
