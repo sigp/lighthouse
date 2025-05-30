@@ -14,15 +14,6 @@ pub fn cli_app() -> Command {
         .styles(get_color_style())
         .display_order(0)
         .arg(
-            Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
-        )
-        .arg(
             Arg::new("enr-address")
                 .long("enr-address")
                 .value_name("ADDRESS")

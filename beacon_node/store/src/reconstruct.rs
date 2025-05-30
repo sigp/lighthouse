@@ -4,12 +4,12 @@ use crate::metadata::ANCHOR_FOR_ARCHIVE_NODE;
 use crate::metrics;
 use crate::{Error, ItemStore};
 use itertools::{process_results, Itertools};
-use slog::{debug, info};
 use state_processing::{
     per_block_processing, per_slot_processing, BlockSignatureStrategy, ConsensusContext,
     VerifyBlockRoot,
 };
 use std::sync::Arc;
+use tracing::{debug, info};
 use types::EthSpec;
 
 impl<E, Hot, Cold> HotColdDB<E, Hot, Cold>
@@ -37,9 +37,8 @@ where
         }
 
         debug!(
-            self.log,
-            "Starting state reconstruction batch";
-            "start_slot" => anchor.state_lower_limit,
+            start_slot = %anchor.state_lower_limit,
+            "Starting state reconstruction batch"
         );
 
         let _t = metrics::start_timer(&metrics::STORE_BEACON_RECONSTRUCTION_TIME);
@@ -124,10 +123,9 @@ where
                     || reconstruction_complete
                 {
                     info!(
-                        self.log,
-                        "State reconstruction in progress";
-                        "slot" => slot,
-                        "remaining" => upper_limit_slot - 1 - slot
+                        %slot,
+                        remaining = %(upper_limit_slot - 1 - slot),
+                        "State reconstruction in progress"
                     );
 
                     self.cold_db.do_atomically(std::mem::take(&mut io_batch))?;
@@ -164,10 +162,9 @@ where
                     // batch when there is idle capacity.
                     if batch_complete {
                         debug!(
-                            self.log,
-                            "Finished state reconstruction batch";
-                            "start_slot" => lower_limit_slot,
-                            "end_slot" => slot,
+                            start_slot = %lower_limit_slot,
+                            end_slot = %slot,
+                            "Finished state reconstruction batch"
                         );
                         return Ok(());
                     }

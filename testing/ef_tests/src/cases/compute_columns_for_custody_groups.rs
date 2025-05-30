@@ -21,12 +21,8 @@ impl<E: EthSpec> LoadCase for ComputeColumnsForCustodyGroups<E> {
 }
 
 impl<E: EthSpec> Case for ComputeColumnsForCustodyGroups<E> {
-    fn is_enabled_for_fork(_fork_name: ForkName) -> bool {
-        false
-    }
-
-    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
-        feature_name == FeatureName::Fulu
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.fulu_enabled()
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

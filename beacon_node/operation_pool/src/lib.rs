@@ -1,5 +1,5 @@
 mod attestation;
-mod attestation_storage;
+pub mod attestation_storage;
 mod attester_slashing;
 mod bls_to_execution_changes;
 mod max_cover;
@@ -9,7 +9,7 @@ mod reward_cache;
 mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
-pub use attestation::{earliest_attestation_validators, AttMaxCover};
+pub use attestation::{earliest_attestation_validators, AttMaxCover, PROPOSER_REWARD_DENOMINATOR};
 pub use attestation_storage::{CompactAttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
@@ -47,7 +47,7 @@ type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeCon
 #[derive(Default, Debug)]
 pub struct OperationPool<E: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
-    attestations: RwLock<AttestationMap<E>>,
+    pub attestations: RwLock<AttestationMap<E>>,
     /// Map from sync aggregate ID to the best `SyncCommitteeContribution`s seen for that ID.
     sync_contributions: SyncContributions<E>,
     /// Set of attester slashings, and the fork version they were verified against.
@@ -673,12 +673,12 @@ impl<E: EthSpec> OperationPool<E> {
     /// This method may return objects that are invalid for block inclusion.
     pub fn get_filtered_attestations<F>(&self, filter: F) -> Vec<Attestation<E>>
     where
-        F: Fn(&AttestationData) -> bool,
+        F: Fn(&AttestationData, HashSet<u64>) -> bool,
     {
         self.attestations
             .read()
             .iter()
-            .filter(|att| filter(&att.attestation_data()))
+            .filter(|att| filter(&att.attestation_data(), att.get_committee_indices_map()))
             .map(|att| att.clone_as_attestation())
             .collect()
     }
@@ -767,7 +767,7 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
             && head_state
                 .validators()
                 .get(validator_index as usize)
-                .map_or(true, |validator| !prune_if(validator_index, validator))
+                .is_none_or(|validator| !prune_if(validator_index, validator))
     });
 }
 
@@ -1402,7 +1402,8 @@ mod release_tests {
                 .retain(|validator_index, _| !seen_indices.contains(validator_index));
 
             // Check that rewards are in decreasing order
-            let rewards = fresh_validators_rewards.values().sum();
+            let rewards =
+                fresh_validators_rewards.values().sum::<u64>() / PROPOSER_REWARD_DENOMINATOR;
             assert!(prev_reward >= rewards);
             prev_reward = rewards;
             seen_indices.extend(fresh_validators_rewards.keys());

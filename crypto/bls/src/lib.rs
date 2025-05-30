@@ -10,7 +10,7 @@
 //!
 //! - `supranational`: the pure-assembly, highly optimized version from the `blst` crate.
 //! - `fake_crypto`: an always-returns-valid implementation that is only useful for testing
-//!     scenarios which intend to *ignore* real cryptography.
+//!   scenarios which intend to *ignore* real cryptography.
 //!
 //! This crate uses traits to reduce code-duplication between the two implementations. For example,
 //! the `GenericPublicKey` struct exported from this crate is generic across the `TPublicKey` trait
@@ -37,7 +37,10 @@ pub use generic_public_key::{
     INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
 };
 pub use generic_secret_key::SECRET_KEY_BYTES_LEN;
-pub use generic_signature::{INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN};
+pub use generic_signature::{
+    INFINITY_SIGNATURE, INFINITY_SIGNATURE_UNCOMPRESSED, SIGNATURE_BYTES_LEN,
+    SIGNATURE_UNCOMPRESSED_BYTES_LEN,
+};
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
 pub use zeroize_hash::ZeroizeHash;
 

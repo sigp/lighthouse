@@ -1,13 +1,10 @@
+ 
 [package]
 name = "beacon_chain"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = { workspace = true }
 autotests = false # using a single test binary compiles faster
-
-[[bench]]
-name = "benches"
-harness = false
 
 [features]
 default = ["participation_metrics"]
@@ -16,11 +13,6 @@ participation_metrics = []  # Exposes validator participation metrics to Prometh
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
 portable = ["bls/supranational-portable"]
 test_backfill = []
-
-[dev-dependencies]
-criterion = { workspace = true }
-maplit = { workspace = true }
-serde_json = { workspace = true }
 
 [dependencies]
 alloy-primitives = { workspace = true }
@@ -47,6 +39,7 @@ logging = { workspace = true }
 lru = { workspace = true }
 merkle_proof = { workspace = true }
 metrics = { workspace = true }
+once_cell = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
@@ -58,10 +51,6 @@ sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 slasher = { workspace = true }
-slog = { workspace = true }
-slog-async = { workspace = true }
-slog-term = { workspace = true }
-sloggers = { workspace = true }
 slot_clock = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true }
@@ -73,9 +62,21 @@ task_executor = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
+tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 types = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+maplit = { workspace = true }
+mockall = { workspace = true }
+mockall_double = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "benches"
+harness = false
 
 [[test]]
 name = "beacon_chain_tests"

@@ -1,6 +1,7 @@
 use self::committee_cache::get_active_validator_indices;
 use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
+use crate::ContextDeserialize;
 use crate::FixedBytesExtended;
 use crate::*;
 use compare_fields::CompareFields;
@@ -11,7 +12,7 @@ use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{metastruct, NumFields};
 pub use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::hash::Hash;
@@ -157,6 +158,7 @@ pub enum Error {
         current_fork: ForkName,
     },
     TotalActiveBalanceDiffUninitialized,
+    GeneralizedIndexNotSupported(usize),
     IndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
@@ -2580,11 +2582,12 @@ impl<E: EthSpec> BeaconState<E> {
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
         // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-        let field_index = if self.fork_name_unchecked().electra_enabled() {
+        let field_gindex = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
         } else {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
         };
+        let field_index = field_gindex.safe_sub(self.num_fields_pow2())?;
         let leaves = self.get_beacon_state_leaves();
         self.generate_proof(field_index, &leaves)
     }
@@ -2594,11 +2597,12 @@ impl<E: EthSpec> BeaconState<E> {
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
         // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-        let field_index = if self.fork_name_unchecked().electra_enabled() {
+        let field_gindex = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
         } else {
             light_client_update::NEXT_SYNC_COMMITTEE_INDEX
         };
+        let field_index = field_gindex.safe_sub(self.num_fields_pow2())?;
         let leaves = self.get_beacon_state_leaves();
         self.generate_proof(field_index, &leaves)
     }
@@ -2606,17 +2610,24 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn compute_finalized_root_proof(&self) -> Result<Vec<Hash256>, Error> {
         // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
         // the generalized index of `state.finalized_checkpoint`.
-        let field_index = if self.fork_name_unchecked().electra_enabled() {
-            // Index should be 169/2 - 64 = 20 which matches the position
-            // of `finalized_checkpoint` in `BeaconState`
+        let checkpoint_root_gindex = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
         } else {
-            // Index should be 105/2 - 32 = 20 which matches the position
-            // of `finalized_checkpoint` in `BeaconState`
             light_client_update::FINALIZED_ROOT_INDEX
         };
+        let checkpoint_gindex = checkpoint_root_gindex / 2;
+
+        // Convert gindex to index by subtracting 2**depth (gindex = 2**depth + index).
+        //
+        // After Electra, the index should be 169/2 - 64 = 20 which matches the position
+        // of `finalized_checkpoint` in `BeaconState`.
+        //
+        // Prior to Electra, the index should be 105/2 - 32 = 20 which matches the position
+        // of `finalized_checkpoint` in `BeaconState`.
+        let checkpoint_index = checkpoint_gindex.safe_sub(self.num_fields_pow2())?;
+
         let leaves = self.get_beacon_state_leaves();
-        let mut proof = self.generate_proof(field_index, &leaves)?;
+        let mut proof = self.generate_proof(checkpoint_index, &leaves)?;
         proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
         Ok(proof)
     }
@@ -2626,6 +2637,10 @@ impl<E: EthSpec> BeaconState<E> {
         field_index: usize,
         leaves: &[Hash256],
     ) -> Result<Vec<Hash256>, Error> {
+        if field_index >= leaves.len() {
+            return Err(Error::IndexNotSupported(field_index));
+        }
+
         let depth = self.num_fields_pow2().ilog2() as usize;
         let tree = merkle_proof::MerkleTree::create(leaves, depth);
         let (_, proof) = tree.generate_proof(field_index, depth)?;
@@ -2734,18 +2749,15 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for BeaconState<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BeaconState<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         Ok(map_fork_name!(
-            fork_name,
+            context,
             Self,
-            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
-                "BeaconState failed to deserialize: {:?}",
-                e
-            )))?
+            serde::Deserialize::deserialize(deserializer)?
         ))
     }
 }

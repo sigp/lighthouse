@@ -27,10 +27,8 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/PowBlock/",
     # We no longer implement merge logic.
     "tests/.*/bellatrix/fork_choice/on_merge_block",
-    # light_client
-    "tests/.*/.*/light_client/single_merkle_proof",
+    # Light client sync is not implemented
     "tests/.*/.*/light_client/sync",
-    "tests/.*/electra/light_client/update_ranking",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
@@ -49,11 +47,11 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip6110",
     "tests/.*/whisk",
-    "tests/.*/eip7594",
-    # Fulu tests are not yet being run
+    # TODO(das): Fulu tests are ignored for now
     "tests/.*/fulu",
-    # TODO(electra): SingleAttestation tests are waiting on Eitan's PR
-    "tests/.*/electra/ssz_static/SingleAttestation"
+    "tests/.*/fulu/ssz_static/MatrixEntry",
+    "tests/.*/eip7441",
+    "tests/.*/eip7732",
 ]
 
 
