@@ -8469,9 +8469,7 @@ name = "simulator"
 version = "0.2.0"
 dependencies = [
  "clap",
- "env_logger 0.9.3",
  "environment",
- "eth2_network_config",
  "execution_layer",
  "futures",
  "kzg",

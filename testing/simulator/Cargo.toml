@@ -7,9 +7,7 @@ edition = { workspace = true }
 
 [dependencies]
 clap = { workspace = true }
-env_logger = { workspace = true }
 environment = { workspace = true }
-eth2_network_config = { workspace = true }
 execution_layer = { workspace = true }
 futures = { workspace = true }
 kzg = { workspace = true }
