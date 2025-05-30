@@ -44,7 +44,7 @@ const MAX_FORK_CHOICE_DISTANCE: u64 = 256;
 
 #[derive(Debug)]
 enum Error {
-    BeaconChain(BeaconChainError),
+    BeaconChain(Box<BeaconChainError>),
     // We don't use the inner value directly, but it's used in the Debug impl.
     HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     BeaconState(#[allow(dead_code)] BeaconStateError),
@@ -64,7 +64,7 @@ enum Error {
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
-        Self::BeaconChain(e)
+        Self::BeaconChain(e.into())
     }
 }
 

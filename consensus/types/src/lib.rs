@@ -22,6 +22,7 @@ pub mod beacon_block;
 pub mod beacon_block_body;
 pub mod beacon_block_header;
 pub mod beacon_committee;
+pub mod beacon_response;
 pub mod beacon_state;
 pub mod bls_to_execution_change;
 pub mod builder_bid;
@@ -44,7 +45,6 @@ pub mod execution_payload_header;
 pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
-pub mod fork_versioned_response;
 pub mod graffiti;
 pub mod historical_batch;
 pub mod historical_summary;
@@ -138,6 +138,9 @@ pub use crate::beacon_block_body::{
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
+pub use crate::beacon_response::{
+    BeaconResponse, ForkVersionDecode, ForkVersionedResponse, UnversionedResponse,
+};
 pub use crate::beacon_state::{Error as BeaconStateError, *};
 pub use crate::blob_sidecar::{BlobIdentifier, BlobSidecar, BlobSidecarList, BlobsList};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
@@ -178,9 +181,6 @@ pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
 pub use crate::fork_name::{ForkName, InconsistentFork};
-pub use crate::fork_versioned_response::{
-    ForkVersionDecode, ForkVersionDeserialize, ForkVersionedResponse,
-};
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::{
@@ -287,6 +287,8 @@ pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
     Signature, SignatureBytes,
 };
+pub use context_deserialize::ContextDeserialize;
+pub use context_deserialize_derive::context_deserialize;
 pub use kzg::{KzgCommitment, KzgProof, VERSIONED_HASH_VERSION_KZG};
 pub use milhouse::{self, List, Vector};
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};

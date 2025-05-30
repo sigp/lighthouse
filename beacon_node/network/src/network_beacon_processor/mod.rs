@@ -5,7 +5,7 @@ use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::{observe_gossip_data_column, GossipDataColumnError};
 use beacon_chain::fetch_blobs::{
-    fetch_and_process_engine_blobs, BlobsOrDataColumns, FetchEngineBlobError,
+    fetch_and_process_engine_blobs, EngineGetBlobsOutput, FetchEngineBlobError,
 };
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
@@ -848,11 +848,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {
                 match blobs_or_data_column {
-                    BlobsOrDataColumns::Blobs(blobs) => {
+                    EngineGetBlobsOutput::Blobs(blobs) => {
                         self_cloned.publish_blobs_gradually(blobs, block_root);
                     }
-                    BlobsOrDataColumns::DataColumns(columns) => {
-                        self_cloned.publish_data_columns_gradually(columns, block_root);
+                    EngineGetBlobsOutput::CustodyColumns(columns) => {
+                        self_cloned.publish_data_columns_gradually(
+                            columns.into_iter().map(|c| c.clone_data_column()).collect(),
+                            block_root,
+                        );
                     }
                 };
             }

@@ -319,9 +319,9 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
                 .slot_clock
                 .start_of(block.slot())
                 .map(|d| d.as_secs())
-                .ok_or(BlockError::BeaconChainError(
+                .ok_or(BlockError::BeaconChainError(Box::new(
                     BeaconChainError::UnableToComputeTimeAtSlot,
-                ))?;
+                )))?;
 
             // The block's execution payload timestamp is correct with respect to the slot
             if execution_payload.timestamp() != expected_timestamp {
@@ -504,7 +504,7 @@ where
             "prepare_execution_payload_forkchoice_update_params",
         )
         .await
-        .map_err(BlockProductionError::BeaconChain)?;
+        .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
 
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)

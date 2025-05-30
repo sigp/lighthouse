@@ -21,6 +21,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct DepositMessage {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
