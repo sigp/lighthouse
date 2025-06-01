@@ -2232,13 +2232,4 @@ impl<E: EthSpec> Network<E> {
             bytes_len as u64,
         );
     }
-
-    pub fn track_messages_received_per_client(&mut self, peer_id: PeerId, object_type: &'static str) {
-        let client = self.network_globals.client(&peer_id).kind.to_string();
-        // update metric for bytes received per client
-        metrics::inc_counter_vec(
-            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client, object_type]
-        );
-    }
 }

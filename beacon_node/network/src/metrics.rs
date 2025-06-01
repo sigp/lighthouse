@@ -644,14 +644,6 @@ pub static BLOCKS_RECEIVED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLoc
     )
 });
 
-pub static BLOCKS_RECEIVED_PER_CLIENT_VERSION: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "blocks_received_per_client_version",
-        "Total number of blocks received for sync per client type and version",
-        &["Client", "Version"],
-    )
-});
-
 pub static GOSSIP_BLOCKS_IMPORTED_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "gossip_blocks_imported_per_client",

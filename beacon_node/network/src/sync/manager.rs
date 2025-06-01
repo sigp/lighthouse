@@ -1308,7 +1308,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
 
                     metrics::inc_counter_vec_by(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client], blocks.len() as u64);
-                    metrics::inc_counter_vec_by(&metrics::BLOCKS_RECEIVED_PER_CLIENT_VERSION, &[&client, &client_version], blocks.len() as u64);
                     match range_request_id.requester {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(

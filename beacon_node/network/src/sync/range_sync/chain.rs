@@ -251,6 +251,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             / EPOCHS_PER_BATCH;
         debug!(epoch = %batch_id, blocks = received, batch_state = self.visualize_batch_state(), %awaiting_batches,"Batch downloaded");
 
+        let client = network.client_type(&peer_id).kind.to_string();
+        metrics::inc_counter_vec(
+            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
+            &[&client, "range_sync_blocks"]
+        );
         // pre-emptively request more blocks from peers whilst we process current blocks,
         self.request_batches(network)?;
         self.process_completed_batches(network)

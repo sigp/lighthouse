@@ -1147,7 +1147,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .process_gossip_data_columns(vec![verified_data_column], || Ok(()))
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "data_column");
-        self.track_messages_received_per_client(peer_id, "data_column");
+        self.track_messages_received_per_client(peer_id, "gossip_data_column");
         
         match result {
             Ok(availability) => match availability {
