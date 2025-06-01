@@ -1084,7 +1084,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_single_block_response(id, peer_id, block) {
             let client = self.network.client_type(&peer_id).kind.to_string();
-            let client_version = self.network.client_version(&peer_id).to_string();
 
             metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client] );
 
@@ -1158,7 +1157,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_single_blob_response(id, peer_id, blob) {
             let client = self.network.client_type(&peer_id).kind.to_string();
-            let client_version = self.network.client_version(&peer_id).to_string();
 
             metrics::inc_counter_vec(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client] );
             self.block_lookups
@@ -1304,7 +1302,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             match resp {
                 Ok(blocks) => {
                     let client = self.network.client_type(&peer_id).kind.to_string();
-                    let client_version = self.network.client_version(&peer_id).to_string();
 
 
                     metrics::inc_counter_vec_by(&metrics::BLOCKS_RECEIVED_PER_CLIENT, &[&client], blocks.len() as u64);

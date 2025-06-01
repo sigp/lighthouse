@@ -3275,7 +3275,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn track_messages_received_per_client(&self, peer_id: PeerId, object_type: &'static str) {
         let client = self.network_globals.client(&peer_id).kind.to_string();
         metrics::inc_counter_vec(
-            &metrics::GOSSIP_MESSAGES_RECEIVED_PER_CLIENT,
+            &metrics::MESSAGES_RECEIVED_PER_CLIENT,
             &[&client, object_type]
         );
     }

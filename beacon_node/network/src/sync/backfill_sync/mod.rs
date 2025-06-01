@@ -29,6 +29,7 @@ use std::collections::{
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 use types::{Epoch, EthSpec};
+use crate::metrics::MESSAGES_RECEIVED_PER_CLIENT;
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -410,9 +411,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     "Completed batch received"
                 );
 
-                let client = network.client_type(&peer_id).kind.to_string();
+                let client = network.client_type(peer_id).kind.to_string();
                 metrics::inc_counter_vec(
-                    &metrics::MESSAGES_RECEIVED_PER_CLIENT,
+                    &MESSAGES_RECEIVED_PER_CLIENT,
                     &[&client, "backfill_sync_blocks"]
                 );
 
