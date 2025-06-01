@@ -57,7 +57,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, instrument, trace, warn};
 use types::{Epoch, EthSpec, Hash256};
-use crate::metrics::MESSAGES_RECEIVED_PER_CLIENT;
 
 /// For how long we store failed finalized chains to prevent retries.
 const FAILED_CHAINS_EXPIRY_SECONDS: u64 = 30;
@@ -234,13 +233,6 @@ where
         request_id: Id,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) {
-        // Add metric for range sync messages
-        let client = network.client_type(&peer_id).kind.to_string();
-        metrics::inc_counter_vec(
-            &MESSAGES_RECEIVED_PER_CLIENT,
-            &[&client, "range_sync_blocks"]
-        );
-
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
             chain.on_block_response(network, batch_id, &peer_id, request_id, blocks)
