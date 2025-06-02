@@ -3763,7 +3763,10 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
 
     // Prior to manual pruning with an artifically low data availability boundary all blobs should
     // be stored.
-    assert_eq!(store.get_blob_info().oldest_blob_slot, Some(fulu_fork_slot));
+    assert_eq!(
+        store.get_data_column_info().oldest_data_column_slot,
+        Some(fulu_fork_slot)
+    );
     check_data_column_existence(&harness, Slot::new(1), harness.head_slot(), true);
 
     // Trigger blob pruning of blobs older than epoch 6 - margin (6 is the minimum, due to
