@@ -3767,13 +3767,16 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
         .unwrap();
 
     // Check oldest blob slot is updated accordingly and prior blobs have been deleted.
-    let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+    let oldest_data_column_slot = store
+        .get_data_column_info()
+        .oldest_data_column_slot
+        .unwrap();
     assert_eq!(
-        oldest_blob_slot,
+        oldest_data_column_slot,
         effective_data_availability_boundary.start_slot(E::slots_per_epoch())
     );
-    check_data_column_existence(&harness, Slot::new(0), oldest_blob_slot - 1, false);
-    check_data_column_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
+    check_data_column_existence(&harness, Slot::new(0), oldest_data_column_slot - 1, false);
+    check_data_column_existence(&harness, oldest_data_column_slot, harness.head_slot(), true);
 }
 
 /// Check tat there are data column sidecars (or not) at every slot in the range.
