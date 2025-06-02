@@ -17,8 +17,8 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecarList, ChainSpec, CustodyContext, DataColumnSidecar, DataColumnSidecarList, Epoch,
+    EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock,
 };
 
 mod error;
@@ -74,6 +74,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
+    custody_context: Arc<CustodyContext>,
     spec: Arc<ChainSpec>,
 }
 
@@ -111,6 +112,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
+        custody_context: Arc<CustodyContext>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
@@ -118,8 +120,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
+            custody_context,
             spec,
         })
+    }
+
+    pub fn custody_context(&self) -> Arc<CustodyContext> {
+        self.custody_context.clone()
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because

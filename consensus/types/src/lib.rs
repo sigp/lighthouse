@@ -72,6 +72,7 @@ pub mod signing_data;
 pub mod sync_committee_subscription;
 pub mod sync_duty;
 pub mod validator;
+pub mod validator_custody;
 pub mod validator_subscription;
 pub mod voluntary_exit;
 pub mod withdrawal_credentials;
@@ -264,6 +265,7 @@ pub use crate::withdrawal::Withdrawal;
 pub use crate::withdrawal_credentials::WithdrawalCredentials;
 pub use crate::withdrawal_request::WithdrawalRequest;
 pub use fixed_bytes::FixedBytesExtended;
+pub use validator_custody::CustodyContext;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = fixed_bytes::Hash256;

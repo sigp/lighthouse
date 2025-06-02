@@ -34,6 +34,7 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, info_span, trace, warn, Instrument};
+use types::CustodyContext;
 use types::{
     ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     Unsigned, ValidatorSubscription,
@@ -266,6 +267,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             enr_fork_id,
             fork_context: fork_context.clone(),
             chain_spec: beacon_chain.spec.clone(),
+            custody_context: beacon_chain.data_availability_checker.custody_context(),
             libp2p_registry,
         };
 

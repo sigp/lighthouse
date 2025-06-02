@@ -11,7 +11,7 @@ use tracing::error;
 use types::data_column_custody_group::{
     compute_columns_for_custody_group, compute_subnets_from_custody_group, get_custody_groups,
 };
-use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec};
+use types::{ChainSpec, ColumnIndex, CustodyContext, DataColumnSubnetId, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
     /// The current local ENR.
@@ -33,8 +33,8 @@ pub struct NetworkGlobals<E: EthSpec> {
     /// The computed sampling subnets and columns is stored to avoid re-computing.
     pub sampling_subnets: HashSet<DataColumnSubnetId>,
     pub sampling_columns: HashSet<ColumnIndex>,
-    /// Constant custody group count (CGC) set at startup
-    custody_group_count: u64,
+    /// Context for the amount of columns the node has to custody.
+    custody_context: Arc<CustodyContext>,
     /// Network-related configuration. Immutable after initialization.
     pub config: Arc<NetworkConfig>,
     /// Ethereum chain configuration. Immutable after initialization.
@@ -48,6 +48,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
         trusted_peers: Vec<PeerId>,
         disable_peer_scoring: bool,
         config: Arc<NetworkConfig>,
+        custody_context: Arc<CustodyContext>,
         spec: Arc<ChainSpec>,
     ) -> Self {
         let node_id = enr.node_id().raw();
@@ -87,6 +88,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
             sampling_columns.extend(columns);
         }
 
+        // set the values in custody_context based on the
+
         NetworkGlobals {
             local_enr: RwLock::new(enr.clone()),
             peer_id: RwLock::new(enr.peer_id()),
@@ -98,7 +101,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             backfill_state: RwLock::new(BackFillState::Paused),
             sampling_subnets,
             sampling_columns,
-            custody_group_count,
+            custody_context,
             config,
             spec,
         }
@@ -255,7 +258,18 @@ impl<E: EthSpec> NetworkGlobals<E> {
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
         let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
-        NetworkGlobals::new(enr, metadata, trusted_peers, false, config, spec)
+        let custody_context = Arc::new(CustodyContext::new(
+            config.subscribe_all_data_column_subnets,
+        ));
+        NetworkGlobals::new(
+            enr,
+            metadata,
+            trusted_peers,
+            false,
+            config,
+            custody_context,
+            spec,
+        )
     }
 }
 

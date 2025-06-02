@@ -207,12 +207,15 @@ impl<E: EthSpec> Network<E> {
         });
         let meta_data = utils::load_or_build_metadata(&config.network_dir, custody_group_count);
         let seq_number = *meta_data.seq_number();
+        // todo(pawan): load the persisted custody context here and modify the custody context before passing
+        // it to the globals
         let globals = NetworkGlobals::new(
             enr,
             meta_data,
             trusted_peers,
             config.disable_peer_scoring,
             config.clone(),
+            ctx.custody_context.clone(),
             ctx.chain_spec.clone(),
         );
         let network_globals = Arc::new(globals);
