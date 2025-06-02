@@ -161,6 +161,7 @@ pub trait ObservationStrategy {
 /// Type for messages that are observed immediately.
 pub struct Observe;
 /// Type for messages that have not been observed.
+#[derive(Debug)]
 pub struct DoNotObserve;
 
 impl ObservationStrategy for Observe {

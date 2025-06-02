@@ -797,6 +797,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
+                    GossipDataColumnError::PriorKnownUnpublished => {
+                        debug!(
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Gossip data column already processed via the EL. Accepting the column sidecar without re-processing."
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Accept,
+                        );
+                    }
                     GossipDataColumnError::ParentUnknown { parent_root } => {
                         debug!(
                             action = "requesting parent",
@@ -2760,6 +2773,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             message_id,
                             peer_id,
                             MessageAcceptance::Ignore,
+                        );
+                    }
+                    BeaconChainError::AttestationValidationError(e) => {
+                        // Failures from `get_attesting_indices` end up here.
+                        debug!(
+                            %peer_id,
+                            block_root = ?beacon_block_root,
+                            attestation_slot = %failed_att.attestation_data().slot,
+                            error = ?e,
+                            "Rejecting attestation that failed validation"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::MidToleranceError,
+                            "attn_validation_error",
                         );
                     }
                     _ => {

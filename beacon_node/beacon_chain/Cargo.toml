@@ -1,3 +1,4 @@
+ 
 [package]
 name = "beacon_chain"
 version = "0.2.0"
@@ -69,6 +70,8 @@ types = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 maplit = { workspace = true }
+mockall = { workspace = true }
+mockall_double = { workspace = true }
 serde_json = { workspace = true }
 
 [[bench]]
