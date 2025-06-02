@@ -2823,13 +2823,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             self.blobs_db
                 .delete_if(DBColumn::BeaconDataColumn, remove_data_column_if)?;
-
-            let new_data_column_info = DataColumnInfo {
-                oldest_data_column_slot: Some(end_slot + 1),
-            };
-            let op =
-                self.compare_and_set_data_column_info(data_column_info, new_data_column_info)?;
-            self.do_atomically_with_block_and_blobs_cache(vec![StoreOp::KeyValueOp(op)])?;
         }
 
         // Remove deleted blobs from the cache.
@@ -2839,17 +2832,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
         drop(block_cache);
 
-        if !self
-            .spec
-            .is_peer_das_enabled_for_epoch(end_slot.epoch(E::slots_per_epoch()))
-        {
-            let new_blob_info = BlobInfo {
-                oldest_blob_slot: Some(end_slot + 1),
-                blobs_db: blob_info.blobs_db,
-            };
-            let op = self.compare_and_set_blob_info(blob_info, new_blob_info)?;
-            self.do_atomically_with_block_and_blobs_cache(vec![StoreOp::KeyValueOp(op)])?;
-        }
+        self.update_blob_or_data_column_info(start_epoch, end_slot, blob_info, data_column_info)?;
 
         debug!("Blob pruning complete");
 
@@ -2932,6 +2915,31 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // In order to reclaim space, we need to compact the freezer DB as well.
         self.compact_freezer()?;
+
+        Ok(())
+    }
+
+    fn update_blob_or_data_column_info(
+        &self,
+        start_epoch: Epoch,
+        end_slot: Slot,
+        blob_info: BlobInfo,
+        data_column_info: DataColumnInfo,
+    ) -> Result<(), Error> {
+        let op = if self.spec.is_peer_das_enabled_for_epoch(start_epoch) {
+            let new_data_column_info = DataColumnInfo {
+                oldest_data_column_slot: Some(end_slot + 1),
+            };
+            self.compare_and_set_data_column_info(data_column_info, new_data_column_info)?
+        } else {
+            let new_blob_info = BlobInfo {
+                oldest_blob_slot: Some(end_slot + 1),
+                blobs_db: blob_info.blobs_db,
+            };
+            self.compare_and_set_blob_info(blob_info, new_blob_info)?
+        };
+
+        self.do_atomically_with_block_and_blobs_cache(vec![StoreOp::KeyValueOp(op)])?;
 
         Ok(())
     }
