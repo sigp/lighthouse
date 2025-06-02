@@ -663,6 +663,12 @@ fn run<E: EthSpec>(
 
     logging_layers.push(MetricsLayer.boxed());
 
+    #[cfg(feature = "console-subscriber")]
+    {
+        let console_layer = console_subscriber::spawn();
+        logging_layers.push(console_layer.boxed());
+    }
+
     let logging_result = tracing_subscriber::registry()
         .with(logging_layers)
         .try_init();

@@ -688,7 +688,7 @@ pub struct ValidatorBalancesQuery {
     pub id: Option<Vec<ValidatorId>>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ValidatorBalancesRequestBody {
     pub ids: Vec<ValidatorId>,
