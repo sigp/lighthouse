@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, CustodyContext, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
 pub const UDP_PORT: u16 = 42;
@@ -158,12 +158,16 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     let enr_key = CombinedKey::generate_secp256k1();
     let enr = Enr::builder().build(&enr_key).unwrap();
     let network_config = Arc::new(NetworkConfig::default());
+    let custody_context = Arc::new(CustodyContext::new(
+        network_config.subscribe_all_data_column_subnets,
+    ));
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
         meta_data,
         vec![],
         false,
         network_config,
+        custody_context,
         chain.spec.clone(),
     ));
 

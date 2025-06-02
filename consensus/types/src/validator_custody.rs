@@ -1,8 +1,8 @@
-use std::ops::Deref;
+use std::collections::{BTreeMap, HashMap};
 
 use parking_lot::RwLock;
 
-use crate::{ChainSpec, Epoch};
+use crate::{ChainSpec, Epoch, EthSpec, Slot};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 
@@ -21,7 +21,7 @@ impl ValidatorCustodyCount {
     }
 }
 
-impl Deref for ValidatorCustodyCount {
+impl std::ops::Deref for ValidatorCustodyCount {
     type Target = u64;
     fn deref(&self) -> &Self::Target {
         &self.count
@@ -39,6 +39,66 @@ impl ValidatorCustodyCount {
     }
 }
 
+/// TODO(pawan): this currently just registers increases in validator count.
+/// Does not handle decreasing validator counts
+#[derive(Default, Debug)]
+struct ValidatorRegistrations {
+    /// Set of all validators that is registered to this node along with its effective balance
+    /// in increments of `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP`
+    validators: HashMap<usize, u64>,
+    /// Maintains the number of unique validators that hit the subscriptions endpoint each
+    /// epoch where the validator count changed from the previous epoch.
+    ///
+    /// If the count is same between subsequent epochs, then the later epoch values aren't stored
+    /// to save space.
+    epoch_validators: BTreeMap<Epoch, u64>,
+}
+
+impl ValidatorRegistrations {
+    /// Returns the validator count at the latest epoch for the custody requirement.
+    pub fn latest_validator_count_for_custody(&self) -> Option<u64> {
+        self.epoch_validators.last_key_value().map(|(_, v)| *v)
+    }
+
+    /// Returns the total validator count based on the effective balance.
+    ///
+    /// Note: Each `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP` effectively contributes one unit of weight.
+    pub fn custody_requirement(&self) -> u64 {
+        self.validators.values().sum()
+    }
+
+    /// Returns the latest epoch at which the validator count changed.
+    #[allow(dead_code)]
+    pub fn latest_epoch(&self) -> Option<Epoch> {
+        self.epoch_validators.last_key_value().map(|(k, _)| *k)
+    }
+
+    /// Register a new validator index and updates the list of validators if required.
+    pub fn register_validator<E: EthSpec>(
+        &mut self,
+        validator_index: usize,
+        effective_balance: u64,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        // This is the "weight" of the validator based on the effective balance
+        let num_validators_for_effective_balance =
+            effective_balance / spec.balance_per_additional_custody_group;
+        self.validators
+            .insert(validator_index, num_validators_for_effective_balance);
+        let count_at_epoch = self.custody_requirement();
+        // If registering the new validator increased the validator count, then
+        // add a new entry for the current epoch
+        if Some(count_at_epoch) != self.latest_validator_count_for_custody() {
+            self.epoch_validators
+                .entry(epoch)
+                .and_modify(|old_count| *old_count = count_at_epoch)
+                .or_insert(count_at_epoch);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct CustodyContext {
     /// Columns to be custodied based on number of validators
@@ -51,7 +111,7 @@ pub struct CustodyContext {
     /// sample at head (while syncing or when receiving gossip).
     validator_custody_at_head: RwLock<ValidatorCustodyCount>,
     /// Is the node run as a supernode based on current cli parameters.
-    current_is_supernode: bool,
+    pub current_is_supernode: bool,
     /// The persisted value for `is_supernode` based on the previous run of this node.
     ///
     /// Note: We require this value because if a user restarts the node with a higher cli custody
@@ -62,7 +122,10 @@ pub struct CustodyContext {
     /// Updates to the number of validators that is attached to this node
     /// over a given time duration.
     /// TODO(pawan): make this a constant sized queue.
+    /// might not need this with epoch_validators
     validator_custody_updates: Vec<(Epoch, usize)>,
+    /// Maintains all the validators that this node is connected to currently
+    validator_registrations: RwLock<ValidatorRegistrations>,
 }
 
 impl CustodyContext {
@@ -77,6 +140,7 @@ impl CustodyContext {
             current_is_supernode: is_supernode,
             persisted_is_supernode: is_supernode,
             validator_custody_updates: vec![],
+            validator_registrations: Default::default(),
         }
     }
 
@@ -93,7 +157,21 @@ impl CustodyContext {
             current_is_supernode: is_supernode,
             persisted_is_supernode: ssz_context.persisted_is_supernode,
             validator_custody_updates: ssz_context.validator_custody_updates,
+            validator_registrations: Default::default(),
         })
+    }
+
+    /// Register a new validator index and updates the list of validators if required.
+    pub fn register_validator<E: EthSpec>(
+        &self,
+        validator_index: usize,
+        effective_balance: u64,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) {
+        self.validator_registrations
+            .write()
+            .register_validator::<E>(validator_index, effective_balance, slot, spec)
     }
 
     /// The custody count that we advertise to our peers in our metadata and

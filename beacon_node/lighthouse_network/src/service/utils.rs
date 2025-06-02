@@ -18,7 +18,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, warn};
 use types::{
-    ChainSpec, CustodyContext, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId
+    ChainSpec, CustodyContext, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, SubnetId,
+    SyncSubnetId,
 };
 
 pub const NETWORK_KEY_FILENAME: &str = "key";

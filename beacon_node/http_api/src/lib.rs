@@ -3780,6 +3780,24 @@ pub fn serve<T: BeaconChainTypes>(
                                 .validator_monitor
                                 .write()
                                 .auto_register_local_validator(subscription.validator_index);
+                            // Register the validator with the `CustodyContext`
+                            if let Ok(effective_balance) = chain
+                                .canonical_head
+                                .cached_head()
+                                .snapshot
+                                .beacon_state
+                                .get_effective_balance(subscription.validator_index as usize)
+                            {
+                                chain
+                                    .data_availability_checker
+                                    .custody_context()
+                                    .register_validator::<T::EthSpec>(
+                                        subscription.validator_index as usize,
+                                        effective_balance,
+                                        chain.slot().unwrap(),
+                                        &chain.spec,
+                                    );
+                            }
                             api_types::ValidatorSubscription {
                                 attestation_committee_index: subscription.committee_index,
                                 slot: subscription.slot,
