@@ -42,6 +42,7 @@ use types::{
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
 /// gossip network. The blobs / data columns have not been marked as observed yet, as they may not
 /// be published immediately.
+#[derive(Debug)]
 pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
     Blobs(Vec<GossipVerifiedBlob<T, DoNotObserve>>),
     /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
@@ -163,7 +164,20 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
         return Ok(None);
     } else {
+        debug!(
+            num_expected_blobs,
+            num_fetched_blobs, "Received blobs from the EL"
+        );
         inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
+    }
+
+    if chain_adapter.fork_choice_contains_block(&block_root) {
+        // Avoid computing sidecars if the block has already been imported.
+        debug!(
+            info = "block has already been imported",
+            "Ignoring EL blobs response"
+        );
+        return Ok(None);
     }
 
     let (signed_block_header, kzg_commitments_proof) = block
@@ -197,13 +211,13 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         .collect::<Result<Vec<_>, _>>()
         .map_err(FetchEngineBlobError::GossipBlob)?;
 
-    if !blobs_to_import_and_publish.is_empty() {
-        publish_fn(EngineGetBlobsOutput::Blobs(
-            blobs_to_import_and_publish.clone(),
-        ));
+    if blobs_to_import_and_publish.is_empty() {
+        return Ok(None);
     }
 
-    debug!(num_fetched_blobs, "Processing engine blobs");
+    publish_fn(EngineGetBlobsOutput::Blobs(
+        blobs_to_import_and_publish.clone(),
+    ));
 
     let availability_processing_status = chain_adapter
         .process_engine_blobs(

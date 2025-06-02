@@ -124,6 +124,7 @@ clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 clap_utils = { path = "common/clap_utils" }
 compare_fields = { path = "common/compare_fields" }
 compare_fields_derive = { path = "common/compare_fields_derive" }
+console-subscriber = "0.4"
 context_deserialize = { path = "consensus/context_deserialize" }
 context_deserialize_derive = { path = "consensus/context_deserialize_derive" }
 criterion = "0.5"
