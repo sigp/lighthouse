@@ -52,20 +52,18 @@ jobs:
       - name: Load Docker image
         run: docker load -i lighthouse-docker.tar
 
-      - name: Start local testnet
-        run: ./start_local_testnet.sh -e local -c -b false && sleep 60
+      - name: Start local testnet with Assertoor
+        run: ./start_local_testnet.sh -e local-assertoor -c -a -b false && sleep 60
         working-directory: scripts/local_testnet
+
+      - name: Await Assertoor test result
+        id: assertoor_test_result
+        uses: ethpandaops/assertoor-github-action@v1
+        with:
+          kurtosis_enclave_name: local-assertoor
 
       - name: Stop local testnet and dump logs
-        run: ./stop_local_testnet.sh local
-        working-directory: scripts/local_testnet
-
-      - name: Start local testnet with blinded block production
-        run: ./start_local_testnet.sh -e local-blinded -c -p -b false && sleep 60
-        working-directory: scripts/local_testnet
-
-      - name: Stop local testnet and dump logs
-        run: ./stop_local_testnet.sh local-blinded
+        run: ./stop_local_testnet.sh local-assertoor
         working-directory: scripts/local_testnet
 
       - name: Upload logs artifact
@@ -75,6 +73,29 @@ jobs:
           path: |
             scripts/local_testnet/logs
           retention-days: 3
+
+      - name: Return Assertoor test result
+        shell: bash
+        run: |
+          test_result="${{ steps.assertoor_test_result.outputs.result }}"
+          test_status=$(
+          cat <<"EOF"
+          ${{ steps.assertoor_test_result.outputs.test_overview }}
+          EOF
+          )
+          failed_test_status=$(
+          cat <<"EOF"
+          ${{ steps.assertoor_test_result.outputs.failed_test_details }}
+          EOF
+          )
+          
+          echo "Test Result:  $test_result"
+          echo "$test_status"
+          if ! [ "$test_result" == "success" ]; then
+            echo "Failed Test Task Status:"
+            echo "$failed_test_status"
+            exit 1
+          fi
 
   doppelganger-protection-success-test:
     needs: dockerfile-ubuntu
