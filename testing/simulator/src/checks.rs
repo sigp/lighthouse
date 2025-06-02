@@ -97,7 +97,7 @@ async fn verify_validator_count<E: EthSpec>(
             let vc = remote_node
                 .get_debug_beacon_states::<E>(StateId::Head)
                 .await
-                .map(|body| body.unwrap().data)
+                .map(|body| body.unwrap().into_data())
                 .map_err(|e| format!("Get state root via http failed: {:?}", e))?
                 .validators()
                 .len();
@@ -128,17 +128,23 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
     slot_delay(slot, slot_duration).await;
     let beacon_nodes = network.beacon_nodes.read();
     let beacon_chain = beacon_nodes[0].client.beacon_chain().unwrap();
-    let num_blocks = beacon_chain
+    let block_slots = beacon_chain
         .chain_dump()
         .unwrap()
         .iter()
         .take_while(|s| s.beacon_block.slot() <= slot)
-        .count();
+        .map(|s| s.beacon_block.slot().as_usize())
+        .collect::<Vec<_>>();
+    let num_blocks = block_slots.len();
     if num_blocks != slot.as_usize() + 1 {
+        let missed_slots = (0..slot.as_usize())
+            .filter(|slot| !block_slots.contains(slot))
+            .collect::<Vec<_>>();
         return Err(format!(
-            "There wasn't a block produced at every slot, got: {}, expected: {}",
+            "There wasn't a block produced at every slot, got: {}, expected: {}, missed: {:?}",
             num_blocks,
-            slot.as_usize() + 1
+            slot.as_usize() + 1,
+            missed_slots
         ));
     }
     Ok(())
@@ -185,12 +191,17 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
             .get_beacon_blocks::<E>(BlockId::Slot(Slot::new(slot)))
             .await
             .map(|resp| {
-                resp.unwrap()
-                    .data
-                    .message()
-                    .body()
-                    .sync_aggregate()
-                    .map(|agg| agg.num_set_bits())
+                resp.unwrap_or_else(|| {
+                    panic!(
+                        "Beacon block for slot {} not returned from Beacon API",
+                        slot
+                    )
+                })
+                .data()
+                .message()
+                .body()
+                .sync_aggregate()
+                .map(|agg| agg.num_set_bits())
             })
             .map_err(|e| format!("Error while getting beacon block: {:?}", e))?
             .map_err(|_| format!("Altair block {} should have sync aggregate", slot))?;
@@ -224,7 +235,7 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
         let execution_block_hash: ExecutionBlockHash = remote_node
             .get_beacon_blocks::<E>(BlockId::Finalized)
             .await
-            .map(|body| body.unwrap().data)
+            .map(|body| body.unwrap().into_data())
             .map_err(|e| format!("Get state root via http failed: {:?}", e))?
             .message()
             .execution_payload()
@@ -297,7 +308,7 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
             .ok_or(format!("Light client optimistic update not found {slot:?}"))?
-            .data
+            .data()
             .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
@@ -326,7 +337,7 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
             .ok_or(format!("Light client finality update not found {slot:?}"))?
-            .data
+            .data()
             .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
@@ -374,7 +385,7 @@ pub async fn ensure_node_synced_up_to_slot<E: EthSpec>(
         .ok()
         .flatten()
         .ok_or(format!("No head block exists on node {node_index}"))?
-        .data;
+        .into_data();
 
     // Check the head block is synced with the rest of the network.
     if head.slot() >= upto_slot {
@@ -411,7 +422,7 @@ pub async fn verify_full_blob_production_up_to<E: EthSpec>(
         // the `verify_full_block_production_up_to` function.
         if block.is_some() {
             remote_node
-                .get_blobs::<E>(BlockId::Slot(Slot::new(slot)), None)
+                .get_blobs::<E>(BlockId::Slot(Slot::new(slot)), None, &E::default_spec())
                 .await
                 .map_err(|e| format!("Failed to get blobs at slot {slot:?}: {e:?}"))?
                 .ok_or_else(|| format!("No blobs available at slot {slot:?}"))?;

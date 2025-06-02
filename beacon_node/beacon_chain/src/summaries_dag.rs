@@ -43,13 +43,6 @@ pub enum Error {
         state_root: Hash256,
         latest_block_root: Hash256,
     },
-    StateSummariesNotContiguous {
-        state_root: Hash256,
-        state_slot: Slot,
-        latest_block_root: Hash256,
-        parent_block_root: Box<Hash256>,
-        parent_block_latest_state_summary: Box<Option<(Slot, Hash256)>>,
-    },
     MissingChildStateRoot(Hash256),
     RequestedSlotAboveSummary {
         starting_state_root: Hash256,
@@ -163,34 +156,17 @@ impl StateSummariesDAG {
                         **state_root
                     } else {
                         // Common case: not a skipped slot.
+                        //
+                        // If we can't find a state summmary for the parent block and previous slot,
+                        // then there is some amount of disjointedness in the DAG. We set the parent
+                        // state root to 0x0 in this case, and will prune any dangling states.
                         let parent_block_root = summary.block_parent_root;
-                        if let Some(parent_block_summaries) =
-                            state_summaries_by_block_root.get(&parent_block_root)
-                        {
-                            *parent_block_summaries
-                                .get(&previous_slot)
-                                // Should never error: summaries are contiguous, so if there's an
-                                // entry it must contain at least one summary at the previous slot.
-                                .ok_or(Error::StateSummariesNotContiguous {
-                                    state_root: *state_root,
-                                    state_slot: summary.slot,
-                                    latest_block_root: summary.latest_block_root,
-                                    parent_block_root: parent_block_root.into(),
-                                    parent_block_latest_state_summary: parent_block_summaries
-                                        .iter()
-                                        .max_by(|a, b| a.0.cmp(b.0))
-                                        .map(|(slot, (state_root, _))| (*slot, **state_root))
-                                        .into(),
-                                })?
-                                .0
-                        } else {
-                            // We don't know of any summary with this parent block root. We'll
-                            // consider this summary to be a root of `state_summaries_v22`
-                            // collection and mark it as zero.
-                            // The test store_tests::finalizes_non_epoch_start_slot manages to send two
-                            // disjoint trees on its second migration.
-                            Hash256::ZERO
-                        }
+                        state_summaries_by_block_root
+                            .get(&parent_block_root)
+                            .and_then(|parent_block_summaries| {
+                                parent_block_summaries.get(&previous_slot)
+                            })
+                            .map_or(Hash256::ZERO, |(parent_state_root, _)| **parent_state_root)
                     }
                 };
 

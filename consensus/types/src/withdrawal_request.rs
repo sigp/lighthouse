@@ -1,5 +1,6 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::{Address, PublicKeyBytes};
+use crate::{Address, ForkName, PublicKeyBytes};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -20,6 +21,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct WithdrawalRequest {
     #[serde(with = "serde_utils::address_hex")]
     pub source_address: Address,

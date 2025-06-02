@@ -1,5 +1,6 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::Hash256;
+use crate::{ForkName, Hash256};
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -19,6 +20,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct SigningData {
     pub object_root: Hash256,
     pub domain: Hash256,

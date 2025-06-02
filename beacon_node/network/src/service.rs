@@ -485,6 +485,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkEvent::PeerDisconnected(peer_id) => {
                 self.send_to_router(RouterMessage::PeerDisconnected(peer_id));
             }
+            NetworkEvent::PeerUpdatedCustodyGroupCount(peer_id) => {
+                self.send_to_router(RouterMessage::PeerUpdatedCustodyGroupCount(peer_id));
+            }
             NetworkEvent::RequestReceived {
                 peer_id,
                 inbound_request_id,

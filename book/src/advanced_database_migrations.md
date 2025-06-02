@@ -17,6 +17,7 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
+| v7.1.0             | TBD 2025     | v23            | yes                  |
 | v7.0.0             | Apr 2025     | v22            | no                   |
 | v6.0.0             | Nov 2024     | v22            | no                   |
 
@@ -125,7 +126,7 @@ Several conditions need to be met in order to run `lighthouse db`:
 2. The command must run as the user that owns the beacon node database. If you are using systemd then
    your beacon node might run as a user called `lighthousebeacon`.
 3. The `--datadir` flag must be set to the location of the Lighthouse data directory.
-4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `holesky` or `sepolia`.
+4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `hoodi` or `sepolia`.
 
 The general form for a `lighthouse db` command is:
 
@@ -206,6 +207,7 @@ Here are the steps to prune historic states:
 
 | Lighthouse version | Release date | Schema version | Downgrade available?                |
 |--------------------|--------------|----------------|-------------------------------------|
+| v7.1.0             | TBD 2025     | v23            | yes                                 |
 | v7.0.0             | Apr 2025     | v22            | no                                  |
 | v6.0.0             | Nov 2024     | v22            | no                                  |
 | v5.3.0             | Aug 2024     | v21            | yes before Electra using <= v7.0.0  |

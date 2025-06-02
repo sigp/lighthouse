@@ -1,6 +1,6 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::{AttestationData, BitList, EthSpec};
-
+use crate::{AttestationData, BitList, EthSpec, ForkName};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -22,6 +22,7 @@ use tree_hash_derive::TreeHash;
     arbitrary::Arbitrary,
 )]
 #[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct PendingAttestation<E: EthSpec> {
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     pub data: AttestationData,

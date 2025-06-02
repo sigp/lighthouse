@@ -452,7 +452,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         if self.early_block_debounce.elapsed() {
                             warn!(
                                 queue_size = MAXIMUM_QUEUED_BLOCKS,
-                                msg = "check system clock",
+                                msg = "system resources may be saturated",
                                 "Early blocks queue is full"
                             );
                         }
@@ -500,7 +500,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     if self.rpc_block_debounce.elapsed() {
                         warn!(
                             queue_size = MAXIMUM_QUEUED_BLOCKS,
-                            msg = "check system clock",
+                            msg = "system resources may be saturated",
                             "RPC blocks queue is full"
                         );
                     }
@@ -540,7 +540,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     if self.attestation_delay_debounce.elapsed() {
                         error!(
                             queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
-                            msg = "check system clock",
+                            msg = "system resources may be saturated",
                             "Aggregate attestation delay queue is full"
                         );
                     }
@@ -572,7 +572,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     if self.attestation_delay_debounce.elapsed() {
                         error!(
                             queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
-                            msg = "check system clock",
+                            msg = "system resources may be saturated",
                             "Attestation delay queue is full"
                         );
                     }
@@ -606,7 +606,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     if self.lc_update_delay_debounce.elapsed() {
                         error!(
                             queue_size = MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES,
-                            msg = "check system clock",
+                            msg = "system resources may be saturated",
                             "Light client updates delay queue is full"
                         );
                     }
