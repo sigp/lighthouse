@@ -3197,7 +3197,7 @@ async fn deneb_prune_blobs_no_finalization() {
 
 /// Check that blob pruning does not fail trying to prune across the fork boundary.
 #[tokio::test]
-async fn deneb_prune_blobs_fork_boundary() {
+async fn prune_blobs_across_fork_boundary() {
     let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
     let deneb_fork_epoch = Epoch::new(4);
@@ -3215,15 +3215,15 @@ async fn deneb_prune_blobs_fork_boundary() {
 
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
-    let blocks_to_deneb = E::slots_per_epoch() * 7;
-    let blocks_to_electra = E::slots_per_epoch() * 6;
-    let blocks_to_fulu = E::slots_per_epoch() * 4;
+    let blocks_to_deneb_finalization = E::slots_per_epoch() * 7;
+    let blocks_to_electra_finalization = E::slots_per_epoch() * 4;
+    let blocks_to_fulu_finalization = E::slots_per_epoch() * 4;
 
     // Extend the chain to epoch 7
     // Finalize to epoch 5 (Deneb).
     harness
         .extend_chain(
-            blocks_to_deneb as usize,
+            blocks_to_deneb_finalization as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -3269,19 +3269,19 @@ async fn deneb_prune_blobs_fork_boundary() {
     check_blob_existence(&harness, Slot::new(0), pruned_slot - 1, false);
     check_blob_existence(&harness, pruned_slot, harness.head_slot(), true);
 
-    // Extend the chain to epoch 13
-    // Finalize to epoch 11 (Electra)
+    // Extend the chain to epoch 11
+    // Finalize to epoch 9 (Electra)
     harness.advance_slot();
     harness
         .extend_chain(
-            blocks_to_electra as usize,
+            blocks_to_electra_finalization as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    // Finalization should be at epoch 11 (Electra).
-    let finalized_epoch = Epoch::new(11);
+    // Finalization should be at epoch 9 (Electra).
+    let finalized_epoch = Epoch::new(9);
     let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
     assert_eq!(
         harness.get_current_state().finalized_checkpoint().epoch,
@@ -3309,27 +3309,25 @@ async fn deneb_prune_blobs_fork_boundary() {
     // Check that blobs exist from electra to the current head
     check_blob_existence(&harness, electra_first_slot, harness.head_slot(), true);
 
-    // Extend the chain to epoch 17
-    // Finalize to epoch 15 (Fulu)
+    // Extend the chain to epoch 15
+    // Finalize to epoch 13 (Fulu)
     harness.advance_slot();
     harness
         .extend_chain(
-            blocks_to_fulu as usize,
+            blocks_to_fulu_finalization as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    // Finalization should be at epoch 15 (Fulu).
-    let finalized_epoch = Epoch::new(15);
+    // Finalization should be at epoch 13 (Fulu).
+    let finalized_epoch = Epoch::new(13);
     let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
     assert_eq!(
         harness.get_current_state().finalized_checkpoint().epoch,
         finalized_epoch
     );
     assert_eq!(store.get_split_slot(), finalized_slot);
-
-    let pruned_slot = (fulu_fork_epoch - 1).start_slot(E::slots_per_epoch());
 
     // All blobs since last pruning during Electra should still be available.
     assert_eq!(store.get_blob_info().oldest_blob_slot, Some(pruned_slot));
@@ -3342,8 +3340,9 @@ async fn deneb_prune_blobs_fork_boundary() {
     // Check that blobs do not exist from Fulu to the current head
     check_blob_existence(&harness, fulu_first_slot, harness.head_slot(), false);
 
-    // Attempt pruning with data availability epochs that precede the fork epoch.
-    // No pruning should occur.
+    // Attempt pruning with at different epochs. No pruning should occur for epochs
+    // preceding Fulu, as we have already triggered pruning pre-Fulu. Pruning should occur
+    // for epochs after Fulu.
     assert!(fulu_fork_epoch < finalized_epoch);
     for data_availability_boundary in [
         Epoch::new(7),
@@ -3351,25 +3350,31 @@ async fn deneb_prune_blobs_fork_boundary() {
         Epoch::new(9),
         Epoch::new(11),
         fulu_fork_epoch,
+        Epoch::new(15),
     ] {
         store
             .try_prune_blobs(true, data_availability_boundary)
             .unwrap();
 
-        // Check oldest blob slot is not updated.
+        let oldest_slot = data_availability_boundary.start_slot(E::slots_per_epoch());
+
         if data_availability_boundary < fulu_fork_epoch {
             // Pre Fulu fork epochs
-            let oldest_slot = data_availability_boundary.start_slot(E::slots_per_epoch());
-            // assert_eq!(store.get_blob_info().oldest_blob_slot, Some(oldest_slot));
+            // Check oldest blob slot is not updated.
+            assert!(store.get_blob_info().oldest_blob_slot >= Some(oldest_slot));
             check_blob_existence(&harness, Slot::new(0), oldest_slot - 1, false);
             // Blobs should exist
             check_blob_existence(&harness, oldest_slot, harness.head_slot(), true);
         } else {
-            // Fulu fork epoch
-            let oldest_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
-            // Blobs should not exist
+            // Fulu fork epochs
+            // Pruning should have been triggered
+            assert!(store.get_blob_info().oldest_blob_slot <= Some(oldest_slot));
+            // Oldest blost slot should never be greater than the first fulu slot
+            let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
+            assert!(store.get_blob_info().oldest_blob_slot <= Some(fulu_first_slot));
+            // Blobs should not exist post-Fulu
             check_blob_existence(&harness, oldest_slot, harness.head_slot(), false);
-            // Data columns should exist
+            // Data columns should exist post-Fulu
             check_data_column_existence(&harness, oldest_slot, harness.head_slot(), true);
         };
     }

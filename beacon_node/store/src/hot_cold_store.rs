@@ -2839,13 +2839,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
         drop(block_cache);
 
-        let new_blob_info = BlobInfo {
-            oldest_blob_slot: Some(end_slot + 1),
-            blobs_db: blob_info.blobs_db,
-        };
-
-        let op = self.compare_and_set_blob_info(blob_info, new_blob_info)?;
-        self.do_atomically_with_block_and_blobs_cache(vec![StoreOp::KeyValueOp(op)])?;
+        if !self
+            .spec
+            .is_peer_das_enabled_for_epoch(end_slot.epoch(E::slots_per_epoch()))
+        {
+            let new_blob_info = BlobInfo {
+                oldest_blob_slot: Some(end_slot + 1),
+                blobs_db: blob_info.blobs_db,
+            };
+            let op = self.compare_and_set_blob_info(blob_info, new_blob_info)?;
+            self.do_atomically_with_block_and_blobs_cache(vec![StoreOp::KeyValueOp(op)])?;
+        }
 
         debug!("Blob pruning complete");
 
