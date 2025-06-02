@@ -42,6 +42,7 @@ use types::{
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
 /// gossip network. The blobs / data columns have not been marked as observed yet, as they may not
 /// be published immediately.
+#[derive(Debug)]
 pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
     Blobs(Vec<GossipVerifiedBlob<T, DoNotObserve>>),
     /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
@@ -163,7 +164,20 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
         return Ok(None);
     } else {
+        debug!(
+            num_expected_blobs,
+            num_fetched_blobs, "Received blobs from the EL"
+        );
         inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
+    }
+
+    if chain_adapter.fork_choice_contains_block(&block_root) {
+        // Avoid computing sidecars if the block has already been imported.
+        debug!(
+            info = "block has already been imported",
+            "Ignoring EL blobs response"
+        );
+        return Ok(None);
     }
 
     let (signed_block_header, kzg_commitments_proof) = block
@@ -197,13 +211,13 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         .collect::<Result<Vec<_>, _>>()
         .map_err(FetchEngineBlobError::GossipBlob)?;
 
-    if !blobs_to_import_and_publish.is_empty() {
-        publish_fn(EngineGetBlobsOutput::Blobs(
-            blobs_to_import_and_publish.clone(),
-        ));
+    if blobs_to_import_and_publish.is_empty() {
+        return Ok(None);
     }
 
-    debug!(num_fetched_blobs, "Processing engine blobs");
+    publish_fn(EngineGetBlobsOutput::Blobs(
+        blobs_to_import_and_publish.clone(),
+    ));
 
     let availability_processing_status = chain_adapter
         .process_engine_blobs(
@@ -264,6 +278,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         return Ok(None);
     }
 
+    debug!(num_fetched_blobs, "All expected blobs received from the EL");
     inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
 
     if chain_adapter.fork_choice_contains_block(&block_root) {
@@ -276,23 +291,32 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     }
 
     let chain_adapter = Arc::new(chain_adapter);
-    let custody_columns = compute_and_publish_data_columns(
+    let custody_columns_to_import = compute_custody_columns_to_import(
         &chain_adapter,
         block.clone(),
         blobs,
         proofs,
         custody_columns_indices,
-        publish_fn,
     )
     .await?;
 
-    debug!(num_fetched_blobs, "Processing engine blobs");
+    if custody_columns_to_import.is_empty() {
+        debug!(
+            info = "No new data columns to import",
+            "Ignoring EL blobs response"
+        );
+        return Ok(None);
+    }
+
+    publish_fn(EngineGetBlobsOutput::CustodyColumns(
+        custody_columns_to_import.clone(),
+    ));
 
     let availability_processing_status = chain_adapter
         .process_engine_blobs(
             block.slot(),
             block_root,
-            EngineGetBlobsOutput::CustodyColumns(custody_columns),
+            EngineGetBlobsOutput::CustodyColumns(custody_columns_to_import),
         )
         .await?;
 
@@ -300,13 +324,12 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
 }
 
 /// Offload the data column computation to a blocking task to avoid holding up the async runtime.
-async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
+async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     chain_adapter: &Arc<FetchBlobsBeaconAdapter<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: Vec<Blob<T::EthSpec>>,
     proofs: Vec<KzgProofs<T::EthSpec>>,
     custody_columns_indices: HashSet<ColumnIndex>,
-    publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Vec<GossipVerifiedDataColumn<T, DoNotObserve>>, FetchEngineBlobError> {
     let kzg = chain_adapter.kzg().clone();
     let spec = chain_adapter.spec().clone();
@@ -380,13 +403,9 @@ async fn compute_and_publish_data_columns<T: BeaconChainTypes>(
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(FetchEngineBlobError::GossipDataColumn)?;
 
-                publish_fn(EngineGetBlobsOutput::CustodyColumns(
-                    columns_to_import_and_publish.clone(),
-                ));
-
                 Ok(columns_to_import_and_publish)
             },
-            "compute_and_publish_data_columns",
+            "compute_custody_columns_to_import",
         )
         .ok_or(FetchEngineBlobError::RuntimeShutdown)?
         .await
