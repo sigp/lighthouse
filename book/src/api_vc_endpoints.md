@@ -18,11 +18,8 @@
 | [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic. |
 | [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators. |
 | [`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs |
-<<<<<<< HEAD
-| [`POST /lighthouse/beacon/update`](#post-lighthousebeaconupdate) | Update the `--beacon-nodes` list. |
-=======
 | [`GET /lighthouse/beacon/health`](#get-lighthousebeaconhealth) | Get health information for each connected beacon node. |
->>>>>>> unstable
+| [`POST /lighthouse/beacon/update`](#post-lighthousebeaconupdate) | Update the `--beacon-nodes` list. |
 
 The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api_vc_auth_header.md).
 
