@@ -79,6 +79,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
+use store::BlobSidecarListFromRoot;
 use sysinfo::{System, SystemExt};
 use system_health::{observe_nat, observe_system_health_bn};
 use task_spawner::{Priority, TaskSpawner};
@@ -4747,7 +4748,6 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P1, async move {
-                    let mut results = Vec::new();
                     let deneb_start_slot =
                         if let Some(deneb_fork_epoch) = chain.spec.deneb_fork_epoch {
                             deneb_fork_epoch.start_slot(T::EthSpec::slots_per_epoch())
@@ -4756,21 +4756,16 @@ pub fn serve<T: BeaconChainTypes>(
                                 "No Deneb fork scheduled".to_string(),
                             ));
                         };
-                    let start_slot = query.start_slot.unwrap_or(deneb_start_slot);
+                    let start_slot = query.start_slot;
+
                     if start_slot < deneb_start_slot {
                         return Err(warp_utils::reject::custom_bad_request(format!(
                             "start_slot ({}) must be >= deneb fork slot ({})",
                             start_slot, deneb_start_slot
                         )));
                     }
-                    // Maybe use chain.canonical_head.cached_head().head_slot()??
-                    let Ok(current_head_slot) = chain.slot() else {
-                        return Err(warp_utils::reject::custom_bad_request(
-                            "Failed to get current head slot".to_string(),
-                        ));
-                    };
 
-                    let end_slot = query.end_slot.unwrap_or(current_head_slot);
+                    let end_slot = query.end_slot;
                     if end_slot < start_slot {
                         return Err(warp_utils::reject::custom_bad_request(format!(
                             "end_slot ({}) must be >= start_slot ({})",
@@ -4778,29 +4773,60 @@ pub fn serve<T: BeaconChainTypes>(
                         )));
                     }
 
+                    let verify = query.verify.unwrap_or(true);
+
+                    let mut blob_count = 0;
+                    let mut blobs_missing: Vec<u64> = Vec::new();
+                    let mut blobs_invalid: Vec<u64> = Vec::new();
+
                     for slot in start_slot.as_u64()..=end_slot.as_u64() {
                         if let Ok((root, _, _)) = BlockId::from_slot(Slot::from(slot)).root(&chain)
                         {
-                            if let Ok(blob_list_res) = chain.store.get_blobs(&root) {
-                                if let Some(blob_list) = blob_list_res.blobs() {
-                                    if let Err(_e) =
-                                        verify_kzg_for_blob_list(blob_list.iter(), &chain.kzg)
-                                    {
-                                        results.push(BlobsVerificationData {
-                                            block_root: root,
-                                            slot: slot.into(),
-                                            blobs_exist: true,
-                                            blobs_stored: false,
-                                            blobs_verified: true,
-                                        });
+                            match chain.store.get_blobs(&root) {
+                                Ok(blob_list) => {
+                                    match blob_list {
+                                        BlobSidecarListFromRoot::NoBlobs => {
+                                            // This means that no blobs exist for this slot.
+                                            continue;
+                                        }
+                                        BlobSidecarListFromRoot::NoRoot => {
+                                            // This means that there are blobs missing for this slot.
+                                            blobs_missing.push(slot);
+                                        }
+                                        BlobSidecarListFromRoot::Blobs(blob_list) => {
+                                            blob_count += blob_list.len();
+                                            // Optionally verify each blob_list.
+                                            if verify
+                                                && verify_kzg_for_blob_list(
+                                                    blob_list.iter(),
+                                                    &chain.kzg,
+                                                )
+                                                .is_err()
+                                            {
+                                                blobs_invalid.push(slot);
+                                            }
+                                        }
                                     }
+                                }
+                                Err(_) => {
+                                    // An error here means that we could not decode the blob list.
+                                    // This likely means a corrupted database.
+                                    blobs_invalid.push(slot);
                                 }
                             }
                         }
+                        // An Err here means the block does not exist. This is fine assuming the node is synced.
                     }
+
                     Ok::<_, warp::reject::Rejection>(
-                        warp::reply::json(&api_types::GenericResponse::from(results))
-                            .into_response(),
+                        warp::reply::json(&api_types::GenericResponse::from(
+                            BlobsVerificationData {
+                                blob_count,
+                                blobs_missing,
+                                blobs_invalid,
+                            },
+                        ))
+                        .into_response(),
                     )
                 })
             },

@@ -395,12 +395,13 @@ impl BeaconNodeHttpClient {
         self.post_generic_with_ssz_body(path, blobs, None).await
     }
 
-    /// `POST lighthouse/database/verify_blobs`
+    /// `GET lighthouse/database/verify_blobs`
     pub async fn get_lighthouse_database_verify_blobs(
         &self,
-        start_slot: Option<Slot>,
-        end_slot: Option<Slot>,
-    ) -> Result<Vec<BlobsVerificationData>, Error> {
+        start_slot: Slot,
+        end_slot: Slot,
+        verify: Option<bool>,
+    ) -> Result<BlobsVerificationData, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -409,14 +410,15 @@ impl BeaconNodeHttpClient {
             .push("database")
             .push("verify_blobs");
 
-        if let Some(start_slot) = start_slot {
-            path.query_pairs_mut()
-                .append_pair("start_slot", &start_slot.to_string());
-        }
+        path.query_pairs_mut()
+            .append_pair("start_slot", &start_slot.to_string());
 
-        if let Some(end_slot) = end_slot {
+        path.query_pairs_mut()
+            .append_pair("end_slot", &end_slot.to_string());
+
+        if let Some(verify) = verify {
             path.query_pairs_mut()
-                .append_pair("end_slot", &end_slot.to_string());
+                .append_pair("verify", &verify.to_string());
         }
 
         self.get(path).await

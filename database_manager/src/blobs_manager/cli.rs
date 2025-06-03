@@ -20,6 +20,7 @@ pub struct VerifyBlobs {
         display_order = 0
     )]
     pub beacon_node: Option<String>,
+
     #[clap(
         long,
         value_name = "SLOT",
@@ -27,6 +28,7 @@ pub struct VerifyBlobs {
         display_order = 0
     )]
     pub start_slot: Option<u64>,
+
     #[clap(
         long,
         value_name = "SLOT",
@@ -34,13 +36,22 @@ pub struct VerifyBlobs {
         display_order = 0
     )]
     pub end_slot: Option<u64>,
+
     #[clap(
         long,
-        help = "Perform verification even if the beacon node is not synced",
+        help = "Perform checks even if the beacon node is not synced",
         display_order = 0,
         default_value = "false"
     )]
     pub allow_unsynced: bool,
+
+    #[clap(
+        long,
+        help = "Skip KZG verification and only perform blob availability checks",
+        display_order = 0,
+        default_value = "false"
+    )]
+    pub skip_verification: bool,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -68,6 +79,7 @@ pub struct ImportBlobs {
         default_value = "false"
     )]
     pub skip_verification: bool,
+
     #[clap(
         long,
         help = "Attempt import even if the beacon node is not synced",
@@ -95,6 +107,7 @@ pub struct ExportBlobs {
         display_order = 0
     )]
     pub output_dir: PathBuf,
+
     #[clap(
         long,
         value_name = "SLOT",
