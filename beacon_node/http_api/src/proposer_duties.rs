@@ -227,7 +227,7 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
     }
 
     let indices = state
-        .get_beacon_proposer_indices(&chain.spec)
+        .get_beacon_proposer_indices(epoch, &chain.spec)
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::unhandled_error)?;
 

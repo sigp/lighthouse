@@ -19,7 +19,7 @@ use types::{
     milhouse::Cow,
     ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
     EthSpec, ExitCache, ForkName, List, ParticipationFlags, PendingDeposit,
-    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator,
+    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator, Vector,
 };
 
 pub struct SinglePassConfig {
@@ -460,7 +460,40 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             next_epoch_cache.into_epoch_cache(next_epoch_activation_queue, spec)?;
     }
 
+    if fork_name.fulu_enabled() {
+        process_proposer_lookahead(state, spec)?;
+    }
+
     Ok(summary)
+}
+
+fn process_proposer_lookahead<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let mut lookahead = state.proposer_lookahead()?.clone().to_vec();
+
+    // Shift out proposers in the first epoch
+    lookahead.copy_within((E::slots_per_epoch() as usize).., 0);
+
+    let next_epoch = state
+        .current_epoch()
+        .safe_add(spec.min_seed_lookahead.as_u64())?
+        .safe_add(1)?;
+    let last_epoch_proposers = state.get_beacon_proposer_indices(next_epoch, spec)?;
+
+    // Fill in the last epoch with new proposer indices
+    let last_epoch_start = E::proposer_lookahead_slots().safe_sub(E::slots_per_epoch() as usize)?;
+    for (i, proposer) in last_epoch_proposers.into_iter().enumerate() {
+        let index = last_epoch_start.safe_add(i)?;
+        *lookahead
+            .get_mut(index)
+            .ok_or(Error::ProposerLookaheadOutOfBounds(index))? = proposer as u64;
+    }
+
+    *state.proposer_lookahead_mut()? = Vector::new(lookahead)?;
+
+    Ok(())
 }
 
 fn process_single_inactivity_update(

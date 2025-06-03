@@ -962,7 +962,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 &chain.spec,
             )?;
 
-            let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+            let epoch = state.current_epoch();
+            let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
             let proposer_index = *proposers
                 .get(block.slot().as_usize() % T::EthSpec::slots_per_epoch() as usize)
                 .ok_or_else(|| BeaconChainError::NoProposerForSlot(block.slot()))?;
