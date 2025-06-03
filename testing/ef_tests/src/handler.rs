@@ -1,6 +1,7 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name::TypeName;
 use crate::{type_name, FeatureName};
+use context_deserialize::ContextDeserialize;
 use derivative::Derivative;
 use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
@@ -365,7 +366,11 @@ impl<T, E> SszStaticWithSpecHandler<T, E> {
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
-    T: cases::SszStaticType + tree_hash::TreeHash + ssz::Decode + TypeName,
+    T: cases::SszStaticType
+        + for<'de> ContextDeserialize<'de, ForkName>
+        + tree_hash::TreeHash
+        + ssz::Decode
+        + TypeName,
     E: TypeName,
 {
     type Case = cases::SszStatic<T>;

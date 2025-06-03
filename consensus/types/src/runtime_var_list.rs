@@ -6,7 +6,7 @@ use ssz::Decode;
 use ssz_types::Error;
 use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
-use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash};
+use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash, TreeHashType};
 
 /// Emulates a SSZ `List`.
 ///
@@ -256,18 +256,46 @@ impl<T: TreeHash> TreeHash for RuntimeVariableList<T> {
     }
 
     fn tree_hash_root(&self) -> Hash256 {
-        let mut hasher = MerkleHasher::with_leaves(self.max_len());
+        let root = runtime_vec_tree_hash_root::<T>(&self.vec, self.max_len);
 
-        for item in self.vec.iter() {
-            hasher
-                .write(item.tree_hash_root().as_slice())
-                .expect("RuntimeVariableList should not containe more elements than max");
-        }
-
-        let root = hasher
-            .finish()
-            .expect("RuntimeVariableList should not have a remaining buffer");
         tree_hash::mix_in_length(&root, self.len())
+    }
+}
+
+// We can delete this once the upstream `vec_tree_hash_root` is modified to use a runtime max len.
+pub fn runtime_vec_tree_hash_root<T>(vec: &[T], max_len: usize) -> Hash256
+where
+    T: TreeHash,
+{
+    match T::tree_hash_type() {
+        TreeHashType::Basic => {
+            let mut hasher = MerkleHasher::with_leaves(
+                (max_len + T::tree_hash_packing_factor() - 1) / T::tree_hash_packing_factor(),
+            );
+
+            for item in vec {
+                hasher
+                    .write(&item.tree_hash_packed_encoding())
+                    .expect("ssz_types variable vec should not contain more elements than max");
+            }
+
+            hasher
+                .finish()
+                .expect("ssz_types variable vec should not have a remaining buffer")
+        }
+        TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
+            let mut hasher = MerkleHasher::with_leaves(max_len);
+
+            for item in vec {
+                hasher
+                    .write(item.tree_hash_root().as_slice())
+                    .expect("ssz_types vec should not contain more elements than max");
+            }
+
+            hasher
+                .finish()
+                .expect("ssz_types vec should not have a remaining buffer")
+        }
     }
 }
 

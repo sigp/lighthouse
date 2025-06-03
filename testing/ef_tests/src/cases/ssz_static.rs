@@ -1,13 +1,12 @@
 use super::*;
 use crate::case_result::compare_result;
+use crate::cases::common::DataColumnsByRootIdentifierWrapper;
 use crate::decode::{context_yaml_decode_file, snappy_decode_file, yaml_decode_file};
+use context_deserialize::ContextDeserialize;
 use serde::Deserialize;
 use ssz::Decode;
 use tree_hash::TreeHash;
-use types::{
-    BeaconBlock, BeaconState, DataColumnsByRootIdentifier, Hash256, RuntimeVariableList,
-    SignedBeaconBlock,
-};
+use types::{BeaconBlock, BeaconState, DataColumnsByRootIdentifier, Hash256, SignedBeaconBlock};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {
@@ -40,19 +39,26 @@ pub struct SszStaticWithSpec<T> {
     value: T,
 }
 
-fn load_from_dir<T: SszStaticType>(
+fn load_from_dir<T: SszStaticType + for<'de> ContextDeserialize<'de, ForkName>>(
     path: &Path,
     fork_name: ForkName,
+) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
+    load_from_dir_with_context(path, fork_name)
+}
+
+fn load_from_dir_with_context<T: SszStaticType + for<'de> ContextDeserialize<'de, C>, C>(
+    path: &Path,
+    context: C,
 ) -> Result<(SszStaticRoots, Vec<u8>, T), Error> {
     let roots = yaml_decode_file(&path.join("roots.yaml"))?;
     let serialized = snappy_decode_file(&path.join("serialized.ssz_snappy"))
         .expect("serialized.ssz_snappy exists");
-    let value = context_yaml_decode_file(&path.join("value.yaml"), fork_name)?;
+    let value = context_yaml_decode_file(&path.join("value.yaml"), context)?;
 
     Ok((roots, serialized, value))
 }
 
-impl<T: SszStaticType> LoadCase for SszStatic<T> {
+impl<T: SszStaticType + for<'de> ContextDeserialize<'de, ForkName>> LoadCase for SszStatic<T> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
             roots,
@@ -62,17 +68,7 @@ impl<T: SszStaticType> LoadCase for SszStatic<T> {
     }
 }
 
-impl<T: SszStaticType> LoadCase for SszStaticTHC<T> {
-    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
-            roots,
-            serialized,
-            value,
-        })
-    }
-}
-
-impl<T: SszStaticType> LoadCase for SszStaticWithSpec<T> {
+impl<T: SszStaticType + for<'de> ContextDeserialize<'de, ForkName>> LoadCase for SszStaticTHC<T> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
             roots,
@@ -130,6 +126,16 @@ impl<E: EthSpec> Case for SszStaticTHC<BeaconState<E>> {
     }
 }
 
+impl<E: EthSpec> LoadCase for SszStaticWithSpec<BeaconBlock<E>> {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
+            roots,
+            serialized,
+            value,
+        })
+    }
+}
+
 impl<E: EthSpec> Case for SszStaticWithSpec<BeaconBlock<E>> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let spec = &testing_spec::<E>(fork_name);
@@ -138,6 +144,16 @@ impl<E: EthSpec> Case for SszStaticWithSpec<BeaconBlock<E>> {
         })?;
         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
         Ok(())
+    }
+}
+
+impl<E: EthSpec> LoadCase for SszStaticWithSpec<SignedBeaconBlock<E>> {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
+            roots,
+            serialized,
+            value,
+        })
     }
 }
 
@@ -152,14 +168,26 @@ impl<E: EthSpec> Case for SszStaticWithSpec<SignedBeaconBlock<E>> {
     }
 }
 
-impl Case for SszStaticWithSpec<DataColumnsByRootIdentifier> {
+impl<E: EthSpec> LoadCase for SszStaticWithSpec<DataColumnsByRootIdentifierWrapper<E>> {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        let spec = &testing_spec::<E>(fork_name);
+        let context = (fork_name, spec.number_of_columns as usize);
+        load_from_dir_with_context(path, context).map(|(roots, serialized, value)| Self {
+            roots,
+            serialized,
+            value,
+        })
+    }
+}
+
+impl<E: EthSpec> Case for SszStaticWithSpec<DataColumnsByRootIdentifierWrapper<E>> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        // FIXME
-        // let spec = &testing_spec::<E>(fork_name);
-        // check_serialization(&self.value, &self.serialized, |bytes| {
-        //     DataColumnsByRootIdentifier::from_ssz_bytes(bytes, spec.number_of_columns as usize)
-        // })?;
-        // check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
+        let spec = &testing_spec::<E>(fork_name);
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            DataColumnsByRootIdentifier::from_ssz_bytes(bytes, spec.number_of_columns as usize)
+                .map(Into::into)
+        })?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
         Ok(())
     }
 }

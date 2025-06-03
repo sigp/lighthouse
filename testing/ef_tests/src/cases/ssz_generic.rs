@@ -4,6 +4,7 @@ use super::*;
 use crate::cases::common::{DecimalU128, DecimalU256, SszStaticType};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::{context_yaml_decode_file, log_file_access, snappy_decode_file};
+use context_deserialize::ContextDeserialize;
 use context_deserialize_derive::context_deserialize;
 use serde::{de::Error as SerdeError, Deserialize, Deserializer};
 use ssz_derive::{Decode, Encode};
@@ -209,7 +210,9 @@ impl Case for SszGeneric {
     }
 }
 
-fn ssz_generic_test<T: SszStaticType + TreeHash + ssz::Decode>(
+fn ssz_generic_test<
+    T: SszStaticType + for<'de> ContextDeserialize<'de, ForkName> + TreeHash + ssz::Decode,
+>(
     path: &Path,
     fork_name: ForkName,
 ) -> Result<(), Error> {

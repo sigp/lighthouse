@@ -3,7 +3,9 @@ use serde::{Deserialize, Deserializer};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
-use types::ForkName;
+use std::marker::PhantomData;
+use tree_hash::TreeHash;
+use types::{DataColumnsByRootIdentifier, EthSpec, ForkName, Hash256};
 
 /// Macro to wrap U128 and U256 so they deserialize correctly.
 macro_rules! uint_wrapper {
@@ -61,16 +63,59 @@ pub trait SszStaticType: Encode + Clone + PartialEq + Debug + Sync {}
 
 impl<T> SszStaticType for T where T: Encode + Clone + PartialEq + Debug + Sync {}
 
-/// Return the fork immediately prior to a fork.
-pub fn previous_fork(fork_name: ForkName) -> ForkName {
-    match fork_name {
-        ForkName::Base => ForkName::Base,
-        ForkName::Altair => ForkName::Base,
-        ForkName::Bellatrix => ForkName::Altair,
-        ForkName::Capella => ForkName::Bellatrix,
-        ForkName::Deneb => ForkName::Capella,
-        ForkName::Electra => ForkName::Deneb,
-        ForkName::Fulu => ForkName::Electra,
+/// We need the `EthSpec` to implement `LoadCase` for this type, in order to work out the
+/// ChainSpec.
+///
+/// No other type currently requires this kind of context.
+#[derive(Debug, Encode, Clone, PartialEq)]
+#[ssz(struct_behaviour = "transparent")]
+pub struct DataColumnsByRootIdentifierWrapper<E: EthSpec> {
+    pub value: DataColumnsByRootIdentifier,
+    // SSZ derive is a bit buggy and requires skip_deserializing for transparent to work.
+    #[ssz(skip_serializing, skip_deserializing)]
+    pub _phantom: PhantomData<E>,
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, (ForkName, usize)>
+    for DataColumnsByRootIdentifierWrapper<E>
+{
+    fn context_deserialize<D>(deserializer: D, context: (ForkName, usize)) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = DataColumnsByRootIdentifier::context_deserialize(deserializer, context)?;
+        Ok(DataColumnsByRootIdentifierWrapper {
+            value,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+// We can delete this if we ever get `tree_hash(struct_behaviour = "transparent")`.
+impl<E: EthSpec> TreeHash for DataColumnsByRootIdentifierWrapper<E> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        DataColumnsByRootIdentifier::tree_hash_type()
+    }
+
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
+        self.value.tree_hash_packed_encoding()
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        DataColumnsByRootIdentifier::tree_hash_packing_factor()
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        self.value.tree_hash_root()
+    }
+}
+
+impl<E: EthSpec> From<DataColumnsByRootIdentifier> for DataColumnsByRootIdentifierWrapper<E> {
+    fn from(value: DataColumnsByRootIdentifier) -> Self {
+        Self {
+            value,
+            _phantom: PhantomData,
+        }
     }
 }
 
