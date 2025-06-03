@@ -1,5 +1,7 @@
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
-use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use crate::data_column_verification::{
+    CheckBlockHeader, GossipDataColumnError, GossipVerifiedDataColumn,
+};
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
 use crate::observed_data_sidecars::DoNotObserve;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
@@ -80,7 +82,12 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     ) -> Result<GossipVerifiedDataColumn<T, DoNotObserve>, GossipDataColumnError> {
         let index = data_column.index;
-        GossipVerifiedDataColumn::<T, DoNotObserve>::new(data_column, index, &self.chain)
+        GossipVerifiedDataColumn::<T, DoNotObserve>::new(
+            data_column,
+            index,
+            CheckBlockHeader::No,
+            &self.chain,
+        )
     }
 
     pub(crate) async fn process_engine_blobs(

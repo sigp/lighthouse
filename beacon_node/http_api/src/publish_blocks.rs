@@ -3,7 +3,9 @@ use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::data_column_verification::{
+    CheckBlockHeader, GossipDataColumnError, GossipVerifiedDataColumn,
+};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     build_blob_data_column_sidecars, AvailabilityProcessingStatus, BeaconChain, BeaconChainError,
@@ -407,8 +409,12 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
         .map(|data_column_sidecar| {
             let column_index = data_column_sidecar.index;
             let subnet = DataColumnSubnetId::from_column_index(column_index, &chain.spec);
-            let gossip_verified_column =
-                GossipVerifiedDataColumn::new(data_column_sidecar, subnet.into(), chain);
+            let gossip_verified_column = GossipVerifiedDataColumn::new(
+                data_column_sidecar,
+                subnet.into(),
+                CheckBlockHeader::Yes,
+                chain,
+            );
 
             match gossip_verified_column {
                 Ok(blob) => Ok(Some(blob)),

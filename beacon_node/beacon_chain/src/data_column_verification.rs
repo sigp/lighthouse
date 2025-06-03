@@ -22,6 +22,13 @@ use types::{
     RuntimeVariableList, SignedBeaconBlockHeader, Slot,
 };
 
+/// Used to avoid double-checking the block header.
+#[derive(Copy, Clone)]
+pub enum CheckBlockHeader {
+    Yes,
+    No,
+}
+
 /// An error occurred while validating a gossip data column.
 #[derive(Debug)]
 pub enum GossipDataColumnError {
@@ -199,19 +206,24 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
     pub fn new(
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
+        check_block_header: CheckBlockHeader,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
         let header = column_sidecar.signed_block_header.clone();
         // We only process slashing info if the gossip verification failed
         // since we do not process the data column any further in that case.
-        validate_data_column_sidecar_for_gossip::<T, O>(column_sidecar, subnet_id, chain).map_err(
-            |e| {
-                process_block_slash_info::<_, GossipDataColumnError>(
-                    chain,
-                    BlockSlashInfo::from_early_error_data_column(header, e),
-                )
-            },
+        validate_data_column_sidecar_for_gossip::<T, O>(
+            column_sidecar,
+            subnet_id,
+            check_block_header,
+            chain,
         )
+        .map_err(|e| {
+            process_block_slash_info::<_, GossipDataColumnError>(
+                chain,
+                BlockSlashInfo::from_early_error_data_column(header, e),
+            )
+        })
     }
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
@@ -458,6 +470,7 @@ where
 pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: u64,
+    check_block_header: CheckBlockHeader,
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedDataColumn<T, O>, GossipDataColumnError> {
     let column_slot = data_column.slot();
@@ -486,7 +499,12 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_column_inclusion_proof(&data_column)?;
     let parent_block = verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
-    verify_proposer_and_signature(&data_column, &parent_block, chain)?;
+
+    match check_block_header {
+        CheckBlockHeader::Yes => verify_proposer_and_signature(&data_column, &parent_block, chain)?,
+        CheckBlockHeader::No => (),
+    };
+
     let kzg = &chain.kzg;
     let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), kzg)
         .map_err(GossipDataColumnError::InvalidKzgProof)?;
@@ -801,7 +819,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
 #[cfg(test)]
 mod test {
     use crate::data_column_verification::{
-        validate_data_column_sidecar_for_gossip, GossipDataColumnError,
+        validate_data_column_sidecar_for_gossip, CheckBlockHeader, GossipDataColumnError,
     };
     use crate::observed_data_sidecars::Observe;
     use crate::test_utils::BeaconChainHarness;
@@ -845,6 +863,7 @@ mod test {
         let result = validate_data_column_sidecar_for_gossip::<_, Observe>(
             column_sidecar.into(),
             index,
+            CheckBlockHeader::Yes,
             &harness.chain,
         );
         assert!(matches!(

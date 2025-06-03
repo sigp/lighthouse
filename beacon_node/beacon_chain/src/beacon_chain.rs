@@ -24,7 +24,9 @@ use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataAvailabilityChecker, DataColumnReconstructionResult,
 };
-use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use crate::data_column_verification::{
+    CheckBlockHeader, GossipDataColumnError, GossipVerifiedDataColumn,
+};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -2201,9 +2203,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
         metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).inspect(|_| {
-            metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-        })
+        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, CheckBlockHeader::No, self)
+            .inspect(|_| {
+                metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
+            })
     }
 
     pub fn verify_blob_sidecar_for_gossip(
