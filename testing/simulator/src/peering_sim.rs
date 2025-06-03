@@ -31,7 +31,8 @@ const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = matches
+    let (_name, subcommand_matches) = matches.subcommand().expect("subcommand");
+    let node_count = subcommand_matches
         .get_one::<String>("nodes")
         .expect("missing nodes default")
         .parse::<usize>()
@@ -39,21 +40,21 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
 
     // Extra beacon nodes added with delay
     let extra_nodes = 4;
-    let validators_per_node = matches
+    let validators_per_node = subcommand_matches
         .get_one::<String>("validators-per-node")
         .expect("missing validators-per-node default")
         .parse::<usize>()
         .expect("missing validators-per-node default");
-    let speed_up_factor = matches
+    let speed_up_factor = subcommand_matches
         .get_one::<String>("speed-up-factor")
         .expect("missing speed-up-factor default")
         .parse::<u64>()
         .expect("missing speed-up-factor default");
-    let log_level = matches
+    let log_level = subcommand_matches
         .get_one::<String>("debug-level")
         .expect("missing debug-level");
 
-    let continue_after_checks = matches.get_flag("continue-after-checks");
+    let continue_after_checks = subcommand_matches.get_flag("continue-after-checks");
 
     println!("Peering Simulator:");
     println!(" nodes: {}", node_count);

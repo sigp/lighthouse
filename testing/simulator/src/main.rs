@@ -41,7 +41,7 @@ fn main() {
                 std::process::exit(1)
             }
         },
-        Some(("peering-sim", matches)) => match peering_sim::run_peering_sim(matches) {
+        Some("peering-sim") => match peering_sim::run_peering_sim(&matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);
