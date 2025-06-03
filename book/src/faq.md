@@ -209,7 +209,7 @@ The first thing is to ensure both consensus and execution clients are synced wit
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
+You can see more information on the [EthStaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
 
 Another cause for missing attestations is the block arriving late, or there are delays during block processing.
 
