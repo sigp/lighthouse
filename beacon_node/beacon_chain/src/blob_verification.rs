@@ -166,6 +166,16 @@ pub struct GossipVerifiedBlob<T: BeaconChainTypes, O: ObservationStrategy = Obse
     _phantom: PhantomData<O>,
 }
 
+impl<T: BeaconChainTypes, O: ObservationStrategy> Clone for GossipVerifiedBlob<T, O> {
+    fn clone(&self) -> Self {
+        Self {
+            block_root: self.block_root,
+            blob: self.blob.clone(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedBlob<T, O> {
     pub fn new(
         blob: Arc<BlobSidecar<T::EthSpec>>,
@@ -335,21 +345,9 @@ impl<E: EthSpec> KzgVerifiedBlobList<E> {
     }
 
     /// Create a `KzgVerifiedBlobList` from `blobs` that are already KZG verified.
-    ///
-    /// This should be used with caution, as used incorrectly it could result in KZG verification
-    /// being skipped and invalid blobs being deemed valid.
-    pub fn from_verified<I: IntoIterator<Item = Arc<BlobSidecar<E>>>>(
-        blobs: I,
-        seen_timestamp: Duration,
-    ) -> Self {
+    pub fn from_verified<I: IntoIterator<Item = KzgVerifiedBlob<E>>>(blobs: I) -> Self {
         Self {
-            verified_blobs: blobs
-                .into_iter()
-                .map(|blob| KzgVerifiedBlob {
-                    blob,
-                    seen_timestamp,
-                })
-                .collect(),
+            verified_blobs: blobs.into_iter().collect(),
         }
     }
 }

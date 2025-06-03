@@ -1002,11 +1002,6 @@ where
         blobs_path: &Path,
         config: StoreConfig,
     ) -> Result<Self, String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or("disk_store requires a log")?
-            .service_context("freezer_db".into());
         let spec = self
             .chain_spec
             .clone()
@@ -1015,21 +1010,8 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
-        // Optionally grab the genesis state root.
-        // This will only be required if a DB upgrade to V22 is needed.
-        let genesis_state_root = context
-            .eth2_network_config
-            .as_ref()
-            .and_then(|config| config.genesis_state_root::<E>().transpose())
-            .transpose()?;
-
         let schema_upgrade = |db, from, to| {
-            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
-                db,
-                genesis_state_root,
-                from,
-                to,
-            )
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, from, to)
         };
 
         let store = HotColdDB::open(

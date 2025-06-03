@@ -89,6 +89,7 @@ SSD
 SSL
 SSZ
 Styleguide
+TBD
 TCP
 Teku
 TLS
