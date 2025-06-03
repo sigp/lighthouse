@@ -1,6 +1,6 @@
 use crate::blobs_manager::{cli::ExportBlobs, ensure_node_synced};
 use eth2::{
-    types::{BlobSidecarList, BlockId, EthSpec, Slot},
+    types::{BlobSidecarList, BlockId, ChainSpec, EthSpec, Slot},
     BeaconNodeHttpClient, Timeouts,
 };
 use sensitive_url::SensitiveUrl;
@@ -8,7 +8,10 @@ use ssz::Encode;
 use std::time::Duration;
 use tracing::{info, warn};
 
-pub async fn export_blobs<E: EthSpec>(config: &ExportBlobs) -> Result<(), String> {
+pub async fn export_blobs<E: EthSpec>(
+    config: &ExportBlobs,
+    spec: &ChainSpec,
+) -> Result<(), String> {
     let beacon_node = SensitiveUrl::parse(&config.beacon_node)
         .map_err(|e| format!("Unable to parse beacon node url: {e:?}"))?;
 
@@ -42,11 +45,11 @@ pub async fn export_blobs<E: EthSpec>(config: &ExportBlobs) -> Result<(), String
 
     for slot in start_slot..=end_slot {
         if let Some(blobs) = client
-            .get_blobs::<E>(BlockId::Slot(Slot::from(slot)), None)
+            .get_blobs::<E>(BlockId::Slot(Slot::from(slot)), None, spec)
             .await
             .map_err(|e| format!("Failed to export blobs: {e:?}"))?
         {
-            let blob_sidecar_list = blobs.data;
+            let blob_sidecar_list = blobs.into_data();
             if !blob_sidecar_list.is_empty() {
                 blobs_to_export.push(blob_sidecar_list);
             }

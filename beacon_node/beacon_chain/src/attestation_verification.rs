@@ -272,12 +272,12 @@ pub enum Error {
     ///
     /// We were unable to process this attestation due to an internal error. It's unclear if the
     /// attestation is valid.
-    BeaconChainError(BeaconChainError),
+    BeaconChainError(Box<BeaconChainError>),
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
-        Self::BeaconChainError(e)
+        Self::BeaconChainError(Box::new(e))
     }
 }
 
@@ -525,7 +525,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
             .observed_attestations
             .write()
             .is_known_subset(attestation, observed_attestation_key_root)
-            .map_err(|e| Error::BeaconChainError(e.into()))?
+            .map_err(|e| Error::BeaconChainError(Box::new(e.into())))?
         {
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_SUBSETS);
             return Err(Error::AttestationSupersetKnown(
@@ -628,7 +628,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
 
                 if !SelectionProof::from(selection_proof)
                     .is_aggregator(committee.committee.len(), &chain.spec)
-                    .map_err(|e| Error::BeaconChainError(e.into()))?
+                    .map_err(|e| Error::BeaconChainError(Box::new(e.into())))?
                 {
                     return Err(Error::InvalidSelectionProof { aggregator_index });
                 }
@@ -698,7 +698,7 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
             .observed_attestations
             .write()
             .observe_item(attestation, Some(observed_attestation_key_root))
-            .map_err(|e| Error::BeaconChainError(e.into()))?
+            .map_err(|e| Error::BeaconChainError(Box::new(e.into())))?
         {
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_SUBSETS);
             return Err(Error::AttestationSupersetKnown(

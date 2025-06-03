@@ -209,7 +209,7 @@ The first thing is to ensure both consensus and execution clients are synced wit
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
+You can see more information on the [EthStaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
 
 Another cause for missing attestations is the block arriving late, or there are delays during block processing.
 
@@ -240,7 +240,7 @@ Another possible reason for missing the head vote is due to a chain "reorg". A r
 
 ### <a name="vc-exit"></a> Can I submit a voluntary exit message without running a beacon node?
 
-Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/docs/validator_voluntary_exit.md).
+Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/docs/voluntary-exit.md).
 
 It is also noted that you can submit your BLS-to-execution-change message to update your withdrawal credentials from type `0x00` to `0x01` using the same link.
 
@@ -275,7 +275,7 @@ network configuration settings. Ensure that the network you wish to connect to
 is correct (the beacon node outputs the network it is connecting to in the
 initial boot-up log lines). On top of this, ensure that you are not using the
 same `datadir` as a previous network, i.e., if you have been running the
-`Holesky` testnet and are now trying to join a new network but using the same
+`Hoodi` testnet and are now trying to join a new network but using the same
 `datadir` (the `datadir` is also printed out in the beacon node's logs on
 boot-up).
 

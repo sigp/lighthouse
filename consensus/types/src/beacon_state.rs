@@ -1,6 +1,7 @@
 use self::committee_cache::get_active_validator_indices;
 use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
+use crate::ContextDeserialize;
 use crate::FixedBytesExtended;
 use crate::*;
 use compare_fields::CompareFields;
@@ -11,7 +12,7 @@ use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{metastruct, NumFields};
 pub use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::hash::Hash;
@@ -2748,18 +2749,15 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for BeaconState<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BeaconState<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         Ok(map_fork_name!(
-            fork_name,
+            context,
             Self,
-            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
-                "BeaconState failed to deserialize: {:?}",
-                e
-            )))?
+            serde::Deserialize::deserialize(deserializer)?
         ))
     }
 }
