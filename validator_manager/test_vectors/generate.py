@@ -71,9 +71,9 @@ def setup_sdc():
     ], cwd=sdc_git_dir)
     assert(result.returncode == 0)
     result = subprocess.run([
-        "python",
-        "setup.py",
+        "pip",
         "install",
+        ".",
     ], cwd=sdc_git_dir)
     assert(result.returncode == 0)
 
@@ -100,7 +100,9 @@ def sdc_generate(network, first_index, count, eth1_withdrawal_address=None):
         '--num_validators', str(count),
         '--mnemonic', TEST_MNEMONIC,
         '--chain', network,
-        '--keystore_password', 'MyPassword',
+        '--keystore_password', 'MyPassword1234',
+        '--withdrawal_address', '0x0f51bb10119727a7e5eA3538074fb341F56B09Ad',
+        '--regular-withdrawal',
         '--folder', os.path.abspath(output_dir),
     ] + eth1_flags
 
