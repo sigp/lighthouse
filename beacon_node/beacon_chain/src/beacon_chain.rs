@@ -92,6 +92,7 @@ use operation_pool::{
 };
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use proto_array::{DoNotReOrg, ProposerHeadError};
+use rand::RngCore;
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slot_clock::SlotClock;
@@ -126,7 +127,7 @@ use tokio_stream::Stream;
 use tracing::{debug, error, info, trace, warn};
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
+use types::data_column_sidecar::ColumnIndex;
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -491,6 +492,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     /// The KZG trusted setup used by this chain.
     pub kzg: Arc<Kzg>,
+    /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
+    pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {
@@ -1103,23 +1106,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
-    pub fn get_data_column_checking_all_caches(
+    pub fn get_data_columns_checking_all_caches(
         &self,
         block_root: Hash256,
-        index: ColumnIndex,
-    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, Error> {
-        if let Some(column) = self
+        indices: &[ColumnIndex],
+    ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
+        let all_cached_columns_opt = self
             .data_availability_checker
-            .get_data_column(&DataColumnIdentifier { block_root, index })?
-        {
-            return Ok(Some(column));
-        }
+            .get_data_columns(block_root)
+            .or_else(|| self.early_attester_cache.get_data_columns(block_root));
 
-        if let Some(columns) = self.early_attester_cache.get_data_columns(block_root) {
-            return Ok(columns.iter().find(|c| c.index == index).cloned());
+        if let Some(mut all_cached_columns) = all_cached_columns_opt {
+            all_cached_columns.retain(|col| indices.contains(&col.index));
+            Ok(all_cached_columns)
+        } else {
+            indices
+                .iter()
+                .filter_map(|index| self.get_data_column(&block_root, index).transpose())
+                .collect::<Result<_, _>>()
         }
-
-        self.get_data_column(&block_root, &index)
     }
 
     /// Returns the block at the given root, if any.
@@ -2728,7 +2733,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn filter_chain_segment(
         self: &Arc<Self>,
         chain_segment: Vec<RpcBlock<T::EthSpec>>,
-    ) -> Result<Vec<HashBlockTuple<T::EthSpec>>, ChainSegmentResult> {
+    ) -> Result<Vec<HashBlockTuple<T::EthSpec>>, Box<ChainSegmentResult>> {
         // This function will never import any blocks.
         let imported_blocks = vec![];
         let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
@@ -2745,10 +2750,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for (i, block) in chain_segment.into_iter().enumerate() {
             // Ensure the block is the correct structure for the fork at `block.slot()`.
             if let Err(e) = block.as_block().fork_name(&self.spec) {
-                return Err(ChainSegmentResult::Failed {
+                return Err(Box::new(ChainSegmentResult::Failed {
                     imported_blocks,
                     error: BlockError::InconsistentFork(e),
-                });
+                }));
             }
 
             let block_root = block.block_root();
@@ -2760,18 +2765,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Without this check it would be possible to have a block verified using the
                 // incorrect shuffling. That would be bad, mmkay.
                 if block_root != *child_parent_root {
-                    return Err(ChainSegmentResult::Failed {
+                    return Err(Box::new(ChainSegmentResult::Failed {
                         imported_blocks,
                         error: BlockError::NonLinearParentRoots,
-                    });
+                    }));
                 }
 
                 // Ensure that the slots are strictly increasing throughout the chain segment.
                 if *child_slot <= block.slot() {
-                    return Err(ChainSegmentResult::Failed {
+                    return Err(Box::new(ChainSegmentResult::Failed {
                         imported_blocks,
                         error: BlockError::NonLinearSlots,
-                    });
+                    }));
                 }
             }
 
@@ -2802,18 +2807,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // The block has a known parent that does not descend from the finalized block.
                 // There is no need to process this block or any children.
                 Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
-                    return Err(ChainSegmentResult::Failed {
+                    return Err(Box::new(ChainSegmentResult::Failed {
                         imported_blocks,
                         error: BlockError::NotFinalizedDescendant { block_parent_root },
-                    });
+                    }));
                 }
                 // If there was an error whilst determining if the block was invalid, return that
                 // error.
                 Err(BlockError::BeaconChainError(e)) => {
-                    return Err(ChainSegmentResult::Failed {
+                    return Err(Box::new(ChainSegmentResult::Failed {
                         imported_blocks,
                         error: BlockError::BeaconChainError(e),
-                    });
+                    }));
                 }
                 // If the block was decided to be irrelevant for any other reason, don't include
                 // this block or any of it's children in the filtered chain segment.
@@ -2858,11 +2863,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
         let mut filtered_chain_segment = match filtered_chain_segment_future.await {
             Ok(Ok(filtered_segment)) => filtered_segment,
-            Ok(Err(segment_result)) => return segment_result,
+            Ok(Err(segment_result)) => return *segment_result,
             Err(error) => {
                 return ChainSegmentResult::Failed {
                     imported_blocks,
-                    error: BlockError::BeaconChainError(error),
+                    error: BlockError::BeaconChainError(error.into()),
                 }
             }
         };
@@ -2901,7 +2906,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(error) => {
                     return ChainSegmentResult::Failed {
                         imported_blocks,
-                        error: BlockError::BeaconChainError(error),
+                        error: BlockError::BeaconChainError(error.into()),
                     };
                 }
             };
@@ -3141,7 +3146,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        engine_get_blobs_output: EngineGetBlobsOutput<T::EthSpec>,
+        engine_get_blobs_output: EngineGetBlobsOutput<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its blobs again.
@@ -3156,7 +3161,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // process_engine_blobs is called for both pre and post PeerDAS. However, post PeerDAS
         // consumers don't expect the blobs event to fire erratically.
         if let EngineGetBlobsOutput::Blobs(blobs) = &engine_get_blobs_output {
-            self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
+            self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().map(|b| b.as_blob()));
         }
 
         let r = self
@@ -3439,20 +3444,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 Ok(status)
             }
-            Err(e @ BlockError::BeaconChainError(BeaconChainError::TokioJoin(_))) => {
-                debug!(
-                    error = ?e,
-                    "Beacon block processing cancelled"
-                );
-                Err(e)
-            }
-            // There was an error whilst attempting to verify and import the block. The block might
-            // be partially verified or partially imported.
             Err(BlockError::BeaconChainError(e)) => {
-                crit!(
-                    error = ?e,
-                    "Beacon block processing error"
-                );
+                match e.as_ref() {
+                    BeaconChainError::TokioJoin(e) => {
+                        debug!(
+                            error = ?e,
+                            "Beacon block processing cancelled"
+                        );
+                    }
+                    _ => {
+                        // There was an error whilst attempting to verify and import the block. The block might
+                        // be partially verified or partially imported.
+                        crit!(
+                            error = ?e,
+                            "Beacon block processing error"
+                        );
+                    }
+                };
                 Err(BlockError::BeaconChainError(e))
             }
             // The block failed verification.
@@ -3537,7 +3545,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(slasher) = self.slasher.as_ref() {
             slasher.accept_block_header(blob.signed_block_header());
         }
-        let availability = self.data_availability_checker.put_gossip_blob(blob)?;
+        let availability = self
+            .data_availability_checker
+            .put_gossip_verified_blobs(blob.block_root(), std::iter::once(blob))?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await
@@ -3560,21 +3570,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let availability = self
             .data_availability_checker
-            .put_gossip_data_columns(block_root, data_columns)?;
+            .put_gossip_verified_data_columns(block_root, data_columns)?;
 
         self.process_availability(slot, availability, publish_fn)
             .await
     }
 
-    fn check_blobs_for_slashability(
+    fn check_blobs_for_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
-        blobs: &FixedBlobSidecarList<T::EthSpec>,
+        blobs: impl IntoIterator<Item = &'a BlobSidecar<T::EthSpec>>,
     ) -> Result<(), BlockError> {
         let mut slashable_cache = self.observed_slashable.write();
         for header in blobs
-            .iter()
-            .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
+            .into_iter()
+            .map(|b| b.signed_block_header.clone())
             .unique()
         {
             if verify_header_signature::<T, BlockError>(self, &header).is_ok() {
@@ -3584,7 +3594,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         header.message.proposer_index,
                         block_root,
                     )
-                    .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
                 if let Some(slasher) = self.slasher.as_ref() {
                     slasher.accept_block_header(header);
                 }
@@ -3601,7 +3611,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        self.check_blobs_for_slashability(block_root, &blobs)?;
+        self.check_blobs_for_slashability(block_root, blobs.iter().flatten().map(Arc::as_ref))?;
         let availability = self
             .data_availability_checker
             .put_rpc_blobs(block_root, blobs)?;
@@ -3614,18 +3624,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        engine_get_blobs_output: EngineGetBlobsOutput<T::EthSpec>,
+        engine_get_blobs_output: EngineGetBlobsOutput<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let availability = match engine_get_blobs_output {
             EngineGetBlobsOutput::Blobs(blobs) => {
-                self.check_blobs_for_slashability(block_root, &blobs)?;
+                self.check_blobs_for_slashability(block_root, blobs.iter().map(|b| b.as_blob()))?;
                 self.data_availability_checker
-                    .put_engine_blobs(block_root, blobs)?
+                    .put_gossip_verified_blobs(block_root, blobs)?
             }
             EngineGetBlobsOutput::CustodyColumns(data_columns) => {
-                self.check_columns_for_slashability(block_root, &data_columns)?;
+                self.check_columns_for_slashability(
+                    block_root,
+                    data_columns.iter().map(|c| c.as_data_column()),
+                )?;
                 self.data_availability_checker
-                    .put_engine_data_columns(block_root, data_columns)?
+                    .put_gossip_verified_data_columns(block_root, data_columns)?
             }
         };
 
@@ -3641,7 +3654,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        self.check_columns_for_slashability(block_root, &custody_columns)?;
+        self.check_columns_for_slashability(
+            block_root,
+            custody_columns.iter().map(|c| c.as_ref()),
+        )?;
 
         // This slot value is purely informative for the consumers of
         // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
@@ -3653,25 +3669,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
-    fn check_columns_for_slashability(
+    fn check_columns_for_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
-        custody_columns: &DataColumnSidecarList<T::EthSpec>,
+        custody_columns: impl IntoIterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
     ) -> Result<(), BlockError> {
         let mut slashable_cache = self.observed_slashable.write();
-        // Assumes all items in custody_columns are for the same block_root
-        if let Some(column) = custody_columns.first() {
-            let header = &column.signed_block_header;
-            if verify_header_signature::<T, BlockError>(self, header).is_ok() {
+        // Process all unique block headers - previous logic assumed all headers were identical and
+        // only processed the first one. However, we should not make assumptions about data received
+        // from RPC.
+        for header in custody_columns
+            .into_iter()
+            .map(|c| c.signed_block_header.clone())
+            .unique()
+        {
+            if verify_header_signature::<T, BlockError>(self, &header).is_ok() {
                 slashable_cache
                     .observe_slashable(
                         header.message.slot,
                         header.message.proposer_index,
                         block_root,
                     )
-                    .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
                 if let Some(slasher) = self.slasher.as_ref() {
-                    slasher.accept_block_header(header.clone());
+                    slasher.accept_block_header(header);
                 }
             }
         }
@@ -3852,7 +3873,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     payload_verification_status,
                     &self.spec,
                 )
-                .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
         }
 
         // If the block is recent enough and it was not optimistically imported, check to see if it
@@ -4004,7 +4025,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &mut state,
                 )
                 .unwrap_or_else(|e| {
-                    error!("error caching light_client data {:?}", e);
+                    debug!("error caching light_client data {:?}", e);
                 });
         }
 
@@ -4065,7 +4086,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 warning = "The database is likely corrupt now, consider --purge-db",
                 "No stored fork choice found to restore from"
             );
-            Err(BlockError::BeaconChainError(e))
+            Err(BlockError::BeaconChainError(Box::new(e)))
         } else {
             Ok(())
         }
@@ -4120,9 +4141,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                              Provided block root is not a checkpoint.",
                     ))
                     .map_err(|err| {
-                        BlockError::BeaconChainError(
+                        BlockError::BeaconChainError(Box::new(
                             BeaconChainError::WeakSubjectivtyShutdownError(err),
-                        )
+                        ))
                     })?;
                 return Err(BlockError::WeakSubjectivityConflict);
             }
@@ -4896,7 +4917,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         canonical_forkchoice_params: ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, Error> {
         self.overridden_forkchoice_update_params_or_failure_reason(&canonical_forkchoice_params)
-            .or_else(|e| match e {
+            .or_else(|e| match *e {
                 ProposerHeadError::DoNotReOrg(reason) => {
                     trace!(
                         %reason,
@@ -4911,19 +4932,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn overridden_forkchoice_update_params_or_failure_reason(
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
-    ) -> Result<ForkchoiceUpdateParameters, ProposerHeadError<Error>> {
+    ) -> Result<ForkchoiceUpdateParameters, Box<ProposerHeadError<Error>>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_OVERRIDE_FCU_TIMES);
 
         // Never override if proposer re-orgs are disabled.
         let re_org_head_threshold = self
             .config
             .re_org_head_threshold
-            .ok_or(DoNotReOrg::ReOrgsDisabled)?;
+            .ok_or(Box::new(DoNotReOrg::ReOrgsDisabled.into()))?;
 
         let re_org_parent_threshold = self
             .config
             .re_org_parent_threshold
-            .ok_or(DoNotReOrg::ReOrgsDisabled)?;
+            .ok_or(Box::new(DoNotReOrg::ReOrgsDisabled.into()))?;
 
         let head_block_root = canonical_forkchoice_params.head_root;
 
@@ -4964,7 +4985,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             false
         };
         if !current_slot_ok {
-            return Err(DoNotReOrg::HeadDistance.into());
+            return Err(Box::new(DoNotReOrg::HeadDistance.into()));
         }
 
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
@@ -4987,7 +5008,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         decision_root = ?shuffling_decision_root,
                         "Fork choice override proposer shuffling miss"
                     );
-                    DoNotReOrg::NotProposing
+                    Box::new(DoNotReOrg::NotProposing.into())
                 })?
                 .index as u64;
 
@@ -4997,7 +5018,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .has_proposer_preparation_data_blocking(proposer_index)
         };
         if !proposing_at_re_org_slot {
-            return Err(DoNotReOrg::NotProposing.into());
+            return Err(Box::new(DoNotReOrg::NotProposing.into()));
         }
 
         // If the current slot is already equal to the proposal slot (or we are in the tail end of
@@ -5012,18 +5033,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             (true, true)
         };
         if !head_weak {
-            return Err(DoNotReOrg::HeadNotWeak {
-                head_weight: info.head_node.weight,
-                re_org_head_weight_threshold: info.re_org_head_weight_threshold,
-            }
-            .into());
+            return Err(Box::new(
+                DoNotReOrg::HeadNotWeak {
+                    head_weight: info.head_node.weight,
+                    re_org_head_weight_threshold: info.re_org_head_weight_threshold,
+                }
+                .into(),
+            ));
         }
         if !parent_strong {
-            return Err(DoNotReOrg::ParentNotStrong {
-                parent_weight: info.parent_node.weight,
-                re_org_parent_weight_threshold: info.re_org_parent_weight_threshold,
-            }
-            .into());
+            return Err(Box::new(
+                DoNotReOrg::ParentNotStrong {
+                    parent_weight: info.parent_node.weight,
+                    re_org_parent_weight_threshold: info.re_org_parent_weight_threshold,
+                }
+                .into(),
+            ));
         }
 
         // Check that the head block arrived late and is vulnerable to a re-org. This check is only
@@ -5034,7 +5059,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_block_late =
             self.block_observed_after_attestation_deadline(head_block_root, head_slot);
         if !head_block_late {
-            return Err(DoNotReOrg::HeadNotLate.into());
+            return Err(Box::new(DoNotReOrg::HeadNotLate.into()));
         }
 
         let parent_head_hash = info.parent_node.execution_status.block_hash();
@@ -5248,16 +5273,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .validators()
             .get(proposer_index as usize)
             .map(|v| v.pubkey)
-            .ok_or(BlockProductionError::BeaconChain(
+            .ok_or(BlockProductionError::BeaconChain(Box::new(
                 BeaconChainError::ValidatorIndexUnknown(proposer_index as usize),
-            ))?;
+            )))?;
 
         let builder_params = BuilderParams {
             pubkey,
             slot: state.slot(),
             chain_health: self
                 .is_healthy(&parent_root)
-                .map_err(BlockProductionError::BeaconChain)?,
+                .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?,
         };
 
         // If required, start the process of loading an execution payload from the EL early. This
@@ -6103,7 +6128,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         payload_attributes: payload_attributes.into(),
                     },
                     metadata: Default::default(),
-                    version: Some(self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot)),
+                    version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
                 }));
             }
         }
@@ -7131,6 +7156,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(Some(StoreOp::PutDataColumns(block_root, data_columns)))
             }
         }
+    }
+
+    /// Retrieves block roots (in ascending slot order) within some slot range from fork choice.
+    pub fn block_roots_from_fork_choice(&self, start_slot: u64, count: u64) -> Vec<Hash256> {
+        let head_block_root = self.canonical_head.cached_head().head_block_root();
+        let fork_choice_read_lock = self.canonical_head.fork_choice_read_lock();
+        let block_roots_iter = fork_choice_read_lock
+            .proto_array()
+            .iter_block_roots(&head_block_root);
+        let end_slot = start_slot.saturating_add(count);
+        let mut roots = vec![];
+
+        for (root, slot) in block_roots_iter {
+            if slot < end_slot && slot >= start_slot {
+                roots.push(root);
+            }
+            if slot < start_slot {
+                break;
+            }
+        }
+
+        drop(fork_choice_read_lock);
+        // return in ascending slot order
+        roots.reverse();
+        roots
     }
 }
 

@@ -1,10 +1,12 @@
+use crate::context_deserialize;
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, Hash256, Slot};
-use crate::{Checkpoint, ForkVersionDeserialize};
+use crate::{Checkpoint, ContextDeserialize, ForkName};
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -15,7 +17,7 @@ use super::{
     Signature, SignedRoot,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
     BitfieldError(ssz::BitfieldError),
@@ -46,6 +48,7 @@ impl From<ssz_types::Error> for Error {
             arbitrary::Arbitrary,
             TreeHash,
         ),
+        context_deserialize(ForkName),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
@@ -210,6 +213,13 @@ impl<E: EthSpec> Attestation<E> {
         }
     }
 
+    pub fn get_committee_indices_map(&self) -> HashSet<u64> {
+        match self {
+            Attestation::Base(att) => HashSet::from([att.data.index]),
+            Attestation::Electra(att) => att.get_committee_indices().into_iter().collect(),
+        }
+    }
+
     pub fn is_aggregation_bits_zero(&self) -> bool {
         match self {
             Attestation::Base(att) => att.aggregation_bits.is_zero(),
@@ -293,7 +303,11 @@ impl<E: EthSpec> AttestationRef<'_, E> {
 
 impl<E: EthSpec> AttestationElectra<E> {
     pub fn committee_index(&self) -> Option<u64> {
-        self.get_committee_indices().first().cloned()
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .find(|&(_, bit)| bit)
+            .map(|(index, _)| index as u64)
     }
 
     pub fn get_aggregation_bits(&self) -> Vec<u64> {
@@ -520,45 +534,44 @@ impl<'a, E: EthSpec> From<AttestationRefOnDisk<'a, E>> for AttestationRef<'a, E>
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for Attestation<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::Value,
-        fork_name: crate::ForkName,
-    ) -> Result<Self, D::Error> {
-        if fork_name.electra_enabled() {
-            let attestation: AttestationElectra<E> =
-                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-            Ok(Attestation::Electra(attestation))
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Attestation<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if context.electra_enabled() {
+            AttestationElectra::<E>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(Attestation::Electra)
         } else {
-            let attestation: AttestationBase<E> =
-                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-            Ok(Attestation::Base(attestation))
+            AttestationBase::<E>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(Attestation::Base)
         }
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for Vec<Attestation<E>> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::Value,
-        fork_name: crate::ForkName,
-    ) -> Result<Self, D::Error> {
-        if fork_name.electra_enabled() {
-            let attestations: Vec<AttestationElectra<E>> =
-                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-            Ok(attestations
-                .into_iter()
-                .map(Attestation::Electra)
-                .collect::<Vec<_>>())
+/*
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> {
+    fn context_deserialize<D>(
+        deserializer: D,
+        context: ForkName,
+    ) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if context.electra_enabled() {
+            <Vec<AttestationElectra<E>>>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(|vec| vec.into_iter().map(Attestation::Electra).collect::<Vec<_>>())
         } else {
-            let attestations: Vec<AttestationBase<E>> =
-                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-            Ok(attestations
-                .into_iter()
-                .map(Attestation::Base)
-                .collect::<Vec<_>>())
+            <Vec<AttestationBase<E>>>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(|vec| vec.into_iter().map(Attestation::Base).collect::<Vec<_>>())
         }
     }
 }
+*/
 
 #[derive(
     Debug,
@@ -573,6 +586,7 @@ impl<E: EthSpec> ForkVersionDeserialize for Vec<Attestation<E>> {
     TreeHash,
     PartialEq,
 )]
+#[context_deserialize(ForkName)]
 pub struct SingleAttestation {
     #[serde(with = "serde_utils::quoted_u64")]
     pub committee_index: u64,

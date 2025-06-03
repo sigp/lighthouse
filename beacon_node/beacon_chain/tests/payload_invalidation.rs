@@ -1,5 +1,6 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
@@ -507,13 +508,11 @@ async fn justified_checkpoint_becomes_invalid() {
     let is_valid = Payload::Invalid {
         latest_valid_hash: Some(parent_hash_of_justified),
     };
-    rig.import_block_parametric(is_valid, is_valid, None, |error| {
-        matches!(
-            error,
-            // The block import should fail since the beacon chain knows the justified payload
-            // is invalid.
-            BlockError::BeaconChainError(BeaconChainError::JustifiedPayloadInvalid { .. })
-        )
+    rig.import_block_parametric(is_valid, is_valid, None, |error| match error {
+        BlockError::BeaconChainError(e) => {
+            matches!(e.as_ref(), BeaconChainError::JustifiedPayloadInvalid { .. })
+        }
+        _ => false,
     })
     .await;
 
@@ -687,12 +686,14 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
+    let fork_rpc_block =
+        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_block.canonical_root(),
-            fork_block,
+            fork_rpc_block.block_root(),
+            fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -788,12 +789,14 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
+    let fork_rpc_block =
+        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
     let fork_block_root = rig
         .harness
         .chain
         .process_block(
-            fork_block.canonical_root(),
-            fork_block,
+            fork_rpc_block.block_root(),
+            fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -1057,8 +1060,10 @@ async fn invalid_parent() {
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
+    let rpc_block =
+        RpcBlock::new_without_blobs(None, block.clone(), rig.harness.sampling_column_count);
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
+        rig.harness.chain.process_block(rpc_block.block_root(), rpc_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
@@ -1380,11 +1385,13 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
+    let fork_rpc_block =
+        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
     rig.harness
         .chain
         .process_block(
-            fork_block.canonical_root(),
-            fork_block.clone(),
+            fork_rpc_block.block_root(),
+            fork_rpc_block,
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

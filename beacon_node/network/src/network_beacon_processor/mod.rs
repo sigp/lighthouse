@@ -5,7 +5,7 @@ use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::{observe_gossip_data_column, GossipDataColumnError};
 use beacon_chain::fetch_blobs::{
-    fetch_and_process_engine_blobs, BlobsOrDataColumns, FetchEngineBlobError,
+    fetch_and_process_engine_blobs, EngineGetBlobsOutput, FetchEngineBlobError,
 };
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
@@ -848,11 +848,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {
                 match blobs_or_data_column {
-                    BlobsOrDataColumns::Blobs(blobs) => {
+                    EngineGetBlobsOutput::Blobs(blobs) => {
                         self_cloned.publish_blobs_gradually(blobs, block_root);
                     }
-                    BlobsOrDataColumns::DataColumns(columns) => {
-                        self_cloned.publish_data_columns_gradually(columns, block_root);
+                    EngineGetBlobsOutput::CustodyColumns(columns) => {
+                        self_cloned.publish_data_columns_gradually(
+                            columns.into_iter().map(|c| c.clone_data_column()).collect(),
+                            block_root,
+                        );
                     }
                 };
             }
@@ -918,9 +921,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Returns `Some(AvailabilityProcessingStatus)` if reconstruction is successfully performed,
     /// otherwise returns `None`.
+    ///
+    /// The `publish_columns` parameter controls whether reconstructed columns should be published
+    /// to the gossip network.
     async fn attempt_data_column_reconstruction(
         self: &Arc<Self>,
         block_root: Hash256,
+        publish_columns: bool,
     ) -> Option<AvailabilityProcessingStatus> {
         // Only supernodes attempt reconstruction
         if !self.network_globals.is_supernode() {
@@ -930,7 +937,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
-                self.publish_data_columns_gradually(data_columns_to_publish, block_root);
+                if publish_columns {
+                    self.publish_data_columns_gradually(data_columns_to_publish, block_root);
+                }
                 match &availability_processing_status {
                     AvailabilityProcessingStatus::Imported(hash) => {
                         debug!(
@@ -1141,7 +1150,7 @@ use {
 };
 
 #[cfg(test)]
-type TestBeaconChainType<E> =
+pub(crate) type TestBeaconChainType<E> =
     Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
 #[cfg(test)]

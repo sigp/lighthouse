@@ -55,7 +55,7 @@ pub fn cli_app() -> Command {
                 .help(
                     "The path to a keystore JSON file to be \
                     imported to the validator client. This file is usually created \
-                    using staking-deposit-cli or ethstaker-deposit-cli",
+                    using ethstaker-deposit-cli",
                 )
                 .action(ArgAction::Set)
                 .display_order(0)

@@ -28,7 +28,7 @@ use std::{
 use tokio::time::{sleep, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
 use tracing::{debug, trace};
-use types::{EthSpec, ForkContext};
+use types::{EthSpec, ForkContext, Slot};
 
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
@@ -141,7 +141,7 @@ where
     /// Waker, to be sure the handler gets polled when needed.
     waker: Option<std::task::Waker>,
 
-    /// Timeout that will me used for inbound and outbound responses.
+    /// Timeout that will be used for inbound and outbound responses.
     resp_timeout: Duration,
 }
 
@@ -314,6 +314,7 @@ where
             }
             return;
         };
+
         // If the response we are sending is an error, report back for handling
         if let RpcResponse::Error(ref code, ref reason) = response {
             self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
@@ -331,6 +332,7 @@ where
                     "Response not sent. Deactivated handler");
             return;
         }
+
         inbound_info.pending_items.push_back(response);
     }
 }
@@ -930,9 +932,8 @@ where
                 }
             }
             RequestType::BlobsByRange(request) => {
-                let max_requested_blobs = request
-                    .count
-                    .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
+                let epoch = Slot::new(request.start_slot).epoch(E::slots_per_epoch());
+                let max_requested_blobs = request.max_blobs_requested(epoch, spec);
                 let max_allowed = spec.max_request_blob_sidecars(current_fork) as u64;
                 if max_requested_blobs > max_allowed {
                     self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {

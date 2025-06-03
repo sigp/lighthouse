@@ -2,7 +2,9 @@ use crate::execution_engine::{
     ExecutionEngine, GenericExecutionEngine, ACCOUNT1, ACCOUNT2, KEYSTORE_PASSWORD, PRIVATE_KEYS,
 };
 use crate::transactions::transactions;
+use ethers_middleware::SignerMiddleware;
 use ethers_providers::Middleware;
+use ethers_signers::LocalWallet;
 use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
@@ -44,6 +46,7 @@ pub struct TestRig<Engine, E: EthSpec = MainnetEthSpec> {
     ee_b: ExecutionPair<Engine, E>,
     spec: ChainSpec,
     _runtime_shutdown: async_channel::Sender<()>,
+    use_local_signing: bool,
 }
 
 /// Import a private key into the execution engine and unlock it so that we can
@@ -104,7 +107,7 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
 }
 
 impl<Engine: GenericExecutionEngine> TestRig<Engine> {
-    pub fn new(generic_engine: Engine) -> Self {
+    pub fn new(generic_engine: Engine, use_local_signing: bool) -> Self {
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -166,6 +169,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             ee_b,
             spec,
             _runtime_shutdown: runtime_shutdown,
+            use_local_signing,
         }
     }
 
@@ -197,15 +201,9 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
     pub async fn perform_tests(&self) {
         self.wait_until_synced().await;
 
-        // Import and unlock all private keys to sign transactions
-        let _ = futures::future::join_all([&self.ee_a, &self.ee_b].iter().map(|ee| {
-            import_and_unlock(
-                ee.execution_engine.http_url(),
-                &PRIVATE_KEYS,
-                KEYSTORE_PASSWORD,
-            )
-        }))
-        .await;
+        // Create a local signer in case we need to sign transactions locally
+        let wallet1: LocalWallet = PRIVATE_KEYS[0].parse().expect("Invalid private key");
+        let signer = SignerMiddleware::new(&self.ee_a.execution_engine.provider, wallet1);
 
         // We hardcode the accounts here since some EEs start with a default unlocked account
         let account1 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT1).unwrap());
@@ -236,15 +234,38 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         // Submit transactions before getting payload
         let txs = transactions::<MainnetEthSpec>(account1, account2);
         let mut pending_txs = Vec::new();
-        for tx in txs.clone().into_iter() {
-            let pending_tx = self
-                .ee_a
-                .execution_engine
-                .provider
-                .send_transaction(tx, None)
-                .await
-                .unwrap();
-            pending_txs.push(pending_tx);
+
+        if self.use_local_signing {
+            // Sign locally with the Signer middleware
+            for (i, tx) in txs.clone().into_iter().enumerate() {
+                // The local signer uses eth_sendRawTransaction, so we need to manually set the nonce
+                let mut tx = tx.clone();
+                tx.set_nonce(i as u64);
+                let pending_tx = signer.send_transaction(tx, None).await.unwrap();
+                pending_txs.push(pending_tx);
+            }
+        } else {
+            // Sign on the EE
+            // Import and unlock all private keys to sign transactions on the EE
+            let _ = futures::future::join_all([&self.ee_a, &self.ee_b].iter().map(|ee| {
+                import_and_unlock(
+                    ee.execution_engine.http_url(),
+                    &PRIVATE_KEYS,
+                    KEYSTORE_PASSWORD,
+                )
+            }))
+            .await;
+
+            for tx in txs.clone().into_iter() {
+                let pending_tx = self
+                    .ee_a
+                    .execution_engine
+                    .provider
+                    .send_transaction(tx, None)
+                    .await
+                    .unwrap();
+                pending_txs.push(pending_tx);
+            }
         }
 
         /*
