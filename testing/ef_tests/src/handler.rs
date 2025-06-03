@@ -344,11 +344,15 @@ impl<T, E> SszStaticHandler<T, E> {
 pub struct SszStaticTHCHandler<T, E>(PhantomData<(T, E)>);
 
 /// Handler for SSZ types that don't implement `ssz::Decode`.
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
 pub struct SszStaticWithSpecHandler<T, E> {
     supported_forks: Vec<ForkName>,
     _phantom: PhantomData<(T, E)>,
+}
+
+impl<T, E> Default for SszStaticWithSpecHandler<T, E> {
+    fn default() -> Self {
+        Self::for_forks(ForkName::list_all())
+    }
 }
 
 impl<T, E> SszStaticWithSpecHandler<T, E> {
@@ -708,20 +712,15 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // No FCU override tests prior to bellatrix or in Fulu for some reason.
+        // No FCU override tests prior to bellatrix.
         if self.handler_name == "should_override_forkchoice_update"
-            && (!fork_name.bellatrix_enabled() || fork_name == ForkName::Fulu)
+            && !fork_name.bellatrix_enabled()
         {
             return false;
         }
 
-        // This Deposit test exists only in Electra (so far)..
-        if self.handler_name == "deposit_with_reorg" && fork_name != ForkName::Electra {
-            return false;
-        }
-
-        if self.handler_name == "get_proposer_head" && fork_name == ForkName::Fulu {
-            // This test isn't present in Fulu for some reason.
+        // This Deposit test exists only in Electra and later.
+        if self.handler_name == "deposit_with_reorg" && !fork_name.electra_enabled() {
             return false;
         }
 
@@ -756,10 +755,7 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // no test in Fulu for whatever reason..
-        fork_name.bellatrix_enabled()
-            && cfg!(not(feature = "fake_crypto"))
-            && fork_name != ForkName::Fulu
+        fork_name.bellatrix_enabled() && cfg!(not(feature = "fake_crypto"))
     }
 }
 
@@ -1102,8 +1098,7 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // no test in Fulu for whatever reason..
-        fork_name.altair_enabled() && fork_name != ForkName::Fulu
+        fork_name.altair_enabled()
     }
 }
 
@@ -1128,7 +1123,7 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Altair
-        // no test in Fulu for whatever reason..
+        // No test in Fulu yet.
         fork_name.altair_enabled() && fork_name != ForkName::Fulu
     }
 }

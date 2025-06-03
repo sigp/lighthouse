@@ -45,10 +45,8 @@ excluded_paths = [
     "bls12-381-tests/deserialization_G1",
     "bls12-381-tests/deserialization_G2",
     "bls12-381-tests/hash_to_G2",
-    "tests/.*/eip6110",
-    "tests/.*/whisk",
-    "tests/.*/eip7441",
     "tests/.*/eip7732",
+    "tests/.*/eip7805",
 ]
 
 
