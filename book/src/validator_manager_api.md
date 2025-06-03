@@ -1,6 +1,6 @@
 # Managing Validators
 
-The `lighthouse validator-manager` uses the [Keymanager API](https://ethereum.github.io/keymanager-APIs/#/) to list, import and delete keystores via the HTTP API. This requires the validator client running with the flag `--http`.
+The `lighthouse validator-manager` uses the [Keymanager API](https://ethereum.github.io/keymanager-APIs/#/) to list, import and delete keystores via the HTTP API. This requires the validator client running with the flag `--http`. By default, the validator client HTTP address is `http://localhost:5062`. If a different IP address or port is used, add the flag `--vc-url http://IP:port_number` to the command below.
 
 ## Delete
 
