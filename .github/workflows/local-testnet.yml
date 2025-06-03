@@ -67,6 +67,7 @@ jobs:
         working-directory: scripts/local_testnet
 
       - name: Upload logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-local-testnet
@@ -125,6 +126,7 @@ jobs:
         working-directory: scripts/tests
 
       - name: Upload logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-doppelganger-protection-success
@@ -160,6 +162,7 @@ jobs:
         working-directory: scripts/tests
 
       - name: Upload logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-doppelganger-protection-failure
@@ -201,6 +204,7 @@ jobs:
         working-directory: scripts/tests
 
       - name: Upload logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-checkpoint-sync-${{ matrix.network }}
