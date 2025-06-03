@@ -55,20 +55,12 @@ where
         if let Some(span) = ctx.span(id) {
             let mut extensions = span.extensions_mut();
 
-            // If duplicate data is written to the same span,
-            // `extensions_mut().insert() will panic. This can occur when the
-            // file logger tries to write extensions to the same span after stdout.
-            // This check prevents that.
-            if extensions.get_mut::<SpanData>().is_some() {
-                return;
-            }
-
             let span_data = SpanData {
                 name: attrs.metadata().name().to_string(),
                 fields: visitor.fields,
             };
 
-            extensions.insert(span_data);
+            extensions.replace(span_data);
         }
     }
 
