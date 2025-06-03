@@ -42,7 +42,7 @@ hardware. 32 ETH is a significant outlay and joining a testnet is a great way to
 
 ### Step 1. Create validator keys
 
-The Ethereum Foundation provides the [ethstaker-deposit-cli](https://github.com/eth-educators/ethstaker-deposit-cli/releases) for creating validator keys. Download and run the `ethstaker-deposit-cli` with the command:
+EthStaker provides the [ethstaker-deposit-cli](https://github.com/eth-educators/ethstaker-deposit-cli/releases) for creating validator keys. Download and run the `ethstaker-deposit-cli` with the command:
 
 ```bash
 ./deposit new-mnemonic
