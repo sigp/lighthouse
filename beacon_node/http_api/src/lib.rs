@@ -3768,44 +3768,44 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
-            |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
+            |committee_subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    let subscriptions: std::collections::BTreeSet<_> = subscriptions
-                        .iter()
-                        .map(|subscription| {
-                            chain
-                                .validator_monitor
-                                .write()
-                                .auto_register_local_validator(subscription.validator_index);
-                            // Register the validator with the `CustodyContext`
-                            if let Ok(effective_balance) = chain
-                                .canonical_head
-                                .cached_head()
-                                .snapshot
-                                .beacon_state
-                                .get_effective_balance(subscription.validator_index as usize)
-                            {
-                                chain
-                                    .data_availability_checker
-                                    .custody_context()
-                                    .register_validator::<T::EthSpec>(
-                                        subscription.validator_index as usize,
-                                        effective_balance,
-                                        chain.slot().unwrap(),
-                                        &chain.spec,
-                                    );
-                            }
-                            api_types::ValidatorSubscription {
-                                attestation_committee_index: subscription.committee_index,
-                                slot: subscription.slot,
-                                committee_count_at_slot: subscription.committees_at_slot,
-                                is_aggregator: subscription.is_aggregator,
-                            }
-                        })
-                        .collect();
+                    let mut subscriptions: std::collections::BTreeSet<_> = Default::default();
+                    let mut registrations = Vec::new();
+                    for subscription in committee_subscriptions.iter() {
+                        chain
+                            .validator_monitor
+                            .write()
+                            .auto_register_local_validator(subscription.validator_index);
+                        // Register the validator with the `CustodyContext`
+                        if let Ok(effective_balance) = chain
+                            .canonical_head
+                            .cached_head()
+                            .snapshot
+                            .beacon_state
+                            .get_effective_balance(subscription.validator_index as usize)
+                        {
+                            registrations
+                                .push((subscription.validator_index as usize, effective_balance));
+                        }
+                        subscriptions.insert(api_types::ValidatorSubscription {
+                            attestation_committee_index: subscription.committee_index,
+                            slot: subscription.slot,
+                            committee_count_at_slot: subscription.committees_at_slot,
+                            is_aggregator: subscription.is_aggregator,
+                        });
+                    }
+                    chain
+                        .data_availability_checker
+                        .custody_context()
+                        .register_validator::<T::EthSpec>(
+                            registrations,
+                            chain.slot().unwrap(),
+                            &chain.spec,
+                        );
                     let message =
                         ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions };
                     if let Err(e) = validator_subscription_tx.try_send(message) {
