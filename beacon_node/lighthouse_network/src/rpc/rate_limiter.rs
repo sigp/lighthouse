@@ -1,3 +1,5 @@
+#![deny(clippy::arithmetic_side_effects)]
+
 use super::config::RateLimiterConfig;
 use crate::rpc::Protocol;
 use fnv::FnvHashMap;
@@ -5,6 +7,7 @@ use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::hash::Hash;
+use std::num::NonZeroU64;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -55,7 +58,7 @@ pub struct Quota {
     pub(super) replenish_all_every: Duration,
     /// Token limit. This translates on how large can an instantaneous batch of
     /// tokens be.
-    pub(super) max_tokens: u64,
+    pub(super) max_tokens: NonZeroU64,
 }
 
 impl Quota {
@@ -63,12 +66,12 @@ impl Quota {
     pub const fn one_every(seconds: u64) -> Self {
         Quota {
             replenish_all_every: Duration::from_secs(seconds),
-            max_tokens: 1,
+            max_tokens: NonZeroU64::new(1).unwrap(),
         }
     }
 
     /// Allow `n` tokens to be use used every `seconds`.
-    pub const fn n_every(n: u64, seconds: u64) -> Self {
+    pub const fn n_every(n: NonZeroU64, seconds: u64) -> Self {
         Quota {
             replenish_all_every: Duration::from_secs(seconds),
             max_tokens: n,
@@ -236,7 +239,9 @@ impl RPCRateLimiterBuilder {
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
         let prune_every = tokio::time::Duration::from_secs(30);
-        let prune_start = tokio::time::Instant::now() + prune_every;
+        let prune_start = tokio::time::Instant::now()
+            .checked_add(prune_every)
+            .ok_or("prune time overflow")?;
         let prune_interval = tokio::time::interval_at(prune_start, prune_every);
         Ok(RPCRateLimiter {
             prune_interval,
@@ -412,14 +417,13 @@ pub struct Limiter<Key: Hash + Eq + Clone> {
 
 impl<Key: Hash + Eq + Clone> Limiter<Key> {
     pub fn from_quota(quota: Quota) -> Result<Self, &'static str> {
-        if quota.max_tokens == 0 {
-            return Err("Max number of tokens should be positive");
-        }
         let tau = quota.replenish_all_every.as_nanos();
         if tau == 0 {
             return Err("Replenish time must be positive");
         }
-        let t = (tau / quota.max_tokens as u128)
+        let t = tau
+            .checked_div(quota.max_tokens.get() as u128)
+            .expect("Division by zero never occurs, since Quota::max_token is of type NonZeroU64.")
             .try_into()
             .map_err(|_| "total replenish time is too long")?;
         let tau = tau
@@ -442,7 +446,7 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
         let tau = self.tau;
         let t = self.t;
         // how long does it take to replenish these tokens
-        let additional_time = t * tokens;
+        let additional_time = t.saturating_mul(tokens);
         if additional_time > tau {
             // the time required to process this amount of tokens is longer than the time that
             // makes the bucket full. So, this batch can _never_ be processed
@@ -455,16 +459,16 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
             .entry(key.clone())
             .or_insert(time_since_start);
         // check how soon could the request be made
-        let earliest_time = (*tat + additional_time).saturating_sub(tau);
+        let earliest_time = (*tat).saturating_add(additional_time).saturating_sub(tau);
         // earliest_time is in the future
         if time_since_start < earliest_time {
             Err(RateLimitedErr::TooSoon(Duration::from_nanos(
                 /* time they need to wait, i.e. how soon were they */
-                earliest_time - time_since_start,
+                earliest_time.saturating_sub(time_since_start),
             )))
         } else {
             // calculate the new TAT
-            *tat = time_since_start.max(*tat) + additional_time;
+            *tat = time_since_start.max(*tat).saturating_add(additional_time);
             Ok(())
         }
     }
@@ -479,14 +483,15 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
 
 #[cfg(test)]
 mod tests {
-    use crate::rpc::rate_limiter::{Limiter, Quota};
+    use crate::rpc::rate_limiter::{Limiter, Quota, RateLimitedErr};
+    use std::num::NonZeroU64;
     use std::time::Duration;
 
     #[test]
     fn it_works_a() {
         let mut limiter = Limiter::from_quota(Quota {
             replenish_all_every: Duration::from_secs(2),
-            max_tokens: 4,
+            max_tokens: NonZeroU64::new(4).unwrap(),
         })
         .unwrap();
         let key = 10;
@@ -523,7 +528,7 @@ mod tests {
     fn it_works_b() {
         let mut limiter = Limiter::from_quota(Quota {
             replenish_all_every: Duration::from_secs(2),
-            max_tokens: 4,
+            max_tokens: NonZeroU64::new(4).unwrap(),
         })
         .unwrap();
         let key = 10;
@@ -546,5 +551,23 @@ mod tests {
         assert!(limiter
             .allows(Duration::from_secs_f32(0.4), &key, 1)
             .is_err());
+    }
+
+    #[test]
+    fn large_tokens() {
+        // These have been adjusted so that an overflow occurs when calculating `additional_time` in
+        // `Limiter::allows`. If we don't handle overflow properly, `Limiter::allows` returns `Ok`
+        // in this case.
+        let replenish_all_every = 2;
+        let tokens = u64::MAX / 2 + 1;
+
+        let mut limiter = Limiter::from_quota(Quota {
+            replenish_all_every: Duration::from_nanos(replenish_all_every),
+            max_tokens: NonZeroU64::new(1).unwrap(),
+        })
+        .unwrap();
+
+        let result = limiter.allows(Duration::from_secs_f32(0.0), &10, tokens);
+        assert!(matches!(result, Err(RateLimitedErr::TooLarge)));
     }
 }

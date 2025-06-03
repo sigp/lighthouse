@@ -13,10 +13,12 @@ BUILD_IMAGE=true
 BUILDER_PROPOSALS=false
 CI=false
 KEEP_ENCLAVE=false
+RUN_ASSERTOOR_TESTS=false
 
 # Get options
-while getopts "e:b:n:phck" flag; do
+while getopts "e:b:n:phcak" flag; do
   case "${flag}" in
+    a) RUN_ASSERTOOR_TESTS=true;;
     e) ENCLAVE_NAME=${OPTARG};;
     b) BUILD_IMAGE=${OPTARG};;
     n) NETWORK_PARAMS_FILE=${OPTARG};;
@@ -34,6 +36,7 @@ while getopts "e:b:n:phck" flag; do
         echo "   -n: kurtosis network params file path           default: $NETWORK_PARAMS_FILE"
         echo "   -p: enable builder proposals"
         echo "   -c: CI mode, run without other additional services like Grafana and Dora explorer"
+        echo "   -a: run Assertoor tests"
         echo "   -k: keeping enclave to allow starting the testnet without destroying the existing one"
         echo "   -h: this help"
         exit
@@ -63,9 +66,16 @@ if [ "$BUILDER_PROPOSALS" = true ]; then
 fi
 
 if [ "$CI" = true ]; then
-  # TODO: run assertoor tests
   yq eval '.additional_services = []' -i $NETWORK_PARAMS_FILE
   echo "Running without additional services (CI mode)."
+fi
+
+if [ "$RUN_ASSERTOOR_TESTS" = true ]; then
+  yq eval '.additional_services += ["assertoor"] | .additional_services |= unique' -i $NETWORK_PARAMS_FILE
+  # The available tests can be found in the `assertoor_params` section:
+  # https://github.com/ethpandaops/ethereum-package?tab=readme-ov-file#configuration
+  yq eval '.assertoor_params = {"run_stability_check": true, "run_block_proposal_check": true, "run_transaction_test": true, "run_blob_transaction_test": true}' -i $NETWORK_PARAMS_FILE
+  echo "Assertoor has been added to $NETWORK_PARAMS_FILE."
 fi
 
 if [ "$BUILD_IMAGE" = true ]; then

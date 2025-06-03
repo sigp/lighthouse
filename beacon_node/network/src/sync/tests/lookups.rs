@@ -14,6 +14,7 @@ use std::time::Duration;
 use super::*;
 
 use crate::sync::block_lookups::common::ResponseType;
+use beacon_chain::observed_data_sidecars::Observe;
 use beacon_chain::{
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
@@ -1229,7 +1230,12 @@ impl TestRig {
             .harness
             .chain
             .data_availability_checker
-            .put_gossip_blob(GossipVerifiedBlob::__assumed_valid(blob.into()))
+            .put_gossip_verified_blobs(
+                blob.block_root(),
+                std::iter::once(GossipVerifiedBlob::<_, Observe>::__assumed_valid(
+                    blob.into(),
+                )),
+            )
             .unwrap()
         {
             Availability::Available(_) => panic!("blob removed from da_checker, available"),
