@@ -242,8 +242,7 @@ where
     }
 }
 
-// TODO: test without Send + Sync
-impl<T: tree_hash::TreeHash + Send + Sync> TreeHash for RuntimeVariableList<T> {
+impl<T: TreeHash> TreeHash for RuntimeVariableList<T> {
     fn tree_hash_type() -> tree_hash::TreeHashType {
         tree_hash::TreeHashType::List
     }

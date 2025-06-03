@@ -47,7 +47,6 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip6110",
     "tests/.*/whisk",
-    # TODO(das): Fulu tests are ignored for now
     "tests/.*/eip7441",
     "tests/.*/eip7732",
 ]

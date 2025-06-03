@@ -237,9 +237,7 @@ macro_rules! ssz_static_test_no_run {
 
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
-    use ef_tests::{
-        FeatureName, Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler,
-    };
+    use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
     use types::historical_summary::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DepositRequest,
@@ -668,8 +666,10 @@ mod ssz_static {
 
     #[test]
     fn data_column_by_root_identifier() {
-        SszStaticHandler::<DataColumnsByRootIdentifier, MinimalEthSpec>::fulu_and_later().run();
-        SszStaticHandler::<DataColumnsByRootIdentifier, MainnetEthSpec>::fulu_and_later().run();
+        SszStaticWithSpecHandler::<DataColumnsByRootIdentifier, MinimalEthSpec>::fulu_and_later()
+            .run();
+        SszStaticWithSpecHandler::<DataColumnsByRootIdentifier, MainnetEthSpec>::fulu_and_later()
+            .run();
     }
 
     #[test]

@@ -345,7 +345,23 @@ pub struct SszStaticTHCHandler<T, E>(PhantomData<(T, E)>);
 /// Handler for SSZ types that don't implement `ssz::Decode`.
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct SszStaticWithSpecHandler<T, E>(PhantomData<(T, E)>);
+pub struct SszStaticWithSpecHandler<T, E> {
+    supported_forks: Vec<ForkName>,
+    _phantom: PhantomData<(T, E)>,
+}
+
+impl<T, E> SszStaticWithSpecHandler<T, E> {
+    pub fn for_forks(supported_forks: Vec<ForkName>) -> Self {
+        SszStaticWithSpecHandler {
+            supported_forks,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn fulu_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[6..].to_vec())
+    }
+}
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
@@ -422,6 +438,10 @@ where
 
     fn handler_name(&self) -> String {
         T::name().into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        self.supported_forks.contains(&fork_name)
     }
 
     fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {

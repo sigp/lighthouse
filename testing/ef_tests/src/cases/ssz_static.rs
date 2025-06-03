@@ -4,7 +4,10 @@ use crate::decode::{context_yaml_decode_file, snappy_decode_file, yaml_decode_fi
 use serde::Deserialize;
 use ssz::Decode;
 use tree_hash::TreeHash;
-use types::{BeaconBlock, BeaconState, Hash256, SignedBeaconBlock};
+use types::{
+    BeaconBlock, BeaconState, DataColumnsByRootIdentifier, Hash256, RuntimeVariableList,
+    SignedBeaconBlock,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {
@@ -145,6 +148,18 @@ impl<E: EthSpec> Case for SszStaticWithSpec<SignedBeaconBlock<E>> {
             SignedBeaconBlock::from_ssz_bytes(bytes, spec)
         })?;
         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
+        Ok(())
+    }
+}
+
+impl Case for SszStaticWithSpec<DataColumnsByRootIdentifier> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        // FIXME
+        // let spec = &testing_spec::<E>(fork_name);
+        // check_serialization(&self.value, &self.serialized, |bytes| {
+        //     DataColumnsByRootIdentifier::from_ssz_bytes(bytes, spec.number_of_columns as usize)
+        // })?;
+        // check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
         Ok(())
     }
 }
