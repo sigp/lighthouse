@@ -339,7 +339,7 @@ jobs:
           cache-target: release
     - name: Create log dir
       run: mkdir ${{ runner.temp }}/peering_simulator_logs
-    - name: Run a beacon chain sim which tests VC fallback behaviour
+    - name: Run a beacon chain sim which tests BN peering behaviour
       run: cargo run --release --bin simulator peering-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/peering_simulator_logs
     - name: Upload logs
       uses: actions/upload-artifact@v4
