@@ -102,7 +102,7 @@ pub fn run<E: EthSpec>(
                 })
                 .map_err(|e| format!("Failed to complete task: {:?}", e))?
                 .ok_or_else(|| format!("Unable to locate state at {:?}", state_id))?
-                .data;
+                .into_data();
             let state_root = match state_id {
                 StateId::Root(root) => Some(root),
                 _ => None,

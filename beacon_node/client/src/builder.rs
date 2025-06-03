@@ -33,6 +33,8 @@ use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
+use rand::rngs::{OsRng, StdRng};
+use rand::SeedableRng;
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use std::net::TcpListener;
@@ -210,7 +212,10 @@ where
             .event_handler(event_handler)
             .execution_layer(execution_layer)
             .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
-            .validator_monitor_config(config.validator_monitor.clone());
+            .validator_monitor_config(config.validator_monitor.clone())
+            .rng(Box::new(
+                StdRng::from_rng(OsRng).map_err(|e| format!("Failed to create RNG: {:?}", e))?,
+            ));
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
@@ -305,8 +310,10 @@ where
                             .map_err(|e| format!("Unable to read system time: {e:}"))?
                             .as_secs();
                         let genesis_time = genesis_state.genesis_time();
-                        let deneb_time =
-                            genesis_time + (deneb_fork_epoch.as_u64() * spec.seconds_per_slot);
+                        let deneb_time = genesis_time
+                            + (deneb_fork_epoch.as_u64()
+                                * E::slots_per_epoch()
+                                * spec.seconds_per_slot);
 
                         // Shrink the blob availability window so users don't start
                         // a sync right before blobs start to disappear from the P2P
@@ -456,12 +463,12 @@ where
                 let blobs = if block.message().body().has_blobs() {
                     debug!("Downloading finalized blobs");
                     if let Some(response) = remote
-                        .get_blobs::<E>(BlockId::Root(block_root), None)
+                        .get_blobs::<E>(BlockId::Root(block_root), None, &spec)
                         .await
                         .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
                     {
                         debug!("Downloaded finalized blobs");
-                        Some(response.data)
+                        Some(response.into_data())
                     } else {
                         warn!(
                             block_root = %block_root,
@@ -995,11 +1002,6 @@ where
         blobs_path: &Path,
         config: StoreConfig,
     ) -> Result<Self, String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or("disk_store requires a log")?
-            .service_context("freezer_db".into());
         let spec = self
             .chain_spec
             .clone()
@@ -1008,21 +1010,8 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
-        // Optionally grab the genesis state root.
-        // This will only be required if a DB upgrade to V22 is needed.
-        let genesis_state_root = context
-            .eth2_network_config
-            .as_ref()
-            .and_then(|config| config.genesis_state_root::<E>().transpose())
-            .transpose()?;
-
         let schema_upgrade = |db, from, to| {
-            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
-                db,
-                genesis_state_root,
-                from,
-                to,
-            )
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, from, to)
         };
 
         let store = HotColdDB::open(

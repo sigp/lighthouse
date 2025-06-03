@@ -13,13 +13,11 @@ use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tokio::sync::oneshot;
 use tracing::debug;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeFixedVector, RuntimeVariableList,
-    SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
+    Hash256, RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock,
 };
 
 /// This represents the components of a partially available block
@@ -32,12 +30,6 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
-    /// Receiver for data columns that are computed asynchronously;
-    ///
-    /// If `data_column_recv` is `Some`, it means data column computation or reconstruction has been
-    /// started. This can happen either via engine blobs fetching or data column reconstruction
-    /// (triggered when >= 50% columns are received via gossip).
-    pub data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<E>>>,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -202,13 +194,8 @@ impl<E: EthSpec> PendingComponents<E> {
                     Some(AvailableBlockData::DataColumns(data_columns))
                 }
                 Ordering::Less => {
-                    // The data_columns_recv is an infallible promise that we will receive all expected
-                    // columns, so we consider the block available.
-                    // We take the receiver as it can't be cloned, and make_available should never
-                    // be called again once it returns `Some`.
-                    self.data_column_recv
-                        .take()
-                        .map(AvailableBlockData::DataColumnsRecv)
+                    // Not enough data columns received yet
+                    None
                 }
             }
         } else {
@@ -261,7 +248,6 @@ impl<E: EthSpec> PendingComponents<E> {
                 .max(),
             // TODO(das): To be fixed with https://github.com/sigp/lighthouse/pull/6850
             AvailableBlockData::DataColumns(_) => None,
-            AvailableBlockData::DataColumnsRecv(_) => None,
         };
 
         let AvailabilityPendingExecutedBlock {
@@ -293,7 +279,6 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_data_columns: vec![],
             executed_block: None,
             reconstruction_started: false,
-            data_column_recv: None,
         }
     }
 
@@ -331,17 +316,11 @@ impl<E: EthSpec> PendingComponents<E> {
             } else {
                 "?"
             };
-            let data_column_recv_count = if self.data_column_recv.is_some() {
-                1
-            } else {
-                0
-            };
             format!(
-                "block {} data_columns {}/{} data_columns_recv {}",
+                "block {} data_columns {}/{}",
                 block_count,
                 self.verified_data_columns.len(),
                 custody_columns_count,
-                data_column_recv_count,
             )
         } else {
             let num_expected_blobs = if let Some(block) = self.get_cached_block() {
@@ -352,7 +331,7 @@ impl<E: EthSpec> PendingComponents<E> {
             format!(
                 "block {} blobs {}/{}",
                 block_count,
-                self.verified_blobs.len(),
+                self.verified_blobs.iter().flatten().count(),
                 num_expected_blobs
             )
         }
@@ -425,20 +404,21 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    /// Fetch a data column from the cache without affecting the LRU ordering
-    pub fn peek_data_column(
+    /// Fetch data columns of a given `block_root` from the cache without affecting the LRU ordering
+    pub fn peek_data_columns(
         &self,
-        data_column_id: &DataColumnIdentifier,
-    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
-        if let Some(pending_components) = self.critical.read().peek(&data_column_id.block_root) {
-            Ok(pending_components
-                .verified_data_columns
-                .iter()
-                .find(|data_column| data_column.as_data_column().index == data_column_id.index)
-                .map(|data_column| data_column.clone_arc()))
-        } else {
-            Ok(None)
-        }
+        block_root: Hash256,
+    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
+        self.critical
+            .read()
+            .peek(&block_root)
+            .map(|pending_components| {
+                pending_components
+                    .verified_data_columns
+                    .iter()
+                    .map(|col| col.clone_arc())
+                    .collect()
+            })
     }
 
     pub fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
@@ -498,7 +478,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             self.state_cache.recover_pending_executed_block(block)
         })? {
             // We keep the pending components in the availability cache during block import (#5845).
-            // `data_column_recv` is returned as part of the available block and is no longer needed here.
             write_lock.put(block_root, pending_components);
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
@@ -551,55 +530,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             self.state_cache.recover_pending_executed_block(block)
         })? {
             // We keep the pending components in the availability cache during block import (#5845).
-            // `data_column_recv` is returned as part of the available block and is no longer needed here.
-            write_lock.put(block_root, pending_components);
-            drop(write_lock);
-            Ok(Availability::Available(Box::new(available_block)))
-        } else {
-            write_lock.put(block_root, pending_components);
-            Ok(Availability::MissingComponents(block_root))
-        }
-    }
-
-    /// The `data_column_recv` parameter is a `Receiver` for data columns that are computed
-    /// asynchronously. This method is used if the EL already has the blobs and returns them via the
-    /// `getBlobsV1` engine method. More details in [fetch_blobs.rs](https://github.com/sigp/lighthouse/blob/44f8add41ea2252769bb967864af95b3c13af8ca/beacon_node/beacon_chain/src/fetch_blobs.rs).
-    pub fn put_computed_data_columns_recv(
-        &self,
-        block_root: Hash256,
-        block_epoch: Epoch,
-        data_column_recv: oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut write_lock = self.critical.write();
-
-        // Grab existing entry or create a new entry.
-        let mut pending_components = write_lock
-            .pop_entry(&block_root)
-            .map(|(_, v)| v)
-            .unwrap_or_else(|| {
-                PendingComponents::empty(
-                    block_root,
-                    self.spec.max_blobs_per_block(block_epoch) as usize,
-                )
-            });
-
-        // We have all the blobs from engine, and have started computing data columns. We store the
-        // receiver in `PendingComponents` for later use when importing the block.
-        // TODO(das): Error or log if we overwrite a prior receiver https://github.com/sigp/lighthouse/issues/6764
-        pending_components.data_column_recv = Some(data_column_recv);
-
-        debug!(
-            component = "data_columns_recv",
-            ?block_root,
-            status = pending_components.status_str(block_epoch, &self.spec),
-            "Component added to data availability checker"
-        );
-
-        if let Some(available_block) = pending_components.make_available(&self.spec, |block| {
-            self.state_cache.recover_pending_executed_block(block)
-        })? {
-            // We keep the pending components in the availability cache during block import (#5845).
-            // `data_column_recv` is returned as part of the available block and is no longer needed here.
             write_lock.put(block_root, pending_components);
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
@@ -694,7 +624,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             self.state_cache.recover_pending_executed_block(block)
         })? {
             // We keep the pending components in the availability cache during block import (#5845).
-            // `data_column_recv` is returned as part of the available block and is no longer needed here.
             write_lock.put(block_root, pending_components);
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
@@ -920,7 +849,6 @@ mod test {
             state,
             parent_block,
             parent_eth1_finalization_data,
-            confirmed_state_roots: vec![],
             consensus_context,
         };
 
@@ -1305,7 +1233,6 @@ mod pending_components_tests {
                     eth1_data: Default::default(),
                     eth1_deposit_index: 0,
                 },
-                confirmed_state_roots: vec![],
                 consensus_context: ConsensusContext::new(Slot::new(0)),
             },
             payload_verification_outcome: PayloadVerificationOutcome {

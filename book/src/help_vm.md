@@ -12,7 +12,7 @@ Commands:
           data. This file can then be imported to a validator client using the
           "import-validators" command. Another, optional JSON file is created
           which contains a list of validator deposits in the same format as the
-          "ethereum/staking-deposit-cli" tool.
+          "ethstaker-deposit-cli" tool.
   import
           Uploads validators to a validator client using the HTTP API. The
           validators are defined in a JSON file which can be generated using the
@@ -48,7 +48,7 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]

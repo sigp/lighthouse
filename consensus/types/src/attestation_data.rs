@@ -1,12 +1,11 @@
-use crate::test_utils::TestRandom;
-use crate::{Checkpoint, Hash256, SignedRoot, Slot};
-
 use crate::slot_data::SlotData;
+use crate::test_utils::TestRandom;
+use crate::{Checkpoint, ForkName, Hash256, SignedRoot, Slot};
+use context_deserialize_derive::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-
 /// The data upon which an attestation is based.
 ///
 /// Spec v0.12.1
@@ -25,6 +24,7 @@ use tree_hash_derive::TreeHash;
     TestRandom,
     Default,
 )]
+#[context_deserialize(ForkName)]
 pub struct AttestationData {
     pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64")]

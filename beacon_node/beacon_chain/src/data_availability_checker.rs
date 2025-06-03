@@ -14,12 +14,11 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
-use tokio::sync::oneshot;
 use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
-    Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
+    RuntimeVariableList, SignedBeaconBlock,
 };
 
 mod error;
@@ -33,6 +32,7 @@ use crate::data_column_verification::{
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
 };
+use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -156,6 +156,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
+    /// Check if the exact data column is in the availability cache.
+    pub fn is_data_column_cached(
+        &self,
+        block_root: &Hash256,
+        data_column: &DataColumnSidecar<T::EthSpec>,
+    ) -> bool {
+        self.availability_cache
+            .peek_pending_components(block_root, |components| {
+                components.is_some_and(|components| {
+                    let cached_column_opt = components.get_cached_data_column(data_column.index);
+                    cached_column_opt.is_some_and(|cached| *cached == *data_column)
+                })
+            })
+    }
+
     /// Get a blob from the availability cache.
     pub fn get_blob(
         &self,
@@ -164,12 +179,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_blob(blob_id)
     }
 
-    /// Get a data column from the availability cache.
-    pub fn get_data_column(
+    /// Get data columns for a block from the availability cache.
+    pub fn get_data_columns(
         &self,
-        data_column_id: &DataColumnIdentifier,
-    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
-        self.availability_cache.peek_data_column(data_column_id)
+        block_root: Hash256,
+    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
+        self.availability_cache.peek_data_columns(block_root)
     }
 
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
@@ -219,47 +234,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, verified_custody_columns)
     }
 
-    /// Put a list of blobs received from the EL pool into the availability cache.
-    ///
-    /// This DOES NOT perform KZG verification because the KZG proofs should have been constructed
-    /// immediately prior to calling this function so they are assumed to be valid.
-    pub fn put_engine_blobs(
-        &self,
-        block_root: Hash256,
-        block_epoch: Epoch,
-        blobs: FixedBlobSidecarList<T::EthSpec>,
-        data_columns_recv: Option<oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // `data_columns_recv` is always Some if block_root is post-PeerDAS
-        if let Some(data_columns_recv) = data_columns_recv {
-            self.availability_cache.put_computed_data_columns_recv(
-                block_root,
-                block_epoch,
-                data_columns_recv,
-            )
-        } else {
-            let seen_timestamp = self
-                .slot_clock
-                .now_duration()
-                .ok_or(AvailabilityCheckError::SlotClockError)?;
-            self.availability_cache.put_kzg_verified_blobs(
-                block_root,
-                KzgVerifiedBlobList::from_verified(blobs.iter().flatten().cloned(), seen_timestamp),
-            )
-        }
-    }
-
     /// Check if we've cached other blobs for this block. If it completes a set and we also
     /// have a block cached, return the `Availability` variant triggering block import.
     /// Otherwise cache the blob sidecar.
     ///
     /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
-    pub fn put_gossip_blob(
+    pub fn put_gossip_verified_blobs<
+        I: IntoIterator<Item = GossipVerifiedBlob<T, O>>,
+        O: ObservationStrategy,
+    >(
         &self,
-        gossip_blob: GossipVerifiedBlob<T>,
+        block_root: Hash256,
+        blobs: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
-            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
+            .put_kzg_verified_blobs(block_root, blobs.into_iter().map(|b| b.into_inner()))
     }
 
     /// Check if we've cached other data columns for this block. If it satisfies the custody requirement and we also
@@ -267,13 +256,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Otherwise cache the data column sidecar.
     ///
     /// This should only accept gossip verified data columns, so we should not have to worry about dupes.
-    #[allow(clippy::type_complexity)]
-    pub fn put_gossip_data_columns(
+    pub fn put_gossip_verified_data_columns<
+        O: ObservationStrategy,
+        I: IntoIterator<Item = GossipVerifiedDataColumn<T, O>>,
+    >(
         &self,
         block_root: Hash256,
-        gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
+        data_columns: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let custody_columns = gossip_data_columns
+        let custody_columns = data_columns
             .into_iter()
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
@@ -704,9 +695,6 @@ pub enum AvailableBlockData<E: EthSpec> {
     Blobs(BlobSidecarList<E>),
     /// Block is post-PeerDAS and has more than zero blobs
     DataColumns(DataColumnSidecarList<E>),
-    /// Block is post-PeerDAS, has more than zero blobs and we recomputed the columns from the EL's
-    /// mempool blobs
-    DataColumnsRecv(oneshot::Receiver<DataColumnSidecarList<E>>),
 }
 
 /// A fully available block that is ready to be imported into fork choice.
@@ -756,7 +744,6 @@ impl<E: EthSpec> AvailableBlock<E> {
             AvailableBlockData::NoData => false,
             AvailableBlockData::Blobs(..) => true,
             AvailableBlockData::DataColumns(_) => false,
-            AvailableBlockData::DataColumnsRecv(_) => false,
         }
     }
 
@@ -781,9 +768,6 @@ impl<E: EthSpec> AvailableBlock<E> {
                 AvailableBlockData::Blobs(blobs) => AvailableBlockData::Blobs(blobs.clone()),
                 AvailableBlockData::DataColumns(data_columns) => {
                     AvailableBlockData::DataColumns(data_columns.clone())
-                }
-                AvailableBlockData::DataColumnsRecv(_) => {
-                    return Err("Can't clone DataColumnsRecv".to_owned())
                 }
             },
             blobs_available_timestamp: self.blobs_available_timestamp,

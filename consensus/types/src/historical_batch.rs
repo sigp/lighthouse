@@ -22,6 +22,7 @@ use tree_hash_derive::TreeHash;
     arbitrary::Arbitrary,
 )]
 #[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct HistoricalBatch<E: EthSpec> {
     #[test_random(default)]
     pub block_roots: Vector<Hash256, E::SlotsPerHistoricalRoot>,

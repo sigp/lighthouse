@@ -5,16 +5,16 @@ use beacon_chain::test_utils::get_kzg;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use bls::Signature;
-use kzg::KzgCommitment;
+use kzg::{KzgCommitment, KzgProof};
 use types::{
     beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList, ChainSpec,
-    EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
+    EmptyBlock, EthSpec, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
 };
 
 fn create_test_block_and_blobs<E: EthSpec>(
     num_of_blobs: usize,
     spec: &ChainSpec,
-) -> (SignedBeaconBlock<E>, BlobsList<E>) {
+) -> (SignedBeaconBlock<E>, BlobsList<E>, KzgProofs<E>) {
     let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec));
     let mut body = block.body_mut();
     let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
@@ -27,8 +27,9 @@ fn create_test_block_and_blobs<E: EthSpec>(
         .map(|_| Blob::<E>::default())
         .collect::<Vec<_>>()
         .into();
+    let proofs = vec![KzgProof::empty(); num_of_blobs * spec.number_of_columns as usize].into();
 
-    (signed_block, blobs)
+    (signed_block, blobs, proofs)
 }
 
 fn all_benches(c: &mut Criterion) {
@@ -37,10 +38,11 @@ fn all_benches(c: &mut Criterion) {
 
     let kzg = get_kzg(&spec);
     for blob_count in [1, 2, 3, 6] {
-        let (signed_block, blobs) = create_test_block_and_blobs::<E>(blob_count, &spec);
+        let (signed_block, blobs, proofs) = create_test_block_and_blobs::<E>(blob_count, &spec);
 
         let column_sidecars = blobs_to_data_column_sidecars(
             &blobs.iter().collect::<Vec<_>>(),
+            proofs.to_vec(),
             &signed_block,
             &kzg,
             &spec,
