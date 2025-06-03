@@ -4705,15 +4705,26 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     // Build `BlobSidecarList`s from the `Vec<BlobSidecar>`s.
-                    let blob_sidecar_lists: Vec<BlobSidecarList<T::EthSpec>> = blob_lists
+                    let blob_sidecar_lists: Result<
+                        Vec<BlobSidecarList<T::EthSpec>>,
+                        warp::Rejection,
+                    > = blob_lists
                         .into_iter()
                         .map(|blob_sidecars| {
+                            let first_blob_sidecar = blob_sidecars.first().ok_or_else(|| {
+                                warp_utils::reject::custom_server_error(
+                                    "Blob sidecar list must not be empty".to_string(),
+                                )
+                            })?;
+
                             let max_blobs_at_epoch =
-                                chain.spec.max_blobs_per_block(blob_sidecars[0].epoch()) as usize;
-                            BlobSidecarList::new(blob_sidecars, max_blobs_at_epoch)
+                                chain.spec.max_blobs_per_block(first_blob_sidecar.epoch()) as usize;
+                            BlobSidecarList::new(blob_sidecars, max_blobs_at_epoch).map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!("{e:?}"))
+                            })
                         })
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|e| warp_utils::reject::custom_server_error(format!("{e:?}")))?;
+                        .collect();
+                    let blob_sidecar_lists = blob_sidecar_lists?;
 
                     if query.verify == Some(true) {
                         for blob_list in &blob_sidecar_lists {
