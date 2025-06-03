@@ -47,6 +47,9 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip7732",
     "tests/.*/eip7805",
+    # Ignore full epoch tests for now (just test the sub-transitions).
+    "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
+    "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy"
 ]
 
 
