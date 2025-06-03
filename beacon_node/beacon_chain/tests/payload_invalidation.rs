@@ -508,13 +508,11 @@ async fn justified_checkpoint_becomes_invalid() {
     let is_valid = Payload::Invalid {
         latest_valid_hash: Some(parent_hash_of_justified),
     };
-    rig.import_block_parametric(is_valid, is_valid, None, |error| {
-        matches!(
-            error,
-            // The block import should fail since the beacon chain knows the justified payload
-            // is invalid.
-            BlockError::BeaconChainError(BeaconChainError::JustifiedPayloadInvalid { .. })
-        )
+    rig.import_block_parametric(is_valid, is_valid, None, |error| match error {
+        BlockError::BeaconChainError(e) => {
+            matches!(e.as_ref(), BeaconChainError::JustifiedPayloadInvalid { .. })
+        }
+        _ => false,
     })
     .await;
 

@@ -4,11 +4,6 @@ version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
-[dev-dependencies]
-environment = { workspace = true }
-eth1_test_rig = { workspace = true }
-serde_yaml = { workspace = true }
-
 [dependencies]
 eth2 = { workspace = true }
 ethereum_ssz = { workspace = true }
@@ -28,3 +23,8 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
+
+[dev-dependencies]
+environment = { workspace = true }
+eth1_test_rig = { workspace = true }
+serde_yaml = { workspace = true }

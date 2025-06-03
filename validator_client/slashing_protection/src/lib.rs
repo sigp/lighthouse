@@ -27,7 +27,7 @@ pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 /// The attestation or block is not safe to sign.
 ///
 /// This could be because it's slashable, or because an error occurred.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum NotSafe {
     UnregisteredValidator(PublicKeyBytes),
     DisabledValidator(PublicKeyBytes),

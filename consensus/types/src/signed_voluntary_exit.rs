@@ -1,4 +1,5 @@
-use crate::{test_utils::TestRandom, VoluntaryExit};
+use crate::context_deserialize;
+use crate::{test_utils::TestRandom, ForkName, VoluntaryExit};
 use bls::Signature;
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct SignedVoluntaryExit {
     pub message: VoluntaryExit,
     pub signature: Signature,

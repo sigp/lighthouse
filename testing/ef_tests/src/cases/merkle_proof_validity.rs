@@ -22,7 +22,7 @@ pub struct MerkleProof {
 
 #[derive(Debug)]
 pub enum GenericMerkleProofValidity<E: EthSpec> {
-    BeaconState(BeaconStateMerkleProofValidity<E>),
+    BeaconState(Box<BeaconStateMerkleProofValidity<E>>),
     BeaconBlockBody(Box<BeaconBlockBodyMerkleProofValidity<E>>),
 }
 
@@ -47,6 +47,7 @@ impl<E: EthSpec> LoadCase for GenericMerkleProofValidity<E> {
 
         if suite_name == "BeaconState" {
             BeaconStateMerkleProofValidity::load_from_dir(path, fork_name)
+                .map(Box::new)
                 .map(GenericMerkleProofValidity::BeaconState)
         } else if suite_name == "BeaconBlockBody" {
             BeaconBlockBodyMerkleProofValidity::load_from_dir(path, fork_name)

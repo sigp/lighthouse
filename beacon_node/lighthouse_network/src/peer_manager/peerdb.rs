@@ -1,6 +1,8 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY;
 use crate::discovery::{peer_id_to_node_id, CombinedKey};
-use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId};
+use crate::{
+    metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId, SyncInfo,
+};
 use itertools::Itertools;
 use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
@@ -15,7 +17,7 @@ use std::{
 use sync_status::SyncStatus;
 use tracing::{debug, error, trace, warn};
 use types::data_column_custody_group::compute_subnets_for_node;
-use types::{ChainSpec, DataColumnSubnetId, EthSpec};
+use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec, Hash256, Slot};
 
 pub mod client;
 pub mod peer_info;
@@ -732,6 +734,19 @@ impl<E: EthSpec> PeerDB<E> {
                 enr: Some(enr),
                 seen_address: Multiaddr::empty(),
                 direction: ConnectionDirection::Outgoing,
+            },
+        );
+
+        self.update_sync_status(
+            &peer_id,
+            SyncStatus::Synced {
+                // Fill in mock SyncInfo, only for the peer to return `is_synced() == true`.
+                info: SyncInfo {
+                    head_slot: Slot::new(0),
+                    head_root: Hash256::ZERO,
+                    finalized_epoch: Epoch::new(0),
+                    finalized_root: Hash256::ZERO,
+                },
             },
         );
 

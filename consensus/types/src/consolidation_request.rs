@@ -1,4 +1,5 @@
-use crate::{test_utils::TestRandom, Address, PublicKeyBytes, SignedRoot};
+use crate::context_deserialize;
+use crate::{test_utils::TestRandom, Address, ForkName, PublicKeyBytes, SignedRoot};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -19,6 +20,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct ConsolidationRequest {
     pub source_address: Address,
     pub source_pubkey: PublicKeyBytes,

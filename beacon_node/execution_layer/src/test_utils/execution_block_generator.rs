@@ -142,6 +142,7 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
     pub pending_payloads: HashMap<ExecutionBlockHash, ExecutionPayload<E>>,
     pub next_payload_id: u64,
     pub payload_ids: HashMap<PayloadId, ExecutionPayload<E>>,
+    min_blobs_count: usize,
     /*
      * Post-merge fork triggers
      */
@@ -188,6 +189,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             pending_payloads: <_>::default(),
             next_payload_id: 0,
             payload_ids: <_>::default(),
+            min_blobs_count: 0,
             shanghai_time,
             cancun_time,
             prague_time,
@@ -316,6 +318,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         }
 
         Ok(())
+    }
+
+    pub fn set_min_blob_count(&mut self, count: usize) {
+        self.min_blobs_count = count;
     }
 
     pub fn insert_pow_block(&mut self, block_number: u64) -> Result<(), String> {
@@ -702,8 +708,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         if fork_name.deneb_enabled() {
             // get random number between 0 and Max Blobs
             let mut rng = self.rng.lock();
-            let max_blobs = self.spec.max_blobs_per_block_by_fork(fork_name) as usize;
-            let num_blobs = rng.gen::<usize>() % (max_blobs + 1);
+            // TODO(EIP-7892): see FIXME below
+            // FIXME: this will break with BPO forks. This function needs to calculate the epoch based on block timestamp..
+            let max_blobs = self.spec.max_blobs_per_block_within_fork(fork_name) as usize;
+            let num_blobs = rng.gen_range(self.min_blobs_count..=max_blobs);
             let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
             for tx in Vec::from(transactions) {
                 execution_payload

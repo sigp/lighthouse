@@ -317,9 +317,8 @@ where
         skip_all
     )]
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
-        for (removed_chain, sync_type, remove_reason) in self
-            .chains
-            .call_all(|chain| chain.remove_peer(peer_id, network))
+        for (removed_chain, sync_type, remove_reason) in
+            self.chains.call_all(|chain| chain.remove_peer(peer_id))
         {
             self.on_chain_removed(
                 removed_chain,
@@ -386,15 +385,15 @@ where
         op: &'static str,
     ) {
         if remove_reason.is_critical() {
-            crit!(?sync_type, %chain, reason = ?remove_reason,op, "Chain removed");
+            crit!(id = chain.id(), ?sync_type, reason = ?remove_reason, op, "Chain removed");
         } else {
-            debug!(?sync_type, %chain, reason = ?remove_reason,op, "Chain removed");
+            debug!(id = chain.id(), ?sync_type, reason = ?remove_reason, op, "Chain removed");
         }
 
         if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason {
             if RangeSyncType::Finalized == sync_type && blacklist {
                 warn!(
-                    %chain,
+                    id = chain.id(),
                     "Chain failed! Syncing to its head won't be retried for at least the next {} seconds",
                     FAILED_CHAINS_EXPIRY_SECONDS
                 );
