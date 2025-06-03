@@ -101,7 +101,7 @@ def sdc_generate(network, first_index, count, eth1_withdrawal_address=None):
         '--mnemonic', TEST_MNEMONIC,
         '--chain', network,
         '--keystore_password', 'MyPassword1234', # minimum 12 characters for password
-        '--withdrawal_address', '0x0f51bb10119727a7e5eA3538074fb341F56B09Ad', # to enable auto key generation without prompt
+        '--withdrawal_address', '', # no withdrawal address set so it maintains 0x00 withdrawal credentials
         '--regular-withdrawal', # no compounding
         '--folder', os.path.abspath(output_dir),
     ] + eth1_flags
