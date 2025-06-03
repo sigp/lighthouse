@@ -95,22 +95,42 @@ pub struct ExportBlobs {
         display_order = 0
     )]
     pub output_dir: PathBuf,
-
     #[clap(
         long,
         value_name = "SLOT",
         help = "The slot at which to start exporting blobs from.",
-        display_order = 0
+        display_order = 0,
+        conflicts_with_all = &["start_epoch", "end_epoch"]
     )]
-    pub start_slot: u64,
+    pub start_slot: Option<u64>,
 
     #[clap(
         long,
         value_name = "SLOT",
         help = "The slot at which to stop exporting blobs to (inclusive).",
-        display_order = 0
+        display_order = 0,
+        conflicts_with_all = &["start_epoch", "end_epoch"]
     )]
-    pub end_slot: u64,
+    pub end_slot: Option<u64>,
+
+    #[clap(
+        long,
+        value_name = "EPOCH",
+        help = "The epoch at which to start exporting blobs from.",
+        display_order = 0,
+        conflicts_with_all = &["start_slot", "end_slot"]
+    )]
+    pub start_epoch: Option<u64>,
+
+    #[clap(
+        long,
+        value_name = "EPOCH",
+        help = "The epoch at which to stop exporting blobs to (inclusive).",
+        display_order = 0,
+        conflicts_with_all = &["start_slot", "end_slot"]
+    )]
+    pub end_epoch: Option<u64>,
+
     #[clap(
         long,
         help = "Attempt export even if the beacon node is not synced",

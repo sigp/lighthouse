@@ -1,12 +1,27 @@
 use crate::blobs_manager::{cli::ExportBlobs, ensure_node_synced};
 use eth2::{
-    types::{BlobSidecarList, BlockId, ChainSpec, EthSpec, Slot},
+    types::{BlobSidecarList, BlockId, ChainSpec, Epoch, EthSpec, Slot},
     BeaconNodeHttpClient, Timeouts,
 };
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;
 use std::time::Duration;
 use tracing::{info, warn};
+
+#[derive(PartialEq, Eq)]
+enum ExportMode {
+    Epochs,
+    Slots,
+}
+
+impl std::fmt::Display for ExportMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExportMode::Epochs => write!(f, "epoch"),
+            ExportMode::Slots => write!(f, "slot"),
+        }
+    }
+}
 
 pub async fn export_blobs<E: EthSpec>(
     config: &ExportBlobs,
@@ -26,22 +41,81 @@ pub async fn export_blobs<E: EthSpec>(
         }
     }
 
-    let start_slot = config.start_slot;
-    let end_slot = config.end_slot;
+    // Ensure Deneb fork is enabled.
+    let deneb_fork_epoch = if let Some(deneb_fork_epoch) = spec.deneb_fork_epoch {
+        deneb_fork_epoch.as_u64()
+    } else {
+        return Err("Deneb fork epoch not set in chain spec".to_string());
+    };
+
+    let mut export_mode = ExportMode::Epochs;
+
+    // Export either epochs or slots. Defaults to epochs.
+    let start = if let Some(start_epoch) = config.start_epoch {
+        start_epoch
+    } else if let Some(start_slot) = config.start_slot {
+        // Since start_slot and start_epoch are mutually exclusive, we can safely assume that we are in slot mode.
+        export_mode = ExportMode::Slots;
+        start_slot
+    } else {
+        deneb_fork_epoch
+    };
+
+    let end = if let Some(end_epoch) = config.end_epoch {
+        end_epoch
+    } else if let Some(end_slot) = config.end_slot {
+        end_slot
+    } else {
+        return Err(format!("End {export_mode} not set"));
+    };
+
+    if end <= start {
+        return Err(format!(
+            "End {export_mode} must be greater than start {export_mode}"
+        ));
+    }
+
+    // Ensure start is at or after Deneb fork
+    if export_mode == ExportMode::Epochs {
+        if start < deneb_fork_epoch {
+            return Err(format!(
+                "Start epoch {} is before Deneb fork epoch {}",
+                start, deneb_fork_epoch
+            ));
+        }
+    } else {
+        let deneb_start_slot = Epoch::new(deneb_fork_epoch)
+            .start_slot(E::slots_per_epoch())
+            .as_u64();
+        if start < deneb_start_slot {
+            return Err(format!(
+                "Start slot {} is before Deneb fork start slot {}",
+                start, deneb_start_slot
+            ));
+        }
+    }
 
     if !config.output_dir.is_dir() {
         return Err("Please set `--output-dir` to a valid directory.".to_string());
     }
 
-    let filename = config
-        .output_dir
-        .join(format!("{start_slot}_{end_slot}.ssz"));
+    let filename = config.output_dir.join(format!("{start}_{end}.ssz"));
 
     // TODO(blob_manager): Ensure node is synced for start_slot -> end_slot.
 
     let mut blobs_to_export: Vec<BlobSidecarList<E>> = vec![];
 
-    info!(end_slot, start_slot, output_dir = ?config.output_dir, "Beginning blob export");
+    // Generate start and end slots for each mode.
+    let (start_slot, end_slot) = if export_mode == ExportMode::Epochs {
+        info!(start_epoch = start, end_epoch = end, output_dir = ?config.output_dir, "Beginning blob export");
+        (
+            Epoch::new(start).start_slot(E::slots_per_epoch()).as_u64(),
+            Epoch::new(end).end_slot(E::slots_per_epoch()).as_u64(),
+        )
+    } else {
+        info!(start_slot = start, end_slot = end, output_dir = ?config.output_dir, "Beginning blob export");
+        (start, end)
+    };
 
     for slot in start_slot..=end_slot {
         if let Some(blobs) = client
@@ -70,7 +144,7 @@ pub async fn export_blobs<E: EthSpec>(
             "Completed blob export"
         );
     } else {
-        warn!("No blobs were found for this slot range");
+        warn!("No blobs were found for this {} range", export_mode);
     }
 
     Ok(())
