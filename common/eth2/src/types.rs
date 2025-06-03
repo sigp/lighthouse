@@ -751,12 +751,21 @@ pub struct ProposerData {
     pub slot: Slot,
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize, Default)]
+pub enum GraffitiPolicy {
+    #[default]
+    PreserveUserGraffiti,
+    AppendClientVersions,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
     pub graffiti: Option<Graffiti>,
     pub skip_randao_verification: SkipRandaoVerification,
     pub builder_boost_factor: Option<u64>,
+    #[serde(default)]
+    pub graffiti_client: GraffitiPolicy,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]

@@ -232,8 +232,6 @@ impl Config {
         }
 
         if let Some(input_graffiti) = validator_client_config.graffiti_client.as_ref() {
-            let client_version = get_engine_version(1);
-
             let string = "testing";
 
             let combined = format!("{} {}", string, input_graffiti);
