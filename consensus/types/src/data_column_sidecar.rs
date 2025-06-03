@@ -56,7 +56,7 @@ impl<'de> ContextDeserialize<'de, (ForkName, usize)> for DataColumnsByRootIdenti
 
 impl DataColumnsByRootIdentifier {
     pub fn from_ssz_bytes(bytes: &[u8], num_columns: usize) -> Result<Self, DecodeError> {
-        let mut builder = ssz::SszDecoderBuilder::new(&bytes);
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
         builder.register_type::<Hash256>()?;
         builder.register_anonymous_variable_length_item()?;
 
