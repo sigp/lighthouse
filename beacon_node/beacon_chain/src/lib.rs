@@ -12,6 +12,7 @@ pub mod bellatrix_readiness;
 pub mod blob_verification;
 pub mod block_reward;
 mod block_times_cache;
+pub mod persisted_custody;
 mod block_verification;
 pub mod block_verification_types;
 pub mod builder;

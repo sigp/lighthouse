@@ -13,6 +13,7 @@ use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -927,9 +928,19 @@ where
             }
         };
 
-        // Construct a dummy custody context that will be modified with the correct values in the
-        // network constructor.
-        let custody_context = Arc::new(CustodyContext::new(self.import_all_data_columns));
+        // Load the persisted custody context from the db and initialize
+        // the context for this run
+        let custody_context = if let Some(custody) =
+            load_custody_context::<E, THotStore, TColdStore>(store.clone())
+        {
+            Arc::new(CustodyContext::new_from_persisted_custody_context(
+                custody,
+                self.import_all_data_columns,
+            ))
+        } else {
+            Arc::new(CustodyContext::new(self.import_all_data_columns))
+        };
+        debug!(?custody_context, "Loading persisted custody context");
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),

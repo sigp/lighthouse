@@ -58,6 +58,7 @@ use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_custody::{clear_custody_context, persist_custody_context};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -130,6 +131,7 @@ use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
 use types::payload::BlockProductionVersion;
 use types::*;
+use types::{validator_custody::CustodyContextSsz};
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -665,6 +667,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .put_item(&ETH1_CACHE_DB_KEY, &eth1_chain.as_ssz_container())?;
         }
 
+        Ok(())
+    }
+
+    /// Persists the custody information to disk.
+    pub fn persist_custody_context(&self) -> Result<(), Error> {
+        let custody_context: CustodyContextSsz = self
+            .data_availability_checker
+            .custody_context()
+            .as_ref()
+            .into();
+        debug!(?custody_context, "Persisting custody context to store");
+
+        if let Err(e) =
+            clear_custody_context::<T::EthSpec, T::HotStore, T::ColdStore>(self.store.clone())
+        {
+            error!(error = ?e, "Failed to clear old custody context");
+        }
+
+        match persist_custody_context::<T::EthSpec, T::HotStore, T::ColdStore>(
+            self.store.clone(),
+            custody_context,
+        ) {
+            Ok(_) => info!("Saved custody state"),
+            Err(e) => error!(
+                error = ?e,
+                "Failed to persist custody context on drop"
+            ),
+        }
         Ok(())
     }
 
@@ -7187,6 +7217,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
     fn drop(&mut self) {
         let drop = || -> Result<(), Error> {
+            self.persist_custody_context()?;
             self.persist_fork_choice()?;
             self.persist_op_pool()?;
             self.persist_eth1_cache()

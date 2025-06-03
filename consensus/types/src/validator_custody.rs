@@ -3,7 +3,6 @@ use std::collections::{BTreeMap, HashMap};
 use parking_lot::RwLock;
 
 use crate::{ChainSpec, Epoch, EthSpec, Slot};
-use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 
 // TODO(pawan): think more carefully about this number
@@ -146,19 +145,17 @@ impl CustodyContext {
 
     /// Deserialize a `CustodyContext` from SSZ bytes.
     pub fn new_from_persisted_custody_context(
-        bytes: &[u8],
+        ssz_context: CustodyContextSsz,
         is_supernode: bool,
-    ) -> Result<Self, String> {
-        let ssz_context = CustodyContextSsz::from_ssz_bytes(bytes)
-            .map_err(|e| format!("Failed to decode CustodyContextSsz: {:?}", e))?;
-        Ok(CustodyContext {
+    ) -> Self {
+        CustodyContext {
             advertised_validator_custody: RwLock::new(ssz_context.advertised_validator_custody),
             validator_custody_at_head: RwLock::new(ssz_context.validator_custody_at_head),
             current_is_supernode: is_supernode,
             persisted_is_supernode: ssz_context.persisted_is_supernode,
             validator_custody_updates: ssz_context.validator_custody_updates,
             validator_registrations: Default::default(),
-        })
+        }
     }
 
     /// Register a new validator index and updates the list of validators if required.
@@ -220,8 +217,8 @@ pub struct CustodyContextSsz {
     validator_custody_updates: Vec<(Epoch, usize)>,
 }
 
-impl From<CustodyContext> for CustodyContextSsz {
-    fn from(context: CustodyContext) -> Self {
+impl From<&CustodyContext> for CustodyContextSsz {
+    fn from(context: &CustodyContext) -> Self {
         CustodyContextSsz {
             advertised_validator_custody: context.advertised_validator_custody.read().clone(),
             validator_custody_at_head: context.validator_custody_at_head.read().clone(),
