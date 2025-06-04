@@ -834,6 +834,12 @@ fn epoch_processing_participation_flag_updates() {
 }
 
 #[test]
+fn epoch_processing_proposer_lookahead() {
+    EpochProcessingHandler::<MinimalEthSpec, ProposerLookahead>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, ProposerLookahead>::default().run();
+}
+
+#[test]
 fn fork_upgrade() {
     ForkHandler::<MinimalEthSpec>::default().run();
     ForkHandler::<MainnetEthSpec>::default().run();

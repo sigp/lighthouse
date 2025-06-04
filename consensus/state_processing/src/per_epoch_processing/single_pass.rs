@@ -30,6 +30,7 @@ pub struct SinglePassConfig {
     pub pending_deposits: bool,
     pub pending_consolidations: bool,
     pub effective_balance_updates: bool,
+    pub proposer_lookahead: bool,
 }
 
 impl Default for SinglePassConfig {
@@ -48,6 +49,7 @@ impl SinglePassConfig {
             pending_deposits: true,
             pending_consolidations: true,
             effective_balance_updates: true,
+            proposer_lookahead: true,
         }
     }
 
@@ -60,6 +62,7 @@ impl SinglePassConfig {
             pending_deposits: false,
             pending_consolidations: false,
             effective_balance_updates: false,
+            proposer_lookahead: false,
         }
     }
 }
@@ -460,14 +463,15 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             next_epoch_cache.into_epoch_cache(next_epoch_activation_queue, spec)?;
     }
 
-    if fork_name.fulu_enabled() {
+    if conf.proposer_lookahead && fork_name.fulu_enabled() {
         process_proposer_lookahead(state, spec)?;
     }
 
     Ok(summary)
 }
 
-fn process_proposer_lookahead<E: EthSpec>(
+// TOOO(EIP-7917): use balances cache
+pub fn process_proposer_lookahead<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
