@@ -16,11 +16,10 @@ use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnsByRootIdentifier, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    DataColumnsByRootIdentifier, Epoch, EthSpec, ForkContext, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList,
     SignedBeaconBlock, Slot,
 };
-use types::{ForkContext, ForkName};
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
@@ -328,8 +327,8 @@ pub struct BlobsByRangeRequest {
 }
 
 impl BlobsByRangeRequest {
-    pub fn max_blobs_requested(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
-        let max_blobs_per_block = spec.max_blobs_per_block_by_fork(current_fork);
+    pub fn max_blobs_requested(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+        let max_blobs_per_block = spec.max_blobs_per_block(epoch);
         self.count.saturating_mul(max_blobs_per_block)
     }
 }

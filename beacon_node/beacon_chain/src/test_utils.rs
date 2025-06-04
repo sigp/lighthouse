@@ -516,11 +516,7 @@ where
         self
     }
 
-    pub fn mock_execution_layer(self) -> Self {
-        self.mock_execution_layer_with_config()
-    }
-
-    pub fn mock_execution_layer_with_config(mut self) -> Self {
+    pub fn mock_execution_layer(mut self) -> Self {
         let mock = mock_execution_layer_from_parts::<E>(
             self.spec.clone().expect("cannot build without spec"),
             self.runtime.task_executor.clone(),

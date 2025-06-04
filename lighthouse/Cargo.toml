@@ -33,6 +33,8 @@ slasher-redb = ["slasher/redb"]
 beacon-node-leveldb = ["store/leveldb"]
 # Supports beacon node redb backend.
 beacon-node-redb = ["store/redb"]
+# Supports console subscriber for debugging
+console-subscriber = ["console-subscriber/default"]
 
 # Deprecated. This is now enabled by default on non windows targets.
 jemalloc = []
@@ -45,6 +47,7 @@ bls = { workspace = true }
 boot_node = { path = "../boot_node" }
 clap = { workspace = true }
 clap_utils = { workspace = true }
+console-subscriber = { workspace = true, optional = true }
 database_manager = { path = "../database_manager" }
 directory = { workspace = true }
 environment = { workspace = true }

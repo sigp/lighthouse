@@ -5,6 +5,9 @@ Lighthouse is available on Linux and macOS via the [Homebrew package manager](ht
 Please note that this installation method is maintained by the Homebrew community.
 It is not officially supported by the Lighthouse team.
 
+> Note: There is a [compilation error](https://github.com/Homebrew/homebrew-core/pull/220922) for Lighthouse v7.0.0 and above that remains unresolved. Users are recommended to download the binary from [the release
+page](https://github.com/sigp/lighthouse/releases) or build from source.
+
 ## Installation
 
 Install the latest version of the [`lighthouse`][formula] formula with:
