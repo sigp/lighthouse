@@ -470,7 +470,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     graffiti,
                     proposer_index,
                     builder_boost_factor,
-                    self_ref.graffiti_policy,
+                    Some(self_ref.graffiti_policy),
                 )
                 .await
                 .map_err(|e| {
@@ -534,7 +534,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         graffiti: Option<Graffiti>,
         proposer_index: Option<u64>,
         builder_boost_factor: Option<u64>,
-        graffiti_policy: GraffitiPolicy,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<UnsignedBlock<S::E>, BlockError> {
         let (block_response, _) = beacon_node
             .get_validator_blocks_v3::<S::E>(

@@ -2177,7 +2177,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
-        graffiti_policy: GraffitiPolicy,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<Url, Error> {
         let mut path = self.eth_path(V3)?;
 
@@ -2205,8 +2205,10 @@ impl BeaconNodeHttpClient {
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
         }
 
-        path.query_pairs_mut()
-            .append_pair("graffiti_policy", &graffiti_policy.to_string());
+        if let Some(graffiti_policy) = graffiti_policy {
+            path.query_pairs_mut()
+                .append_pair("graffiti_policy", &graffiti_policy.to_string());
+        }
 
         Ok(path)
     }
@@ -2218,7 +2220,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
-        graffiti_policy: GraffitiPolicy,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular(
             slot,
@@ -2239,7 +2241,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
-        graffiti_policy: GraffitiPolicy,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         let path = self
             .get_validator_blocks_v3_path(
@@ -2291,7 +2293,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
-        graffiti_policy: GraffitiPolicy,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular_ssz::<E>(
             slot,
@@ -2312,7 +2314,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
-        graffiti_policy: GraffitiPolicy,
+        graffiti_policy: Option<GraffitiPolicy>,
     ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         let path = self
             .get_validator_blocks_v3_path(
