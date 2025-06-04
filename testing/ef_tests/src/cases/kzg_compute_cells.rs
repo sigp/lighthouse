@@ -44,16 +44,11 @@ impl<E: EthSpec> Case for KZGComputeCells<E> {
             .map(|cells| cells.to_vec());
 
         let expected = self.output.as_ref().and_then(|cells| {
-            parse_cells_and_proofs(cells, &[])
-                .map(|(cells, _)| {
-                    cells
-                        .try_into()
-                        .map_err(|e| {
-                            Error::FailedToParseTest(format!("Failed to parse cells: {e:?}"))
-                        })
-                        .unwrap()
-                })
-                .ok()
+            Some(
+                parse_cells_and_proofs(cells, &[])
+                    .map(|(cells, _)| cells)
+                    .expect("Valid cells"),
+            )
         });
 
         compare_result::<Vec<Cell>, _>(&cells, &expected)
