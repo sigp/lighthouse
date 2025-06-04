@@ -11,7 +11,7 @@ use state_processing::per_epoch_processing::effective_balance_updates::{
     process_effective_balance_updates, process_effective_balance_updates_slow,
 };
 use state_processing::per_epoch_processing::single_pass::{
-    process_epoch_single_pass, SinglePassConfig,
+    process_epoch_single_pass, process_proposer_lookahead, SinglePassConfig,
 };
 use state_processing::per_epoch_processing::{
     altair, base,
@@ -286,7 +286,7 @@ impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
 impl<E: EthSpec> EpochTransition<E> for ProposerLookahead {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         if state.fork_name_unchecked().fulu_enabled() {
-            process_epoch_single_pass(state, spec, SinglePassConfig::enable_all()).map(|_| ())
+            process_proposer_lookahead(state, spec)
         } else {
             Ok(())
         }
