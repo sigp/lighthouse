@@ -43,12 +43,10 @@ impl<E: EthSpec> Case for KZGComputeCells<E> {
             })
             .map(|cells| cells.to_vec());
 
-        let expected = self.output.as_ref().and_then(|cells| {
-            Some(
-                parse_cells_and_proofs(cells, &[])
-                    .map(|(cells, _)| cells)
-                    .expect("Valid cells"),
-            )
+        let expected = self.output.as_ref().map(|cells| {
+            parse_cells_and_proofs(cells, &[])
+                .map(|(cells, _)| cells)
+                .expect("Valid cells")
         });
 
         compare_result::<Vec<Cell>, _>(&cells, &expected)
