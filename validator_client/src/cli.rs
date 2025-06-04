@@ -154,7 +154,7 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "GRAFFITI",
-        conflicts_with = "graffiti",
+        requires = "graffiti",
         help = "When used, client version info will be automatically appended to user custom graffiti.",
         display_order = 0
     )]
