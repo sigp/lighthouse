@@ -9,6 +9,7 @@ use beacon_chain::{
     BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
 use operation_pool::PersistedOperationPool;
+use state_processing::EpochProcessingError;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
@@ -67,11 +68,23 @@ fn massive_skips() {
     };
 
     assert!(state.slot() > 1, "the state should skip at least one slot");
-    assert_eq!(
-        error,
-        SlotProcessingError::BeaconStateError(BeaconStateError::InsufficientValidators),
-        "should return error indicating that validators have been slashed out"
-    )
+
+    if state.fork_name_unchecked().fulu_enabled() {
+        // post-fulu this is done in per_epoch_processing
+        assert_eq!(
+            error,
+            SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
+                BeaconStateError::InsufficientValidators
+            )),
+            "should return error indicating that validators have been slashed out"
+        )
+    } else {
+        assert_eq!(
+            error,
+            SlotProcessingError::BeaconStateError(BeaconStateError::InsufficientValidators),
+            "should return error indicating that validators have been slashed out"
+        )
+    }
 }
 
 #[tokio::test]
