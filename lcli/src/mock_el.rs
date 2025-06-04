@@ -13,7 +13,10 @@ use std::sync::Arc;
 use types::*;
 
 pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<(), String> {
-    let jwt_path: PathBuf = parse_required(matches, "jwt-output-path")?;
+    let jwt_path: PathBuf = parse_optional(matches, "jwt-secrets")?
+        .or_else(|| parse_optional(matches, "jwt-output-path").ok().flatten())
+        .expect("Missing required jwt-secrets or jwt-output-path");
+
     let listen_addr: Ipv4Addr = parse_required(matches, "listen-address")?;
     let listen_port: u16 = parse_required(matches, "listen-port")?;
     let all_payloads_valid: bool = parse_required(matches, "all-payloads-valid")?;
@@ -24,8 +27,14 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
 
     let handle = env.core_context().executor.handle().unwrap();
     let spec = Arc::new(E::default_spec());
-    let jwt_key = JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap();
-    std::fs::write(jwt_path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
+
+    let jwt_key = if jwt_path.exists() {
+        let bytes = hex::decode(std::fs::read_to_string(&jwt_path).unwrap().trim()).unwrap();
+        JwtKey::from_slice(&bytes)?
+    } else {
+        std::fs::write(&jwt_path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
+        JwtKey::from_slice(&DEFAULT_JWT_SECRET)?
+    };
 
     let config = MockExecutionConfig {
         server_config: Config {

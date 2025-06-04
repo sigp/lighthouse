@@ -494,8 +494,16 @@ fn main() {
                         .long("jwt-output-path")
                         .value_name("PATH")
                         .action(ArgAction::Set)
-                        .required(true)
                         .help("Path to write the JWT secret.")
+                        .conflicts_with("jwt-secrets")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("jwt-secrets")
+                        .long("jwt-secrets")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .help("Path to an existing secret, or to write the JWT secret if it doesn't exist.")
                         .display_order(0)
                 )
                 .arg(
