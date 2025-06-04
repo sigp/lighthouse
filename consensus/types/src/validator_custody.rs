@@ -5,9 +5,6 @@ use parking_lot::RwLock;
 use crate::{ChainSpec, Epoch, EthSpec, Slot};
 use ssz_derive::{Decode, Encode};
 
-// TODO(pawan): think more carefully about this number
-pub const EPOCHS_BETWEEN_VALIDATOR_CUSTODY_UPDATES: usize = 10;
-
 /// Specifies the number of validators attached to this node.
 #[derive(Debug, Copy, Encode, Decode, Clone)]
 pub struct ValidatorCustodyCount {
@@ -93,9 +90,33 @@ impl ValidatorRegistrations {
                 .and_modify(|old_count| *old_count = count_at_epoch)
                 .or_insert(count_at_epoch);
         }
+        tracing::debug!(
+            %epoch,
+            validator_count = count_at_epoch,
+            "Registered validators"
+        );
     }
 }
 
+/// Given the `count` of validators, return the custody requirement based on
+/// the spec parameters.
+///
+/// Note: a validator here represents a unit of 32 eth effective_balance
+/// equivalent to `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP`.
+///
+/// For e.g. a validator with eb 32 eth is 1 unit.
+/// a validator with eb 65 eth is 65 // 32 = 2 units.
+///
+/// See https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/validator.md#validator-custody
+fn get_validators_custody_requirement(count: u64, spec: &ChainSpec) -> u64 {
+    std::cmp::min(
+        std::cmp::max(count, spec.validator_custody_requirement),
+        spec.number_of_custody_groups,
+    )
+}
+
+/// Contains all the information the node requires to calculate the 
+/// number of columns to be custodied when checking for DA.
 #[derive(Debug)]
 pub struct CustodyContext {
     /// Columns to be custodied based on number of validators
@@ -178,6 +199,11 @@ impl CustodyContext {
         // Update the current validator custody value if the validator registration changes the number of
         // validators
         if new_validator_custody != validator_custody_at_head.count {
+            tracing::debug!(
+                old_count = validator_custody_at_head.count,
+                new_count = new_validator_custody,
+                "Validator count at head updated"
+            );
             *validator_custody_at_head = ValidatorCustodyCount {
                 count: new_validator_custody,
             };
@@ -192,11 +218,8 @@ impl CustodyContext {
         }
         let advertised_validator_custody = self.advertised_validator_custody.read().count;
         if advertised_validator_custody > 0 {
-            std::cmp::min(
-                spec.validator_custody_requirement + advertised_validator_custody - 1
-                    + spec.custody_requirement,
-                spec.number_of_columns,
-            )
+            get_validators_custody_requirement(advertised_validator_custody, spec)
+                + spec.custody_requirement
         } else {
             spec.custody_requirement
         }
@@ -212,16 +235,14 @@ impl CustodyContext {
         }
         let custody_at_head = self.validator_custody_at_head.read().count;
         if custody_at_head > 0 {
-            std::cmp::min(
-                spec.validator_custody_requirement + custody_at_head - 1 + spec.custody_requirement,
-                spec.number_of_columns,
-            )
+            get_validators_custody_requirement(custody_at_head, spec) + spec.custody_requirement
         } else {
             spec.custody_requirement
         }
     }
 }
 
+/// The custody information that gets persisted across runs.
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct CustodyContextSsz {
     advertised_validator_custody: ValidatorCustodyCount,
@@ -236,5 +257,131 @@ impl From<&CustodyContext> for CustodyContextSsz {
             validator_custody_at_head: context.validator_custody_at_head.read().clone(),
             persisted_is_supernode: context.persisted_is_supernode,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::MainnetEthSpec;
+
+    use super::*;
+
+    type E = MainnetEthSpec;
+
+    #[test]
+    fn no_validators() {
+        // supernode without validators
+        let custody_context = CustodyContext::new(true);
+        let spec = E::default_spec();
+        assert_eq!(
+            custody_context.head_custody_count(&spec),
+            spec.number_of_columns
+        );
+        assert_eq!(
+            custody_context.advertised_custody_column_count(&spec),
+            spec.number_of_columns
+        );
+    }
+
+    #[test]
+    fn fullnode() {
+        // fullnode without validators
+        let custody_context = CustodyContext::new(false);
+        let spec = E::default_spec();
+        assert_eq!(
+            custody_context.head_custody_count(&spec),
+            spec.custody_requirement,
+            "head custody count should be minimum spec custody requirement"
+        );
+        assert_eq!(
+            custody_context.advertised_custody_column_count(&spec),
+            spec.custody_requirement,
+            "advertised custody count should be minimum spec custody requirement"
+        );
+
+        // add 1 validator
+        custody_context.register_validator::<E>(vec![(0, 32_000_000_000)], Slot::new(0), &spec);
+
+        assert_eq!(
+            custody_context.head_custody_count(&spec),
+            spec.validator_custody_requirement + spec.custody_requirement,
+            "head custody count should increase with 1 validator"
+        );
+
+        assert_eq!(
+            custody_context.advertised_custody_column_count(&spec),
+            spec.custody_requirement,
+            "advertised custody count should not change"
+        );
+
+        // add 7 more validators to reach `validator_custody_requirement`
+        custody_context.register_validator::<E>(
+            vec![
+                (1, 32_000_000_000),
+                (2, 32_000_000_000),
+                (3, 32_000_000_000),
+                (4, 32_000_000_000),
+                (5, 32_000_000_000),
+                (6, 32_000_000_000),
+                (7, 32_000_000_000),
+            ],
+            Slot::new(0),
+            &spec,
+        );
+
+        assert_eq!(
+            custody_context.head_custody_count(&spec),
+            spec.validator_custody_requirement + spec.custody_requirement,
+            "head custody count should should be same as with 1 validator"
+        );
+
+        assert_eq!(
+            custody_context.advertised_custody_column_count(&spec),
+            spec.custody_requirement,
+            "advertised custody count should not change"
+        );
+
+        // adding 1 more validator should increase the custody count
+        custody_context.register_validator::<E>(vec![(8, 32_000_000_000)], Slot::new(0), &spec);
+        assert_eq!(
+            custody_context.head_custody_count(&spec),
+            spec.validator_custody_requirement + spec.custody_requirement + 1,
+            "head custody count should increase by 1"
+        );
+
+        assert_eq!(
+            custody_context.advertised_custody_column_count(&spec),
+            spec.custody_requirement,
+            "advertised custody count should not change"
+        );
+
+        // update effective balance for some validators.
+        // validator count should increase by 3
+        custody_context.register_validator::<E>(
+            vec![
+                (1, 96_000_000_000),
+                (2, 65_000_000_000),
+                (3, 32_000_000_000),
+                (4, 32_000_000_000),
+                (5, 32_000_000_000),
+                (6, 32_000_000_000),
+                (7, 32_000_000_000),
+                (8, 32_000_000_000),
+            ],
+            Slot::new(0),
+            &spec,
+        );
+
+        assert_eq!(
+            custody_context.head_custody_count(&spec),
+            spec.validator_custody_requirement + spec.custody_requirement + 4,
+            "head custody count should increase by 3"
+        );
+
+        assert_eq!(
+            custody_context.advertised_custody_column_count(&spec),
+            spec.custody_requirement,
+            "advertised custody count should not change"
+        );
     }
 }
