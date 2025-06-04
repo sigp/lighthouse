@@ -22,6 +22,7 @@ use state_processing::{
     ConsensusContext,
 };
 use std::fmt::Debug;
+use std::path::PathBuf;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
@@ -49,6 +50,7 @@ pub struct WithdrawalsPayload<E: EthSpec> {
 
 #[derive(Debug, Clone)]
 pub struct Operations<E: EthSpec, O: Operation<E>> {
+    path: PathBuf,
     metadata: Metadata,
     execution_metadata: Option<ExecutionMetadata>,
     pub pre: BeaconState<E>,
@@ -555,6 +557,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
         };
 
         Ok(Self {
+            path: path.into(),
             metadata,
             execution_metadata,
             pre,
@@ -580,7 +583,7 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         // empty blob schedule to generate an error.
         if O::handler_name() == "execution_payload"
             && fork_name == ForkName::Fulu
-            && _case_index == 32
+            && self.path.ends_with("invalid_exceed_max_blobs_per_block")
         {
             return Err(Error::SkippedKnownFailure);
         }
