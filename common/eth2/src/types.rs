@@ -13,7 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
-use std::fmt::{self, Display};
+use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -758,6 +758,15 @@ pub enum GraffitiPolicy {
     AppendClientVersions,
 }
 
+impl fmt::Display for GraffitiPolicy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            GraffitiPolicy::PreserveUserGraffiti => write!(f, "preserve_user_graffiti"),
+            GraffitiPolicy::AppendClientVersions => write!(f, "append_client_versions"),
+        }
+    }
+}
+
 #[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
@@ -765,7 +774,7 @@ pub struct ValidatorBlocksQuery {
     pub skip_randao_verification: SkipRandaoVerification,
     pub builder_boost_factor: Option<u64>,
     #[serde(default)]
-    pub graffiti_client: GraffitiPolicy,
+    pub graffiti_policy: GraffitiPolicy,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]

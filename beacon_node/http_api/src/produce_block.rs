@@ -10,7 +10,9 @@ use crate::{
 use beacon_chain::{
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
-use eth2::types::{self as api_types, ProduceBlockV3Metadata, SkipRandaoVerification};
+use eth2::types::{
+    self as api_types, GraffitiPolicy, ProduceBlockV3Metadata, SkipRandaoVerification,
+};
 use ssz::Encode;
 use std::sync::Arc;
 use types::{payload::BlockProductionVersion, *};
@@ -59,6 +61,16 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         None
     } else {
         query.builder_boost_factor
+    };
+
+    let _final_graffiti = match query.graffiti_policy {
+        GraffitiPolicy::PreserveUserGraffiti => query.graffiti,
+        GraffitiPolicy::AppendClientVersions => Some(
+            chain
+                .calculate_graffiti()
+                .get_graffiti(query.graffiti)
+                .await,
+        ),
     };
 
     let block_response_type = chain

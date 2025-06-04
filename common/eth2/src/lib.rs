@@ -2177,7 +2177,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
-        graffiti_policy: GraffitiPolicy, // or ValidatorBlocksQuery
+        graffiti_policy: GraffitiPolicy,
     ) -> Result<Url, Error> {
         let mut path = self.eth_path(V3)?;
 
@@ -2205,17 +2205,8 @@ impl BeaconNodeHttpClient {
                 .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
         }
 
-        // Add graffiti policy
-        match graffiti_policy {
-            GraffitiPolicy::AppendClientVersions => {
-                path.query_pairs_mut()
-                    .append_pair("graffity_policy", "append_client_versions");
-            }
-            GraffitiPolicy::PreserveUserGraffiti => {
-                path.query_pairs_mut()
-                    .append_pair("graffiti_policy", "preserve_user_graffiti");
-            }
-        }
+        path.query_pairs_mut()
+            .append_pair("graffiti_policy", &graffiti_policy.to_string());
 
         Ok(path)
     }
@@ -2227,7 +2218,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
-        graffiti_policy: GraffitiPolicy, // add graffitipolicy validator
+        graffiti_policy: GraffitiPolicy,
     ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
         self.get_validator_blocks_v3_modular(
             slot,
