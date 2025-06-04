@@ -751,7 +751,7 @@ pub struct ProposerData {
     pub slot: Slot,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Serialize, Deserialize, Default, Debug)]
 pub enum GraffitiPolicy {
     #[default]
     PreserveUserGraffiti,

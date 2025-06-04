@@ -51,7 +51,7 @@ pub struct BlockServiceBuilder<S, T> {
     chain_spec: Option<Arc<ChainSpec>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    graffiti_policy: GraffitiPolicy,
+    graffiti_policy: Option<GraffitiPolicy>,
 }
 
 impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
@@ -65,7 +65,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
             chain_spec: None,
             graffiti: None,
             graffiti_file: None,
-            graffiti_policy: GraffitiPolicy::PreserveUserGraffiti,
+            graffiti_policy: None,
         }
     }
 
@@ -109,7 +109,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
         self
     }
 
-    pub fn graffiti_policy(mut self, graffiti_policy: GraffitiPolicy) -> Self {
+    pub fn graffiti_policy(mut self, graffiti_policy: Option<GraffitiPolicy>) -> Self {
         self.graffiti_policy = graffiti_policy;
         self
     }
@@ -202,7 +202,7 @@ pub struct Inner<S, T> {
     chain_spec: Arc<ChainSpec>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    graffiti_policy: GraffitiPolicy,
+    graffiti_policy: Option<GraffitiPolicy>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -470,7 +470,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     graffiti,
                     proposer_index,
                     builder_boost_factor,
-                    Some(self_ref.graffiti_policy),
+                    self_ref.graffiti_policy,
                 )
                 .await
                 .map_err(|e| {

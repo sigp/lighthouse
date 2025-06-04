@@ -7,7 +7,7 @@ use directory::{
     get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
 };
-use eth2::types::Graffiti;
+use eth2::types::{Graffiti, GraffitiPolicy};
 use graffiti_file::GraffitiFile;
 use initialized_validators::Config as InitializedValidatorsConfig;
 use lighthouse_validator_store::Config as ValidatorStoreConfig;
@@ -55,6 +55,8 @@ pub struct Config {
     pub graffiti: Option<Graffiti>,
     /// Graffiti file to load per validator graffitis.
     pub graffiti_file: Option<GraffitiFile>,
+    /// GraffitiPolicy to append client version info
+    pub graffiti_policy: Option<GraffitiPolicy>,
     /// Configuration for the HTTP REST API.
     pub http_api: validator_http_api::Config,
     /// Configuration for the HTTP REST API.
@@ -117,6 +119,7 @@ impl Default for Config {
             long_timeouts_multiplier: 1,
             graffiti: None,
             graffiti_file: None,
+            graffiti_policy: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             beacon_node_fallback: <_>::default(),
@@ -231,25 +234,11 @@ impl Config {
             }
         }
 
-        if let Some(input_graffiti) = validator_client_config.graffiti_client.as_ref() {
-            let string = "testing";
-
-            let combined = format!("{} {}", string, input_graffiti);
-
-            let combined_bytes = combined.as_bytes();
-
-            if combined.len() > GRAFFITI_BYTES_LEN {
-                return Err(format!(
-                    "Your graffiti is too long! Some bytes are reserved for client version. {} bytes maximum!",
-                    GRAFFITI_BYTES_LEN - string.len()
-                ));
-            } else {
-                let mut graffiti = [0; 32];
-                graffiti[..combined.len()].copy_from_slice(combined_bytes);
-
-                config.graffiti = Some(graffiti.into());
-            }
-        }
+        config.graffiti_policy = if validator_client_config.graffiti_client.is_some() {
+            Some(GraffitiPolicy::AppendClientVersions)
+        } else {
+            Some(GraffitiPolicy::PreserveUserGraffiti)
+        };
 
         if let Some(input_fee_recipient) = validator_client_config.suggested_fee_recipient {
             config.validator_store.fee_recipient = Some(input_fee_recipient);
