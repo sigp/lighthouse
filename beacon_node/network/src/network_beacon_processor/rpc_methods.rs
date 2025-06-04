@@ -1,15 +1,15 @@
+use crate::metrics;
 use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use itertools::process_results;
-use lighthouse_network::discovery::ConnectionId;
+use itertools::{process_results, Itertools};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
 use lighthouse_network::rpc::*;
-use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
+use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, warn};
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, FixedBytesExtended, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -34,15 +34,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_response(
         &self,
         peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
         response: Response<T::EthSpec>,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
     ) {
         self.send_network_message(NetworkMessage::SendResponse {
             peer_id,
-            request_id,
-            id: (connection_id, substream_id),
+            inbound_request_id,
             response,
         })
     }
@@ -52,15 +49,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         error: RpcErrorResponse,
         reason: String,
-        id: PeerRequestId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
     ) {
         self.send_network_message(NetworkMessage::SendErrorResponse {
             peer_id,
             error,
             reason,
-            id,
-            request_id,
+            inbound_request_id,
         })
     }
 
@@ -71,7 +66,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn check_peer_relevance(
         &self,
         remote: &StatusMessage,
-    ) -> Result<Option<String>, BeaconChainError> {
+    ) -> Result<Option<String>, Box<BeaconChainError>> {
         let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
@@ -93,20 +88,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // current slot. This could be because they are using a different genesis time, or that
             // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time".to_string())
-        } else if remote.finalized_epoch <= local.finalized_epoch
-            && remote.finalized_root != Hash256::zero()
-            && local.finalized_root != Hash256::zero()
-            && self
-                .chain
-                .block_root_at_slot(start_slot(remote.finalized_epoch), WhenSlotSkipped::Prev)
-                .map(|root_opt| root_opt != Some(remote.finalized_root))?
+        } else if (remote.finalized_epoch == local.finalized_epoch
+            && remote.finalized_root == local.finalized_root)
+            || remote.finalized_root.is_zero()
+            || local.finalized_root.is_zero()
+            || remote.finalized_epoch > local.finalized_epoch
         {
-            // The remote's finalized epoch is less than or equal to ours, but the block root is
-            // different to the one in our chain. Therefore, the node is on a different chain and we
-            // should not communicate with them.
-            Some("Different finalized chain".to_string())
-        } else {
+            // Fast path. Remote finalized checkpoint is either identical, or genesis, or we are at
+            // genesis, or they are ahead. In all cases, we should allow this peer to connect to us
+            // so we can sync from them.
             None
+        } else {
+            // Remote finalized epoch is less than ours.
+            let remote_finalized_slot = start_slot(remote.finalized_epoch);
+            if remote_finalized_slot < self.chain.store.get_oldest_block_slot() {
+                // Peer's finalized checkpoint is older than anything in our DB. We are unlikely
+                // to be able to help them sync.
+                Some("Old finality out of range".to_string())
+            } else if remote_finalized_slot < self.chain.store.get_split_slot() {
+                // Peer's finalized slot is in range for a quick block root check in our freezer DB.
+                // If that block root check fails, reject them as they're on a different finalized
+                // chain.
+                if self
+                    .chain
+                    .block_root_at_slot(remote_finalized_slot, WhenSlotSkipped::Prev)
+                    .map(|root_opt| root_opt != Some(remote.finalized_root))
+                    .map_err(Box::new)?
+                {
+                    Some("Different finalized chain".to_string())
+                } else {
+                    None
+                }
+            } else {
+                // Peer's finality is older than ours, but newer than our split point, making a
+                // block root check infeasible. This case shouldn't happen particularly often so
+                // we give the peer the benefit of the doubt and let them connect to us.
+                None
+            }
         };
 
         Ok(irrelevant_reason)
@@ -139,24 +157,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlocksByRootRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             self.clone()
-                .handle_blocks_by_root_request_inner(
-                    peer_id,
-                    connection_id,
-                    substream_id,
-                    request_id,
-                    request,
-                )
+                .handle_blocks_by_root_request_inner(peer_id, inbound_request_id, request)
                 .await,
             Response::BlocksByRoot,
         );
@@ -166,9 +174,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_root_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlocksByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let log_results = |peer_id, requested_blocks, send_block_count| {
@@ -198,10 +204,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Ok(Some(block)) => {
                     self.send_response(
                         peer_id,
+                        inbound_request_id,
                         Response::BlocksByRoot(Some(block.clone())),
-                        connection_id,
-                        substream_id,
-                        request_id,
                     );
                     send_block_count += 1;
                 }
@@ -243,23 +247,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_blobs_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
-            self.handle_blobs_by_root_request_inner(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            ),
+            inbound_request_id,
+            self.handle_blobs_by_root_request_inner(peer_id, inbound_request_id, request),
             Response::BlobsByRoot,
         );
     }
@@ -268,9 +262,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_blobs_by_root_request_inner(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let Some(requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
@@ -292,10 +284,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
                 self.send_response(
                     peer_id,
+                    inbound_request_id,
                     Response::BlobsByRoot(Some(blob)),
-                    connection_id,
-                    substream_id,
-                    request_id,
                 );
                 send_blob_count += 1;
             } else {
@@ -317,10 +307,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             if blob_sidecar.index == *index {
                                 self.send_response(
                                     peer_id,
+                                    inbound_request_id,
                                     Response::BlobsByRoot(Some(blob_sidecar.clone())),
-                                    connection_id,
-                                    substream_id,
-                                    request_id,
                                 );
                                 send_blob_count += 1;
                                 break 'inner;
@@ -353,23 +341,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: DataColumnsByRootRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
-            self.handle_data_columns_by_root_request_inner(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                request,
-            ),
+            inbound_request_id,
+            self.handle_data_columns_by_root_request_inner(peer_id, inbound_request_id, request),
             Response::DataColumnsByRoot,
         );
     }
@@ -378,33 +356,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_root_request_inner(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: DataColumnsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
 
-        for data_column_id in request.data_column_ids.as_slice() {
-            match self.chain.get_data_column_checking_all_caches(
-                data_column_id.block_root,
-                data_column_id.index,
+        for data_column_ids_by_root in request.data_column_ids.as_slice() {
+            match self.chain.get_data_columns_checking_all_caches(
+                data_column_ids_by_root.block_root,
+                data_column_ids_by_root.columns.as_slice(),
             ) {
-                Ok(Some(data_column)) => {
-                    send_data_column_count += 1;
-                    self.send_response(
-                        peer_id,
-                        Response::DataColumnsByRoot(Some(data_column)),
-                        connection_id,
-                        substream_id,
-                        request_id,
-                    );
+                Ok(data_columns) => {
+                    send_data_column_count += data_columns.len();
+                    for data_column in data_columns {
+                        self.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::DataColumnsByRoot(Some(data_column)),
+                        );
+                    }
                 }
-                Ok(None) => {} // no-op
                 Err(e) => {
                     // TODO(das): lower log level when feature is stabilized
                     error!(
-                        block_root = ?data_column_id.block_root,
+                        block_root = ?data_column_ids_by_root.block_root,
                         %peer_id,
                         error = ?e,
                         "Error getting data column"
@@ -416,7 +391,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         debug!(
             %peer_id,
-            request = ?request.group_by_ordered_block_root(),
+            request = ?request.data_column_ids,
             returned = send_data_column_count,
             "Received DataColumnsByRoot Request"
         );
@@ -427,22 +402,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_updates_by_range(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: LightClientUpdatesByRangeRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             self.clone()
                 .handle_light_client_updates_by_range_request_inner(
                     peer_id,
-                    connection_id,
-                    substream_id,
-                    request_id,
+                    inbound_request_id,
                     request,
                 ),
             Response::LightClientUpdatesByRange,
@@ -453,9 +422,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_updates_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: LightClientUpdatesByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -494,8 +461,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.send_network_message(NetworkMessage::SendResponse {
                 peer_id,
                 response: Response::LightClientUpdatesByRange(Some(Arc::new(lc_update.clone()))),
-                request_id,
-                id: (connection_id, substream_id),
+                inbound_request_id,
             });
         }
 
@@ -527,16 +493,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         request: LightClientBootstrapRequest,
     ) {
         self.terminate_response_single_item(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             match self.chain.get_light_client_bootstrap(&request.root) {
                 Ok(Some((bootstrap, _))) => Ok(Arc::new(bootstrap)),
                 Ok(None) => Err((
@@ -561,15 +523,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_optimistic_update(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
     ) {
         self.terminate_response_single_item(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             match self
                 .chain
                 .light_client_server_cache
@@ -589,15 +547,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_light_client_finality_update(
         self: &Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
     ) {
         self.terminate_response_single_item(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             match self
                 .chain
                 .light_client_server_cache
@@ -617,24 +571,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: BlocksByRangeRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
+            inbound_request_id,
             self.clone()
-                .handle_blocks_by_range_request_inner(
-                    peer_id,
-                    connection_id,
-                    substream_id,
-                    request_id,
-                    req,
-                )
+                .handle_blocks_by_range_request_inner(peer_id, inbound_request_id, req)
                 .await,
             Response::BlocksByRange,
         );
@@ -644,102 +588,60 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn handle_blocks_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: BlocksByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
+        let req_start_slot = *req.start_slot();
+        let req_count = *req.count();
+
         debug!(
             %peer_id,
-            count = req.count(),
-            start_slot = %req.start_slot(),
+            count = req_count,
+            start_slot = %req_start_slot,
             "Received BlocksByRange Request"
         );
 
-        let forwards_block_root_iter = match self
-            .chain
-            .forwards_iter_block_roots(Slot::from(*req.start_slot()))
-        {
-            Ok(iter) => iter,
-            Err(BeaconChainError::HistoricalBlockOutOfRange {
-                slot,
-                oldest_block_slot,
-            }) => {
-                debug!(
-                    requested_slot = %slot,
-                    oldest_known_slot = %oldest_block_slot,
-                    "Range request failed during backfill"
-                );
-                return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
-            }
-            Err(e) => {
-                error!(
-                    request = ?req,
-                    %peer_id,
-                    error = ?e,
-                    "Unable to obtain root iter"
-                );
-                return Err((RpcErrorResponse::ServerError, "Database error"));
-            }
-        };
-
-        // Pick out the required blocks, ignoring skip-slots.
-        let mut last_block_root = None;
-        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
-            iter.take_while(|(_, slot)| {
-                slot.as_u64() < req.start_slot().saturating_add(*req.count())
-            })
-            // map skip slots to None
-            .map(|(root, _)| {
-                let result = if Some(root) == last_block_root {
-                    None
-                } else {
-                    Some(root)
-                };
-                last_block_root = Some(root);
-                result
-            })
-            .collect::<Vec<Option<Hash256>>>()
-        });
-
-        let block_roots = match maybe_block_roots {
-            Ok(block_roots) => block_roots,
-            Err(e) => {
-                error!(
-                    request = ?req,
-                    %peer_id,
-                    error = ?e,
-                    "Error during iteration over blocks"
-                );
-                return Err((RpcErrorResponse::ServerError, "Iteration error"));
-            }
-        };
-
-        // remove all skip slots
-        let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
+        // Spawn a blocking handle since get_block_roots_for_slot_range takes a sync lock on the
+        // fork-choice.
+        let network_beacon_processor = self.clone();
+        let block_roots = self
+            .executor
+            .spawn_blocking_handle(
+                move || {
+                    network_beacon_processor.get_block_roots_for_slot_range(
+                        req_start_slot,
+                        req_count,
+                        "BlocksByRange",
+                    )
+                },
+                "get_block_roots_for_slot_range",
+            )
+            .ok_or((RpcErrorResponse::ServerError, "shutting down"))?
+            .await
+            .map_err(|_| (RpcErrorResponse::ServerError, "tokio join"))??;
 
         let current_slot = self
             .chain
             .slot()
             .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
 
-        let log_results = |req: BlocksByRangeRequest, peer_id, blocks_sent| {
-            if blocks_sent < (*req.count() as usize) {
+        let log_results = |peer_id, blocks_sent| {
+            if blocks_sent < (req_count as usize) {
                 debug!(
                     %peer_id,
                     msg = "Failed to return all requested blocks",
-                    start_slot = %req.start_slot(),
+                    start_slot = %req_start_slot,
                     %current_slot,
-                    requested = req.count(),
+                    requested = req_count,
                     returned = blocks_sent,
                     "BlocksByRange outgoing response processed"
                 );
             } else {
                 debug!(
                     %peer_id,
-                    start_slot = %req.start_slot(),
+                    start_slot = %req_start_slot,
                     %current_slot,
-                    requested = req.count(),
+                    requested = req_count,
                     returned = blocks_sent,
                     "BlocksByRange outgoing response processed"
                 );
@@ -761,15 +663,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Ok(Some(block)) => {
                     // Due to skip slots, blocks could be out of the range, we ensure they
                     // are in the range before sending
-                    if block.slot() >= *req.start_slot()
-                        && block.slot() < req.start_slot() + req.count()
+                    if block.slot() >= req_start_slot && block.slot() < req_start_slot + req.count()
                     {
                         blocks_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             response: Response::BlocksByRange(Some(block.clone())),
-                            id: (connection_id, substream_id),
                         });
                     }
                 }
@@ -780,7 +680,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         request_root = ?root,
                         "Block in the chain is not in the store"
                     );
-                    log_results(req, peer_id, blocks_sent);
+                    log_results(peer_id, blocks_sent);
                     return Err((RpcErrorResponse::ServerError, "Database inconsistency"));
                 }
                 Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
@@ -789,7 +689,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         reason = "execution layer not synced",
                         "Failed to fetch execution payload for blocks by range request"
                     );
-                    log_results(req, peer_id, blocks_sent);
+                    log_results(peer_id, blocks_sent);
                     // send the stream terminator
                     return Err((
                         RpcErrorResponse::ResourceUnavailable,
@@ -815,38 +715,155 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Error fetching block for peer"
                         );
                     }
-                    log_results(req, peer_id, blocks_sent);
+                    log_results(peer_id, blocks_sent);
                     // send the stream terminator
                     return Err((RpcErrorResponse::ServerError, "Failed fetching blocks"));
                 }
             }
         }
 
-        log_results(req, peer_id, blocks_sent);
+        log_results(peer_id, blocks_sent);
         Ok(())
+    }
+
+    fn get_block_roots_for_slot_range(
+        &self,
+        req_start_slot: u64,
+        req_count: u64,
+        req_type: &str,
+    ) -> Result<Vec<Hash256>, (RpcErrorResponse, &'static str)> {
+        let start_time = std::time::Instant::now();
+        let finalized_slot = self
+            .chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+
+        let (block_roots, source) = if req_start_slot >= finalized_slot.as_u64() {
+            // If the entire requested range is after finalization, use fork_choice
+            (
+                self.chain
+                    .block_roots_from_fork_choice(req_start_slot, req_count),
+                "fork_choice",
+            )
+        } else if req_start_slot + req_count <= finalized_slot.as_u64() {
+            // If the entire requested range is before finalization, use store
+            (
+                self.get_block_roots_from_store(req_start_slot, req_count)?,
+                "store",
+            )
+        } else {
+            // Split the request at the finalization boundary
+            let count_from_store = finalized_slot.as_u64() - req_start_slot;
+            let count_from_fork_choice = req_count - count_from_store;
+            let start_slot_fork_choice = finalized_slot.as_u64();
+
+            // Get roots from store (up to and including finalized slot)
+            let mut roots_from_store =
+                self.get_block_roots_from_store(req_start_slot, count_from_store)?;
+
+            // Get roots from fork choice (after finalized slot)
+            let roots_from_fork_choice = self
+                .chain
+                .block_roots_from_fork_choice(start_slot_fork_choice, count_from_fork_choice);
+
+            roots_from_store.extend(roots_from_fork_choice);
+
+            (roots_from_store, "mixed")
+        };
+
+        let elapsed = start_time.elapsed();
+        metrics::observe_timer_vec(
+            &metrics::BEACON_PROCESSOR_GET_BLOCK_ROOTS_TIME,
+            &[source],
+            elapsed,
+        );
+
+        debug!(
+            req_type,
+            start_slot = %req_start_slot,
+            req_count,
+            roots_count = block_roots.len(),
+            source,
+            elapsed = ?elapsed,
+            %finalized_slot,
+            "Range request block roots retrieved"
+        );
+
+        Ok(block_roots)
+    }
+
+    /// Get block roots for a `BlocksByRangeRequest` from the store using roots iterator.
+    fn get_block_roots_from_store(
+        &self,
+        start_slot: u64,
+        count: u64,
+    ) -> Result<Vec<Hash256>, (RpcErrorResponse, &'static str)> {
+        let forwards_block_root_iter =
+            match self.chain.forwards_iter_block_roots(Slot::from(start_slot)) {
+                Ok(iter) => iter,
+                Err(BeaconChainError::HistoricalBlockOutOfRange {
+                    slot,
+                    oldest_block_slot,
+                }) => {
+                    debug!(
+                        requested_slot = %slot,
+                        oldest_known_slot = %oldest_block_slot,
+                        "Range request failed during backfill"
+                    );
+                    return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
+                }
+                Err(e) => {
+                    error!(
+                        %start_slot,
+                        count,
+                        error = ?e,
+                        "Unable to obtain root iter for range request"
+                    );
+                    return Err((RpcErrorResponse::ServerError, "Database error"));
+                }
+            };
+
+        // Pick out the required blocks, ignoring skip-slots.
+        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
+            iter.take_while(|(_, slot)| slot.as_u64() < start_slot.saturating_add(count))
+                .collect::<Vec<_>>()
+        });
+
+        let block_roots = match maybe_block_roots {
+            Ok(block_roots) => block_roots,
+            Err(e) => {
+                error!(
+                    %start_slot,
+                    count,
+                    error = ?e,
+                    "Error during iteration over blocks for range request"
+                );
+                return Err((RpcErrorResponse::ServerError, "Iteration error"));
+            }
+        };
+
+        // remove all skip slots i.e. duplicated roots
+        Ok(block_roots
+            .into_iter()
+            .map(|(root, _)| root)
+            .unique()
+            .collect::<Vec<_>>())
     }
 
     /// Handle a `BlobsByRange` request from the peer.
     pub fn handle_blobs_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: BlobsByRangeRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
-            self.handle_blobs_by_range_request_inner(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                req,
-            ),
+            inbound_request_id,
+            self.handle_blobs_by_range_request_inner(peer_id, inbound_request_id, req),
             Response::BlobsByRange,
         );
     }
@@ -855,9 +872,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn handle_blobs_by_range_request_inner(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: BlobsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -904,68 +919,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
         }
 
-        let forwards_block_root_iter =
-            match self.chain.forwards_iter_block_roots(request_start_slot) {
-                Ok(iter) => iter,
-                Err(BeaconChainError::HistoricalBlockOutOfRange {
-                    slot,
-                    oldest_block_slot,
-                }) => {
-                    debug!(
-                        requested_slot = %slot,
-                        oldest_known_slot = %oldest_block_slot,
-                        "Range request failed during backfill"
-                    );
-                    return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
-                }
-                Err(e) => {
-                    error!(
-                        request = ?req,
-                        %peer_id,
-                        error = ?e,
-                        "Unable to obtain root iter"
-                    );
-                    return Err((RpcErrorResponse::ServerError, "Database error"));
-                }
-            };
-
-        // Use `WhenSlotSkipped::Prev` to get the most recent block root prior to
-        // `request_start_slot` in order to check whether the `request_start_slot` is a skip.
-        let mut last_block_root = req.start_slot.checked_sub(1).and_then(|prev_slot| {
-            self.chain
-                .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
-                .ok()
-                .flatten()
-        });
-
-        // Pick out the required blocks, ignoring skip-slots.
-        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
-            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
-                // map skip slots to None
-                .map(|(root, _)| {
-                    let result = if Some(root) == last_block_root {
-                        None
-                    } else {
-                        Some(root)
-                    };
-                    last_block_root = Some(root);
-                    result
-                })
-                .collect::<Vec<Option<Hash256>>>()
-        });
-
-        let block_roots = match maybe_block_roots {
-            Ok(block_roots) => block_roots,
-            Err(e) => {
-                error!(
-                    request = ?req,
-                    %peer_id,
-                    error = ?e,
-                    "Error during iteration over blocks"
-                );
-                return Err((RpcErrorResponse::ServerError, "Database error"));
-            }
-        };
+        let block_roots =
+            self.get_block_roots_for_slot_range(req.start_slot, req.count, "BlobsByRange")?;
 
         let current_slot = self
             .chain
@@ -983,8 +938,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
         };
 
-        // remove all skip slots
-        let block_roots = block_roots.into_iter().flatten();
         let mut blobs_sent = 0;
 
         for root in block_roots {
@@ -994,9 +947,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         blobs_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
+                            inbound_request_id,
                             response: Response::BlobsByRange(Some(blob_sidecar.clone())),
-                            request_id,
-                            id: (connection_id, substream_id),
                         });
                     }
                 }
@@ -1026,23 +978,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_range_request(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: DataColumnsByRangeRequest,
     ) {
         self.terminate_response_stream(
             peer_id,
-            connection_id,
-            substream_id,
-            request_id,
-            self.handle_data_columns_by_range_request_inner(
-                peer_id,
-                connection_id,
-                substream_id,
-                request_id,
-                req,
-            ),
+            inbound_request_id,
+            self.handle_data_columns_by_range_request_inner(peer_id, inbound_request_id, req),
             Response::DataColumnsByRange,
         );
     }
@@ -1051,9 +993,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn handle_data_columns_by_range_request_inner(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         req: DataColumnsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(
@@ -1109,71 +1049,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
         }
 
-        let forwards_block_root_iter =
-            match self.chain.forwards_iter_block_roots(request_start_slot) {
-                Ok(iter) => iter,
-                Err(BeaconChainError::HistoricalBlockOutOfRange {
-                    slot,
-                    oldest_block_slot,
-                }) => {
-                    debug!(
-                        requested_slot = %slot,
-                        oldest_known_slot = %oldest_block_slot,
-                        "Range request failed during backfill"
-                    );
-                    return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
-                }
-                Err(e) => {
-                    error!(
-                        request = ?req,
-                        %peer_id,
-                        error = ?e,
-                        "Unable to obtain root iter"
-                    );
-                    return Err((RpcErrorResponse::ServerError, "Database error"));
-                }
-            };
-
-        // Use `WhenSlotSkipped::Prev` to get the most recent block root prior to
-        // `request_start_slot` in order to check whether the `request_start_slot` is a skip.
-        let mut last_block_root = req.start_slot.checked_sub(1).and_then(|prev_slot| {
-            self.chain
-                .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
-                .ok()
-                .flatten()
-        });
-
-        // Pick out the required blocks, ignoring skip-slots.
-        let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
-            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
-                // map skip slots to None
-                .map(|(root, _)| {
-                    let result = if Some(root) == last_block_root {
-                        None
-                    } else {
-                        Some(root)
-                    };
-                    last_block_root = Some(root);
-                    result
-                })
-                .collect::<Vec<Option<Hash256>>>()
-        });
-
-        let block_roots = match maybe_block_roots {
-            Ok(block_roots) => block_roots,
-            Err(e) => {
-                error!(
-                    request = ?req,
-                    %peer_id,
-                    error = ?e,
-                    "Error during iteration over blocks"
-                );
-                return Err((RpcErrorResponse::ServerError, "Database error"));
-            }
-        };
-
-        // remove all skip slots
-        let block_roots = block_roots.into_iter().flatten();
+        let block_roots =
+            self.get_block_roots_for_slot_range(req.start_slot, req.count, "DataColumnsByRange")?;
         let mut data_columns_sent = 0;
 
         for root in block_roots {
@@ -1183,11 +1060,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         data_columns_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
-                            request_id,
+                            inbound_request_id,
                             response: Response::DataColumnsByRange(Some(
                                 data_column_sidecar.clone(),
                             )),
-                            id: (connection_id, substream_id),
                         });
                     }
                     Ok(None) => {} // no-op
@@ -1230,32 +1106,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn terminate_response_single_item<R, F: Fn(R) -> Response<T::EthSpec>>(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         result: Result<R, (RpcErrorResponse, String)>,
         into_response: F,
     ) {
         match result {
             Ok(resp) => {
-                // Not necessary to explicitly send a termination message if this InboundRequest
-                // returns <= 1 for InboundRequest::expected_responses
-                // https://github.com/sigp/lighthouse/blob/3058b96f2560f1da04ada4f9d8ba8e5651794ff6/beacon_node/lighthouse_network/src/rpc/handler.rs#L555-L558
                 self.send_network_message(NetworkMessage::SendResponse {
                     peer_id,
-                    request_id,
+                    inbound_request_id,
                     response: into_response(resp),
-                    id: (connection_id, substream_id),
                 });
             }
             Err((error_code, reason)) => {
-                self.send_error_response(
-                    peer_id,
-                    error_code,
-                    reason,
-                    (connection_id, substream_id),
-                    request_id,
-                );
+                self.send_error_response(peer_id, error_code, reason, inbound_request_id);
             }
         }
     }
@@ -1265,27 +1129,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn terminate_response_stream<R, F: FnOnce(Option<R>) -> Response<T::EthSpec>>(
         &self,
         peer_id: PeerId,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
-        request_id: RequestId,
+        inbound_request_id: InboundRequestId,
         result: Result<(), (RpcErrorResponse, &'static str)>,
         into_response: F,
     ) {
         match result {
             Ok(_) => self.send_network_message(NetworkMessage::SendResponse {
                 peer_id,
-                request_id,
+                inbound_request_id,
                 response: into_response(None),
-                id: (connection_id, substream_id),
             }),
             Err((error_code, reason)) => {
-                self.send_error_response(
-                    peer_id,
-                    error_code,
-                    reason.into(),
-                    (connection_id, substream_id),
-                    request_id,
-                );
+                self.send_error_response(peer_id, error_code, reason.into(), inbound_request_id);
             }
         }
     }

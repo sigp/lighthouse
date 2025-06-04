@@ -1,9 +1,12 @@
+use crate::ContextDeserialize;
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as DeError;
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_types::Error;
 use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
+use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash, TreeHashType};
 
 /// Emulates a SSZ `List`.
 ///
@@ -214,6 +217,84 @@ where
 
     fn ssz_bytes_len(&self) -> usize {
         self.vec.ssz_bytes_len()
+    }
+}
+
+impl<'de, C, T> ContextDeserialize<'de, (C, usize)> for RuntimeVariableList<T>
+where
+    T: ContextDeserialize<'de, C>,
+    C: Clone,
+{
+    fn context_deserialize<D>(deserializer: D, context: (C, usize)) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // first parse out a Vec<C> using the Vec<C> impl you already have
+        let vec: Vec<T> = Vec::context_deserialize(deserializer, context.0)?;
+        if vec.len() > context.1 {
+            return Err(DeError::custom(format!(
+                "RuntimeVariableList lengh {} exceeds max_len {}",
+                vec.len(),
+                context.1
+            )));
+        }
+        Ok(RuntimeVariableList::from_vec(vec, context.1))
+    }
+}
+
+impl<T: TreeHash> TreeHash for RuntimeVariableList<T> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        let root = runtime_vec_tree_hash_root::<T>(&self.vec, self.max_len);
+
+        tree_hash::mix_in_length(&root, self.len())
+    }
+}
+
+// We can delete this once the upstream `vec_tree_hash_root` is modified to use a runtime max len.
+pub fn runtime_vec_tree_hash_root<T>(vec: &[T], max_len: usize) -> Hash256
+where
+    T: TreeHash,
+{
+    match T::tree_hash_type() {
+        TreeHashType::Basic => {
+            let mut hasher =
+                MerkleHasher::with_leaves(max_len.div_ceil(T::tree_hash_packing_factor()));
+
+            for item in vec {
+                hasher
+                    .write(&item.tree_hash_packed_encoding())
+                    .expect("ssz_types variable vec should not contain more elements than max");
+            }
+
+            hasher
+                .finish()
+                .expect("ssz_types variable vec should not have a remaining buffer")
+        }
+        TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
+            let mut hasher = MerkleHasher::with_leaves(max_len);
+
+            for item in vec {
+                hasher
+                    .write(item.tree_hash_root().as_slice())
+                    .expect("ssz_types vec should not contain more elements than max");
+            }
+
+            hasher
+                .finish()
+                .expect("ssz_types vec should not have a remaining buffer")
+        }
     }
 }
 

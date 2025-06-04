@@ -17,7 +17,6 @@
 
 ## [Validator](#validator-1)
 
-- [Why does it take so long for a validator to be activated?](#vc-activation)
 - [Can I use redundancy in my staking setup?](#vc-redundancy)
 - [I am missing attestations. Why?](#vc-missed-attestations)
 - [Sometimes I miss the attestation head vote, resulting in penalty. Is this normal?](#vc-head-vote)
@@ -112,10 +111,7 @@ After checkpoint forwards sync completes, the beacon node will start to download
 INFO Downloading historical blocks           est_time: --, distance: 4524545 slots (89 weeks 5 days), service: slot_notifier
 ```
 
-If the same log appears every minute and you do not see progress in downloading historical blocks, you can try one of the followings:
-
-- Check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the ports 9000 TCP/UDP and 9001 UDP to increase peer count.
-- Restart the beacon node.
+If the same log appears every minute and you do not see progress in downloading historical blocks, check the number of peers you are connected to. If you have low peers (less than 50), try to do port forwarding on the ports 9000 TCP/UDP and 9001 UDP to increase peer count.
 
 ### <a name="bn-duplicate"></a> I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?
 
@@ -146,7 +142,7 @@ An example of the full log is shown below:
 WARN BlockProcessingFailure                  outcome: MissingBeaconBlock(0xbdba211f8d72029554e405d8e4906690dca807d1d7b1bc8c9b88d7970f1648bc), msg: unexpected condition in processing block.
 ```
 
-`MissingBeaconBlock` suggests that the database has corrupted. You should wipe the database and use [Checkpoint Sync](./checkpoint-sync.md) to resync the beacon chain.
+`MissingBeaconBlock` suggests that the database has corrupted. You should wipe the database and use [Checkpoint Sync](./advanced_checkpoint_sync.md) to resync the beacon chain.
 
 ### <a name="bn-download-slow"></a> After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?
 
@@ -154,29 +150,13 @@ This is a normal behaviour. Since [v4.1.0](https://github.com/sigp/lighthouse/re
 
 ### <a name="bn-http"></a> My beacon node logs `WARN Error processing HTTP API request`, what should I do?
 
-This warning usually comes with an http error code. Some examples are given below:
+An example of the log is shown below
 
-1. The log shows:
+```text
+WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
+```
 
-    ```text
-    WARN Error processing HTTP API request       method: GET, path: /eth/v1/validator/attestation_data, status: 500 Internal Server Error, elapsed: 305.65µs
-    ```
-
-    The error is `500 Internal Server Error`. This suggests that the execution client is not synced. Once the execution client is synced, the error will disappear.
-
-1. The log shows:
-
-    ```text
-    WARN Error processing HTTP API request       method: POST, path: /eth/v1/validator/duties/attester/199565, status: 503 Service Unavailable, elapsed: 96.787µs
-    ```
-
-    The error is `503 Service Unavailable`. This means that the beacon node is still syncing. When this happens, the validator client will log:
-
-    ```text
-    ERRO Failed to download attester duties      err: FailedToDownloadAttesters("Some endpoints failed, num_failed: 2 http://localhost:5052/ => Unavailable(NotSynced), http://localhost:5052/ => RequestFailed(ServerMessage(ErrorMessage { code: 503, message: \"SERVICE_UNAVAILABLE: beacon node is syncing
-    ```
-
-    This means that the validator client is sending requests to the beacon node. However, as the beacon node is still syncing, it is therefore unable to fulfil the request. The error will disappear once the beacon node is synced.
+This warning usually happens when the validator client sends a request to the beacon node, but the beacon node is unable to fulfil the request. This can be due to the execution client is not synced/is syncing and/or the beacon node is syncing. The error show go away when the node is synced.
 
 ### <a name="bn-fork-choice"></a> My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?
 
@@ -190,13 +170,21 @@ This suggests that the computer resources are being overwhelmed. It could be due
 
 ### <a name="bn-queue-full"></a> My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?
 
-An example of the full log is shown below:
+Some examples of the full log is shown below:
 
 ```text
 ERRO Aggregate attestation queue full, queue_len: 4096, msg: the system has insufficient resources for load, module: network::beacon_processor:1542
+ERRO Attestation delay queue is full         msg: system resources may be saturated, queue_size: 16384, service: bproc
 ```
 
-This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. This can happen, e.g., when the beacon node is downloading historical blocks, or when the execution client is syncing. The error will disappear when the resources used return to normal or when the node is synced.
+This suggests that the computer resources are being overwhelmed. It could be due to high CPU usage or high disk I/O usage. Some common reasons are:
+
+- when the beacon node is downloading historical blocks
+- the execution client is syncing
+- disk IO is being overwhelmed
+- parallel API queries to the beacon node
+
+If the node is syncing or downloading historical blocks, the error should disappear when the resources used return to normal or when the node is synced.
 
 ### <a name="bn-deposit-cache"></a> My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?
 
@@ -204,84 +192,13 @@ This is a known [bug](https://github.com/sigp/lighthouse/issues/3707) that will 
 
 ## Validator
 
-### <a name="vc-activation"></a> Why does it take so long for a validator to be activated?
-
-After validators create their execution layer deposit transaction there are two waiting
-periods before they can start producing blocks and attestations:
-
-1. Waiting for the beacon chain to recognise the execution layer block containing the
-   deposit (generally takes ~13.6 hours).
-1. Waiting in the queue for validator activation.
-
-Detailed answers below:
-
-#### 1. Waiting for the beacon chain to detect the execution layer deposit
-
-Since the beacon chain uses the execution layer for validator on-boarding, beacon chain
-validators must listen to event logs from the deposit contract. Since the
-latest blocks of the execution chain are vulnerable to re-orgs due to minor network
-partitions, beacon nodes follow the execution chain at a distance of 2048 blocks
-(~6.8 hours) (see
-[`ETH1_FOLLOW_DISTANCE`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/validator.md#process-deposit)).
-This follow distance protects the beacon chain from on-boarding validators that
-are likely to be removed due to an execution chain re-org.
-
-Now we know there's a 6.8 hours delay before the beacon nodes even _consider_ an
-execution layer block. Once they _are_ considering these blocks, there's a voting period
-where beacon validators vote on which execution block hash to include in the beacon chain. This
-period is defined as 64 epochs (~6.8 hours, see
-[`ETH1_VOTING_PERIOD`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#time-parameters)).
-During this voting period, each beacon block producer includes an
-[`Eth1Data`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#eth1data)
-in their block which counts as a vote towards what that validator considers to
-be the head of the execution chain at the start of the voting period (with respect
-to `ETH1_FOLLOW_DISTANCE`, of course). You can see the exact voting logic
-[here](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/validator.md#eth1-data).
-
-These two delays combined represent the time between an execution layer deposit being
-included in an execution data vote and that validator appearing in the beacon chain.
-The `ETH1_FOLLOW_DISTANCE` delay causes a minimum delay of ~6.8 hours and
-`ETH1_VOTING_PERIOD` means that if a validator deposit happens just _before_
-the start of a new voting period then they might not notice this delay at all.
-However, if the validator deposit happens just _after_ the start of the new
-voting period the validator might have to wait ~6.8 hours for next voting
-period. In times of very severe network issues, the network may even fail
-to vote in new execution layer blocks, thus stopping all new validator deposits and causing the wait to be longer.
-
-#### 2. Waiting for a validator to be activated
-
-If a validator has provided an invalid public key or signature, they will
-_never_ be activated.
-They will simply be forgotten by the beacon chain! But, if those parameters were
-correct, once the execution layer delays have elapsed and the validator appears in the
-beacon chain, there's _another_ delay before the validator becomes "active"
-(canonical definition
-[here](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#is_active_validator)) and can start producing blocks and attestations.
-
-Firstly, the validator won't become active until their beacon chain balance is
-equal to or greater than
-[`MAX_EFFECTIVE_BALANCE`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#gwei-values)
-(32 ETH on mainnet, usually 3.2 ETH on testnets). Once this balance is reached,
-the validator must wait until the start of the next epoch (up to 6.4 minutes)
-for the
-[`process_registry_updates`](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#registry-updates)
-routine to run. This routine activates validators with respect to a [churn
-limit](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beacon-chain.md#get_validator_churn_limit);
-it will only allow the number of validators to increase (churn) by a certain
-amount. If a new validator isn't within the churn limit from the front of the queue,
-they will need to wait another epoch (6.4 minutes) for their next chance. This
-repeats until the queue is cleared. The churn limit for validators joining the beacon chain is capped at 8 per epoch or 1800 per day. If, for example, there are 9000 validators waiting to be activated, this means that the waiting time can take up to 5 days.
-
-Once a validator has been activated, congratulations! It's time to
-produce blocks and attestations!
-
 ### <a name="vc-redundancy"></a> Can I use redundancy in my staking setup?
 
 You should **never** use duplicate/redundant validator keypairs or validator clients (i.e., don't
 duplicate your JSON keystores and don't run `lighthouse vc` twice). This will lead to slashing.
 
 However, there are some components which can be configured with redundancy. See the
-[Redundancy](./redundancy.md) guide for more information.
+[Redundancy](./advanced_redundancy.md) guide for more information.
 
 ### <a name="vc-missed-attestations"></a> I am missing attestations. Why?
 
@@ -292,22 +209,22 @@ The first thing is to ensure both consensus and execution clients are synced wit
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
+You can see more information on the [EthStaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
 
 Another cause for missing attestations is the block arriving late, or there are delays during block processing.
 
 An example of the log: (debug logs can be found under `$datadir/beacon/logs`):
 
 ```text
-Delayed head block, set_as_head_time_ms: 27, imported_time_ms: 168, attestable_delay_ms: 4209, available_delay_ms: 4186, execution_time_ms: 201, blob_delay_ms: 3815, observed_delay_ms: 3984, total_delay_ms: 4381, slot: 1886014, proposer_index: 733, block_root: 0xa7390baac88d50f1cbb5ad81691915f6402385a12521a670bbbd4cd5f8bf3934, service: beacon, module: beacon_chain::canonical_head:1441
+DEBG Delayed head block, set_as_head_time_ms: 37, imported_time_ms: 1824, attestable_delay_ms: 3660, available_delay_ms: 3491, execution_time_ms: 78, consensus_time_ms: 161, blob_delay_ms: 3291, observed_delay_ms: 3250, total_delay_ms: 5352, slot: 11429888, proposer_index: 778696, block_root: 0x34cc0675ad5fd052699af2ff37b858c3eb8186c5b29fdadb1dabd246caf79e43, service: beacon, module: beacon_chain::canonical_head:1440
 ```
 
-The field to look for is `attestable_delay`, which defines the time when a block is ready for the validator to attest. If the `attestable_delay` is greater than 4s which has past the window of attestation, the attestation will fail. In the above example, the delay is mostly caused by late block observed by the node, as shown in  `observed_delay`. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). Ideally,  `observed_delay` should be less than 3 seconds. In this example, the validator failed to attest the block due to the block arriving late.
+The field to look for is `attestable_delay`, which defines the time when a block is ready for the validator to attest. If the `attestable_delay` is greater than 4s then it has missed the window for attestation, and the attestation will fail. In the above example, the delay is mostly caused by a late block observed by the node, as shown in `observed_delay`. The `observed_delay` is determined mostly by the proposer and partly by your networking setup (e.g., how long it took for the node to receive the block). Ideally, `observed_delay` should be less than 3 seconds. In this example, the validator failed to attest to the block due to the block arriving late.
 
 Another example of log:
 
 ```
-DEBG Delayed head block, set_as_head_time_ms: 22, imported_time_ms: 312, attestable_delay_ms: 7052, available_delay_ms: 6874, execution_time_ms: 4694, blob_delay_ms: 2159, observed_delay_ms: 2179, total_delay_ms: 7209, slot: 1885922, proposer_index: 606896, block_root: 0x9966df24d24e722d7133068186f0caa098428696e9f441ac416d0aca70cc0a23, service: beacon, module: beacon_chain::canonical_head:1441
+DEBG Delayed head block, set_as_head_time_ms: 22, imported_time_ms: 312, attestable_delay_ms: 7052, available_delay_ms: 6874, execution_time_ms: 4694, consensus_time_ms: 232, blob_delay_ms: 2159, observed_delay_ms: 2179, total_delay_ms: 7209, slot: 1885922, proposer_index: 606896, block_root: 0x9966df24d24e722d7133068186f0caa098428696e9f441ac416d0aca70cc0a23, service: beacon, module: beacon_chain::canonical_head:1441
 /159.69.68.247/tcp/9000, service: libp2p, module: lighthouse_network::service:1811
 ```
 
@@ -323,7 +240,7 @@ Another possible reason for missing the head vote is due to a chain "reorg". A r
 
 ### <a name="vc-exit"></a> Can I submit a voluntary exit message without running a beacon node?
 
-Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases/tag/v1.30.0) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/voluntary-exit.md).
+Yes. Beaconcha.in provides the tool to broadcast the message. You can create the voluntary exit message file with [ethdo](https://github.com/wealdtech/ethdo/releases) and submit the message via the [beaconcha.in](https://beaconcha.in/tools/broadcast) website. A guide on how to use `ethdo` to perform voluntary exit can be found [here](https://github.com/eth-educators/ethstaker-guides/blob/main/docs/voluntary-exit.md).
 
 It is also noted that you can submit your BLS-to-execution-change message to update your withdrawal credentials from type `0x00` to `0x01` using the same link.
 
@@ -341,13 +258,13 @@ No. You can just import new validator keys to the destination directory. If the 
 
 Generally yes.
 
-If you do not want to stop `lighthouse vc`, you can use the [key manager API](./api-vc-endpoints.md) to import keys.
+If you do not want to stop `lighthouse vc`, you can use the [key manager API](./api_vc_endpoints.md) to import keys.
 
 ### <a name="vc-delete"></a> How can I delete my validator once it is imported?
 
-Lighthouse supports the [KeyManager API](https://ethereum.github.io/keymanager-APIs/#/Local%20Key%20Manager/deleteKeys) to delete validators and remove them from the `validator_definitions.yml` file. To do so, start the validator client with the flag `--http` and call the API.
+You can use the `lighthouse vm delete` command to delete validator keys, see [validator manager delete](./validator_manager_api.md#delete).
 
-If you are looking to delete the validators in one node and import it to another, you can use the [validator-manager](./validator-manager-move.md) to move the validators across nodes without the hassle of deleting and importing the keys.
+If you are looking to delete the validators in one node and import it to another, you can use the [validator-manager](./validator_manager_move.md) to move the validators across nodes without the hassle of deleting and importing the keys.
 
 ## Network, Monitoring and Maintenance
 
@@ -358,7 +275,7 @@ network configuration settings. Ensure that the network you wish to connect to
 is correct (the beacon node outputs the network it is connecting to in the
 initial boot-up log lines). On top of this, ensure that you are not using the
 same `datadir` as a previous network, i.e., if you have been running the
-`Holesky` testnet and are now trying to join a new network but using the same
+`Hoodi` testnet and are now trying to join a new network but using the same
 `datadir` (the `datadir` is also printed out in the beacon node's logs on
 boot-up).
 
@@ -389,9 +306,9 @@ expect, there are a few things to check on:
 
 ### <a name="net-update"></a> How do I update lighthouse?
 
-If you are updating to new release binaries, it will be the same process as described [here.](./installation-binaries.md)
+If you are updating to new release binaries, it will be the same process as described [here.](./installation_binaries.md)
 
-If you are updating by rebuilding from source, see [here.](./installation-source.md#update-lighthouse)
+If you are updating by rebuilding from source, see [here.](./installation_source.md#update-lighthouse)
 
 If you are running the docker image provided by Sigma Prime on Dockerhub, you can update to specific versions, for example:
 
@@ -399,7 +316,7 @@ If you are running the docker image provided by Sigma Prime on Dockerhub, you ca
 docker pull sigp/lighthouse:v1.0.0
 ```
 
-If you are building a docker image, the process will be similar to the one described [here.](./docker.md#building-the-docker-image)
+If you are building a docker image, the process will be similar to the one described [here.](./installation_docker.md#building-the-docker-image)
 You just need to make sure the code you have checked out is up to date.
 
 ### <a name="net-port-forwarding"></a> Do I need to set up any port mappings (port forwarding)?
@@ -436,7 +353,7 @@ Opening these ports will make your Lighthouse node maximally contactable.
 
 Apart from using block explorers, you may use the "Validator Monitor" built into Lighthouse which
 provides logging and Prometheus/Grafana metrics for individual validators. See [Validator
-Monitoring](./validator-monitoring.md) for more information. Lighthouse has also developed Lighthouse UI (Siren) to monitor performance, see [Lighthouse UI (Siren)](./lighthouse-ui.md).
+Monitoring](./validator_monitoring.md) for more information. Lighthouse has also developed Lighthouse UI (Siren) to monitor performance, see [Lighthouse UI (Siren)](./ui.md).
 
 ### <a name="net-bn-vc"></a> My beacon node and validator client are on different servers. How can I point the validator client to the beacon node?
 
@@ -454,7 +371,7 @@ The setting on the beacon node is the same for both cases below. In the beacon n
    curl "http://local_IP:5052/eth/v1/node/version"
    ```
 
-   You can refer to [Redundancy](./redundancy.md) for more information.
+   You can refer to [Redundancy](./advanced_redundancy.md) for more information.
 
 2. If the beacon node and validator clients are on different servers _and different networks_, it is necessary to perform port forwarding of the SSH port (e.g., the default port 22) on the router, and also allow firewall on the SSH port. The connection can be established via port forwarding on the router.
 
@@ -514,11 +431,11 @@ which shows that there are a total of 36 peers connected via QUIC.
 
 ### <a name="misc-slashing"></a> What should I do if I lose my slashing protection database?
 
-See [here](./slashing-protection.md#misplaced-slashing-database).
+See [here](./validator_slashing_protection.md#misplaced-slashing-database).
 
 ### <a name="misc-compile"></a> I can't compile lighthouse
 
-See [here.](./installation-source.md#troubleshooting)
+See [here.](./installation_source.md#troubleshooting)
 
 ### <a name="misc-version"></a> How do I check the version of Lighthouse that is running?
 
@@ -550,7 +467,7 @@ which says that the version is v4.1.0.
 
 ### <a name="misc-prune"></a> Does Lighthouse have pruning function like the execution client to save disk space?
 
-Yes, Lighthouse supports [state pruning](./database-migrations.md#how-to-prune-historic-states) which can help to save disk space.
+Yes, Lighthouse supports [state pruning](./advanced_database_migrations.md#how-to-prune-historic-states) which can help to save disk space.
 
 ### <a name="misc-freezer"></a> Can I use a HDD for the freezer database and only have the hot db on SSD?
 

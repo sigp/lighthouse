@@ -67,7 +67,6 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "SECRETS_DIRECTORY",
-        conflicts_with = "datadir",
         help = "The directory which contains the password to unlock the validator \
                 voting keypairs. Each password should be contained in a file where the \
                 name is the 0x-prefixed hex representation of the validators voting public \
@@ -220,6 +219,7 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        requires = "http",
         value_name = "PORT",
         default_value_t = 5062,
         help = "Set the listen TCP port for the RESTful HTTP API server.",
@@ -388,7 +388,7 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "INTEGER",
-        default_value_t = 30_000_000,
+        default_value_t = 36_000_000,
         requires = "builder_proposals",
         help = "The gas limit to be used in all builder proposals for all validators managed \
                 by this validator client. Note this will not necessarily be used if the gas limit \

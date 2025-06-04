@@ -1,5 +1,6 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::{BeaconState, EthSpec, Hash256};
+use crate::{BeaconState, EthSpec, ForkName, Hash256};
 use compare_fields_derive::CompareFields;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -28,6 +29,7 @@ use tree_hash_derive::TreeHash;
     Default,
     arbitrary::Arbitrary,
 )]
+#[context_deserialize(ForkName)]
 pub struct HistoricalSummary {
     block_summary_root: Hash256,
     state_summary_root: Hash256,

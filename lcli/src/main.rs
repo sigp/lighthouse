@@ -553,6 +553,15 @@ fn main() {
                                 until Prague is triggered on mainnet.")
                         .display_order(0)
                 )
+                .arg(
+                    Arg::new("osaka-time")
+                        .long("osaka-time")
+                        .value_name("UNIX_TIMESTAMP")
+                        .action(ArgAction::Set)
+                        .help("The payload timestamp that enables Osaka. No default is provided \
+                                until Osaka is triggered on mainnet.")
+                        .display_order(0)
+                )
         )
         .subcommand(
             Command::new("http-sync")
@@ -666,6 +675,7 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
                     extra_info: false,
                 },
                 "",
+                0o600,
             );
 
     let env = env_builder

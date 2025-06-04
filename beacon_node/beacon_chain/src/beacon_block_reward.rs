@@ -1,6 +1,6 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig};
 use attesting_indices_base::get_attesting_indices;
-use eth2::lighthouse::StandardBlockReward;
+use eth2::types::StandardBlockReward;
 use safe_arith::SafeArith;
 use state_processing::common::attesting_indices_base;
 use state_processing::{
@@ -135,7 +135,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 state
                     .get_validator(proposer_slashing.proposer_index() as usize)?
                     .effective_balance
-                    .safe_div(self.spec.whistleblower_reward_quotient)?,
+                    .safe_div(self.spec.whistleblower_reward_quotient_for_state(state))?,
             )?;
         }
 
@@ -157,7 +157,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     state
                         .get_validator(attester_index as usize)?
                         .effective_balance
-                        .safe_div(self.spec.whistleblower_reward_quotient)?,
+                        .safe_div(self.spec.whistleblower_reward_quotient_for_state(state))?,
                 )?;
             }
         }

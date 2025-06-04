@@ -74,18 +74,27 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     vc_1_keys_artifact_id="1-lighthouse-geth-$vc_1_range_start-$vc_1_range_end"
     service_name=vc-1-doppelganger
 
-    kurtosis service add \
-      --files /validator_keys:$vc_1_keys_artifact_id,/testnet:el_cl_genesis_data \
-      $ENCLAVE_NAME $service_name $LH_IMAGE_NAME -- lighthouse \
-      vc \
-      --debug-level info \
-      --testnet-dir=/testnet \
-      --validators-dir=/validator_keys/keys \
-      --secrets-dir=/validator_keys/secrets \
-      --init-slashing-protection \
-      --beacon-nodes=http://$bn_2_url:$bn_2_port \
-      --enable-doppelganger-protection \
-      --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990
+    kurtosis service add $ENCLAVE_NAME $service_name --json-service-config - << EOF
+    {
+        "image": "$LH_IMAGE_NAME",
+        "files": {
+            "/validator_keys": ["$vc_1_keys_artifact_id"],
+            "/testnet": ["el_cl_genesis_data"]
+        },
+        "cmd": [
+            "lighthouse",
+            "vc",
+            "--debug-level", "info",
+            "--testnet-dir=/testnet",
+            "--validators-dir=/validator_keys/keys",
+            "--secrets-dir=/validator_keys/secrets",
+            "--init-slashing-protection",
+            "--beacon-nodes=http://$bn_2_url:$bn_2_port",
+            "--enable-doppelganger-protection",
+            "--suggested-fee-recipient", "0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990"
+        ]
+    }
+EOF
 
     # Check if doppelganger VC has stopped and exited. Exit code 1 means the check timed out and VC is still running.
     check_exit_cmd="until [ \$(get_service_status $service_name) != 'RUNNING' ]; do sleep 1; done"
@@ -110,25 +119,34 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     vc_4_keys_artifact_id="4-lighthouse-geth-$vc_4_range_start-$vc_4_range_end"
     service_name=vc-4
 
-    kurtosis service add \
-          --files /validator_keys:$vc_4_keys_artifact_id,/testnet:el_cl_genesis_data \
-          $ENCLAVE_NAME $service_name $LH_IMAGE_NAME -- lighthouse \
-          vc \
-          --debug-level debug \
-          --testnet-dir=/testnet \
-          --validators-dir=/validator_keys/keys \
-          --secrets-dir=/validator_keys/secrets \
-          --init-slashing-protection \
-          --beacon-nodes=http://$bn_2_url:$bn_2_port \
-          --enable-doppelganger-protection \
-          --suggested-fee-recipient 0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990
+    kurtosis service add $ENCLAVE_NAME $service_name --json-service-config - << EOF
+    {
+        "image": "$LH_IMAGE_NAME",
+        "files": {
+            "/validator_keys": ["$vc_4_keys_artifact_id"],
+            "/testnet": ["el_cl_genesis_data"]
+        },
+        "cmd": [
+            "lighthouse",
+            "vc",
+            "--debug-level", "info",
+            "--testnet-dir=/testnet",
+            "--validators-dir=/validator_keys/keys",
+            "--secrets-dir=/validator_keys/secrets",
+            "--init-slashing-protection",
+            "--beacon-nodes=http://$bn_2_url:$bn_2_port",
+            "--enable-doppelganger-protection",
+            "--suggested-fee-recipient", "0x690B9A9E9aa1C9dB991C7721a92d351Db4FaC990"
+        ]
+    }
+EOF
 
     doppelganger_failure=0
 
     # Sleep three epochs, then make sure all validators were active in epoch 2. Use
     # `is_previous_epoch_target_attester` from epoch 3 for a complete view of epoch 2 inclusion.
     #
-    # See: https://lighthouse-book.sigmaprime.io/validator-inclusion.html
+    # See: https://lighthouse-book.sigmaprime.io/api_validator_inclusion.html
     echo "Waiting three epochs..."
     sleep $(( $SECONDS_PER_SLOT * 32 * 3 ))
 
@@ -156,7 +174,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
     # Sleep two epochs, then make sure all validators were active in epoch 4. Use
     # `is_previous_epoch_target_attester` from epoch 5 for a complete view of epoch 4 inclusion.
     #
-    # See: https://lighthouse-book.sigmaprime.io/validator-inclusion.html
+    # See: https://lighthouse-book.sigmaprime.io/api_validator_inclusion.html
     echo "Waiting two more epochs..."
     sleep $(( $SECONDS_PER_SLOT * 32 * 2 ))
     for val in 0x*; do

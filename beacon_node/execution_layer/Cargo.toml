@@ -12,7 +12,6 @@ arc-swap = "1.6.0"
 builder_client = { path = "../builder_client" }
 bytes = { workspace = true }
 eth2 = { workspace = true }
-eth2_network_config = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethers-core = { workspace = true }

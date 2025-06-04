@@ -21,7 +21,7 @@ use types::{
     EmptyBlock, EthSpec, EthSpecId, ForkContext, ForkName, LightClientBootstrap,
     LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
     LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, LightClientUpdate,
-    MainnetEthSpec, MinimalEthSpec, Signature, SignedBeaconBlock,
+    MainnetEthSpec, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -57,7 +57,7 @@ pub static SIGNED_BEACON_BLOCK_ALTAIR_MAX: LazyLock<usize> = LazyLock::new(|| {
 /// The `BeaconBlockBellatrix` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
 /// We calculate the value from its fields instead of constructing the block and checking the length.
 /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
-/// with `max_chunk_size`.
+/// with `max_payload_size`.
 pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
     LazyLock::new(||     // Size of a full altair block
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
@@ -121,15 +121,6 @@ const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
-
-/// Returns the maximum bytes that can be sent across the RPC.
-pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize {
-    if fork_context.current_fork().bellatrix_enabled() {
-        max_chunk_size
-    } else {
-        max_chunk_size / 10
-    }
-}
 
 /// Returns the rpc limits for beacon_block_by_range and beacon_block_by_root responses.
 ///
@@ -642,7 +633,8 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
 pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName, spec: &ChainSpec) -> RpcLimits {
     RpcLimits::new(
         DataColumnSidecar::<E>::min_size(),
-        DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block_by_fork(fork_name) as usize),
+        // TODO(EIP-7892): fix this once we change fork-version on BPO forks
+        DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block_within_fork(fork_name) as usize),
     )
 }
 
@@ -741,15 +733,18 @@ impl<E: EthSpec> RequestType<E> {
     /* These functions are used in the handler for stream management */
 
     /// Maximum number of responses expected for this request.
-    pub fn max_responses(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
+    /// TODO(EIP-7892): refactor this to remove `_current_fork`
+    pub fn max_responses(&self, _current_fork: ForkName, spec: &ChainSpec) -> u64 {
         match self {
             RequestType::Status(_) => 1,
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
-            RequestType::BlobsByRange(req) => req.max_blobs_requested(current_fork, spec),
+            RequestType::BlobsByRange(req) => {
+                req.max_blobs_requested(Slot::new(req.start_slot).epoch(E::slots_per_epoch()), spec)
+            }
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
-            RequestType::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
+            RequestType::DataColumnsByRoot(req) => req.max_requested() as u64,
             RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
             RequestType::Ping(_) => 1,
             RequestType::MetaData(_) => 1,
