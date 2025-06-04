@@ -63,8 +63,7 @@ use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationData, AttestationRef, BeaconCommittee,
     BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
-    IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra, SelectionProof,
-    SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
+    IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -449,19 +448,7 @@ fn process_slash_info<T: BeaconChainTypes>(
                     .spec
                     .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-                let indexed_attestation = if fork_name.electra_enabled() {
-                    IndexedAttestation::Electra(IndexedAttestationElectra {
-                        attesting_indices: vec![attestation.attester_index].into(),
-                        data: attestation.data.clone(),
-                        signature: attestation.signature.clone(),
-                    })
-                } else {
-                    IndexedAttestation::Base(IndexedAttestationBase {
-                        attesting_indices: vec![attestation.attester_index].into(),
-                        data: attestation.data.clone(),
-                        signature: attestation.signature.clone(),
-                    })
-                };
+                let indexed_attestation = attestation.to_indexed(fork_name);
                 (indexed_attestation, true, err)
             }
             SignatureNotCheckedIndexed(indexed, err) => (indexed, true, err),
@@ -976,19 +963,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-        let indexed_attestation = if fork_name.electra_enabled() {
-            IndexedAttestation::Electra(IndexedAttestationElectra {
-                attesting_indices: vec![attestation.attester_index].into(),
-                data: attestation.data.clone(),
-                signature: attestation.signature.clone(),
-            })
-        } else {
-            IndexedAttestation::Base(IndexedAttestationBase {
-                attesting_indices: vec![attestation.attester_index].into(),
-                data: attestation.data.clone(),
-                signature: attestation.signature.clone(),
-            })
-        };
+        let indexed_attestation = attestation.to_indexed(fork_name);
 
         let committees_per_slot = chain
             .with_committee_cache(
@@ -1127,7 +1102,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-        let regular_attestation = chain
+        let unaggregated_attestation = chain
             .with_committee_cache(
                 attestation.data.target.root,
                 attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
@@ -1153,7 +1128,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
 
         Ok(Self {
             single_attestation: attestation,
-            attestation: regular_attestation,
+            attestation: unaggregated_attestation,
             indexed_attestation,
             subnet_id,
         })

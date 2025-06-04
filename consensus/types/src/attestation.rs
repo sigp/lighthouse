@@ -1,7 +1,13 @@
-use crate::context_deserialize;
+use super::{
+    AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
+    Signature, SignedRoot,
+};
 use crate::slot_data::SlotData;
+use crate::{context_deserialize, IndexedAttestation};
 use crate::{test_utils::TestRandom, Hash256, Slot};
-use crate::{Checkpoint, ContextDeserialize, ForkName};
+use crate::{
+    Checkpoint, ContextDeserialize, ForkName, IndexedAttestationBase, IndexedAttestationElectra,
+};
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -11,11 +17,6 @@ use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-
-use super::{
-    AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    Signature, SignedRoot,
-};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -621,6 +622,24 @@ pub struct SingleAttestation {
     pub attester_index: u64,
     pub data: AttestationData,
     pub signature: AggregateSignature,
+}
+
+impl SingleAttestation {
+    pub fn to_indexed<E: EthSpec>(&self, fork_name: ForkName) -> IndexedAttestation<E> {
+        if fork_name.electra_enabled() {
+            IndexedAttestation::Electra(IndexedAttestationElectra {
+                attesting_indices: vec![self.attester_index].into(),
+                data: self.data.clone(),
+                signature: self.signature.clone(),
+            })
+        } else {
+            IndexedAttestation::Base(IndexedAttestationBase {
+                attesting_indices: vec![self.attester_index].into(),
+                data: self.data.clone(),
+                signature: self.signature.clone(),
+            })
+        }
+    }
 }
 
 #[cfg(test)]
