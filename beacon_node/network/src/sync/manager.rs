@@ -106,6 +106,9 @@ pub enum SyncMessage<E: EthSpec> {
         head_slot: Option<Slot>,
     },
 
+    /// Peer manager has received a MetaData of a peer with a new or updated CGC value.
+    UpdatedPeerCgc(PeerId),
+
     /// A block has been received from the RPC.
     RpcBlock {
         sync_request_id: SyncRequestId,
@@ -476,6 +479,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    fn updated_peer_cgc(&mut self, _peer_id: PeerId) {
+        // Try to make progress on custody requests that are waiting for peers
+        for (id, result) in self.network.continue_custody_by_root_requests() {
+            self.on_custody_by_root_result(id, result);
+        }
+
+        // Attempt to resume range sync too
+        self.range_sync.resume(&mut self.network);
+    }
+
     /// Handles RPC errors related to requests that were emitted from the sync manager.
     fn inject_error(&mut self, peer_id: PeerId, sync_request_id: SyncRequestId, error: RPCError) {
         trace!("Sync manager received a failed RPC");
@@ -747,6 +760,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 head_slot,
             } => {
                 self.add_peers_force_range_sync(&peers, head_root, head_slot);
+            }
+            SyncMessage::UpdatedPeerCgc(peer_id) => {
+                debug!(
+                    peer_id = ?peer_id,
+                    "Received updated peer CGC message"
+                );
+                self.updated_peer_cgc(peer_id);
             }
             SyncMessage::RpcBlock {
                 sync_request_id,

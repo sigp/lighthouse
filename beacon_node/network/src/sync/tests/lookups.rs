@@ -14,6 +14,7 @@ use std::time::Duration;
 use super::*;
 
 use crate::sync::block_lookups::common::ResponseType;
+use beacon_chain::observed_data_sidecars::Observe;
 use beacon_chain::{
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
@@ -106,6 +107,8 @@ impl TestRig {
 
         // deterministic seed
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
+
+        init_tracing();
 
         TestRig {
             beacon_processor_rx,
@@ -979,18 +982,13 @@ impl TestRig {
                         request: RequestType::DataColumnsByRoot(request),
                         app_request_id:
                             AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
-                    } if request
-                        .data_column_ids
-                        .to_vec()
-                        .iter()
-                        .any(|r| r.block_root == block_root) =>
-                    {
-                        let indices = request
+                    } => {
+                        let matching = request
                             .data_column_ids
-                            .to_vec()
                             .iter()
-                            .map(|cid| cid.index)
-                            .collect::<Vec<_>>();
+                            .find(|id| id.block_root == block_root)?;
+
+                        let indices = matching.columns.iter().copied().collect();
                         Some((*id, indices))
                     }
                     _ => None,
@@ -1232,7 +1230,12 @@ impl TestRig {
             .harness
             .chain
             .data_availability_checker
-            .put_gossip_blob(GossipVerifiedBlob::__assumed_valid(blob.into()))
+            .put_gossip_verified_blobs(
+                blob.block_root(),
+                std::iter::once(GossipVerifiedBlob::<_, Observe>::__assumed_valid(
+                    blob.into(),
+                )),
+            )
             .unwrap()
         {
             Availability::Available(_) => panic!("blob removed from da_checker, available"),

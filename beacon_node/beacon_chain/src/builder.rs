@@ -486,24 +486,36 @@ where
 
         // Verify that blobs (if provided) match the block.
         if let Some(blobs) = &weak_subj_blobs {
-            let commitments = weak_subj_block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .map_err(|e| format!("Blobs provided but block does not reference them: {e:?}"))?;
-            if blobs.len() != commitments.len() {
-                return Err(format!(
-                    "Wrong number of blobs, expected: {}, got: {}",
-                    commitments.len(),
-                    blobs.len()
-                ));
-            }
-            if commitments
-                .iter()
-                .zip(blobs.iter())
-                .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
-            {
-                return Err("Checkpoint blob does not match block commitment".into());
+            let fulu_enabled = weak_subj_block.fork_name_unchecked().fulu_enabled();
+            if fulu_enabled && blobs.is_empty() {
+                // Blobs expected for this block, but the checkpoint server is not able to serve them.
+                // This is expected from Fulu, as only supernodes are able to serve blobs.
+                // We can consider using backfill to retrieve the data columns from the p2p network,
+                // but we can ignore this fow now until we have validator custody backfill
+                // implemented as we'll likely be able to reuse the logic.
+                // https://github.com/sigp/lighthouse/issues/6837
+            } else {
+                let commitments = weak_subj_block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .map_err(|e| {
+                        format!("Blobs provided but block does not reference them: {e:?}")
+                    })?;
+                if blobs.len() != commitments.len() {
+                    return Err(format!(
+                        "Wrong number of blobs, expected: {}, got: {}",
+                        commitments.len(),
+                        blobs.len()
+                    ));
+                }
+                if commitments
+                    .iter()
+                    .zip(blobs.iter())
+                    .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
+                {
+                    return Err("Checkpoint blob does not match block commitment".into());
+                }
             }
         }
 

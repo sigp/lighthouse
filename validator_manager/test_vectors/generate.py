@@ -1,4 +1,4 @@
-# This script uses the `ethereum/staking-deposit-cli` tool to generate
+# This script uses the `ethstaker-deposit-cli` tool to generate
 # deposit data files which are then used for testing by Lighthouse.
 #
 # To generate vectors, run this Python script:
@@ -6,7 +6,7 @@
 # `python generate.py`
 #
 # This script was last run on Linux using Python v3.10.4. Python v3.11.0 was not working at time
-# of writing due to dependency issues in `staking-deposit-cli`. You should probably use `pyenv` and
+# of writing due to dependency issues in `ethstaker-deposit-cli`. You should probably use `pyenv` and
 # `virtualenv`.
 import os
 import sys
@@ -23,7 +23,7 @@ WALLET_NAME="test_wallet"
 tmp_dir = os.path.join(".", "tmp")
 mnemonic_path = os.path.join(tmp_dir, "mnemonic.txt")
 sdc_dir = os.path.join(tmp_dir, "sdc")
-sdc_git_dir = os.path.join(sdc_dir, "staking-deposit-cli")
+sdc_git_dir = os.path.join(sdc_dir, "ethstaker-deposit-cli")
 vectors_dir = os.path.join(".", "vectors")
 
 
@@ -59,7 +59,7 @@ def setup_sdc():
         "git",
         "clone",
         "--single-branch",
-        "https://github.com/ethereum/staking-deposit-cli.git",
+        "https://github.com/eth-educators/ethstaker-deposit-cli.git",
         str(sdc_git_dir)
     ])
     assert(result.returncode == 0)

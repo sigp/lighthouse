@@ -16,7 +16,7 @@ use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::debug;
-use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
+use types::data_column_sidecar::ColumnIndex;
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
     RuntimeVariableList, SignedBeaconBlockHeader, Slot,
@@ -32,7 +32,7 @@ pub enum GossipDataColumnError {
     ///
     /// We were unable to process this data column due to an internal error. It's
     /// unclear if the data column is valid.
-    BeaconChainError(BeaconChainError),
+    BeaconChainError(Box<BeaconChainError>),
     /// The proposal signature in invalid.
     ///
     /// ## Peer scoring
@@ -129,6 +129,10 @@ pub enum GossipDataColumnError {
         slot: Slot,
         index: ColumnIndex,
     },
+    /// A column has already been processed from non-gossip source and have not yet been seen on
+    /// the gossip network.
+    /// This column should be accepted and forwarded over gossip.
+    PriorKnownUnpublished,
     /// Data column index must be between 0 and `NUMBER_OF_COLUMNS` (exclusive).
     ///
     /// ## Peer scoring
@@ -162,13 +166,13 @@ pub enum GossipDataColumnError {
 
 impl From<BeaconChainError> for GossipDataColumnError {
     fn from(e: BeaconChainError) -> Self {
-        GossipDataColumnError::BeaconChainError(e)
+        GossipDataColumnError::BeaconChainError(e.into())
     }
 }
 
 impl From<BeaconStateError> for GossipDataColumnError {
     fn from(e: BeaconStateError) -> Self {
-        GossipDataColumnError::BeaconChainError(BeaconChainError::BeaconStateError(e))
+        GossipDataColumnError::BeaconChainError(BeaconChainError::BeaconStateError(e).into())
     }
 }
 
@@ -179,6 +183,16 @@ pub struct GossipVerifiedDataColumn<T: BeaconChainTypes, O: ObservationStrategy 
     block_root: Hash256,
     data_column: KzgVerifiedDataColumn<T::EthSpec>,
     _phantom: PhantomData<O>,
+}
+
+impl<T: BeaconChainTypes, O: ObservationStrategy> Clone for GossipVerifiedDataColumn<T, O> {
+    fn clone(&self) -> Self {
+        Self {
+            block_root: self.block_root,
+            data_column: self.data_column.clone(),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O> {
@@ -200,10 +214,13 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         )
     }
 
-    pub fn id(&self) -> DataColumnIdentifier {
-        DataColumnIdentifier {
-            block_root: self.block_root,
-            index: self.data_column.index(),
+    /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
+    #[cfg(test)]
+    pub(crate) fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
+        Self {
+            block_root: column_sidecar.block_root(),
+            data_column: KzgVerifiedDataColumn::__new_for_testing(column_sidecar),
+            _phantom: Default::default(),
         }
     }
 
@@ -250,11 +267,9 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         verify_kzg_for_data_column(data_column, kzg)
     }
 
-    /// Create a `KzgVerifiedDataColumn` from `data_column` that are already KZG verified.
-    ///
-    /// This should be used with caution, as used incorrectly it could result in KZG verification
-    /// being skipped and invalid data_columns being deemed valid.
-    pub fn from_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
+    /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
+    #[cfg(test)]
+    pub(crate) fn __new_for_testing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
         Self { data: data_column }
     }
 
@@ -451,6 +466,23 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
     verify_is_first_sidecar(chain, &data_column)?;
+
+    // Check if the data column is already in the DA checker cache. This happens when data columns
+    // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
+    // it has already passed the gossip checks, even though this particular instance hasn't been
+    // seen / published on the gossip network yet (passed the `verify_is_first_sidecar` check above).
+    // In this case, we should accept it for gossip propagation.
+    if chain
+        .data_availability_checker
+        .is_data_column_cached(&data_column.block_root(), &data_column)
+    {
+        // Observe this data column so we don't process it again.
+        if O::observe() {
+            observe_gossip_data_column(&data_column, chain)?;
+        }
+        return Err(GossipDataColumnError::PriorKnownUnpublished);
+    }
+
     verify_column_inclusion_proof(&data_column)?;
     let parent_block = verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
@@ -467,10 +499,10 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
             data_column.block_proposer_index(),
             data_column.block_root(),
         )
-        .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?;
+        .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
 
     if O::observe() {
-        observe_gossip_data_column(&kzg_verified_data_column.data, chain)?;
+        observe_gossip_data_column(&data_column, chain)?;
     }
 
     Ok(GossipVerifiedDataColumn {
@@ -523,7 +555,7 @@ fn verify_is_first_sidecar<T: BeaconChainTypes>(
         .observed_column_sidecars
         .read()
         .proposer_is_known(data_column)
-        .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?
+        .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
     {
         return Err(GossipDataColumnError::PriorKnown {
             proposer: data_column.block_proposer_index(),
@@ -623,7 +655,7 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
         let (parent_state_root, mut parent_state) = chain
             .store
             .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
-            .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?
+            .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!(
                     "Missing state for parent block {block_parent_root:?}",
@@ -741,7 +773,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipDataColumnError> {
     // Now the signature is valid, store the proposal so we don't accept another data column sidecar
-    // with the same `DataColumnIdentifier`.  It's important to double-check that the proposer still
+    // with the same `ColumnIndex`.  It's important to double-check that the proposer still
     // hasn't been observed so we don't have a race-condition when verifying two blocks
     // simultaneously.
     //
@@ -755,7 +787,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
         .observed_column_sidecars
         .write()
         .observe_sidecar(data_column_sidecar)
-        .map_err(|e| GossipDataColumnError::BeaconChainError(e.into()))?
+        .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
     {
         return Err(GossipDataColumnError::PriorKnown {
             proposer: data_column_sidecar.block_proposer_index(),
