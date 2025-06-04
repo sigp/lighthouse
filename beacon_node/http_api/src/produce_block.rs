@@ -63,7 +63,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         query.builder_boost_factor
     };
 
-    let _final_graffiti = match query.graffiti_policy {
+    let final_graffiti = match query.graffiti_policy {
         GraffitiPolicy::PreserveUserGraffiti => query.graffiti,
         GraffitiPolicy::AppendClientVersions => Some(
             chain
@@ -77,7 +77,7 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti,
+            final_graffiti,
             randao_verification,
             builder_boost_factor,
             BlockProductionVersion::V3,

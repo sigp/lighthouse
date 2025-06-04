@@ -158,7 +158,7 @@ pub struct ValidatorClient {
         help = "When used, client version info will be automatically appended to user custom graffiti.",
         display_order = 0
     )]
-    pub graffiti_client: Option<String>,
+    pub graffiti_client: bool,
 
     #[clap(
         long,
