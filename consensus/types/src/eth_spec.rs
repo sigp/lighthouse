@@ -118,6 +118,7 @@ pub trait EthSpec:
     type FieldElementsPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type FieldElementsPerExtBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentsInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type ProposerLookaheadSlots: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -378,6 +379,10 @@ pub trait EthSpec:
     fn kzg_commitments_inclusion_proof_depth() -> usize {
         Self::KzgCommitmentsInclusionProofDepth::to_usize()
     }
+
+    fn proposer_lookahead_slots() -> usize {
+        Self::ProposerLookaheadSlots::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -429,6 +434,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxCellsPerBlock = U33554432;
     type KzgCommitmentInclusionProofDepth = U17;
     type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
+    type ProposerLookaheadSlots = U64; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -481,6 +487,7 @@ impl EthSpec for MinimalEthSpec {
     type MaxCellsPerBlock = U33554432;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
+    type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -576,6 +583,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxCellsPerBlock = U33554432;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
+    type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
