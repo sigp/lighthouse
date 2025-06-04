@@ -947,6 +947,11 @@ fn kzg_verify_kzg_proof() {
 }
 
 #[test]
+fn kzg_compute_cells() {
+    KZGComputeCellsHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
 fn kzg_compute_cells_and_proofs() {
     KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default().run();
 }

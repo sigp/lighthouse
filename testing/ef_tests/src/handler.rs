@@ -975,6 +975,26 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct KZGComputeCellsHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
+    type Case = cases::KZGComputeCells<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_cells".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct KZGComputeCellsAndKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
