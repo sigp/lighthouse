@@ -29,11 +29,8 @@ pub trait Handler {
         Self::Case::is_enabled_for_fork(fork_name)
     }
 
-    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
-        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
-        // When a feature is ready to be part of a main fork, it should be removed from here and
-        // the tests should run normally under that fork.
-        false
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        Self::Case::is_enabled_for_feature(feature_name)
     }
 
     fn run(&self) {
@@ -394,13 +391,6 @@ where
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
     }
-
-    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
-        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
-        // When a feature is ready to be part of a main fork, it should be removed from here and
-        // the tests should run normally under that fork.
-        false
-    }
 }
 
 impl<E> Handler for SszStaticTHCHandler<BeaconState<E>, E>
@@ -419,13 +409,6 @@ where
 
     fn handler_name(&self) -> String {
         BeaconState::<E>::name().into()
-    }
-
-    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
-        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
-        // When a feature is ready to be part of a main fork, it should be removed from here and
-        // the tests should run normally under that fork.
-        false
     }
 }
 
@@ -451,13 +434,6 @@ where
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         self.supported_forks.contains(&fork_name)
-    }
-
-    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
-        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
-        // When a feature is ready to be part of a main fork, it should be removed from here and
-        // the tests should run normally under that fork.
-        false
     }
 }
 
@@ -719,7 +695,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        // This Deposit test exists only in Electra and later.
+        // Deposit tests exist only after Electra.
         if self.handler_name == "deposit_with_reorg" && !fork_name.electra_enabled() {
             return false;
         }
@@ -937,13 +913,6 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
     fn handler_name(&self) -> String {
         "get_custody_groups".into()
     }
-
-    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
-        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
-        // When a feature is ready to be part of a main fork, it should be removed from here and
-        // the tests should run normally under that fork.
-        false
-    }
 }
 
 #[derive(Derivative)]
@@ -963,13 +932,6 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 
     fn handler_name(&self) -> String {
         "compute_columns_for_custody_group".into()
-    }
-
-    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
-        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
-        // When a feature is ready to be part of a main fork, it should be removed from here and
-        // the tests should run normally under that fork.
-        false
     }
 }
 
@@ -1031,13 +993,6 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
     fn handler_name(&self) -> String {
         "verify_cell_kzg_proof_batch".into()
     }
-
-    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
-        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
-        // When a feature is ready to be part of a main fork, it should be removed from here and
-        // the tests should run normally under that fork.
-        false
-    }
 }
 
 #[derive(Derivative)]
@@ -1057,13 +1012,6 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
     fn handler_name(&self) -> String {
         "recover_cells_and_kzg_proofs".into()
-    }
-
-    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
-        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
-        // When a feature is ready to be part of a main fork, it should be removed from here and
-        // the tests should run normally under that fork.
-        false
     }
 }
 
@@ -1088,13 +1036,6 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         fork_name.deneb_enabled()
-    }
-
-    fn is_enabled_for_feature(&self, _feature_name: FeatureName) -> bool {
-        // Feature gating is used for future forks that haven't been incorporated into a main fork yet.
-        // When a feature is ready to be part of a main fork, it should be removed from here and
-        // the tests should run normally under that fork.
-        false
     }
 }
 
