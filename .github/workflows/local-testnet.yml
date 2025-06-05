@@ -226,4 +226,4 @@ jobs:
       - name: Check that success job is dependent on all others
         run: |
           exclude_jobs='genesis-sync-test'
-          ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success
+          ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success "$exclude_jobs"
