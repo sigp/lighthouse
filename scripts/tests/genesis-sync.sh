@@ -14,14 +14,15 @@ FORK_TYPE=${3:-electra}  # electra or fulu
 # Test configuration
 # ------------------------------------------------------
 # Interval for polling the /lighthouse/syncing endpoint for sync status
-# Syncing to head is fast, reduce the polling time
-POLL_INTERVAL_SECS=0.1
+# Reduce the polling time so that some progress can be seen
+POLL_INTERVAL_SECS=0.5
 # Time to keep non-validator nodes offline (in seconds)
 OFFLINE_DURATION_SECS=120
 # Target number of slots to sync to complete this test (will be set dynamically)
 TARGET_SYNC_SLOTS=100
 # Timeout for this test, if the nodes fail to sync, fail the test.
-TIMEOUT_MINS=15
+# Timeout is set to 1 min as the sync is fast, should complete in a few seconds
+TIMEOUT_MINS=1
 TIMEOUT_SECS=$((TIMEOUT_MINS * 60))
 # ------------------------------------------------------
 
