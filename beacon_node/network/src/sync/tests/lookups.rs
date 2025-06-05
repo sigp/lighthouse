@@ -1778,6 +1778,7 @@ fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
     rig.expect_no_active_lookups();
     // AND: The peer should be penalized for extending a failed chain.
     rig.expect_single_penalty(peer_id, "failed_chain");
+    rig.expect_empty_network();
 }
 
 #[test]
