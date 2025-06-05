@@ -125,7 +125,7 @@ node_urls["fullnode"]="$fullnode_url"
 node_completed["supernode"]=false
 node_completed["fullnode"]=false
 
-echo "Polling sync status until nodes are synced of ${TIMEOUT_MINS} mins"
+echo "Polling sync status until nodes are synced or timeout of ${TIMEOUT_MINS} mins"
 
 while [ "${node_completed[supernode]}" = false ] || [ "${node_completed[fullnode]}" = false ]; do
   current_time=$(date +%s)
