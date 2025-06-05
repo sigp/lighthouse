@@ -4,7 +4,7 @@ use std::future::Future;
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_column_verification::{
-    CheckBlockHeader, GossipDataColumnError, GossipVerifiedDataColumn,
+    ConstructedInternally, GossipDataColumnError, GossipVerifiedDataColumn,
 };
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
@@ -412,7 +412,7 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
             let gossip_verified_column = GossipVerifiedDataColumn::new(
                 data_column_sidecar,
                 subnet.into(),
-                CheckBlockHeader::Yes,
+                ConstructedInternally::Yes,
                 chain,
             );
 

@@ -1,6 +1,6 @@
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::data_column_verification::{
-    CheckBlockHeader, GossipDataColumnError, GossipVerifiedDataColumn,
+    ConstructedInternally, GossipDataColumnError, GossipVerifiedDataColumn,
 };
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
 use crate::observed_data_sidecars::DoNotObserve;
@@ -85,7 +85,7 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         GossipVerifiedDataColumn::<T, DoNotObserve>::new(
             data_column,
             index,
-            CheckBlockHeader::No,
+            ConstructedInternally::Yes,
             &self.chain,
         )
     }

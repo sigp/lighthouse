@@ -22,9 +22,9 @@ use types::{
     RuntimeVariableList, SignedBeaconBlockHeader, Slot,
 };
 
-/// Used to avoid double-checking the block header.
+/// Used to avoid double-checking internally constructed data column sidecars.
 #[derive(Copy, Clone)]
-pub enum CheckBlockHeader {
+pub enum ConstructedInternally {
     Yes,
     No,
 }
@@ -206,7 +206,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
     pub fn new(
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
-        check_block_header: CheckBlockHeader,
+        constructed_internally: ConstructedInternally,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
         let header = column_sidecar.signed_block_header.clone();
@@ -215,14 +215,15 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         validate_data_column_sidecar_for_gossip::<T, O>(
             column_sidecar,
             subnet_id,
-            check_block_header,
+            constructed_internally,
             chain,
         )
-        .map_err(|e| {
-            process_block_slash_info::<_, GossipDataColumnError>(
+        .map_err(|e| match constructed_internally {
+            ConstructedInternally::No => process_block_slash_info::<_, GossipDataColumnError>(
                 chain,
                 BlockSlashInfo::from_early_error_data_column(header, e),
-            )
+            ),
+            ConstructedInternally::Yes => e,
         })
     }
 
@@ -470,7 +471,7 @@ where
 pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: u64,
-    check_block_header: CheckBlockHeader,
+    constructed_internally: ConstructedInternally,
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedDataColumn<T, O>, GossipDataColumnError> {
     let column_slot = data_column.slot();
@@ -496,13 +497,15 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
         return Err(GossipDataColumnError::PriorKnownUnpublished);
     }
 
-    verify_column_inclusion_proof(&data_column)?;
-    let parent_block = verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
-    verify_slot_higher_than_parent(&parent_block, column_slot)?;
-
-    match check_block_header {
-        CheckBlockHeader::Yes => verify_proposer_and_signature(&data_column, &parent_block, chain)?,
-        CheckBlockHeader::No => (),
+    match constructed_internally {
+        ConstructedInternally::No => {
+            verify_column_inclusion_proof(&data_column)?;
+            let parent_block =
+                verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
+            verify_slot_higher_than_parent(&parent_block, column_slot)?;
+            verify_proposer_and_signature(&data_column, &parent_block, chain)?;
+        }
+        ConstructedInternally::Yes => (),
     };
 
     let kzg = &chain.kzg;
@@ -819,7 +822,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
 #[cfg(test)]
 mod test {
     use crate::data_column_verification::{
-        validate_data_column_sidecar_for_gossip, CheckBlockHeader, GossipDataColumnError,
+        validate_data_column_sidecar_for_gossip, ConstructedInternally, GossipDataColumnError,
     };
     use crate::observed_data_sidecars::Observe;
     use crate::test_utils::BeaconChainHarness;
@@ -863,7 +866,7 @@ mod test {
         let result = validate_data_column_sidecar_for_gossip::<_, Observe>(
             column_sidecar.into(),
             index,
-            CheckBlockHeader::Yes,
+            ConstructedInternally::Yes,
             &harness.chain,
         );
         assert!(matches!(

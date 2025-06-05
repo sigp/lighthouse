@@ -10,7 +10,7 @@ use crate::{
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::{
-    validate_data_column_sidecar_for_gossip, CheckBlockHeader,
+    validate_data_column_sidecar_for_gossip, ConstructedInternally,
 };
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
 use beacon_chain::observed_data_sidecars::DoNotObserve;
@@ -828,7 +828,7 @@ async fn accept_processed_gossip_data_columns_without_import() {
             validate_data_column_sidecar_for_gossip::<_, DoNotObserve>(
                 data_column,
                 subnet_id,
-                CheckBlockHeader::No,
+                ConstructedInternally::No,
                 &rig.chain,
             )
             .expect("should be valid data column")
