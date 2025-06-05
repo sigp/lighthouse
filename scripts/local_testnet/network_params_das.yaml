@@ -1,7 +1,8 @@
 participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
-    el_image: ethpandaops/geth:marius-engine-getblobs-v2
+    el_type: geth
+    el_image: ethpandaops/geth:fusaka-devnet-0
     cl_extra_params:
       - --subscribe-all-data-column-subnets
       - --subscribe-all-subnets
@@ -11,7 +12,8 @@ participants:
     count: 2
   - cl_type: lighthouse
     cl_image: lighthouse:local
-    el_image: ethpandaops/geth:marius-engine-getblobs-v2
+    el_type: geth
+    el_image: ethpandaops/geth:fusaka-devnet-0
     cl_extra_params:
       # Note: useful for testing range sync (only produce block if the node is in sync to prevent forking)
       - --sync-tolerance-epochs=0
