@@ -42,7 +42,7 @@ if [[ "$version" == "nightly" ]]; then
 			fi
 
 			echo "Downloading artifact: ${name}"
-			curl --progress-bar --location --show-error --retry 3 --retry-all-errors \
+			curl --progress-bar --location --show-error --retry 3 --retry-all-errors --fail \
 				-H "${auth_header}" -H "Accept: application/vnd.github+json" \
 				--output "${name}.zip" "${url}" || {
 				echo "Failed to download ${name}"
@@ -56,7 +56,7 @@ else
 	for test in "${TESTS[@]}"; do
 		if [[ ! -e "${test}.tar.gz" ]]; then
 			echo "Downloading: ${version}/${test}.tar.gz"
-			curl --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors \
+			curl --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors --fail \
 				"https://github.com/ethereum/consensus-spec-tests/releases/download/${version}/${test}.tar.gz" \
 				|| {
 					echo "Curl failed. Aborting"

@@ -27,7 +27,7 @@ $(OUTPUT_DIR):
 
 $(BLS_OUTPUT_DIR):
 	mkdir -p $(BLS_OUTPUT_DIR)
-	curl --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors \
+	curl --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors --fail \
 		$(BLS_BASE_URL)/$(BLS_TEST).tar.gz
 	tar -xzf *.tar.gz -C $(BLS_OUTPUT_DIR)
 	rm -f *.tar.gz
