@@ -1759,6 +1759,7 @@ fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
     // At this point, the chain should have been deemed too deep and pruned.
     // The tip root should have been inserted into failed chains.
     rig.assert_failed_chain(tip_root);
+    rig.expect_no_penalty_for(peer_id);
 
     // WHEN: Trigger the extending block that points to the tip.
     let trigger_block_child_root = trigger_block_child.canonical_root();
