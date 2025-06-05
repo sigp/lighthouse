@@ -1,16 +1,19 @@
 use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{
-    BeaconBlockHeader, BeaconStateError, Epoch, EthSpec, Hash256, RuntimeVariableList,
+    BeaconBlockHeader, BeaconStateError, Epoch, EthSpec, ForkName, Hash256, RuntimeVariableList,
     SignedBeaconBlockHeader, Slot,
 };
 use bls::Signature;
+use context_deserialize::ContextDeserialize;
 use derivative::Derivative;
 use kzg::Error as KzgError;
 use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 use safe_arith::ArithError;
-use serde::{Deserialize, Serialize};
+use serde::de::Error;
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
@@ -25,10 +28,47 @@ pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
 pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Identifies a set of data columns associated with a specific beacon block.
-#[derive(Encode, Clone, Debug, PartialEq)]
+#[derive(Encode, Clone, Debug, PartialEq, TreeHash)]
 pub struct DataColumnsByRootIdentifier {
     pub block_root: Hash256,
     pub columns: RuntimeVariableList<ColumnIndex>,
+}
+
+impl<'de> ContextDeserialize<'de, (ForkName, usize)> for DataColumnsByRootIdentifier {
+    fn context_deserialize<D>(deserializer: D, context: (ForkName, usize)) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Helper {
+            block_root: Hash256,
+            columns: serde_json::Value,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+        Ok(Self {
+            block_root: helper.block_root,
+            columns: RuntimeVariableList::context_deserialize(helper.columns, context)
+                .map_err(Error::custom)?,
+        })
+    }
+}
+
+impl DataColumnsByRootIdentifier {
+    pub fn from_ssz_bytes(bytes: &[u8], num_columns: usize) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        builder.register_type::<Hash256>()?;
+        builder.register_anonymous_variable_length_item()?;
+
+        let mut decoder = builder.build()?;
+        let block_root = decoder.decode_next()?;
+        let columns = decoder
+            .decode_next_with(|bytes| RuntimeVariableList::from_ssz_bytes(bytes, num_columns))?;
+        Ok(DataColumnsByRootIdentifier {
+            block_root,
+            columns,
+        })
+    }
 }
 
 impl RuntimeVariableList<DataColumnsByRootIdentifier> {
@@ -46,21 +86,7 @@ impl RuntimeVariableList<DataColumnsByRootIdentifier> {
             Some(max_len),
         )?
         .into_iter()
-        .map(|bytes| {
-            let mut builder = ssz::SszDecoderBuilder::new(&bytes);
-            builder.register_type::<Hash256>()?;
-            builder.register_anonymous_variable_length_item()?;
-
-            let mut decoder = builder.build()?;
-            let block_root = decoder.decode_next()?;
-            let columns = decoder.decode_next_with(|bytes| {
-                RuntimeVariableList::from_ssz_bytes(bytes, num_columns)
-            })?;
-            Ok(DataColumnsByRootIdentifier {
-                block_root,
-                columns,
-            })
-        })
+        .map(|bytes| DataColumnsByRootIdentifier::from_ssz_bytes(&bytes, num_columns))
         .collect::<Result<Vec<_>, _>>()?;
 
         Ok(RuntimeVariableList::from_vec(vec, max_len))
@@ -84,6 +110,7 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[context_deserialize(ForkName)]
 pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: ColumnIndex,

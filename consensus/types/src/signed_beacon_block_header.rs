@@ -1,5 +1,6 @@
+use crate::context_deserialize;
 use crate::{
-    test_utils::TestRandom, BeaconBlockHeader, ChainSpec, Domain, EthSpec, Fork, Hash256,
+    test_utils::TestRandom, BeaconBlockHeader, ChainSpec, Domain, EthSpec, Fork, ForkName, Hash256,
     PublicKey, Signature, SignedRoot,
 };
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct SignedBeaconBlockHeader {
     pub message: BeaconBlockHeader,
     pub signature: Signature,

@@ -1,7 +1,5 @@
 pub mod cli;
 pub mod config;
-mod latency;
-mod notifier;
 
 use crate::cli::ValidatorClient;
 pub use config::Config;
@@ -21,7 +19,6 @@ use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
 use lighthouse_validator_store::LighthouseValidatorStore;
-use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use reqwest::Certificate;
 use slot_clock::SlotClock;
@@ -39,10 +36,12 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 use types::{EthSpec, Hash256};
 use validator_http_api::ApiSecret;
+use validator_services::notifier_service::spawn_notifier;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
     block_service::{BlockService, BlockServiceBuilder},
     duties_service::{self, DutiesService, DutiesServiceBuilder},
+    latency_service,
     preparation_service::{PreparationService, PreparationServiceBuilder},
     sync_committee_service::SyncCommitteeService,
 };
@@ -601,11 +600,17 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             info!("Doppelganger protection disabled.")
         }
 
-        spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
+        let context = self.context.service_context("notifier".into());
+        spawn_notifier(
+            self.duties_service.clone(),
+            context.executor,
+            &self.context.eth2_config.spec,
+        )
+        .map_err(|e| format!("Failed to start notifier: {}", e))?;
 
         if self.config.enable_latency_measurement_service {
-            latency::start_latency_service(
-                self.context.clone(),
+            latency_service::start_latency_service(
+                self.context.executor.clone(),
                 self.duties_service.slot_clock.clone(),
                 self.duties_service.beacon_nodes.clone(),
             );

@@ -743,7 +743,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .await
             .map_err(|_| "couldn't get head".to_string())?
             .ok_or_else(|| "missing head block".to_string())?
-            .data;
+            .into_data();
 
         let head_block_root = head_block_root.unwrap_or(head.canonical_root());
 
@@ -761,7 +761,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .await
             .map_err(|_| "couldn't get finalized block".to_string())?
             .ok_or_else(|| "missing finalized block".to_string())?
-            .data
+            .data()
             .message()
             .body()
             .execution_payload()
@@ -774,7 +774,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .await
             .map_err(|_| "couldn't get justified block".to_string())?
             .ok_or_else(|| "missing justified block".to_string())?
-            .data
+            .data()
             .message()
             .body()
             .execution_payload()
@@ -815,7 +815,7 @@ impl<E: EthSpec> MockBuilder<E> {
             .await
             .map_err(|_| "couldn't get state".to_string())?
             .ok_or_else(|| "missing state".to_string())?
-            .data;
+            .into_data();
 
         let prev_randao = head_state
             .get_randao_mix(head_state.current_epoch())
@@ -980,7 +980,7 @@ pub fn serve<E: EthSpec>(
                         .await
                         .map_err(|e| warp::reject::custom(Custom(e)))?;
                     let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                        version: Some(fork_name),
+                        version: fork_name,
                         metadata: Default::default(),
                         data: payload,
                     };
@@ -1040,7 +1040,7 @@ pub fn serve<E: EthSpec>(
                     ),
                     eth2::types::Accept::Json | eth2::types::Accept::Any => {
                         let resp: ForkVersionedResponse<_> = ForkVersionedResponse {
-                            version: Some(fork_name),
+                            version: fork_name,
                             metadata: Default::default(),
                             data: signed_bid,
                         };

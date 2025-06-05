@@ -929,12 +929,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         match self.should_search_for_block(Some(slot), &peer_id) {
             Ok(_) => {
-                self.block_lookups.search_child_and_parent(
+                if self.block_lookups.search_child_and_parent(
                     block_root,
                     block_component,
                     peer_id,
                     &mut self.network,
-                );
+                ) {
+                    // Lookup created. No need to log here it's logged in `new_current_lookup`
+                } else {
+                    debug!(
+                        ?block_root,
+                        ?parent_root,
+                        "No lookup created for child and parent"
+                    );
+                }
             }
             Err(reason) => {
                 debug!(%block_root, %parent_root, reason, "Ignoring unknown parent request");
@@ -945,8 +953,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256) {
         match self.should_search_for_block(None, &peer_id) {
             Ok(_) => {
-                self.block_lookups
-                    .search_unknown_block(block_root, &[peer_id], &mut self.network);
+                if self.block_lookups.search_unknown_block(
+                    block_root,
+                    &[peer_id],
+                    &mut self.network,
+                ) {
+                    // Lookup created. No need to log here it's logged in `new_current_lookup`
+                } else {
+                    debug!(?block_root, "No lookup created for unknown block");
+                }
             }
             Err(reason) => {
                 debug!(%block_root, reason, "Ignoring unknown block request");

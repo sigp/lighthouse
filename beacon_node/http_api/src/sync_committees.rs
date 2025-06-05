@@ -59,7 +59,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     }
 
     let duties = duties_from_state_load(request_epoch, request_indices, altair_fork_epoch, chain)
-        .map_err(|e| match e {
+        .map_err(|e| match *e {
         BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
             current_epoch,
             ..
@@ -81,7 +81,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     request_indices: &[u64],
     altair_fork_epoch: Epoch,
     chain: &BeaconChain<T>,
-) -> Result<Vec<Result<Option<SyncDuty>, BeaconStateError>>, BeaconChainError> {
+) -> Result<Vec<Result<Option<SyncDuty>, BeaconStateError>>, Box<BeaconChainError>> {
     // Determine what the current epoch would be if we fast-forward our system clock by
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
     //
@@ -92,11 +92,17 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let tolerant_current_epoch = chain
         .slot_clock
         .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
-        .ok_or(BeaconChainError::UnableToReadSlot)?
+        .ok_or(BeaconChainError::UnableToReadSlot)
+        .map_err(Box::new)?
         .epoch(T::EthSpec::slots_per_epoch());
 
-    let max_sync_committee_period = tolerant_current_epoch.sync_committee_period(&chain.spec)? + 1;
-    let sync_committee_period = request_epoch.sync_committee_period(&chain.spec)?;
+    let max_sync_committee_period = tolerant_current_epoch
+        .sync_committee_period(&chain.spec)
+        .map_err(|e| Box::new(e.into()))?
+        + 1;
+    let sync_committee_period = request_epoch
+        .sync_committee_period(&chain.spec)
+        .map_err(|e| Box::new(e.into()))?;
 
     if tolerant_current_epoch < altair_fork_epoch {
         // Empty response if the epoch is pre-Altair.
@@ -119,13 +125,14 @@ fn duties_from_state_load<T: BeaconChainTypes>(
         state
             .get_sync_committee_duties(request_epoch, request_indices, &chain.spec)
             .map_err(BeaconChainError::SyncDutiesError)
+            .map_err(Box::new)
     } else {
-        Err(BeaconChainError::SyncDutiesError(
+        Err(Box::new(BeaconChainError::SyncDutiesError(
             BeaconStateError::SyncCommitteeNotKnown {
                 current_epoch,
                 epoch: request_epoch,
             },
-        ))
+        )))
     }
 }
 

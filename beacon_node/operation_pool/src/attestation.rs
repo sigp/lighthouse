@@ -7,15 +7,18 @@ use state_processing::common::{
 use std::collections::HashMap;
 use types::{
     beacon_state::BeaconStateBase,
-    consts::altair::{PARTICIPATION_FLAG_WEIGHTS, WEIGHT_DENOMINATOR},
+    consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     Attestation, BeaconState, BitList, ChainSpec, EthSpec,
 };
+
+pub const PROPOSER_REWARD_DENOMINATOR: u64 =
+    (WEIGHT_DENOMINATOR - PROPOSER_WEIGHT) * WEIGHT_DENOMINATOR / PROPOSER_WEIGHT;
 
 #[derive(Debug, Clone)]
 pub struct AttMaxCover<'a, E: EthSpec> {
     /// Underlying attestation.
     pub att: CompactAttestationRef<'a, E>,
-    /// Mapping of validator indices and their rewards.
+    /// Mapping of validator indices and their reward *numerators*.
     pub fresh_validators_rewards: HashMap<u64, u64>,
 }
 
@@ -30,7 +33,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         if let BeaconState::Base(ref base_state) = state {
             Self::new_for_base(att, state, base_state, total_active_balance, spec)
         } else {
-            Self::new_for_altair_deneb(att, state, reward_cache, spec)
+            Self::new_for_altair_or_later(att, state, reward_cache, spec)
         }
     }
 
@@ -68,7 +71,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
     }
 
     /// Initialise an attestation cover object for Altair or later.
-    pub fn new_for_altair_deneb(
+    pub fn new_for_altair_or_later(
         att: CompactAttestationRef<'a, E>,
         state: &BeaconState<E>,
         reward_cache: &'a RewardCache,
@@ -103,10 +106,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
                     }
                 }
 
-                let proposer_reward = proposer_reward_numerator
-                    .checked_div(WEIGHT_DENOMINATOR.checked_mul(spec.proposer_reward_quotient)?)?;
-
-                Some((index, proposer_reward)).filter(|_| proposer_reward != 0)
+                Some((index, proposer_reward_numerator)).filter(|_| proposer_reward_numerator != 0)
             })
             .collect();
 
@@ -163,7 +163,7 @@ impl<'a, E: EthSpec> MaxCover for AttMaxCover<'a, E> {
     }
 
     fn score(&self) -> usize {
-        self.fresh_validators_rewards.values().sum::<u64>() as usize
+        (self.fresh_validators_rewards.values().sum::<u64>() / PROPOSER_REWARD_DENOMINATOR) as usize
     }
 }
 

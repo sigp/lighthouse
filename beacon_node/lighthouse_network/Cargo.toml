@@ -4,6 +4,9 @@ version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
+[features]
+libp2p-websocket = []
+
 [dependencies]
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
@@ -53,7 +56,21 @@ unused_port = { workspace = true }
 [dependencies.libp2p]
 version = "0.55"
 default-features = false
-features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic", "upnp"]
+features = [
+    "identify",
+    "yamux",
+    "noise",
+    "dns",
+    "tcp",
+    "tokio",
+    "plaintext",
+    "secp256k1",
+    "macros",
+    "ecdsa",
+    "metrics",
+    "quic",
+    "upnp",
+]
 
 [dev-dependencies]
 async-channel = { workspace = true }
@@ -61,6 +78,3 @@ logging = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 tempfile = { workspace = true }
-
-[features]
-libp2p-websocket = []

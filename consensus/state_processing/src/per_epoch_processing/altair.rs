@@ -84,7 +84,7 @@ pub fn process_epoch<E: EthSpec>(
     Ok(EpochProcessingSummary::Altair {
         progressive_balances: current_epoch_progressive_balances,
         current_epoch_total_active_balance,
-        participation: participation_summary,
+        participation: participation_summary.into(),
         sync_committee,
     })
 }
