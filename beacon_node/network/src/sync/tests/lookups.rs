@@ -14,6 +14,7 @@ use std::time::Duration;
 use super::*;
 
 use crate::sync::block_lookups::common::ResponseType;
+use beacon_chain::observed_data_sidecars::Observe;
 use beacon_chain::{
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
@@ -106,6 +107,8 @@ impl TestRig {
 
         // deterministic seed
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
+
+        init_tracing();
 
         TestRig {
             beacon_processor_rx,
@@ -1227,7 +1230,12 @@ impl TestRig {
             .harness
             .chain
             .data_availability_checker
-            .put_gossip_blob(GossipVerifiedBlob::__assumed_valid(blob.into()))
+            .put_gossip_verified_blobs(
+                blob.block_root(),
+                std::iter::once(GossipVerifiedBlob::<_, Observe>::__assumed_valid(
+                    blob.into(),
+                )),
+            )
             .unwrap()
         {
             Availability::Available(_) => panic!("blob removed from da_checker, available"),
@@ -1715,6 +1723,63 @@ fn test_parent_lookup_too_deep_grow_ancestor() {
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
     rig.expect_no_penalty_for(peer_id);
     rig.assert_failed_chain(chain_hash);
+}
+
+// Regression test for https://github.com/sigp/lighthouse/pull/7118
+#[test]
+fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
+    // GIVEN: A parent chain longer than PARENT_DEPTH_TOLERANCE.
+    let mut rig = TestRig::test_setup();
+    let mut blocks = rig.rand_blockchain(PARENT_DEPTH_TOLERANCE + 1);
+    let peer_id = rig.new_connected_peer();
+
+    // The child of the trigger block to be used to extend the chain.
+    let trigger_block_child = blocks.pop().unwrap();
+    // The trigger block that starts the lookup.
+    let trigger_block = blocks.pop().unwrap();
+    let tip_root = trigger_block.canonical_root();
+
+    // Trigger the initial unknown parent block for the tip.
+    rig.trigger_unknown_parent_block(peer_id, trigger_block.clone());
+
+    // Simulate the lookup chain building up via `ParentUnknown` errors.
+    for block in blocks.into_iter().rev() {
+        let id = rig.expect_block_parent_request(block.canonical_root());
+        rig.parent_lookup_block_response(id, peer_id, Some(block.clone()));
+        rig.parent_lookup_block_response(id, peer_id, None);
+        rig.expect_block_process(ResponseType::Block);
+        rig.parent_block_processed(
+            tip_root,
+            BlockProcessingResult::Err(BlockError::ParentUnknown {
+                parent_root: block.parent_root(),
+            }),
+        );
+    }
+
+    // At this point, the chain should have been deemed too deep and pruned.
+    // The tip root should have been inserted into failed chains.
+    rig.assert_failed_chain(tip_root);
+    rig.expect_no_penalty_for(peer_id);
+
+    // WHEN: Trigger the extending block that points to the tip.
+    let trigger_block_child_root = trigger_block_child.canonical_root();
+    rig.trigger_unknown_block_from_attestation(trigger_block_child_root, peer_id);
+    let id = rig.expect_block_lookup_request(trigger_block_child_root);
+    rig.single_lookup_block_response(id, peer_id, Some(trigger_block_child.clone()));
+    rig.single_lookup_block_response(id, peer_id, None);
+    rig.expect_block_process(ResponseType::Block);
+    rig.single_block_component_processed(
+        id.lookup_id,
+        BlockProcessingResult::Err(BlockError::ParentUnknown {
+            parent_root: tip_root,
+        }),
+    );
+
+    // THEN: The extending block should not create a lookup because the tip was inserted into failed chains.
+    rig.expect_no_active_lookups();
+    // AND: The peer should be penalized for extending a failed chain.
+    rig.expect_single_penalty(peer_id, "failed_chain");
+    rig.expect_empty_network();
 }
 
 #[test]

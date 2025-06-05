@@ -2501,26 +2501,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Run a compaction pass on the freezer DB to free up space used by deleted states.
     pub fn compact_freezer(&self) -> Result<(), Error> {
-        let current_schema_columns = vec![
+        let columns = vec![
             DBColumn::BeaconColdStateSummary,
             DBColumn::BeaconStateSnapshot,
             DBColumn::BeaconStateDiff,
             DBColumn::BeaconStateRoots,
         ];
-
-        // We can remove this once schema V21 has been gone for a while.
-        let previous_schema_columns = vec![
-            DBColumn::BeaconState,
-            DBColumn::BeaconStateSummary,
-            DBColumn::BeaconBlockRootsChunked,
-            DBColumn::BeaconStateRootsChunked,
-            DBColumn::BeaconRestorePoint,
-            DBColumn::BeaconHistoricalRoots,
-            DBColumn::BeaconRandaoMixes,
-            DBColumn::BeaconHistoricalSummaries,
-        ];
-        let mut columns = current_schema_columns;
-        columns.extend(previous_schema_columns);
 
         for column in columns {
             info!(?column, "Starting compaction");
@@ -2871,31 +2857,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // migrating to the tree-states schema (delete everything in the freezer then start afresh).
         let mut cold_ops = vec![];
 
-        let current_schema_columns = vec![
+        let columns = vec![
             DBColumn::BeaconColdStateSummary,
             DBColumn::BeaconStateSnapshot,
             DBColumn::BeaconStateDiff,
             DBColumn::BeaconStateRoots,
         ];
-
-        // This function is intended to be able to clean up leftover V21 freezer database stuff in
-        // the case where the V22 schema upgrade failed *after* commiting the version increment but
-        // *before* cleaning up the freezer DB.
-        //
-        // We can remove this once schema V21 has been gone for a while.
-        let previous_schema_columns = vec![
-            DBColumn::BeaconState,
-            DBColumn::BeaconStateSummary,
-            DBColumn::BeaconBlockRootsChunked,
-            DBColumn::BeaconStateRootsChunked,
-            DBColumn::BeaconRestorePoint,
-            DBColumn::BeaconHistoricalRoots,
-            DBColumn::BeaconRandaoMixes,
-            DBColumn::BeaconHistoricalSummaries,
-        ];
-
-        let mut columns = current_schema_columns;
-        columns.extend(previous_schema_columns);
 
         for column in columns {
             for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {

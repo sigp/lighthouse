@@ -1,12 +1,13 @@
+use eth2::types::{FullBlockContents, PublishBlockRequest};
 use slashing_protection::NotSafe;
 use std::fmt::Debug;
 use std::future::Future;
+use std::sync::Arc;
 use types::{
-    Address, Attestation, AttestationError, BeaconBlock, BlindedBeaconBlock, Epoch, EthSpec,
-    Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
-    SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec, Graffiti, Hash256,
+    PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedContributionAndProof, SignedValidatorRegistrationData, Slot, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -170,40 +171,16 @@ pub trait ValidatorStore: Send + Sync {
     fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData>;
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug)]
 pub enum UnsignedBlock<E: EthSpec> {
-    Full(BeaconBlock<E>),
+    Full(FullBlockContents<E>),
     Blinded(BlindedBeaconBlock<E>),
-}
-
-impl<E: EthSpec> From<BeaconBlock<E>> for UnsignedBlock<E> {
-    fn from(block: BeaconBlock<E>) -> Self {
-        UnsignedBlock::Full(block)
-    }
-}
-
-impl<E: EthSpec> From<BlindedBeaconBlock<E>> for UnsignedBlock<E> {
-    fn from(block: BlindedBeaconBlock<E>) -> Self {
-        UnsignedBlock::Blinded(block)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SignedBlock<E: EthSpec> {
-    Full(SignedBeaconBlock<E>),
-    Blinded(SignedBlindedBeaconBlock<E>),
-}
-
-impl<E: EthSpec> From<SignedBeaconBlock<E>> for SignedBlock<E> {
-    fn from(block: SignedBeaconBlock<E>) -> Self {
-        SignedBlock::Full(block)
-    }
-}
-
-impl<E: EthSpec> From<SignedBlindedBeaconBlock<E>> for SignedBlock<E> {
-    fn from(block: SignedBlindedBeaconBlock<E>) -> Self {
-        SignedBlock::Blinded(block)
-    }
+    Full(PublishBlockRequest<E>),
+    Blinded(Arc<SignedBlindedBeaconBlock<E>>),
 }
 
 /// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator

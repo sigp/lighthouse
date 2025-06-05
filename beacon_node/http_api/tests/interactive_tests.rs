@@ -115,10 +115,10 @@ async fn state_by_root_pruned_from_fork_choice() {
             .unwrap()
             .unwrap();
 
-        assert!(response.metadata.finalized.unwrap());
-        assert!(!response.metadata.execution_optimistic.unwrap());
+        assert!(response.metadata().finalized.unwrap());
+        assert!(!response.metadata().execution_optimistic.unwrap());
 
-        let mut state = response.data;
+        let mut state = response.into_data();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
 }
@@ -846,7 +846,7 @@ pub async fn fork_choice_before_proposal() {
         .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
-        .data
+        .into_data()
         .deconstruct()
         .0;
 

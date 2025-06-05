@@ -482,12 +482,26 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
 
         for (result, node) in results {
             if let Err(e) = result {
-                if *e != CandidateError::PreGenesis {
-                    warn!(
-                        error = ?e,
-                        endpoint = %node,
-                        "A connected beacon node errored during routine health check"
-                    );
+                match e {
+                    // Avoid spamming warns before genesis.
+                    CandidateError::PreGenesis => {}
+                    // Uninitialized *should* only occur during start-up before the
+                    // slot clock has been initialized.
+                    // Seeing this log in any other circumstance would indicate a serious bug.
+                    CandidateError::Uninitialized => {
+                        debug!(
+                            error = ?e,
+                            endpoint = %node,
+                            "A connected beacon node is uninitialized"
+                        );
+                    }
+                    _ => {
+                        warn!(
+                            error = ?e,
+                            endpoint = %node,
+                            "A connected beacon node errored during routine health check"
+                        );
+                    }
                 }
             }
         }

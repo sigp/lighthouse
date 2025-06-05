@@ -50,7 +50,7 @@ pub fn run<E: EthSpec>(
                 })
                 .map_err(|e| format!("Failed to complete task: {:?}", e))?
                 .ok_or_else(|| format!("Unable to locate state at {:?}", state_id))?
-                .data
+                .into_data()
         }
         _ => return Err("must supply either --state-path or --beacon-url".into()),
     };
