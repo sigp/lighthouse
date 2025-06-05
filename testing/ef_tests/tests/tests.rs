@@ -130,6 +130,12 @@ fn sanity_slots() {
 }
 
 #[test]
+fn sanity_effective_balance_increase_changes_lookahead() {
+    SanityEffectiveBalanceIncreaseChangesLookahead::<MinimalEthSpec>::default().run();
+    SanityEffectiveBalanceIncreaseChangesLookahead::<MainnetEthSpec>::default().run();
+}
+
+#[test]
 fn random() {
     RandomHandler::<MinimalEthSpec>::default().run();
     RandomHandler::<MainnetEthSpec>::default().run();

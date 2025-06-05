@@ -512,6 +512,31 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
     }
 }
 
+// This runner probably doesn't need to exist long term.
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct SanityEffectiveBalanceIncreaseChangesLookahead<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for SanityEffectiveBalanceIncreaseChangesLookahead<E> {
+    type Case = cases::SanityBlocks<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "sanity"
+    }
+
+    fn handler_name(&self) -> String {
+        "effective_balance_increase_changes_lookahead".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name.electra_enabled()
+    }
+}
+
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
 pub struct RandomHandler<E>(PhantomData<E>);
