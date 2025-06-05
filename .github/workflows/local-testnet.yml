@@ -67,6 +67,7 @@ jobs:
         working-directory: scripts/local_testnet
 
       - name: Upload logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-local-testnet
@@ -125,6 +126,7 @@ jobs:
         working-directory: scripts/tests
 
       - name: Upload logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-doppelganger-protection-success
@@ -160,6 +162,7 @@ jobs:
         working-directory: scripts/tests
 
       - name: Upload logs artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: logs-doppelganger-protection-failure
@@ -167,6 +170,48 @@ jobs:
             scripts/local_testnet/logs
           retention-days: 3
 
+  # Tests checkpoint syncing to a live network (current fork) and a running devnet (usually next scheduled fork)
+  checkpoint-sync-test:
+    name: checkpoint-sync-test-${{ matrix.network }}
+    runs-on: ubuntu-latest
+    needs: dockerfile-ubuntu
+    if: contains(github.event.pull_request.labels.*.name, 'syncing')
+    continue-on-error: true
+    strategy:
+      matrix:
+        network: [sepolia, devnet]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Kurtosis
+        run: |
+          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt update
+          sudo apt install -y kurtosis-cli
+          kurtosis analytics disable
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse-docker
+          path: .
+
+      - name: Load Docker image
+        run: docker load -i lighthouse-docker.tar
+
+      - name: Run the checkpoint sync test script
+        run: |
+          ./checkpoint-sync.sh "sync-${{ matrix.network }}" "checkpoint-sync-config-${{ matrix.network }}.yaml"
+        working-directory: scripts/tests
+
+      - name: Upload logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-checkpoint-sync-${{ matrix.network }}
+          path: |
+            scripts/local_testnet/logs
+          retention-days: 3
 
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
@@ -182,4 +227,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check that success job is dependent on all others
-        run: ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success
+        run: |
+          exclude_jobs='checkpoint-sync-test'
+          ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success "$exclude_jobs" 
