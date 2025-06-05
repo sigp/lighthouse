@@ -10,28 +10,23 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 ENCLAVE_NAME=${1:-genesis-sync-testnet}
 CONFIG=${2:-$SCRIPT_DIR/genesis-sync-config-electra.yaml}
 FORK_TYPE=${3:-electra}  # electra or fulu
+OFFLINE_DURATION_SECS=${4:-120} # stopped duration  of non validating nodes
 
 # Test configuration
 # ------------------------------------------------------
 # Interval for polling the /lighthouse/syncing endpoint for sync status
 # Reduce the polling time so that some progress can be seen
 POLL_INTERVAL_SECS=0.5
-# Time to keep non-validator nodes offline (in seconds)
-OFFLINE_DURATION_SECS=120
-# Target number of slots to sync to complete this test (will be set dynamically)
-TARGET_SYNC_SLOTS=100
 # Timeout for this test, if the nodes fail to sync, fail the test.
-# Timeout is set to 1 min as the sync is fast, should complete in a few seconds
-TIMEOUT_MINS=1
+TIMEOUT_MINS=5
 TIMEOUT_SECS=$((TIMEOUT_MINS * 60))
 # ------------------------------------------------------
 
-# Determine config file based on fork type
-if [ "$FORK_TYPE" = "fulu" ]; then
-    CONFIG=${CONFIG/electra/fulu}
-fi
+echo "Starting genesis sync test with:"
+echo "  Fork: $FORK_TYPE"
+echo "  Offline duration: ${OFFLINE_DURATION_SECS}s"
 
-# Polls a single node's sync status
+# Polls a node's sync status
 poll_node() {
   local node_type=$1
   local url=${node_urls[$node_type]}
@@ -130,7 +125,7 @@ node_urls["fullnode"]="$fullnode_url"
 node_completed["supernode"]=false
 node_completed["fullnode"]=false
 
-echo "Polling sync status until backfill reaches ${TARGET_BACKFILL_SLOTS} slots or timeout of ${TIMEOUT_MINS} mins"
+echo "Polling sync status until nodes are synced of ${TIMEOUT_MINS} mins"
 
 while [ "${node_completed[supernode]}" = false ] || [ "${node_completed[fullnode]}" = false ]; do
   current_time=$(date +%s)
