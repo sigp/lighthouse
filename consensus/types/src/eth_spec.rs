@@ -600,9 +600,14 @@ mod test {
     use ssz_types::typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
+        let spec = E::default_spec();
         E::kzg_commitments_tree_depth();
         E::block_body_tree_depth();
         assert!(E::MaxValidatorsPerSlot::to_i32() >= E::MaxValidatorsPerCommittee::to_i32());
+        assert_eq!(
+            E::proposer_lookahead_slots(),
+            (spec.min_seed_lookahead.as_usize() + 1) * E::slots_per_epoch() as usize
+        );
     }
 
     #[test]
