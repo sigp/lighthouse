@@ -27,7 +27,7 @@ env:
   # Disable incremental compilation
   CARGO_INCREMENTAL: 0
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
-  TEST_FEATURES: portable
+  TEST_FEATURES: portable, spec-minimal
 jobs:
   check-labels:
     runs-on: ubuntu-latest
