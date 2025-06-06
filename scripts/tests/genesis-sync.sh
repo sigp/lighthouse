@@ -74,7 +74,7 @@ exit_and_dump_logs() {
 }
 
 # Start the nodes
-$SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -n $CONFIG
+$SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b true -n $CONFIG
 if [ $? -ne 0 ]; then
   echo "Failed to start local testnet"
   exit_and_dump_logs 1
