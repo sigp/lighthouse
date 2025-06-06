@@ -20,7 +20,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build --build-arg FEATURES=portable -t lighthouse:local .
+          docker build --build-arg FEATURES=portable,spec-minimal -t lighthouse:local .
           docker save lighthouse:local -o lighthouse-docker.tar
 
       - name: Upload Docker image artifact
