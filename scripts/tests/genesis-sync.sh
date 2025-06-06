@@ -4,7 +4,6 @@
 #
 # Start a local testnet, shut down non-validator nodes for a period, then restart them
 # and monitor their sync progress from genesis to head.
-# This test ensures we cover all sync components and measures sync speed.
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 ENCLAVE_NAME=${1:-genesis-sync-testnet}
@@ -75,7 +74,7 @@ exit_and_dump_logs() {
 }
 
 # Start the nodes
-$SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b true -n $CONFIG
+$SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -n $CONFIG
 if [ $? -ne 0 ]; then
   echo "Failed to start local testnet"
   exit_and_dump_logs 1
