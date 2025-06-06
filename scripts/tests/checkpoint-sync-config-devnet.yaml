@@ -2,9 +2,13 @@
 participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
+    el_type: geth
+    el_image: ethpandaops/geth:fusaka-devnet-0
     supernode: true
   - cl_type: lighthouse
     cl_image: lighthouse:local
+    el_type: geth
+    el_image: ethpandaops/geth:fusaka-devnet-0
     supernode: false
 
 checkpoint_sync_enabled: true
