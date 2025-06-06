@@ -177,6 +177,7 @@ impl<E: EthSpec> Network<E> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
+        custody_column_count: u64,
     ) -> Result<(Self, Arc<NetworkGlobals<E>>), String> {
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");
@@ -201,21 +202,20 @@ impl<E: EthSpec> Network<E> {
         )?;
 
         // Construct the metadata
+        // TODO(pawan): fix these
         let custody_group_count = ctx.chain_spec.is_peer_das_scheduled().then(|| {
             ctx.chain_spec
                 .custody_group_count(config.subscribe_all_data_column_subnets)
         });
         let meta_data = utils::load_or_build_metadata(&config.network_dir, custody_group_count);
         let seq_number = *meta_data.seq_number();
-        // todo(pawan): load the persisted custody context here and modify the custody context before passing
-        // it to the globals
         let globals = NetworkGlobals::new(
             enr,
             meta_data,
             trusted_peers,
             config.disable_peer_scoring,
             config.clone(),
-            ctx.custody_context.clone(),
+            custody_column_count,
             ctx.chain_spec.clone(),
         );
         let network_globals = Arc::new(globals);
@@ -885,6 +885,24 @@ impl<E: EthSpec> Network<E> {
                     warn!(%topic, error = e, "Failed to remove topic weight")
                 }
             }
+        }
+    }
+
+    /// Subscribe to all data columns determined by the cgc.
+    /// TODO(pawan): unsubscribe if count reduces
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    pub fn subscribe_new_data_column_subnets(&mut self, custody_column_count: u64) {
+        self.network_globals
+            .update_data_column_subnets(custody_column_count);
+
+        for column in self.network_globals.sampling_subnets() {
+            let kind = GossipKind::DataColumnSidecar(column);
+            self.subscribe_kind(kind);
         }
     }
 

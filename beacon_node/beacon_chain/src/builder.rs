@@ -18,6 +18,7 @@ use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
+use crate::CustodyContext;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, ServerSentEventHandler,
@@ -43,9 +44,8 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, CustodyContext,
-    DataColumnSidecarList, Epoch, EthSpec, FixedBytesExtended, Hash256, Signature,
-    SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, DataColumnSidecarList, Epoch,
+    EthSpec, FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing

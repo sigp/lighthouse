@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use parking_lot::RwLock;
 
-use crate::{ChainSpec, Epoch, EthSpec, Slot};
 use ssz_derive::{Decode, Encode};
+use tokio::sync::broadcast::{channel, Receiver, Sender};
+use types::{ChainSpec, Epoch, EthSpec, Slot};
 
 /// Specifies the number of validators attached to this node.
 #[derive(Debug, Copy, Encode, Decode, Clone)]
@@ -115,7 +116,7 @@ fn get_validators_custody_requirement(count: u64, spec: &ChainSpec) -> u64 {
     )
 }
 
-/// Contains all the information the node requires to calculate the 
+/// Contains all the information the node requires to calculate the
 /// number of columns to be custodied when checking for DA.
 #[derive(Debug)]
 pub struct CustodyContext {
@@ -139,6 +140,9 @@ pub struct CustodyContext {
     persisted_is_supernode: bool,
     /// Maintains all the validators that this node is connected to currently
     validator_registrations: RwLock<ValidatorRegistrations>,
+    sender: Sender<CustodyContextMessage>,
+    // TODO(pawan): don't need to keep this most likely
+    receiver: Receiver<CustodyContextMessage>,
 }
 
 impl CustodyContext {
@@ -147,12 +151,16 @@ impl CustodyContext {
     ///
     /// The `is_supernode` value is based on current cli parameters.
     pub fn new(is_supernode: bool) -> Self {
+        let (sender, receiver) = channel(10);
+
         Self {
             advertised_validator_custody: RwLock::new(ValidatorCustodyCount::new(0)),
             validator_custody_at_head: RwLock::new(ValidatorCustodyCount::new(0)),
             current_is_supernode: is_supernode,
             persisted_is_supernode: is_supernode,
             validator_registrations: Default::default(),
+            sender,
+            receiver,
         }
     }
 
@@ -161,13 +169,20 @@ impl CustodyContext {
         ssz_context: CustodyContextSsz,
         is_supernode: bool,
     ) -> Self {
+        let (sender, receiver) = channel(10);
         CustodyContext {
             advertised_validator_custody: RwLock::new(ssz_context.advertised_validator_custody),
             validator_custody_at_head: RwLock::new(ssz_context.validator_custody_at_head),
             current_is_supernode: is_supernode,
             persisted_is_supernode: ssz_context.persisted_is_supernode,
             validator_registrations: Default::default(),
+            sender,
+            receiver,
         }
+    }
+
+    pub fn subscribe(&self) -> Receiver<CustodyContextMessage> {
+        self.sender.subscribe()
     }
 
     /// Register a new validator index and updates the list of validators if required.
@@ -180,10 +195,10 @@ impl CustodyContext {
         slot: Slot,
         spec: &ChainSpec,
     ) {
-        // Only do the registrations once per epoch
-        if slot % E::slots_per_epoch() != 0 {
-            return;
-        }
+        // // Only do the registrations once per epoch
+        // if slot % E::slots_per_epoch() != 0 {
+        //     return;
+        // }
 
         let mut registrations = self.validator_registrations.write();
         for (validator_index, effective_balance) in validators_and_balance {
@@ -207,6 +222,14 @@ impl CustodyContext {
             *validator_custody_at_head = ValidatorCustodyCount {
                 count: new_validator_custody,
             };
+            if let Err(e) = self
+                .sender
+                .send(CustodyContextMessage::HeadCustodyCountChanged {
+                    new_custody_count: new_validator_custody,
+                })
+            {
+                tracing::error!(error=?e, "Failed to send custody context message");
+            }
         }
     }
 
@@ -240,6 +263,24 @@ impl CustodyContext {
             spec.custody_requirement
         }
     }
+}
+
+// write a service that emits events when internal values change
+#[derive(Debug, Clone)]
+pub enum CustodyContextMessage {
+    /// The custody count changed because of a change in the
+    /// number of validators being managed.
+    ///
+    /// This should trigger actions downstream like
+    /// subscribing/unsubscribing new subnets/
+    /// backfilling required columns.
+    HeadCustodyCountChanged { new_custody_count: u64 },
+    /// The advertised custody count has changed.
+    ///
+    /// This should trigger downstream actions like setting
+    /// a new cgc value in the enr and metadata fields and
+    /// performing any related cleanup actions.
+    AdvertisedCustodyCountChanged { new_custody_count: u64 },
 }
 
 /// The custody information that gets persisted across runs.

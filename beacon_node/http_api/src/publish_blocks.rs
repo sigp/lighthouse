@@ -138,8 +138,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         spawn_build_data_sidecar_task(chain.clone(), block.clone(), unverified_blobs)?;
 
     // Gossip verify the block and blobs/data columns separately.
-    let gossip_verified_block_result = unverified_block
-        .into_gossip_verified_block(&chain, network_globals.custody_columns_count() as usize);
+    let gossip_verified_block_result = unverified_block.into_gossip_verified_block(
+        &chain,
+        chain
+            .data_availability_checker
+            .custody_context()
+            .head_custody_count(&chain.spec) as usize,
+    );
     let block_root = block_root.unwrap_or_else(|| {
         gossip_verified_block_result.as_ref().map_or_else(
             |_| block.canonical_root(),
@@ -224,7 +229,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
-        let sampling_columns_indices = &network_globals.sampling_columns;
+        let sampling_columns_indices = &network_globals.sampling_columns();
         let sampling_columns = gossip_verified_columns
             .into_iter()
             .flatten()
@@ -301,17 +306,22 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 slot = %block.slot(),
                 "Block previously seen"
             );
-            let import_result = Box::pin(chain.process_block(
-                block_root,
-                RpcBlock::new_without_blobs(
-                    Some(block_root),
-                    block.clone(),
-                    network_globals.custody_columns_count() as usize,
+            let import_result = Box::pin(
+                chain.process_block(
+                    block_root,
+                    RpcBlock::new_without_blobs(
+                        Some(block_root),
+                        block.clone(),
+                        chain
+                            .data_availability_checker
+                            .custody_context()
+                            .head_custody_count(&chain.spec) as usize,
+                    ),
+                    NotifyExecutionLayer::Yes,
+                    BlockImportSource::HttpApi,
+                    publish_fn,
                 ),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::HttpApi,
-                publish_fn,
-            ))
+            )
             .await;
             post_block_import_logging_and_response(
                 import_result,

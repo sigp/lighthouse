@@ -1274,7 +1274,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .clone()
             .verify_block_for_gossip(
                 block.clone(),
-                self.network_globals.custody_columns_count() as usize,
+                self.chain
+                    .data_availability_checker
+                    .custody_context()
+                    .head_custody_count(&self.chain.spec) as usize,
             )
             .await;
 

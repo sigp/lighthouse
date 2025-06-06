@@ -65,6 +65,7 @@ use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
+use crate::validator_custody::CustodyContextSsz;
 use crate::validator_monitor::{
     get_slot_delay_ms, timestamp_now, ValidatorMonitor,
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
@@ -131,7 +132,6 @@ use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
 use types::payload::BlockProductionVersion;
 use types::*;
-use types::{validator_custody::CustodyContextSsz};
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 

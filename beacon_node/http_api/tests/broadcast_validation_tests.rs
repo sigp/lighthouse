@@ -1786,6 +1786,5 @@ fn get_custody_columns(tester: &InteractiveTester<E>) -> HashSet<ColumnIndex> {
         .network_globals
         .as_ref()
         .unwrap()
-        .sampling_columns
-        .clone()
+        .sampling_columns()
 }

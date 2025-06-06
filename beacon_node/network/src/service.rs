@@ -5,11 +5,13 @@ use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
 use crate::NetworkConfig;
+use beacon_chain::validator_custody::CustodyContextMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
+
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::Network;
@@ -195,6 +197,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     gossipsub_parameter_update: tokio::time::Interval,
     /// Provides fork specific info.
     fork_context: Arc<ForkContext>,
+    /// Receiver for custody context messages
+    custody_context_rx: tokio::sync::broadcast::Receiver<CustodyContextMessage>,
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
@@ -266,12 +270,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             enr_fork_id,
             fork_context: fork_context.clone(),
             chain_spec: beacon_chain.spec.clone(),
-            custody_context: beacon_chain.data_availability_checker.custody_context(),
             libp2p_registry,
         };
 
         // launch libp2p service
-        let (mut libp2p, network_globals) = Network::new(executor.clone(), service_context).await?;
+        let (mut libp2p, network_globals) = Network::new(
+            executor.clone(),
+            service_context,
+            beacon_chain
+                .data_availability_checker
+                .custody_context()
+                .head_custody_count(&beacon_chain.spec),
+        )
+        .await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {
@@ -323,6 +334,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             validator_subscription_recv,
         } = network_receivers;
 
+        let custody_context_rx = beacon_chain
+            .data_availability_checker
+            .custody_context()
+            .subscribe();
+
         // create the network service and spawn the task
         let network_service = NetworkService {
             beacon_chain,
@@ -341,6 +357,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
+            custody_context_rx,
         };
 
         Ok((network_service, network_globals, network_senders))
@@ -431,6 +448,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
 
                     _ = self.gossipsub_parameter_update.tick() => self.update_gossipsub_parameters(),
+
+                    custody_message = Box::pin(self.custody_context_rx.recv()) => {
+                        match custody_message {
+                            Ok(CustodyContextMessage::HeadCustodyCountChanged{new_custody_count}) => {
+                                self.libp2p.subscribe_new_data_column_subnets(new_custody_count);
+                            }
+                            Ok(CustodyContextMessage::AdvertisedCustodyCountChanged{new_custody_count}) => {
+                            }
+                            Err(e) => {
+                                error!("Error receiving custody context message: {:?}", e);
+                            }
+                        }
+                    },
 
                     // handle a message sent to the network
                     Some(msg) = self.network_recv.recv() => self.on_network_msg(msg, &mut shutdown_sender).await,

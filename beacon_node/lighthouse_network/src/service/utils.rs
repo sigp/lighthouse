@@ -18,8 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, warn};
 use types::{
-    ChainSpec, CustodyContext, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, SubnetId,
-    SyncSubnetId,
+    ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId,
 };
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
@@ -31,7 +30,6 @@ pub struct Context<'a> {
     pub enr_fork_id: EnrForkId,
     pub fork_context: Arc<ForkContext>,
     pub chain_spec: Arc<ChainSpec>,
-    pub custody_context: Arc<CustodyContext>,
     pub libp2p_registry: Option<&'a mut Registry>,
 }
 

@@ -1,7 +1,8 @@
+use crate::validator_custody::CustodyContextSsz;
 use ssz::{Decode, Encode};
 use std::sync::Arc;
 use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, StoreItem};
-use types::{validator_custody::CustodyContextSsz, EthSpec, Hash256};
+use types::{EthSpec, Hash256};
 
 /// 32-byte key for accessing the `CustodyContext`. All zero because `CustodyContext` has its own column.
 pub const CUSTODY_DB_KEY: Hash256 = Hash256::ZERO;

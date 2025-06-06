@@ -285,7 +285,7 @@ impl TestRig {
                 )
                 .unwrap()
                 .into_iter()
-                .filter(|c| network_globals.sampling_columns.contains(&c.index))
+                .filter(|c| network_globals.sampling_columns().contains(&c.index))
                 .collect::<Vec<_>>();
 
                 (None, Some(custody_columns))

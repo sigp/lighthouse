@@ -5,7 +5,7 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore};
+use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext};
 use kzg::Kzg;
 use slot_clock::SlotClock;
 use std::fmt;
@@ -17,8 +17,8 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, CustodyContext, DataColumnSidecar, DataColumnSidecarList, Epoch,
-    EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
+    RuntimeVariableList, SignedBeaconBlock,
 };
 
 mod error;
