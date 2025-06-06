@@ -28,7 +28,6 @@ env:
   CARGO_INCREMENTAL: 0
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
   TEST_FEATURES: portable
-
 jobs:
   check-labels:
     runs-on: ubuntu-latest
