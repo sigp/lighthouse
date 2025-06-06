@@ -476,8 +476,6 @@ impl EthSpec for MinimalEthSpec {
     type KzgCommitmentInclusionProofDepth = U10;
     type PendingPartialWithdrawalsLimit = U64;
     type PendingConsolidationsLimit = U64;
-    type MaxDepositRequestsPerPayload = U4;
-    type MaxWithdrawalRequestsPerPayload = U2;
     type FieldElementsPerCell = U64;
     type FieldElementsPerExtBlob = U8192;
     type MaxCellsPerBlock = U33554432;
@@ -509,7 +507,9 @@ impl EthSpec for MinimalEthSpec {
         MaxPendingDepositsPerEpoch,
         MaxConsolidationRequestsPerPayload,
         MaxAttesterSlashingsElectra,
-        MaxAttestationsElectra
+        MaxAttestationsElectra,
+        MaxDepositRequestsPerPayload,
+        MaxWithdrawalRequestsPerPayload
     });
 
     fn default_spec() -> ChainSpec {

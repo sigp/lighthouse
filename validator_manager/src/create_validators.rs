@@ -596,7 +596,7 @@ pub mod tests {
 
     type E = MainnetEthSpec;
 
-    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.7.0";
+    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "1.2.2"; // Update to ethstaker-deposit-cli version
 
     fn junk_execution_address() -> Option<Address> {
         Some(Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap())
@@ -882,7 +882,7 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn staking_deposit_cli_vectors() {
+    async fn ethstaker_deposit_cli_vectors() {
         let vectors_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("test_vectors")
             .join("vectors");
