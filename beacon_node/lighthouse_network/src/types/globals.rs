@@ -7,7 +7,6 @@ use crate::{Client, Enr, EnrExt, GossipTopic, Multiaddr, NetworkConfig, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::error;
 use types::data_column_custody_group::{
     compute_columns_for_custody_group, compute_subnets_from_custody_group, get_custody_groups,
 };

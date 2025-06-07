@@ -7,7 +7,7 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
-use crate::{BeaconChainTypes, CustodyContext};
+use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::cmp::Ordering;

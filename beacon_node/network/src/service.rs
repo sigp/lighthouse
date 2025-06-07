@@ -454,7 +454,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                             Ok(CustodyContextMessage::HeadCustodyCountChanged{new_custody_count}) => {
                                 self.libp2p.subscribe_new_data_column_subnets(new_custody_count);
                             }
-                            Ok(CustodyContextMessage::AdvertisedCustodyCountChanged{new_custody_count}) => {
+                            Ok(CustodyContextMessage::AdvertisedCustodyCountChanged{new_custody_count: _}) => {
+                                unimplemented!("update metadata and enr");
                             }
                             Err(e) => {
                                 error!("Error receiving custody context message: {:?}", e);

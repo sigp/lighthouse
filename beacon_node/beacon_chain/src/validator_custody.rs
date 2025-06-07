@@ -122,8 +122,6 @@ pub struct CustodyContext {
     /// Maintains all the validators that this node is connected to currently
     validator_registrations: RwLock<ValidatorRegistrations>,
     sender: Sender<CustodyContextMessage>,
-    // TODO(pawan): don't need to keep this most likely
-    receiver: Receiver<CustodyContextMessage>,
 }
 
 impl CustodyContext {
@@ -132,7 +130,7 @@ impl CustodyContext {
     ///
     /// The `is_supernode` value is based on current cli parameters.
     pub fn new(is_supernode: bool) -> Self {
-        let (sender, receiver) = channel(CHANNEL_CAPACITY);
+        let (sender, _) = channel(CHANNEL_CAPACITY);
 
         Self {
             advertised_validator_custody_count: AtomicU64::new(0),
@@ -141,7 +139,6 @@ impl CustodyContext {
             persisted_is_supernode: is_supernode,
             validator_registrations: Default::default(),
             sender,
-            receiver,
         }
     }
 
@@ -150,7 +147,7 @@ impl CustodyContext {
         ssz_context: CustodyContextSsz,
         is_supernode: bool,
     ) -> Self {
-        let (sender, receiver) = channel(CHANNEL_CAPACITY);
+        let (sender, _) = channel(CHANNEL_CAPACITY);
         CustodyContext {
             advertised_validator_custody_count: AtomicU64::new(
                 ssz_context.advertised_validator_custody,
@@ -160,7 +157,6 @@ impl CustodyContext {
             persisted_is_supernode: ssz_context.persisted_is_supernode,
             validator_registrations: Default::default(),
             sender,
-            receiver,
         }
     }
 
