@@ -1,44 +1,33 @@
-TESTS_TAG := v1.6.0-alpha.0
-TESTS = general minimal mainnet
-TARBALLS = $(patsubst %,%-$(TESTS_TAG).tar.gz,$(TESTS))
-
+# To download/extract nightly tests, run:
+# CONSENSUS_SPECS_TEST_VERSION=nightly make
+CONSENSUS_SPECS_TEST_VERSION ?= v1.6.0-alpha.0
 REPO_NAME := consensus-spec-tests
 OUTPUT_DIR := ./$(REPO_NAME)
-BASE_URL := https://github.com/ethereum/$(REPO_NAME)/releases/download/$(TESTS_TAG)
 
 BLS_TEST_REPO_NAME := bls12-381-tests
-BLS_TEST_TAG := v0.1.1
+BLS_TEST_VERSION := v0.1.1
 BLS_TEST = bls_tests_yaml
-BLS_TARBALL = $(patsubst %,%-$(BLS_TEST_TAG).tar.gz,$(BLS_TEST))
 BLS_OUTPUT_DIR := $(OUTPUT_DIR)/$(BLS_TEST_REPO_NAME)
-BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/download/$(BLS_TEST_TAG)
+BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/download/$(BLS_TEST_VERSION)
 
-CURL := $(if $(LIGHTHOUSE_GITHUB_TOKEN),curl -L --header "Authorization: $(LIGHTHOUSE_GITHUB_TOKEN)",curl -L)
+.PHONY: all clean
 
-all:
-	make $(OUTPUT_DIR)
-	make $(BLS_OUTPUT_DIR)
+all: clean $(OUTPUT_DIR) $(BLS_OUTPUT_DIR)
 
-$(OUTPUT_DIR): $(TARBALLS)
-	mkdir $(OUTPUT_DIR)
-	for test_tarball in $^; do \
-		tar -xzf $$test_tarball -C $(OUTPUT_DIR);\
+clean:
+	rm -rf *.tar.gz $(OUTPUT_DIR) $(BLS_OUTPUT_DIR)
+
+$(OUTPUT_DIR):
+	mkdir -p $(OUTPUT_DIR)
+	./download_test_vectors.sh $(CONSENSUS_SPECS_TEST_VERSION)
+	for test_tarball in *.tar.gz; do \
+		tar -xzf $$test_tarball -C $(OUTPUT_DIR); \
+		rm -f $$test_tarball; \
 	done
 
 $(BLS_OUTPUT_DIR):
-	mkdir $(BLS_OUTPUT_DIR)
-	$(CURL) $(BLS_BASE_URL)/$(BLS_TEST).tar.gz -o $(BLS_TARBALL)
-	tar -xzf $(BLS_TARBALL) -C $(BLS_OUTPUT_DIR)
-
-%-$(TESTS_TAG).tar.gz:
-	$(CURL) $(BASE_URL)/$*.tar.gz -o $@
-
-clean-test-files:
-	rm -rf $(OUTPUT_DIR) $(BLS_OUTPUT_DIR)
-
-clean-archives:
-	rm -f $(TARBALLS) $(BLS_TARBALL)
-
-clean: clean-test-files clean-archives
-
-.PHONY: clean clean-archives clean-test-files
+	mkdir -p $(BLS_OUTPUT_DIR)
+	curl --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors --fail \
+		$(BLS_BASE_URL)/$(BLS_TEST).tar.gz
+	tar -xzf *.tar.gz -C $(BLS_OUTPUT_DIR)
+	rm -f *.tar.gz
