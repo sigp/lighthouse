@@ -13,7 +13,7 @@ services=$(kurtosis enclave inspect "$ENCLAVE_NAME" | awk '/^=+ User Services =+
 
 # Store logs (including dependency logs) to Kurtosis Files Artifacts. These are downloaded locally by `kurtosis enclave dump`.
 for service in $services; do
-  kurtosis files storeservice --name "$service-logs" local-testnet "$service" /data/lighthouse/beacon-data/beacon/logs/
+  kurtosis files storeservice --name "$service-logs" "$ENCLAVE_NAME" "$service" /data/lighthouse/beacon-data/beacon/logs/
 done
 
 # Delete existing logs directory and make sure parent directory exists.
