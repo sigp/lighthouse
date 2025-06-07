@@ -143,7 +143,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         chain
             .data_availability_checker
             .custody_context()
-            .head_custody_count(&chain.spec) as usize,
+            .sampling_count(&chain.spec) as usize,
     );
     let block_root = block_root.unwrap_or_else(|| {
         gossip_verified_block_result.as_ref().map_or_else(
@@ -315,7 +315,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                         chain
                             .data_availability_checker
                             .custody_context()
-                            .head_custody_count(&chain.spec) as usize,
+                            .sampling_count(&chain.spec) as usize,
                     ),
                     NotifyExecutionLayer::Yes,
                     BlockImportSource::HttpApi,

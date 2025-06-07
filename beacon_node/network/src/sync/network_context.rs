@@ -1492,7 +1492,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.chain
                 .data_availability_checker
                 .custody_context()
-                .head_custody_count(&self.chain.spec) as usize,
+                .sampling_count(&self.chain.spec) as usize,
         );
 
         debug!(block = ?block_root, id, "Sending block for processing");

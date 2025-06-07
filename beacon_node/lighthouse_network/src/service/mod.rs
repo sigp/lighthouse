@@ -177,7 +177,7 @@ impl<E: EthSpec> Network<E> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
-        custody_column_count: u64,
+        custody_group_count: u64,
     ) -> Result<(Self, Arc<NetworkGlobals<E>>), String> {
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");
@@ -202,12 +202,12 @@ impl<E: EthSpec> Network<E> {
         )?;
 
         // Construct the metadata
-        // TODO(pawan): fix these
-        let custody_group_count = ctx.chain_spec.is_peer_das_scheduled().then(|| {
-            ctx.chain_spec
-                .custody_group_count(config.subscribe_all_data_column_subnets)
-        });
-        let meta_data = utils::load_or_build_metadata(&config.network_dir, custody_group_count);
+        let custody_group_count_metadata = ctx
+            .chain_spec
+            .is_peer_das_scheduled()
+            .then(|| custody_group_count);
+        let meta_data =
+            utils::load_or_build_metadata(&config.network_dir, custody_group_count_metadata);
         let seq_number = *meta_data.seq_number();
         let globals = NetworkGlobals::new(
             enr,
@@ -215,7 +215,7 @@ impl<E: EthSpec> Network<E> {
             trusted_peers,
             config.disable_peer_scoring,
             config.clone(),
-            custody_column_count,
+            custody_group_count,
             ctx.chain_spec.clone(),
         );
         let network_globals = Arc::new(globals);

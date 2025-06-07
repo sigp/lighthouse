@@ -280,7 +280,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain
                 .data_availability_checker
                 .custody_context()
-                .head_custody_count(&beacon_chain.spec),
+                .sampling_count(&beacon_chain.spec),
         )
         .await?;
 

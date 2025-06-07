@@ -733,14 +733,6 @@ impl ChainSpec {
         Ok(std::cmp::max(custody_column_count, self.samples_per_slot))
     }
 
-    pub fn custody_group_count(&self, is_supernode: bool) -> u64 {
-        if is_supernode {
-            self.number_of_custody_groups
-        } else {
-            self.custody_requirement
-        }
-    }
-
     pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
         (0..self.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
     }

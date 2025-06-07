@@ -1277,7 +1277,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain
                     .data_availability_checker
                     .custody_context()
-                    .head_custody_count(&self.chain.spec) as usize,
+                    .sampling_count(&self.chain.spec) as usize,
             )
             .await;
 

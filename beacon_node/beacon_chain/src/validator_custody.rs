@@ -11,29 +11,6 @@ use types::{ChainSpec, Epoch, EthSpec, Slot};
 
 const CHANNEL_CAPACITY: usize = 10;
 
-/// Specifies the number of validators attached to this node in increments of
-/// `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP`.
-///
-/// Note: The `count` here effectively refers to the sum of all effective
-/// balances of all attached validators divided by `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP`.
-#[derive(Debug, Copy, Encode, Decode, Clone)]
-pub struct ValidatorCustodyCount {
-    count: u64,
-}
-
-impl ValidatorCustodyCount {
-    pub fn new(count: u64) -> Self {
-        Self { count }
-    }
-}
-
-impl std::ops::Deref for ValidatorCustodyCount {
-    type Target = u64;
-    fn deref(&self) -> &Self::Target {
-        &self.count
-    }
-}
-
 /// TODO(pawan): this currently just registers increases in validator count.
 /// Does not handle decreasing validator counts
 #[derive(Default, Debug)]
@@ -213,7 +190,7 @@ impl CustodyContext {
             return;
         };
 
-        let current_cgc = self.head_custody_count(spec);
+        let current_cgc = self.custody_group_count(spec);
         let validator_custody_count_at_head =
             self.validator_custody_count_at_head.load(Ordering::Relaxed);
 
@@ -226,7 +203,7 @@ impl CustodyContext {
             self.validator_custody_count_at_head
                 .store(new_validator_custody, Ordering::Relaxed);
 
-            let updated_cgc = self.head_custody_count(spec);
+            let updated_cgc = self.custody_group_count(spec);
             // Send the message to network only if there are more columns subnets to subscribe to
             if updated_cgc > current_cgc {
                 tracing::debug!(
@@ -248,33 +225,46 @@ impl CustodyContext {
 
     /// The custody count that we advertise to our peers in our metadata and
     /// enr values.
-    pub fn advertised_custody_column_count(&self, spec: &ChainSpec) -> u64 {
+    pub fn advertised_custody_group_count(&self, spec: &ChainSpec) -> u64 {
         if self.persisted_is_supernode {
             return spec.number_of_custody_groups;
         }
         let advertised_validator_custody = self
             .advertised_validator_custody_count
             .load(Ordering::Relaxed);
-        std::cmp::min(
-            advertised_validator_custody + spec.custody_requirement,
-            spec.number_of_custody_groups,
-        )
+
+        // If there are no validators, return the minimum custody_requirement
+        if advertised_validator_custody > 0 {
+            advertised_validator_custody
+        } else {
+            spec.custody_requirement
+        }
     }
 
     /// The custody count that we use to custody columns currently.
     ///
     /// This function should be called when figuring out how many columns we
     /// need to custody when receiving blocks over gossip/rpc or during sync.
-    pub fn head_custody_count(&self, spec: &ChainSpec) -> u64 {
+    pub fn custody_group_count(&self, spec: &ChainSpec) -> u64 {
         if self.current_is_supernode {
             return spec.number_of_custody_groups;
         }
         let validator_custody_count_at_head =
             self.validator_custody_count_at_head.load(Ordering::Relaxed);
-        std::cmp::min(
-            validator_custody_count_at_head + spec.custody_requirement,
-            spec.number_of_custody_groups,
-        )
+
+        // If there are no validators, return the minimum custody_requirement
+        if validator_custody_count_at_head > 0 {
+            validator_custody_count_at_head
+        } else {
+            spec.custody_requirement
+        }
+    }
+
+    /// Returns the count of custody columns this node must sample for block import.
+    pub fn sampling_count(&self, spec: &ChainSpec) -> u64 {
+        // This only panics if the chain spec contains invalid values
+        spec.sampling_size(self.custody_group_count(spec))
+            .expect("should compute node sampling size from valid chain spec")
     }
 }
 
@@ -334,11 +324,11 @@ mod tests {
         let custody_context = CustodyContext::new(true);
         let spec = E::default_spec();
         assert_eq!(
-            custody_context.head_custody_count(&spec),
+            custody_context.custody_group_count(&spec),
             spec.number_of_custody_groups
         );
         assert_eq!(
-            custody_context.advertised_custody_column_count(&spec),
+            custody_context.advertised_custody_group_count(&spec),
             spec.number_of_custody_groups
         );
     }
@@ -349,12 +339,12 @@ mod tests {
         let custody_context = CustodyContext::new(false);
         let spec = E::default_spec();
         assert_eq!(
-            custody_context.head_custody_count(&spec),
+            custody_context.custody_group_count(&spec),
             spec.custody_requirement,
             "head custody count should be minimum spec custody requirement"
         );
         assert_eq!(
-            custody_context.advertised_custody_column_count(&spec),
+            custody_context.advertised_custody_group_count(&spec),
             spec.custody_requirement,
             "advertised custody count should be minimum spec custody requirement"
         );
@@ -363,13 +353,13 @@ mod tests {
         custody_context.register_validator::<E>(vec![(0, 32_000_000_000)], Slot::new(0), &spec);
 
         assert_eq!(
-            custody_context.head_custody_count(&spec),
+            custody_context.custody_group_count(&spec),
             spec.validator_custody_requirement + spec.custody_requirement,
             "head custody count should increase with 1 validator"
         );
 
         assert_eq!(
-            custody_context.advertised_custody_column_count(&spec),
+            custody_context.advertised_custody_group_count(&spec),
             spec.custody_requirement,
             "advertised custody count should not change"
         );
@@ -390,13 +380,13 @@ mod tests {
         );
 
         assert_eq!(
-            custody_context.head_custody_count(&spec),
+            custody_context.custody_group_count(&spec),
             spec.validator_custody_requirement + spec.custody_requirement,
             "head custody count should should be same as with 1 validator"
         );
 
         assert_eq!(
-            custody_context.advertised_custody_column_count(&spec),
+            custody_context.advertised_custody_group_count(&spec),
             spec.custody_requirement,
             "advertised custody count should not change"
         );
@@ -404,13 +394,13 @@ mod tests {
         // adding 1 more validator should increase the custody count
         custody_context.register_validator::<E>(vec![(8, 32_000_000_000)], Slot::new(0), &spec);
         assert_eq!(
-            custody_context.head_custody_count(&spec),
+            custody_context.custody_group_count(&spec),
             spec.validator_custody_requirement + spec.custody_requirement + 1,
             "head custody count should increase by 1"
         );
 
         assert_eq!(
-            custody_context.advertised_custody_column_count(&spec),
+            custody_context.advertised_custody_group_count(&spec),
             spec.custody_requirement,
             "advertised custody count should not change"
         );
@@ -433,13 +423,13 @@ mod tests {
         );
 
         assert_eq!(
-            custody_context.head_custody_count(&spec),
+            custody_context.custody_group_count(&spec),
             spec.validator_custody_requirement + spec.custody_requirement + 4,
             "head custody count should increase by 3"
         );
 
         assert_eq!(
-            custody_context.advertised_custody_column_count(&spec),
+            custody_context.advertised_custody_group_count(&spec),
             spec.custody_requirement,
             "advertised custody count should not change"
         );

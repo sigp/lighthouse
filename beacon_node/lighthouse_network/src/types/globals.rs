@@ -51,19 +51,6 @@ impl<E: EthSpec> NetworkGlobals<E> {
     ) -> Self {
         let node_id = enr.node_id().raw();
 
-        // let custody_group_count = match local_metadata.custody_group_count() {
-        //     Ok(&cgc) if cgc <= spec.number_of_custody_groups => cgc,
-        //     _ => {
-        //         if spec.is_peer_das_scheduled() {
-        //             error!(
-        //                 info = "falling back to default custody requirement",
-        //                 "custody_group_count from metadata is either invalid or not set. This is a bug!"
-        //             );
-        //         }
-        //         spec.custody_requirement
-        //     }
-        // };
-
         // The below `expect` calls will panic on start up if the chain spec config values used
         // are invalid
         let sampling_size = spec
