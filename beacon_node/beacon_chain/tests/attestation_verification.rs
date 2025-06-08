@@ -1031,8 +1031,9 @@ async fn unaggregated_gossip_verification() {
         )
         .inspect_unaggregate_err(
             "attester is not a member of the committee",
-            |_, a, _, _| a.attester_index = 9999,
+            |_, a, _, _| a.attester_index = 100,
             |_, err| {
+                println!("err {:?}", err);
                 // Signature check happens before we check if the attester is a member of the committee
                 assert!(matches!(
                     err,
