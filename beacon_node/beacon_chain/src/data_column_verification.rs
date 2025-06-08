@@ -512,15 +512,20 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), kzg)
         .map_err(GossipDataColumnError::InvalidKzgProof)?;
 
-    chain
-        .observed_slashable
-        .write()
-        .observe_slashable(
-            column_slot,
-            data_column.block_proposer_index(),
-            data_column.block_root(),
-        )
-        .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
+    match constructed_internally {
+        ConstructedInternally::No => {
+            chain
+                .observed_slashable
+                .write()
+                .observe_slashable(
+                    column_slot,
+                    data_column.block_proposer_index(),
+                    data_column.block_root(),
+                )
+                .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?;
+        }
+        ConstructedInternally::Yes => (),
+    }
 
     if O::observe() {
         observe_gossip_data_column(&data_column, chain)?;
