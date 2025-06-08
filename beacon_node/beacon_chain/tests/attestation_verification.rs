@@ -947,7 +947,8 @@ async fn unaggregated_gossip_verification() {
                 }
                 a.committee_index = committee_index;
             },
-            |_, err| assert!(matches!(err, AttnError::NoCommitteeForSlotAndIndex { .. })),
+            // Signature verification happens before checking committee index validity
+            |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
         )
         /*
          * The following test ensures:
@@ -1028,6 +1029,27 @@ async fn unaggregated_gossip_verification() {
                 ))
             },
         )
+        .inspect_unaggregate_err(
+            "attester is not a member of the committee",
+            |_, a, _, _| a.attester_index = 9999,
+            |_, err| {
+                // Signature check happens before we check if the attester is a member of the committee
+                assert!(matches!(
+                    err,
+                    AttnError::InvalidSignature,
+                ))
+            },
+        )
+        // .inspect_unaggregate_err(
+        //     "attestation.data.committee_index is not set to zero post electra",
+        //     |_, a, _, _| a.attester_index = 100,
+        //     |_, err| {
+        //         assert!(matches!(
+        //             err,
+        //             AttnError::AttesterNotInCommittee { .. }
+        //         ))
+        //     },
+        // )
         /*
          * The following test ensures that:
          *

@@ -995,7 +995,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             });
         };
 
-        if committee.contains(&(attestation.attester_index as usize)) {
+        if !committee.contains(&(attestation.attester_index as usize)) {
             return Err(Error::AttesterNotInCommittee {
                 attester_index: attestation.attester_index,
                 committee_index: attestation.committee_index,
