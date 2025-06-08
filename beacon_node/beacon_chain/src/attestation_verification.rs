@@ -38,7 +38,7 @@ use crate::{
     metrics,
     observed_aggregates::{ObserveOutcome, ObservedAttestationKey},
     observed_attesters::Error as ObservedAttestersError,
-    test_utils::single_attestation_to_attestation,
+    single_attestation::single_attestation_to_attestation,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
