@@ -934,7 +934,7 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with invalid committee index",
-            |tester, a, _, spec| {
+            |tester, a, _, _| {
                 let committee_index = tester
                     .harness
                     .chain
@@ -942,13 +942,12 @@ async fn unaggregated_gossip_verification() {
                     .beacon_state
                     .get_committee_count_at_slot(a.data.slot)
                     .unwrap();
-                if !spec.fork_name_at_slot::<E>(a.data.slot).electra_enabled() {
-                    a.data.index = committee_index;
-                }
+
                 a.committee_index = committee_index;
             },
-            // Signature verification happens before checking committee index validity
-            |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
+            |_, err| {
+                assert!(matches!(err, AttnError::NoCommitteeForSlotAndIndex { .. }))
+            },
         )
         /*
          * The following test ensures:
