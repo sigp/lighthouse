@@ -28,6 +28,16 @@ $ cargo test --features ef_tests
 The tests won't run without the `ef_tests` feature enabled (this is to ensure that a top-level
 `cargo test --all` won't fail on missing files).
 
+The following is sometimes necessary to avoid stack overflow issues when running on MacOS:
+```
+$ export RUST_MIN_STACK=8388608
+```
+
+When debugging failing tests, it's often useful to disable parallization and output suppression:
+```
+$ cargo test --features ef_tests,disable_rayon -- --nocapture
+```
+
 ## Saving Space
 
 When you download the tests, the downloaded archives will be kept in addition to the extracted

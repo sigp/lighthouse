@@ -22,10 +22,11 @@ use state_processing::{
     ConsensusContext,
 };
 use std::fmt::Debug;
+use std::path::PathBuf;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
-    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
-    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
+    BeaconState, BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
     ForkVersionDecode, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
@@ -49,6 +50,7 @@ pub struct WithdrawalsPayload<E: EthSpec> {
 
 #[derive(Debug, Clone)]
 pub struct Operations<E: EthSpec, O: Operation<E>> {
+    path: PathBuf,
     metadata: Metadata,
     execution_metadata: Option<ExecutionMetadata>,
     pub pre: BeaconState<E>,
@@ -357,8 +359,8 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                     BeaconBlockBody::Electra(inner.clone_as_blinded())
                 }
                 ForkName::Fulu => {
-                    let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
-                    BeaconBlockBody::Electra(inner.clone_as_blinded())
+                    let inner = <BeaconBlockBodyFulu<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Fulu(inner.clone_as_blinded())
                 }
                 _ => panic!(),
             })
@@ -555,6 +557,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
         };
 
         Ok(Self {
+            path: path.into(),
             metadata,
             execution_metadata,
             pre,
@@ -574,6 +577,17 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        // FIXME(das): remove this once v1.6.0-alpha.1 is released
+        // We are ahead of the v1.6.0-alpha.0 spec in our implementation of
+        // `get_max_blobs_per_block`, so we fail the execution payload test which expects the
+        // empty blob schedule to generate an error.
+        if O::handler_name() == "execution_payload"
+            && fork_name == ForkName::Fulu
+            && self.path.ends_with("invalid_exceed_max_blobs_per_block")
+        {
+            return Err(Error::SkippedKnownFailure);
+        }
+
         let spec = &testing_spec::<E>(fork_name);
 
         let mut pre_state = self.pre.clone();
