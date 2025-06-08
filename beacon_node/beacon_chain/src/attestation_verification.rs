@@ -965,18 +965,30 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
         let indexed_attestation = attestation.to_indexed(fork_name);
 
+        // Check that the attester is a member of the committee and return `committees_per_slot` which 
+        // is used in `verify_middle_checks` to calculate the expected `subnet_id`
         let committees_per_slot = chain
             .with_committee_cache(
                 attestation.data.target.root,
                 attestation_epoch,
                 |committee_cache, _| {
-                    if committee_cache
+                    let Some(beacon_committee) = committee_cache
                         .get_beacon_committee(attestation.data.slot, attestation.committee_index)
-                        .is_none()
-                    {
+                    else {
                         return Ok(Err(Error::NoCommitteeForSlotAndIndex {
                             slot: attestation.data.slot,
                             index: attestation.committee_index,
+                        }));
+                    };
+
+                    if !beacon_committee
+                        .committee
+                        .contains(&(attestation.attester_index as usize))
+                    {
+                        return Ok(Err(Error::AttesterNotInCommittee {
+                            attester_index: attestation.attester_index,
+                            committee_index: attestation.committee_index,
+                            slot: attestation.data.slot,
                         }));
                     }
 
