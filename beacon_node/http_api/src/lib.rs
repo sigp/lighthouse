@@ -3801,7 +3801,7 @@ pub fn serve<T: BeaconChainTypes>(
                     chain
                         .data_availability_checker
                         .custody_context()
-                        .register_validator::<T::EthSpec>(
+                        .register_validators::<T::EthSpec>(
                             registrations,
                             chain.slot().unwrap(),
                             &chain.spec,

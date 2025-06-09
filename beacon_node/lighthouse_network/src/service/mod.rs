@@ -205,7 +205,7 @@ impl<E: EthSpec> Network<E> {
         let custody_group_count_metadata = ctx
             .chain_spec
             .is_peer_das_scheduled()
-            .then(|| custody_group_count);
+            .then_some(custody_group_count);
         let meta_data =
             utils::load_or_build_metadata(&config.network_dir, custody_group_count_metadata);
         let seq_number = *meta_data.seq_number();

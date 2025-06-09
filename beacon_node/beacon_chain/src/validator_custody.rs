@@ -16,9 +16,8 @@ const CHANNEL_CAPACITY: usize = 10;
 #[derive(Default, Debug)]
 struct ValidatorRegistrations {
     /// Set of all validators that is registered to this node along with its effective balance
-    /// in increments of `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP`
     ///
-    /// Key is validator index and value is effective_balance // BALANCE_PER_ADDITIONAL_CUSTODY_GROUP.
+    /// Key is validator index and value is effective_balance.
     validators: HashMap<usize, u64>,
     /// Maintains the validator custody requirement at a given epoch.
     ///
@@ -52,14 +51,11 @@ impl ValidatorRegistrations {
         spec: &ChainSpec,
     ) {
         let epoch = slot.epoch(E::slots_per_epoch());
-        // This is the "weight" of the validator based on the effective balance
-        let num_validators_for_effective_balance =
-            effective_balance / spec.balance_per_additional_custody_group;
-        self.validators
-            .insert(validator_index, num_validators_for_effective_balance);
+        self.validators.insert(validator_index, effective_balance);
 
         // Each `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP` effectively contributes one unit of "weight".
-        let validator_count_at_epoch = self.validators.values().sum();
+        let validator_count_at_epoch =
+            self.validators.values().sum::<u64>() / spec.balance_per_additional_custody_group;
         let validator_custody_requirement =
             get_validators_custody_requirement(validator_count_at_epoch, spec);
 
@@ -168,7 +164,7 @@ impl CustodyContext {
     ///
     /// Also modifies the internal structures if the validator custody has changed to
     /// update the `custody_column_count`.
-    pub fn register_validator<E: EthSpec>(
+    pub fn register_validators<E: EthSpec>(
         &self,
         validators_and_balance: Vec<(usize, u64)>,
         slot: Slot,
@@ -295,12 +291,10 @@ impl From<&CustodyContext> for CustodyContextSsz {
         CustodyContextSsz {
             advertised_validator_custody: context
                 .advertised_validator_custody_count
-                .load(Ordering::Relaxed)
-                .clone(),
+                .load(Ordering::Relaxed),
             validator_custody_at_head: context
                 .validator_custody_count_at_head
-                .load(Ordering::Relaxed)
-                .clone(),
+                .load(Ordering::Relaxed),
             persisted_is_supernode: context.persisted_is_supernode,
         }
     }
@@ -308,15 +302,14 @@ impl From<&CustodyContext> for CustodyContextSsz {
 
 #[cfg(test)]
 mod tests {
-    use crate::MainnetEthSpec;
+    use types::MainnetEthSpec;
 
     use super::*;
 
     type E = MainnetEthSpec;
 
     #[test]
-    fn no_validators() {
-        // supernode without validators
+    fn no_validators_supernode_default() {
         let custody_context = CustodyContext::new(true);
         let spec = E::default_spec();
         assert_eq!(
@@ -330,8 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn fullnode() {
-        // fullnode without validators
+    fn no_validators_fullnode_default() {
         let custody_context = CustodyContext::new(false);
         let spec = E::default_spec();
         assert_eq!(
@@ -344,90 +336,92 @@ mod tests {
             spec.custody_requirement,
             "advertised custody count should be minimum spec custody requirement"
         );
+    }
 
-        // add 1 validator
-        custody_context.register_validator::<E>(vec![(0, 32_000_000_000)], Slot::new(0), &spec);
+    #[test]
+    fn register_single_validator_should_update_cgc() {
+        let custody_context = CustodyContext::new(false);
+        let spec = E::default_spec();
+        let bal_per_additional_group = spec.balance_per_additional_custody_group;
+        let min_val_custody_requirement = spec.validator_custody_requirement;
+        let validators_and_expected_cgc = vec![
+            (
+                vec![(0, 1 * bal_per_additional_group)],
+                min_val_custody_requirement,
+            ),
+            (
+                vec![(0, 8 * bal_per_additional_group)],
+                min_val_custody_requirement,
+            ),
+            (vec![(0, 10 * bal_per_additional_group)], 10),
+        ];
 
-        assert_eq!(
-            custody_context.custody_group_count(&spec),
-            spec.validator_custody_requirement + spec.custody_requirement,
-            "head custody count should increase with 1 validator"
-        );
+        // Update validator every epoch and assert updates
+        for (idx, (validators_and_balance, expected_cgc)) in
+            validators_and_expected_cgc.into_iter().enumerate()
+        {
+            let epoch = Epoch::new(idx as u64);
+            custody_context.register_validators::<E>(
+                validators_and_balance,
+                epoch.start_slot(E::slots_per_epoch()),
+                &spec,
+            );
 
-        assert_eq!(
-            custody_context.advertised_custody_group_count(&spec),
-            spec.custody_requirement,
-            "advertised custody count should not change"
-        );
+            assert_eq!(custody_context.custody_group_count(&spec), expected_cgc);
+        }
+    }
 
-        // add 7 more validators to reach `validator_custody_requirement`
-        custody_context.register_validator::<E>(
-            vec![
-                (1, 32_000_000_000),
-                (2, 32_000_000_000),
-                (3, 32_000_000_000),
-                (4, 32_000_000_000),
-                (5, 32_000_000_000),
-                (6, 32_000_000_000),
-                (7, 32_000_000_000),
-            ],
-            Slot::new(0),
-            &spec,
-        );
+    #[test]
+    fn register_multiple_validators_should_update_cgc() {
+        let custody_context = CustodyContext::new(false);
+        let spec = E::default_spec();
+        let bal_per_additional_group = spec.balance_per_additional_custody_group;
+        let min_val_custody_requirement = spec.validator_custody_requirement;
+        let validators_and_expected_cgc = vec![
+            (
+                vec![(0, 1 * bal_per_additional_group)],
+                min_val_custody_requirement,
+            ),
+            (
+                vec![(1, 7 * bal_per_additional_group)],
+                min_val_custody_requirement,
+            ),
+            (vec![(2, 2 * bal_per_additional_group)], 10),
+        ];
 
-        assert_eq!(
-            custody_context.custody_group_count(&spec),
-            spec.validator_custody_requirement + spec.custody_requirement,
-            "head custody count should should be same as with 1 validator"
-        );
+        // Update validator every epoch and assert updates
+        for (idx, (validators_and_balance, expected_cgc)) in
+            validators_and_expected_cgc.into_iter().enumerate()
+        {
+            let epoch = Epoch::new(idx as u64);
+            custody_context.register_validators::<E>(
+                validators_and_balance,
+                epoch.start_slot(E::slots_per_epoch()),
+                &spec,
+            );
 
-        assert_eq!(
-            custody_context.advertised_custody_group_count(&spec),
-            spec.custody_requirement,
-            "advertised custody count should not change"
-        );
+            assert_eq!(custody_context.custody_group_count(&spec), expected_cgc);
+        }
+    }
 
-        // adding 1 more validator should increase the custody count
-        custody_context.register_validator::<E>(vec![(8, 32_000_000_000)], Slot::new(0), &spec);
-        assert_eq!(
-            custody_context.custody_group_count(&spec),
-            spec.validator_custody_requirement + spec.custody_requirement + 1,
-            "head custody count should increase by 1"
-        );
-
-        assert_eq!(
-            custody_context.advertised_custody_group_count(&spec),
-            spec.custody_requirement,
-            "advertised custody count should not change"
-        );
-
-        // update effective balance for some validators.
-        // validator count should increase by 3
-        custody_context.register_validator::<E>(
-            vec![
-                (1, 96_000_000_000),
-                (2, 65_000_000_000),
-                (3, 32_000_000_000),
-                (4, 32_000_000_000),
-                (5, 32_000_000_000),
-                (6, 32_000_000_000),
-                (7, 32_000_000_000),
-                (8, 32_000_000_000),
-            ],
-            Slot::new(0),
-            &spec,
-        );
-
-        assert_eq!(
-            custody_context.custody_group_count(&spec),
-            spec.validator_custody_requirement + spec.custody_requirement + 4,
-            "head custody count should increase by 3"
-        );
-
+    #[test]
+    fn advertised_custody_group_count_should_not_change_after_registration() {
+        let custody_context = CustodyContext::new(false);
+        let spec = E::default_spec();
+        custody_context.register_validators::<E>(vec![(0, 1_024_000_000)], Slot::new(0), &spec);
         assert_eq!(
             custody_context.advertised_custody_group_count(&spec),
             spec.custody_requirement,
             "advertised custody count should not change"
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn advertised_custody_group_count_should_change_after_update_called() {
+        let custody_context = CustodyContext::new(false);
+        let spec = E::default_spec();
+        custody_context.register_validators::<E>(vec![(0, 1_024_000_000)], Slot::new(0), &spec);
+        unimplemented!();
     }
 }

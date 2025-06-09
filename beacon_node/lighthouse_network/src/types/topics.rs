@@ -126,7 +126,7 @@ pub fn all_topics_at_fork<E: EthSpec>(fork: ForkName, spec: &ChainSpec) -> Vec<G
         enable_light_client_server: true,
         subscribe_all_subnets: true,
         subscribe_all_data_column_subnets: true,
-        sampling_subnets: sampling_subnets,
+        sampling_subnets,
     };
     core_topics_to_subscribe::<E>(fork, &opts, spec)
 }
