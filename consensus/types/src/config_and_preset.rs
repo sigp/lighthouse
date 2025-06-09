@@ -1,6 +1,6 @@
 use crate::{
     consts::altair, consts::deneb, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset,
-    ChainSpec, Config, DenebPreset, ElectraPreset, EthSpec, ForkName, FuluPreset,
+    ChainSpec, Config, DenebPreset, Eip7805Preset, ElectraPreset, EthSpec, ForkName, FuluPreset,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,9 @@ pub struct ConfigAndPreset {
     #[superstruct(only(Electra, Eip7805, Fulu))]
     #[serde(flatten)]
     pub electra_preset: ElectraPreset,
+    #[superstruct(only(Eip7805, Fulu))]
+    #[serde(flatten)]
+    pub eip7805_preset: Eip7805Preset,
     #[superstruct(only(Fulu))]
     #[serde(flatten)]
     pub fulu_preset: FuluPreset,
@@ -58,6 +61,7 @@ impl ConfigAndPreset {
             || fork_name == Some(ForkName::Fulu)
         {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
+            let eip7805_preset = Eip7805Preset::from_chain_spec::<E>(spec);
             let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
 
             ConfigAndPreset::Fulu(ConfigAndPresetFulu {
@@ -68,7 +72,26 @@ impl ConfigAndPreset {
                 capella_preset,
                 deneb_preset,
                 electra_preset,
+                eip7805_preset,
                 fulu_preset,
+                extra_fields,
+            })
+        } else if spec.electra_fork_epoch.is_some()
+            || fork_name.is_none()
+            || fork_name == Some(ForkName::Eip7805)
+        {
+            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
+            let eip7805_preset = Eip7805Preset::from_chain_spec::<E>(spec);
+
+            ConfigAndPreset::Eip7805(ConfigAndPresetEip7805 {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                deneb_preset,
+                electra_preset,
+                eip7805_preset,
                 extra_fields,
             })
         } else if spec.electra_fork_epoch.is_some()

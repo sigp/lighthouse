@@ -74,7 +74,6 @@ pub fn per_slot_processing<E: EthSpec>(
         if spec.eip7805_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_eip7805(state, spec)?;
         }
-
         // Fulu.
         if spec.fulu_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_fulu(state, spec)?;

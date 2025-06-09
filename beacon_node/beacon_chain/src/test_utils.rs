@@ -1561,7 +1561,6 @@ where
                             .validator_index(pubkey)
                             .expect("should find validator index")
                             .expect("pubkey should exist in the beacon chain");
-
                         let sync_message = SyncCommitteeMessage::new::<E>(
                             message_slot,
                             head_block_root,
@@ -3162,6 +3161,7 @@ where
         for (_, contribution_and_proof) in sync_contributions {
             let signed_contribution_and_proof = contribution_and_proof.unwrap();
 
+            println!("1");
             let verified_contribution = self
                 .chain
                 .verify_sync_contribution_for_gossip(signed_contribution_and_proof)?;
@@ -3170,6 +3170,7 @@ where
         }
 
         for verified_contribution in verified_contributions {
+            println!("2");
             self.chain
                 .add_contribution_to_block_inclusion_pool(verified_contribution)?;
         }
@@ -3283,6 +3284,25 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         }) => {
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => rng.gen_range(1..=max_blobs),
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
+            payload.execution_payload.transactions = <_>::default();
+            for tx in Vec::from(transactions) {
+                payload.execution_payload.transactions.push(tx).unwrap();
+            }
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
+            bundle
+        }
+        SignedBeaconBlock::Eip7805(SignedBeaconBlockEip7805 {
+            ref mut message, ..
+        }) => {
+            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
+            let payload: &mut FullPayloadEip7805<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
                 NumBlobs::Random => rng.gen_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,

@@ -42,26 +42,27 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             .now()
             .ok_or(BeaconChainError::UnableToReadSlot)?;
 
-        if message_slot != current_slot + 1 {
+        if message_slot != current_slot && message_slot != current_slot - 1 {
             return Err(GossipInclusionListError::InvalidSlot {
                 message_slot,
                 current_slot,
             });
         }
 
-        // TODO: the slot is equal to the current slot or the previous slot and the current time is
+        // TODO(focil): the slot is equal to the current slot or the previous slot and the current time is
         // not past the attestation deadline
 
-        // TODO: the IL committee root is equal to the hash tree root of the expected committee
+        // TODO(focil): the IL committee root is equal to the hash tree root of the expected committee
 
-        // TODO: the validator index is contained in the committee corresponding to the committee
+        // TODO(focil): the validator index is contained in the committee corresponding to the committee
         // root
 
         // the transaction length is less than or equal to the specified maximum
-        if signed_il.message.transactions.len() > T::EthSpec::max_transactions_per_inclusion_list()
-        {
-            return Err(GossipInclusionListError::TooManyTransactions);
-        }
+        // TODO(focil) review this
+        // if signed_il.message.transactions.len() > T::EthSpec::max_bytes_per_inclusion_list()
+        // {
+        //     return Err(GossipInclusionListError::TooManyTransactions);
+        // }
 
         // TODO: the message is the first or second valid message received from the validator
         // corresponding to the validator index
@@ -84,7 +85,10 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
                 BeaconChainError::ValidatorIndexUnknown(validator_index),
             )));
         };
-        signed_il.signature.verify(&pubkey, message);
+        // TODO(focil) fix inclusion list verify
+        if !signed_il.signature.verify(&pubkey, message) {
+            return Err(GossipInclusionListError::InvalidSignature);
+        }
 
         Ok(Self {
             signed_il: signed_il.clone(),

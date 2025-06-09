@@ -135,7 +135,7 @@ pub async fn publish_inclusion_lists<T: BeaconChainTypes>(
                         request_index = index,
                         validator_index,
                         il_slot = ?slot,
-                        "Failure verifying attestation for gossip"
+                        "Failure verifying inclusion list for gossip"
                     );
                     failures.push(Failure::new(index, format!("{e:?}")));
                 } else {

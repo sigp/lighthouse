@@ -186,7 +186,7 @@ pub use crate::fork_data::ForkData;
 pub use crate::fork_name::{ForkName, InconsistentFork};
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
-pub use crate::inclusion_list::{InclusionList, InclusionListTransactions, SignedInclusionList};
+pub use crate::inclusion_list::{InclusionList, SignedInclusionList};
 pub use crate::inclusion_list_committee::InclusionListCommittee;
 pub use crate::inclusion_list_duty::InclusionListDuty;
 pub use crate::indexed_attestation::{

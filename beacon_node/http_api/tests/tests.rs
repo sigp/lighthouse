@@ -2837,6 +2837,7 @@ impl ApiTester {
 
     pub async fn test_post_validator_duties_inclusion_list(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
+        let state = self.harness.get_current_state();
         let slot = self.chain.slot().unwrap();
         self.harness.extend_to_slot(slot).await;
         for validator_indices in self.interesting_validator_indices() {
@@ -2845,7 +2846,6 @@ impl ApiTester {
                 .post_validator_duties_inclusion_list(current_epoch, &validator_indices)
                 .await
                 .unwrap();
-            println!("{:?}", res)
         }
         self
     }
@@ -6252,14 +6252,15 @@ impl ApiTester {
         let state = self.chain.head_beacon_state_cloned();
         let slot = self.harness.chain.slot().unwrap();
         self.harness.extend_to_slot(slot).await;
+        println!("1");
         let inclusion_list_committee = state
             .get_inclusion_list_committee(slot + 1, &self.chain.spec)
             .unwrap();
-
+        println!("2");
         self.harness
             .make_signed_inclusion_lists(inclusion_list_committee, &state, slot + 1)
             .await;
-
+        println!("3");
         self
     }
 

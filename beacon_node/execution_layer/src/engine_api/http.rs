@@ -42,7 +42,7 @@ pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_V4: &str = "engine_getPayloadV4";
-pub const ENGINE_GET_PAYLOAD_V5: &str = "engine_getPayloadV5";
+pub const ENGINE_GET_PAYLOAD_V5: &str = "engine_getPayloadV4";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
@@ -1041,6 +1041,19 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
+            ForkName::Eip7805 => {
+                let response: JsonGetPayloadResponseV5<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V4,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+
+                JsonGetPayloadResponse::V5(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
             _ => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v4 with {}",
                 fork_name
@@ -1394,10 +1407,10 @@ impl HttpJsonRpc {
                 }
             }
             ForkName::Eip7805 => {
-                if engine_capabilities.get_payload_v5 {
-                    self.get_payload_v5(fork_name, payload_id).await
+                if engine_capabilities.get_payload_v4 {
+                    self.get_payload_v4(fork_name, payload_id).await
                 } else {
-                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv4"))
                 }
             }
             ForkName::Fulu => {

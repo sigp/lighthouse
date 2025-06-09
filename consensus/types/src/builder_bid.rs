@@ -1,10 +1,11 @@
 use crate::beacon_block_body::KzgCommitments;
+use crate::test_utils::TestRandom;
 use crate::{
     ChainSpec, ContextDeserialize, EthSpec, ExecutionPayloadHeaderBellatrix,
     ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderEip7805,
     ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode,
-    SignedRoot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, SignedRoot,
+    Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -12,7 +13,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
-use crate::test_utils::TestRandom;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 

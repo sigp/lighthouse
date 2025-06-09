@@ -58,7 +58,7 @@ async fn state_by_root_pruned_from_fork_choice() {
     type E = MinimalEthSpec;
 
     let validator_count = 24;
-    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let spec = ForkName::Eip7805.make_genesis_spec(E::default_spec());
 
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec.clone()),
@@ -396,7 +396,7 @@ pub async fn proposer_boost_re_org_test(
     assert!(head_slot > 0);
 
     // Test using the latest fork so that we simulate conditions as similar to mainnet as possible.
-    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let mut spec = ForkName::Eip7805.make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = Uint256::from(1);
 
     // Ensure there are enough validators to have `attesters_per_slot`.

@@ -263,7 +263,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientFinalityU
             ForkName::Deneb => {
                 Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Electra | ForkName::Eip7805  => {
+            ForkName::Electra | ForkName::Eip7805 => {
                 Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Fulu => {

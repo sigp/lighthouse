@@ -2106,7 +2106,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn produce_inclusion_list(
         self: &Arc<Self>,
         request_slot: Slot,
-    ) -> Result<Option<InclusionListTransactions<T::EthSpec>>, Error> {
+    ) -> Result<Option<Transactions<T::EthSpec>>, Error> {
         let execution_layer = self
             .execution_layer
             .clone()
@@ -5864,6 +5864,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             }
             BeaconState::Eip7805(_) => {
+                tracing::error!("BeaconState::Eip7805");
                 let (
                     payload,
                     kzg_commitments,

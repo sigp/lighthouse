@@ -3,11 +3,10 @@ use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
 use crate::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI};
 use crate::EthersTransaction;
+use crate::Transactions;
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value as JsonValue;
-use ssz_types::VariableList;
 use std::sync::Arc;
-use types::InclusionListTransactions;
 
 pub const GENERIC_ERROR_CODE: i64 = -1234;
 pub const BAD_PARAMS_ERROR_CODE: i64 = -32602;
@@ -124,6 +123,9 @@ pub async fn handle_rpc<E: EthSpec>(
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::V4(jep))
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadV5<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V5(jep))
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadV5<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::V5(jep))
@@ -251,7 +253,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     if matches!(request, JsonExecutionPayload::V2(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV2` after Electra fork!",
+                                "{} called with `ExecutionPayloadV2` after Eip7805 fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
@@ -260,7 +262,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     if matches!(request, JsonExecutionPayload::V3(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV3` after Electra fork!",
+                                "{} called with `ExecutionPayloadV3` after Eip7805 fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
@@ -355,8 +357,7 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_GET_PAYLOAD_V1
         | ENGINE_GET_PAYLOAD_V2
         | ENGINE_GET_PAYLOAD_V3
-        | ENGINE_GET_PAYLOAD_V4
-        | ENGINE_GET_PAYLOAD_V5 => {
+        | ENGINE_GET_PAYLOAD_V4 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
@@ -416,6 +417,22 @@ pub async fn handle_rpc<E: EthSpec>(
                 ));
             }
 
+            // validate method called correctly according to prague fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Eip7805
+                && (method == ENGINE_GET_PAYLOAD_V1
+                    || method == ENGINE_GET_PAYLOAD_V2
+                    || method == ENGINE_GET_PAYLOAD_V3)
+            {
+                return Err((
+                    format!("{} called after EIP7805 fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
+            }
+
             // validate method called correctly according to fulu fork time
             if ctx
                 .execution_block_generator
@@ -424,8 +441,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 == ForkName::Fulu
                 && (method == ENGINE_GET_PAYLOAD_V1
                     || method == ENGINE_GET_PAYLOAD_V2
-                    || method == ENGINE_GET_PAYLOAD_V3
-                    || method == ENGINE_GET_PAYLOAD_V4)
+                    || method == ENGINE_GET_PAYLOAD_V3)
             {
                 return Err((
                     format!("{} called after Fulu fork!", method),
@@ -491,9 +507,6 @@ pub async fn handle_rpc<E: EthSpec>(
                         })
                         .unwrap()
                     }
-                    _ => unreachable!(),
-                }),
-                ENGINE_GET_PAYLOAD_V5 => Ok(match JsonExecutionPayload::from(response) {
                     JsonExecutionPayload::V5(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV5 {
                             execution_payload,
@@ -505,17 +518,18 @@ pub async fn handle_rpc<E: EthSpec>(
                                 ))?
                                 .into(),
                             should_override_builder: false,
+                            // TODO(electra): add EL requests in mock el
                             execution_requests: Default::default(),
                         })
                         .unwrap()
                     }
-                    JsonExecutionPayload::V4(execution_payload) => {
-                        serde_json::to_value(JsonGetPayloadResponseV4 {
+                    JsonExecutionPayload::V6(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV6 {
                             execution_payload,
                             block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                             blobs_bundle: maybe_blobs
                                 .ok_or((
-                                    "No blobs returned despite V4 Payload".to_string(),
+                                    "No blobs returned despite V5 Payload".to_string(),
                                     GENERIC_ERROR_CODE,
                                 ))?
                                 .into(),
@@ -525,7 +539,7 @@ pub async fn handle_rpc<E: EthSpec>(
                         })
                         .unwrap()
                     }
-                    other => unreachable!("check {:?}", other),
+                    _ => unreachable!(),
                 }),
                 _ => unreachable!(),
             }
@@ -747,11 +761,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 }"#,
             )
             .unwrap();
-            let tx_list: InclusionListTransactions<E> =
-                vec![VariableList::new(transaction.rlp().to_vec())
-                    .map_err(|e| format!("Failed to convert transaction to SSZ: {:?}", e))
-                    .unwrap()]
-                .into();
+            let tx_list: Transactions<E> = vec![transaction.rlp().to_vec().into()].into();
 
             Ok(serde_json::to_value(tx_list).unwrap())
         }

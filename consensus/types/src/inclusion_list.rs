@@ -1,17 +1,11 @@
 use crate::test_utils::TestRandom;
-use crate::{EthSpec, Hash256, Signature, SignedRoot, Slot, Transaction};
+use crate::{EthSpec, Hash256, Signature, SignedRoot, Slot, Transactions};
 
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-
-pub type InclusionListTransactions<E> = VariableList<
-    Transaction<<E as EthSpec>::MaxBytesPerTransaction>,
-    <E as EthSpec>::MaxTransactionsPerInclusionList,
->;
 
 #[derive(
     Debug,
@@ -33,7 +27,7 @@ pub struct InclusionList<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub inclusion_list_committee_root: Hash256,
-    pub transactions: InclusionListTransactions<E>,
+    pub transactions: Transactions<E>,
 }
 
 impl<E: EthSpec> SignedRoot for InclusionList<E> {}

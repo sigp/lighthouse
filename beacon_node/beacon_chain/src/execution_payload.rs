@@ -52,7 +52,7 @@ pub enum NotifyExecutionLayer {
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    pub inclusion_list_transactions: InclusionListTransactions<T::EthSpec>,
+    pub inclusion_list_transactions: Transactions<T::EthSpec>,
     payload_verification_status: Option<PayloadVerificationStatus>,
 }
 
@@ -156,7 +156,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'_, T::EthSpec>,
-    il_transactions: InclusionListTransactions<T::EthSpec>,
+    il_transactions: Transactions<T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
         .execution_layer
@@ -165,10 +165,14 @@ async fn notify_new_payload<T: BeaconChainTypes>(
 
     let execution_block_hash = block.execution_payload()?.block_hash();
 
-    info!(
-        il_tx_count = il_transactions.len(),
-        "Submit new payload with il_transactions"
-    );
+    // TODO(eip-7805) we can remove this later
+    if il_transactions.len() > 0 {
+        info!(
+            il_tx_count = il_transactions.len(),
+            "Submit new payload with il_transactions"
+        );
+    }
+
     let new_payload_response = execution_layer
         .notify_new_payload(NewPayloadRequest::try_from_block_and_il_transactions(
             block,

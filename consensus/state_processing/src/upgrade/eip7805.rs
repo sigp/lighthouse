@@ -1,91 +1,14 @@
-use bls::Signature;
-use itertools::Itertools;
-use safe_arith::SafeArith;
 use std::mem;
-use types::{
-    BeaconState, BeaconStateEip7805, BeaconStateError as Error, ChainSpec, Epoch, EpochCache,
-    EthSpec, Fork, PendingDeposit,
-};
+use types::{BeaconState, BeaconStateEip7805, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
 
 /// Transform a `Electra` state into an `Eip7805s` state.
 pub fn upgrade_to_eip7805<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let epoch = pre_state.current_epoch();
+    let _epoch = pre_state.current_epoch();
 
-    let activation_exit_epoch = spec.compute_activation_exit_epoch(epoch)?;
-    let earliest_exit_epoch = pre_state
-        .validators()
-        .iter()
-        .filter(|v| v.exit_epoch != spec.far_future_epoch)
-        .map(|v| v.exit_epoch)
-        .max()
-        .unwrap_or(activation_exit_epoch)
-        .max(activation_exit_epoch)
-        .safe_add(1)?;
-
-    // The total active balance cache must be built before the consolidation churn limit
-    // is calculated.
-    pre_state.build_total_active_balance_cache(spec)?;
-    let earliest_consolidation_epoch = spec.compute_activation_exit_epoch(epoch)?;
-
-    let mut post = upgrade_state_to_eip7805(
-        pre_state,
-        earliest_exit_epoch,
-        earliest_consolidation_epoch,
-        spec,
-    )?;
-
-    *post.exit_balance_to_consume_mut()? = post.get_activation_exit_churn_limit(spec)?;
-    *post.consolidation_balance_to_consume_mut()? = post.get_consolidation_churn_limit(spec)?;
-
-    // Add validators that are not yet active to pending balance deposits
-    let validators = post.validators().clone();
-    let pre_activation = validators
-        .iter()
-        .enumerate()
-        .filter(|(_, validator)| validator.activation_epoch == spec.far_future_epoch)
-        .sorted_by_key(|(index, validator)| (validator.activation_eligibility_epoch, *index))
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-
-    // Process validators to queue entire balance and reset them
-    for index in pre_activation {
-        let balance = post
-            .balances_mut()
-            .get_mut(index)
-            .ok_or(Error::UnknownValidator(index))?;
-        let balance_copy = *balance;
-        *balance = 0_u64;
-
-        let validator = post
-            .validators_mut()
-            .get_mut(index)
-            .ok_or(Error::UnknownValidator(index))?;
-        validator.effective_balance = 0;
-        validator.activation_eligibility_epoch = spec.far_future_epoch;
-        let pubkey = validator.pubkey;
-        let withdrawal_credentials = validator.withdrawal_credentials;
-
-        post.pending_deposits_mut()?
-            .push(PendingDeposit {
-                pubkey,
-                withdrawal_credentials,
-                amount: balance_copy,
-                signature: Signature::infinity()?.into(),
-                slot: spec.genesis_slot,
-            })
-            .map_err(Error::MilhouseError)?;
-    }
-
-    // Ensure early adopters of compounding credentials go through the activation churn
-    let validators = post.validators().clone();
-    for (index, validator) in validators.iter().enumerate() {
-        if validator.has_compounding_withdrawal_credential(spec) {
-            post.queue_excess_active_balance(index, spec)?;
-        }
-    }
+    let post = upgrade_state_to_eip7805(pre_state, spec)?;
 
     *pre_state = post;
 
@@ -94,8 +17,6 @@ pub fn upgrade_to_eip7805<E: EthSpec>(
 
 pub fn upgrade_state_to_eip7805<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
-    earliest_exit_epoch: Epoch,
-    earliest_consolidation_epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
@@ -112,7 +33,7 @@ pub fn upgrade_state_to_eip7805<E: EthSpec>(
         slot: pre.slot,
         fork: Fork {
             previous_version: pre.fork.current_version,
-            current_version: spec.electra_fork_version,
+            current_version: spec.eip7805_fork_version,
             epoch,
         },
         // History
@@ -151,15 +72,15 @@ pub fn upgrade_state_to_eip7805<E: EthSpec>(
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries.clone(),
         // Electra
-        deposit_requests_start_index: spec.unset_deposit_requests_start_index,
-        deposit_balance_to_consume: 0,
-        exit_balance_to_consume: 0,
-        earliest_exit_epoch,
-        consolidation_balance_to_consume: 0,
-        earliest_consolidation_epoch,
-        pending_deposits: Default::default(),
-        pending_partial_withdrawals: Default::default(),
-        pending_consolidations: Default::default(),
+        deposit_requests_start_index: pre.deposit_requests_start_index,
+        deposit_balance_to_consume: pre.deposit_balance_to_consume,
+        exit_balance_to_consume: pre.exit_balance_to_consume,
+        earliest_exit_epoch: pre.earliest_exit_epoch,
+        consolidation_balance_to_consume: pre.consolidation_balance_to_consume,
+        earliest_consolidation_epoch: pre.earliest_consolidation_epoch,
+        pending_deposits: pre.pending_deposits.clone(),
+        pending_partial_withdrawals: pre.pending_partial_withdrawals.clone(),
+        pending_consolidations: pre.pending_consolidations.clone(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),
@@ -167,7 +88,7 @@ pub fn upgrade_state_to_eip7805<E: EthSpec>(
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
         slashings_cache: mem::take(&mut pre.slashings_cache),
-        epoch_cache: EpochCache::default(),
+        epoch_cache: mem::take(&mut pre.epoch_cache),
     });
     Ok(post)
 }

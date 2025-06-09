@@ -1,11 +1,11 @@
-use crate::{block_hash::calculate_execution_block_hash, metrics, Error};
+use crate::{block_hash::calculate_execution_block_hash, metrics, Error, Transactions};
 
 use crate::versioned_hashes::verify_versioned_hashes;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use superstruct::superstruct;
 use types::{
     BeaconBlockRef, BeaconStateError, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadRef, Hash256, InclusionListTransactions, VersionedHash,
+    ExecutionPayloadRef, Hash256, VersionedHash,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -50,7 +50,7 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     #[superstruct(only(Electra, Eip7805, Fulu))]
     pub execution_requests: &'block ExecutionRequests<E>,
     #[superstruct(only(Eip7805, Fulu))]
-    pub il_transactions: InclusionListTransactions<E>,
+    pub il_transactions: Transactions<E>,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
@@ -177,7 +177,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
 impl<'a, E: EthSpec> NewPayloadRequest<'a, E> {
     pub fn try_from_block_and_il_transactions(
         block: BeaconBlockRef<'a, E>,
-        il_transactions: InclusionListTransactions<E>,
+        il_transactions: Transactions<E>,
     ) -> Result<Self, BeaconStateError> {
         match block {
             BeaconBlockRef::Base(_) | BeaconBlockRef::Altair(_) => {

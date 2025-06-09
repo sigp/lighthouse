@@ -983,7 +983,7 @@ impl ChainSpec {
             /*
              * Fulu hard fork params
              */
-            fulu_fork_version: [0x06, 0x00, 0x00, 0x00],
+            fulu_fork_version: [0x07, 0x00, 0x00, 0x00],
             fulu_fork_epoch: None,
             custody_requirement: 4,
             number_of_custody_groups: 128,
@@ -1113,7 +1113,7 @@ impl ChainSpec {
             eip7805_fork_epoch: None,
             eip7805_fork_version: [0x06, 0x00, 0x00, 0x00],
             // Fulu
-            fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
+            fulu_fork_version: [0x07, 0x00, 0x00, 0x00],
             fulu_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
@@ -1328,7 +1328,7 @@ impl ChainSpec {
             /*
              * Fulu hard fork params
              */
-            fulu_fork_version: [0x06, 0x00, 0x00, 0x64],
+            fulu_fork_version: [0x07, 0x00, 0x00, 0x00],
             fulu_fork_epoch: None,
             custody_requirement: 4,
             number_of_custody_groups: 128,

@@ -13,7 +13,7 @@ type E = MinimalEthSpec;
 /// Create a new test environment that is post-merge with `chain_depth` blocks.
 async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> InteractiveTester<E> {
     // Test using latest fork so that we simulate conditions as similar to mainnet as possible.
-    let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let mut spec = ForkName::Eip7805.make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = Uint256::from(1);
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count as usize).await;

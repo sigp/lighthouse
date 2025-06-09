@@ -2342,6 +2342,9 @@ mod test {
             ExecutionPayload::Electra(ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(
                 rng,
             )),
+            ExecutionPayload::Eip7805(ExecutionPayloadEip7805::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
             ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
         ];
         let merged_forks = &ForkName::list_all()[2..];
@@ -2379,6 +2382,17 @@ mod test {
                 let execution_payload =
                     ExecutionPayload::Electra(
                         ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+            {
+                let execution_payload =
+                    ExecutionPayload::Eip7805(
+                        ExecutionPayloadEip7805::<MainnetEthSpec>::random_for_test(rng),
                     );
                 let blobs_bundle = BlobsBundle::random_for_test(rng);
                 ExecutionPayloadAndBlobs {

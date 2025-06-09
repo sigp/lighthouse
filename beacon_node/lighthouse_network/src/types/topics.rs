@@ -80,7 +80,7 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         }
     }
 
-    if fork_name.electra_enabled() {
+    if fork_name.eip7805_enabled() {
         topics.push(GossipKind::InclusionList);
     }
 

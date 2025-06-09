@@ -1,4 +1,6 @@
-use super::{EthSpec, InclusionListTransactions, SignedInclusionList, Slot, Transaction};
+use crate::Transactions;
+
+use super::{EthSpec, SignedInclusionList, Slot, Transaction};
 use std::collections::{HashMap, HashSet};
 use tracing::debug;
 
@@ -81,10 +83,7 @@ impl<E: EthSpec> InclusionListCache<E> {
         );
     }
 
-    pub fn get_inclusion_list_transactions(
-        &self,
-        slot: Slot,
-    ) -> Option<InclusionListTransactions<E>> {
+    pub fn get_inclusion_list_transactions(&self, slot: Slot) -> Option<Transactions<E>> {
         let Some(inner) = self.inner_map.get(&slot) else {
             return None;
         };
