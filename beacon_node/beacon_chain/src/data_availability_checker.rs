@@ -273,6 +273,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
+    pub fn put_kzg_verified_custody_data_columns<
+        I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
+    >(
+        &self,
+        block_root: Hash256,
+        custody_columns: I,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, custody_columns)
+    }
+
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
     /// about whether all components have been received or more are required.
     pub fn put_pending_executed_block(

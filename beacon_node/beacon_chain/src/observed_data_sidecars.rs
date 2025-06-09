@@ -124,6 +124,10 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
         Ok(is_known)
     }
 
+    pub fn known_for_proposal(&self, proposal_key: &ProposalKey) -> Option<&HashSet<u64>> {
+        self.items.get(proposal_key)
+    }
+
     fn sanitize_data_sidecar(&self, data_sidecar: &T) -> Result<(), Error> {
         if data_sidecar.index() >= T::max_num_of_items(&self.spec, data_sidecar.slot()) as u64 {
             return Err(Error::InvalidDataIndex(data_sidecar.index()));
