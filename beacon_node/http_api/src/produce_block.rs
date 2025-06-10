@@ -7,12 +7,11 @@ use crate::{
         ResponseIncludesVersion,
     },
 };
+use beacon_chain::graffiti_calculator::GraffitiSettings;
 use beacon_chain::{
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
-use eth2::types::{
-    self as api_types, GraffitiPolicy, ProduceBlockV3Metadata, SkipRandaoVerification,
-};
+use eth2::types::{self as api_types, ProduceBlockV3Metadata, SkipRandaoVerification};
 use ssz::Encode;
 use std::sync::Arc;
 use types::{payload::BlockProductionVersion, *};
@@ -63,21 +62,13 @@ pub async fn produce_block_v3<T: BeaconChainTypes>(
         query.builder_boost_factor
     };
 
-    let final_graffiti = match query.graffiti_policy {
-        GraffitiPolicy::PreserveUserGraffiti => query.graffiti,
-        GraffitiPolicy::AppendClientVersions => Some(
-            chain
-                .calculate_graffiti()
-                .get_graffiti(query.graffiti)
-                .await,
-        ),
-    };
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
     let block_response_type = chain
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            final_graffiti,
+            graffiti_settings,
             randao_verification,
             builder_boost_factor,
             BlockProductionVersion::V3,
@@ -153,11 +144,13 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
+
     let block_response_type = chain
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti,
+            graffiti_settings,
             randao_verification,
             None,
             BlockProductionVersion::BlindedV2,
@@ -182,12 +175,13 @@ pub async fn produce_block_v2<T: BeaconChainTypes>(
     })?;
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
+    let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
     let block_response_type = chain
         .produce_block_with_verification(
             randao_reveal,
             slot,
-            query.graffiti,
+            graffiti_settings,
             randao_verification,
             None,
             BlockProductionVersion::FullV2,

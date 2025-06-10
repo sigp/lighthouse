@@ -1,5 +1,6 @@
 use crate::BeaconChain;
 use crate::BeaconChainTypes;
+use eth2::types::GraffitiPolicy;
 use execution_layer::{http::ENGINE_GET_CLIENT_VERSION_V1, CommitPrefix, ExecutionLayer};
 use logging::crit;
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,22 @@ impl Debug for GraffitiOrigin {
     }
 }
 
+pub enum GraffitiSettings {
+    Unspecified,
+    Specified {
+        graffiti: Graffiti,
+        policy: GraffitiPolicy,
+    },
+}
+
+impl GraffitiSettings {
+    pub fn new(validator_graffiti: Option<Graffiti>, policy: GraffitiPolicy) -> Self {
+        validator_graffiti
+            .map(|graffiti| Self::Specified { graffiti, policy })
+            .unwrap_or(Self::Unspecified)
+    }
+}
+
 pub struct GraffitiCalculator<T: BeaconChainTypes> {
     pub beacon_graffiti: GraffitiOrigin,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
@@ -73,7 +90,19 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
     /// 2. Graffiti specified by the user via beacon node CLI options.
     /// 3. The EL & CL client version string, applicable when the EL supports version specification.
     /// 4. The default lighthouse version string, used if the EL lacks version specification support.
-    pub async fn get_graffiti(&self, validator_graffiti: Option<Graffiti>) -> Graffiti {
+    pub async fn get_graffiti(&self, graffiti_settings: GraffitiSettings) -> Graffiti {
+        match graffiti_settings {
+            GraffitiSettings::Specified { graffiti, policy } => match policy {
+                GraffitiPolicy::PreserveUserGraffiti => graffiti,
+                GraffitiPolicy::AppendClientVersions => {
+                    self.calculate_combined_graffiti(Some(graffiti)).await
+                }
+            },
+            GraffitiSettings::Unspecified => self.calculate_combined_graffiti(None).await,
+        }
+    }
+
+    async fn calculate_combined_graffiti(&self, validator_graffiti: Option<Graffiti>) -> Graffiti {
         if let Some(graffiti) = validator_graffiti {
             return graffiti;
         }
@@ -221,8 +250,10 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
 
 #[cfg(test)]
 mod tests {
+    use crate::graffiti_calculator::GraffitiSettings;
     use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
     use crate::ChainConfig;
+    use eth2::types::GraffitiPolicy;
     use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use execution_layer::EngineCapabilities;
     use std::sync::Arc;
@@ -278,8 +309,12 @@ mod tests {
 
         let version_bytes = std::cmp::min(lighthouse_version::VERSION.len(), GRAFFITI_BYTES_LEN);
         // grab the slice of the graffiti that corresponds to the lighthouse version
-        let graffiti_slice =
-            &harness.chain.graffiti_calculator.get_graffiti(None).await.0[..version_bytes];
+        let graffiti_slice = &harness
+            .chain
+            .graffiti_calculator
+            .get_graffiti(GraffitiSettings::Unspecified)
+            .await
+            .0[..version_bytes];
 
         // convert graffiti bytes slice to ascii for easy debugging if this test should fail
         let graffiti_str =
@@ -300,7 +335,12 @@ mod tests {
         let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
-        let found_graffiti_bytes = harness.chain.graffiti_calculator.get_graffiti(None).await.0;
+        let found_graffiti_bytes = harness
+            .chain
+            .graffiti_calculator
+            .get_graffiti(GraffitiSettings::Unspecified)
+            .await
+            .0;
 
         let mock_commit = DEFAULT_CLIENT_VERSION.commit.clone();
         let expected_graffiti_string = format!(
@@ -349,7 +389,10 @@ mod tests {
         let found_graffiti = harness
             .chain
             .graffiti_calculator
-            .get_graffiti(Some(Graffiti::from(graffiti_bytes)))
+            .get_graffiti(GraffitiSettings::new(
+                Some(Graffiti::from(graffiti_bytes)),
+                GraffitiPolicy::PreserveUserGraffiti,
+            ))
             .await;
 
         assert_eq!(
