@@ -13,6 +13,8 @@ use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::thread::sleep;
+use std::time::Duration;
 use tracing::debug;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
@@ -560,7 +562,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // If we're sampling all columns, it means we must be custodying all columns.
         let total_column_count = self.spec.number_of_columns as usize;
-        let received_column_count = pending_components.verified_data_columns.len();
+        let mut received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
             return ReconstructColumnsDecision::No("already started");
@@ -573,7 +575,31 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
 
         pending_components.reconstruction_started = true;
-        ReconstructColumnsDecision::Yes(pending_components.verified_data_columns.clone())
+
+        // Instead of starting to reconstruct immediately, wait for more columns to arrive
+        drop(write_lock);
+        loop {
+            sleep(Duration::from_millis(25));
+            let mut write_lock = self.critical.write();
+            let Some(pending_components) = write_lock.get(block_root) else {
+                // Block may have been imported as it does not exist in availability cache.
+                return ReconstructColumnsDecision::No("block already imported");
+            };
+            let new_received_column_count = pending_components.verified_data_columns.len();
+
+            // Check if there is still a need to reconstruct.
+            if new_received_column_count >= total_column_count {
+                return ReconstructColumnsDecision::No("all columns received");
+            }
+
+            // Check if no new column arrived.
+            if new_received_column_count == received_column_count {
+                return ReconstructColumnsDecision::Yes(pending_components.verified_data_columns.clone());
+            }
+
+            // Update count for next check.
+            received_column_count = new_received_column_count;
+        }
     }
 
     /// This could mean some invalid data columns made it through to the `DataAvailabilityChecker`.
