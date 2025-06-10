@@ -4644,41 +4644,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST lighthouse/database/import_blobs
-    let post_lighthouse_database_import_blobs = database_path
-        .and(warp::path("import_blobs"))
-        .and(warp::path::end())
-        .and(warp::query::<api_types::ImportBlobsQuery>())
-        .and(warp_utils::json::json())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |query: api_types::ImportBlobsQuery,
-             blob_lists: Vec<BlobSidecarList<T::EthSpec>>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    if query.verify == Some(true) {
-                        for blob_list in &blob_lists {
-                            match verify_kzg_for_blob_list(blob_list.iter(), &chain.kzg) {
-                                Ok(()) => (),
-                                Err(e) => {
-                                    return Err(warp_utils::reject::custom_server_error(format!(
-                                        "{e:?}"
-                                    )))
-                                }
-                            }
-                        }
-                    }
-
-                    match chain.store.import_blobs_batch(blob_lists) {
-                        Ok(()) => Ok(()),
-                        Err(e) => Err(warp_utils::reject::custom_server_error(format!("{e:?}"))),
-                    }
-                })
-            },
-        );
-
     // POST lighthouse/database/import_blobs_ssz
     let post_lighthouse_database_import_blobs_ssz = database_path
         .and(warp::path("import_blobs_ssz"))
@@ -4734,6 +4699,14 @@ pub fn serve<T: BeaconChainTypes>(
                                     return Err(warp_utils::reject::custom_server_error(format!(
                                         "{e:?}"
                                     )))
+                                }
+                            }
+
+                            for blob_sidecar in blob_list {
+                                if !blob_sidecar.verify_blob_sidecar_inclusion_proof() {
+                                    return Err(warp_utils::reject::custom_server_error(
+                                        "Found an invalid blob sidecar inclusion proof".to_string(),
+                                    ));
                                 }
                             }
                         }
@@ -5194,7 +5167,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)
-                    .uor(post_lighthouse_database_import_blobs)
                     .uor(post_lighthouse_database_import_blobs_ssz)
                     .uor(post_lighthouse_block_rewards)
                     .uor(post_lighthouse_ui_validator_metrics)

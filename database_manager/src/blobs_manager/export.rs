@@ -1,4 +1,4 @@
-use crate::blobs_manager::{cli::ExportBlobs, ensure_node_synced};
+use crate::blobs_manager::{cli::ExportBlobs, ensure_node_synced, DEFAULT_BEACON_NODE};
 use eth2::{
     types::{BlobSidecarList, BlockId, ChainSpec, Epoch, EthSpec, Slot},
     BeaconNodeHttpClient, Timeouts,
@@ -27,17 +27,22 @@ pub async fn export_blobs<E: EthSpec>(
     config: &ExportBlobs,
     spec: &ChainSpec,
 ) -> Result<(), String> {
-    let beacon_node = SensitiveUrl::parse(&config.beacon_node)
-        .map_err(|e| format!("Unable to parse beacon node url: {e:?}"))?;
+    let beacon_node = SensitiveUrl::parse(
+        &config
+            .beacon_node
+            .clone()
+            .unwrap_or(DEFAULT_BEACON_NODE.to_string()),
+    )
+    .map_err(|e| format!("Unable to parse beacon node url: {e:?}"))?;
 
     let client = BeaconNodeHttpClient::new(beacon_node, Timeouts::set_all(Duration::from_secs(12)));
 
-    let (_, is_synced) = ensure_node_synced(&client).await?;
-    if !is_synced {
-        if config.allow_unsynced {
-            warn!("Beacon node is not synced");
-        } else {
-            return Err("Beacon node is not synced".to_string());
+    if !config.allow_unsynced {
+        let (_, is_synced) = ensure_node_synced(&client).await?;
+        if !is_synced {
+            return Err(
+                "Beacon node is not synced. Use --allow-unsynced to skip this check.".to_string(),
+            );
         }
     }
 
@@ -69,9 +74,9 @@ pub async fn export_blobs<E: EthSpec>(
         return Err(format!("End {export_mode} not set"));
     };
 
-    if end <= start {
+    if end < start {
         return Err(format!(
-            "End {export_mode} must be greater than start {export_mode}"
+            "End {export_mode} must be greater than or equal to start {export_mode}"
         ));
     }
 

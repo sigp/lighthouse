@@ -63,7 +63,7 @@ pub struct ImportBlobs {
         help = "The beacon node to import blobs to",
         display_order = 0
     )]
-    pub beacon_node: String,
+    pub beacon_node: Option<String>,
 
     #[clap(
         long,
@@ -75,7 +75,17 @@ pub struct ImportBlobs {
 
     #[clap(
         long,
+        value_name = "SIZE",
+        help = "Chunk size in slots for importing blobs",
+        display_order = 0,
+        default_value = "320"
+    )]
+    pub chunk_size_slots: usize,
+
+    #[clap(
+        long,
         help = "Skip verification of blobs before import",
+        display_order = 0,
         default_value = "false"
     )]
     pub skip_verification: bool,
@@ -95,10 +105,10 @@ pub struct ExportBlobs {
     #[clap(
         long,
         value_name = "URL",
-        help = "The beacon node to export blobs from.",
+        help = "The beacon node to export blobs from. Defaults to http://localhost:5052.",
         display_order = 0
     )]
-    pub beacon_node: String,
+    pub beacon_node: Option<String>,
 
     #[clap(
         long,
@@ -113,6 +123,7 @@ pub struct ExportBlobs {
         value_name = "SLOT",
         help = "The slot at which to start exporting blobs from.",
         display_order = 0,
+        requires = "end_slot",
         conflicts_with_all = &["start_epoch", "end_epoch"]
     )]
     pub start_slot: Option<u64>,
@@ -122,6 +133,7 @@ pub struct ExportBlobs {
         value_name = "SLOT",
         help = "The slot at which to stop exporting blobs to (inclusive).",
         display_order = 0,
+        requires = "start_slot",
         conflicts_with_all = &["start_epoch", "end_epoch"]
     )]
     pub end_slot: Option<u64>,
@@ -131,6 +143,7 @@ pub struct ExportBlobs {
         value_name = "EPOCH",
         help = "The epoch at which to start exporting blobs from.",
         display_order = 0,
+        requires = "end_epoch",
         conflicts_with_all = &["start_slot", "end_slot"]
     )]
     pub start_epoch: Option<u64>,
@@ -140,6 +153,7 @@ pub struct ExportBlobs {
         value_name = "EPOCH",
         help = "The epoch at which to stop exporting blobs to (inclusive).",
         display_order = 0,
+        requires = "start_epoch",
         conflicts_with_all = &["start_slot", "end_slot"]
     )]
     pub end_epoch: Option<u64>,

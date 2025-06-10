@@ -6,6 +6,8 @@ use eth2::{
 use std::time::Duration;
 use tracing::{error, info, warn};
 
+const DEFAULT_SLOT_RANGE: u64 = 3200;
+
 #[derive(Debug, PartialEq, Eq)]
 enum BlobErrorType {
     Invalid,
@@ -25,14 +27,20 @@ pub async fn verify_blobs<E: EthSpec>(
     .map_err(|e| format!("Unable to parse beacon node url: {e:?}"))?;
     let client = BeaconNodeHttpClient::new(beacon_node, Timeouts::set_all(Duration::from_secs(12)));
 
-    let (head_slot, is_synced) = ensure_node_synced(&client).await?;
-    if !is_synced {
-        if config.allow_unsynced {
-            warn!("Beacon node is not synced");
-        } else {
-            return Err("Beacon node is not synced".to_string());
+    let head_slot = if !config.allow_unsynced {
+        let (head_slot, is_synced) = ensure_node_synced(&client).await?;
+        if !is_synced {
+            return Err(
+                "Beacon node is not synced. Use --allow-unsynced to skip this check.".to_string(),
+            );
         }
-    }
+        Some(head_slot)
+    } else {
+        if config.end_slot.is_none() {
+            warn!("Skipping sync check so no head slot can be computed. Using default range (100 epochs).");
+        }
+        None
+    };
 
     let deneb_start_slot = if let Some(deneb_fork_epoch) = spec.deneb_fork_epoch {
         deneb_fork_epoch.start_slot(E::slots_per_epoch())
@@ -40,7 +48,7 @@ pub async fn verify_blobs<E: EthSpec>(
         return Err("Deneb fork not set in spec".to_string());
     };
 
-    // I believe this is the blob expiry window.
+    // I believe this is the blob expiry window. We might want to add a mode which only checks these blobs.
     let _min_epochs_for_blob_sidecars_requests = spec.min_epochs_for_blob_sidecars_requests;
 
     // Get start and end slots depending on config,
@@ -48,7 +56,11 @@ pub async fn verify_blobs<E: EthSpec>(
         .start_slot
         .map(Slot::from)
         .unwrap_or(deneb_start_slot);
-    let end_slot = config.end_slot.map(Slot::from).unwrap_or(head_slot);
+
+    let end_slot = config
+        .end_slot
+        .map(Slot::from)
+        .unwrap_or(head_slot.unwrap_or(start_slot + DEFAULT_SLOT_RANGE));
 
     let verify = !config.skip_verification;
 
@@ -108,19 +120,18 @@ pub async fn verify_blobs<E: EthSpec>(
     Ok(())
 }
 
-fn log_slot_ranges(slots: Vec<u64>, error_type: BlobErrorType) {
+fn log_slot_ranges(mut slots: Vec<u64>, error_type: BlobErrorType) {
     if slots.is_empty() {
         return;
     }
 
-    // This may be unnecessary.
-    let mut sorted_slots = slots;
-    sorted_slots.sort();
+    // We can probably skip sorting since it _should_ arrived pre-sorted from the API.
+    slots.sort_unstable();
 
-    let mut range_start = sorted_slots[0];
-    let mut range_end = sorted_slots[0];
+    let mut range_start = slots[0];
+    let mut range_end = slots[0];
 
-    for &slot in sorted_slots.iter().skip(1) {
+    for &slot in slots.iter().skip(1) {
         if slot == range_end + 1 {
             range_end = slot;
         } else {

@@ -884,6 +884,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 return Err(Error::InvalidBlobImport("Missing block".to_string()));
             }
 
+            // Instead of the above, fully load the block.
+
             // Check if a `blob_sidecar_list` is already stored for this block root.
             match self.get_blobs(&block_root) {
                 Ok(BlobSidecarListFromRoot::Blobs(existing_blob_sidecar_list)) => {

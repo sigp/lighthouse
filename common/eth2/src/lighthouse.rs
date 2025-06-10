@@ -19,6 +19,7 @@ use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
+use std::time::Duration;
 
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
@@ -376,10 +377,9 @@ impl BeaconNodeHttpClient {
     pub async fn post_lighthouse_database_import_blobs_ssz(
         &self,
         blobs: Bytes,
-        skip_verification: bool,
+        verify: Option<bool>,
     ) -> Result<Response, Error> {
         let mut path = self.server.full.clone();
-        let verify = !skip_verification;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -387,7 +387,7 @@ impl BeaconNodeHttpClient {
             .push("database")
             .push("import_blobs_ssz");
 
-        if skip_verification {
+        if let Some(verify) = verify {
             path.query_pairs_mut()
                 .append_pair("verify", &verify.to_string());
         }
@@ -421,7 +421,7 @@ impl BeaconNodeHttpClient {
                 .append_pair("verify", &verify.to_string());
         }
 
-        self.get(path).await
+        self.get_with_timeout(path, Duration::MAX).await
     }
 
     /// `POST lighthouse/add_peer`
