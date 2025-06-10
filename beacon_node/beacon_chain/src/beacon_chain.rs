@@ -3018,7 +3018,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         let chain = self.clone();
         self.task_executor
@@ -3028,7 +3027,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
-                    match GossipVerifiedBlock::new(block, &chain, custody_columns_count) {
+                    match GossipVerifiedBlock::new(block, &chain) {
                         Ok(verified) => {
                             let commitments_formatted = verified.block.commitments_formatted();
                             debug!(

@@ -163,7 +163,6 @@ impl CustodyContext {
         slot: Slot,
         spec: &ChainSpec,
     ) {
-        // Complete all registrations
         let mut registrations = self.validator_registrations.write();
         for (validator_index, effective_balance) in validators_and_balance {
             registrations.register_validator::<E>(validator_index, effective_balance, slot, spec);

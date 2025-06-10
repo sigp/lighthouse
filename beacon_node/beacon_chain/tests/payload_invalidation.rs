@@ -686,8 +686,7 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
-    let fork_rpc_block =
-        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
+    let fork_rpc_block = RpcBlock::new_without_blobs(None, fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
@@ -789,8 +788,7 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
-    let fork_rpc_block =
-        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
+    let fork_rpc_block = RpcBlock::new_without_blobs(None, fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
@@ -1060,8 +1058,7 @@ async fn invalid_parent() {
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
-    let rpc_block =
-        RpcBlock::new_without_blobs(None, block.clone(), rig.harness.sampling_column_count);
+    let rpc_block = RpcBlock::new_without_blobs(None, block.clone());
     assert!(matches!(
         rig.harness.chain.process_block(rpc_block.block_root(), rpc_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
@@ -1386,7 +1383,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
 
     // Import the fork block, it should become the head.
     let fork_rpc_block =
-        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
+        RpcBlock::new_without_blobs(None, fork_block.clone());
     rig.harness
         .chain
         .process_block(

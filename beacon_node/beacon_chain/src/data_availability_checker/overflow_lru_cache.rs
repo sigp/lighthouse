@@ -8,6 +8,7 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::BeaconChainTypes;
+use crate::CustodyContext;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::cmp::Ordering;
@@ -158,6 +159,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn make_available<R>(
         &mut self,
         spec: &Arc<ChainSpec>,
+        num_expected_columns: u64,
         recover: R,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError>
     where
@@ -171,12 +173,11 @@ impl<E: EthSpec> PendingComponents<E> {
         };
 
         let num_expected_blobs = block.num_blobs_expected();
-
+        let num_expected_columns = num_expected_columns as usize;
         let blob_data = if num_expected_blobs == 0 {
             Some(AvailableBlockData::NoData)
         } else if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             let num_received_columns = self.verified_data_columns.len();
-            let num_expected_columns = block.custody_columns_count();
             match num_received_columns.cmp(&num_expected_columns) {
                 Ordering::Greater => {
                     // Should never happen
@@ -254,7 +255,6 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             import_data,
             payload_verification_outcome,
-            custody_columns_count: _,
         } = recover(block.clone())?;
 
         let available_block = AvailableBlock {
@@ -311,16 +311,10 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn status_str(&self, block_epoch: Epoch, spec: &ChainSpec) -> String {
         let block_count = if self.executed_block.is_some() { 1 } else { 0 };
         if spec.is_peer_das_enabled_for_epoch(block_epoch) {
-            let custody_columns_count = if let Some(block) = self.get_cached_block() {
-                &block.custody_columns_count().to_string()
-            } else {
-                "?"
-            };
             format!(
-                "block {} data_columns {}/{}",
+                "block {} data_columns {}",
                 block_count,
                 self.verified_data_columns.len(),
-                custody_columns_count,
             )
         } else {
             let num_expected_blobs = if let Some(block) = self.get_cached_block() {
@@ -346,6 +340,7 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// This cache holds a limited number of states in memory and reconstructs them
     /// from disk when necessary. This is necessary until we merge tree-states
     state_cache: StateLRUCache<T>,
+    custody_context: Arc<CustodyContext>,
     spec: Arc<ChainSpec>,
 }
 
@@ -362,11 +357,13 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
+        custody_context: Arc<CustodyContext>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             critical: RwLock::new(LruCache::new(capacity)),
             state_cache: StateLRUCache::new(beacon_store, spec.clone()),
+            custody_context,
             spec,
         })
     }
@@ -474,9 +471,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             "Component added to data availability checker"
         );
 
-        if let Some(available_block) = pending_components.make_available(&self.spec, |block| {
-            self.state_cache.recover_pending_executed_block(block)
-        })? {
+        if let Some(available_block) = pending_components.make_available(
+            &self.spec,
+            self.custody_context.sampling_count(&self.spec),
+            |block| self.state_cache.recover_pending_executed_block(block),
+        )? {
             // We keep the pending components in the availability cache during block import (#5845).
             write_lock.put(block_root, pending_components);
             drop(write_lock);
@@ -526,9 +525,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             "Component added to data availability checker"
         );
 
-        if let Some(available_block) = pending_components.make_available(&self.spec, |block| {
-            self.state_cache.recover_pending_executed_block(block)
-        })? {
+        if let Some(available_block) = pending_components.make_available(
+            &self.spec,
+            self.custody_context.sampling_count(&self.spec),
+            |block| self.state_cache.recover_pending_executed_block(block),
+        )? {
             // We keep the pending components in the availability cache during block import (#5845).
             write_lock.put(block_root, pending_components);
             drop(write_lock);
@@ -620,9 +621,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         );
 
         // Check if we have all components and entire set is consistent.
-        if let Some(available_block) = pending_components.make_available(&self.spec, |block| {
-            self.state_cache.recover_pending_executed_block(block)
-        })? {
+        if let Some(available_block) = pending_components.make_available(
+            &self.spec,
+            self.custody_context.sampling_count(&self.spec),
+            |block| self.state_cache.recover_pending_executed_block(block),
+        )? {
             // We keep the pending components in the availability cache during block import (#5845).
             write_lock.put(block_root, pending_components);
             drop(write_lock);
@@ -861,7 +864,6 @@ mod test {
             block,
             import_data,
             payload_verification_outcome,
-            custody_columns_count: DEFAULT_TEST_CUSTODY_COLUMN_COUNT,
         };
 
         (availability_pending_block, gossip_verified_blobs)
@@ -888,9 +890,15 @@ mod test {
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
+        let custody_context = Arc::new(CustodyContext::new(false));
         let cache = Arc::new(
-            DataAvailabilityCheckerInner::<T>::new(capacity_non_zero, test_store, spec.clone())
-                .expect("should create cache"),
+            DataAvailabilityCheckerInner::<T>::new(
+                capacity_non_zero,
+                test_store,
+                custody_context,
+                spec.clone(),
+            )
+            .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
     }
@@ -1240,7 +1248,6 @@ mod pending_components_tests {
                 is_valid_merge_transition_block: false,
             },
             // Default custody columns count, doesn't matter here
-            custody_columns_count: 8,
         };
         (block.into(), blobs, invalid_blobs)
     }

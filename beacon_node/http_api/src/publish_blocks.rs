@@ -138,13 +138,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         spawn_build_data_sidecar_task(chain.clone(), block.clone(), unverified_blobs)?;
 
     // Gossip verify the block and blobs/data columns separately.
-    let gossip_verified_block_result = unverified_block.into_gossip_verified_block(
-        &chain,
-        chain
-            .data_availability_checker
-            .custody_context()
-            .sampling_count(&chain.spec) as usize,
-    );
+    let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
     let block_root = block_root.unwrap_or_else(|| {
         gossip_verified_block_result.as_ref().map_or_else(
             |_| block.canonical_root(),
@@ -306,22 +300,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 slot = %block.slot(),
                 "Block previously seen"
             );
-            let import_result = Box::pin(
-                chain.process_block(
-                    block_root,
-                    RpcBlock::new_without_blobs(
-                        Some(block_root),
-                        block.clone(),
-                        chain
-                            .data_availability_checker
-                            .custody_context()
-                            .sampling_count(&chain.spec) as usize,
-                    ),
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::HttpApi,
-                    publish_fn,
-                ),
-            )
+            let import_result = Box::pin(chain.process_block(
+                block_root,
+                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::HttpApi,
+                publish_fn,
+            ))
             .await;
             post_block_import_logging_and_response(
                 import_result,

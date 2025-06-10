@@ -2647,7 +2647,6 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let invalid_fork_rpc_block = RpcBlock::new_without_blobs(
         None,
         invalid_fork_block.clone(),
-        harness.sampling_column_count,
     );
     // Applying the invalid block should fail.
     let err = harness
@@ -2667,7 +2666,6 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     let valid_fork_rpc_block = RpcBlock::new_without_blobs(
         None,
         valid_fork_block.clone(),
-        harness.sampling_column_count,
     );
     harness
         .chain
