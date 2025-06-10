@@ -302,6 +302,7 @@ mod tests {
         let spec = E::default_spec();
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
         let min_val_custody_requirement = spec.validator_custody_requirement;
+        // One single node increases its balance over 3 epochs.
         let validators_and_expected_cgc = vec![
             (
                 vec![(0, 1 * bal_per_additional_group)],
@@ -314,19 +315,7 @@ mod tests {
             (vec![(0, 10 * bal_per_additional_group)], 10),
         ];
 
-        // Update validator every epoch and assert updates
-        for (idx, (validators_and_balance, expected_cgc)) in
-            validators_and_expected_cgc.into_iter().enumerate()
-        {
-            let epoch = Epoch::new(idx as u64);
-            custody_context.register_validators::<E>(
-                validators_and_balance,
-                epoch.start_slot(E::slots_per_epoch()),
-                &spec,
-            );
-
-            assert_eq!(custody_context.custody_group_count(&spec), expected_cgc);
-        }
+        register_validators_and_assert_cgc(custody_context, validators_and_expected_cgc, &spec);
     }
 
     #[test]
@@ -335,19 +324,70 @@ mod tests {
         let spec = E::default_spec();
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
         let min_val_custody_requirement = spec.validator_custody_requirement;
+        // Add 3 validators over 3 epochs.
         let validators_and_expected_cgc = vec![
             (
                 vec![(0, 1 * bal_per_additional_group)],
                 min_val_custody_requirement,
             ),
             (
-                vec![(1, 7 * bal_per_additional_group)],
+                vec![
+                    (0, 1 * bal_per_additional_group),
+                    (1, 7 * bal_per_additional_group),
+                ],
                 min_val_custody_requirement,
             ),
-            (vec![(2, 2 * bal_per_additional_group)], 10),
+            (
+                vec![
+                    (0, 1 * bal_per_additional_group),
+                    (1, 7 * bal_per_additional_group),
+                    (2, 2 * bal_per_additional_group),
+                ],
+                10,
+            ),
         ];
 
-        // Update validator every epoch and assert updates
+        register_validators_and_assert_cgc(custody_context, validators_and_expected_cgc, &spec);
+    }
+
+    #[test]
+    fn register_validators_should_not_update_cgc_for_supernode() {
+        let custody_context = CustodyContext::new(true);
+        let spec = E::default_spec();
+        let bal_per_additional_group = spec.balance_per_additional_custody_group;
+
+        // Add 3 validators over 3 epochs.
+        let validators_and_expected_cgc = vec![
+            (
+                vec![(0, 1 * bal_per_additional_group)],
+                spec.number_of_custody_groups,
+            ),
+            (
+                vec![
+                    (0, 1 * bal_per_additional_group),
+                    (1, 7 * bal_per_additional_group),
+                ],
+                spec.number_of_custody_groups,
+            ),
+            (
+                vec![
+                    (0, 1 * bal_per_additional_group),
+                    (1, 7 * bal_per_additional_group),
+                    (2, 2 * bal_per_additional_group),
+                ],
+                spec.number_of_custody_groups,
+            ),
+        ];
+
+        register_validators_and_assert_cgc(custody_context, validators_and_expected_cgc, &spec);
+    }
+
+    /// Update validator every epoch and assert cgc against expected values.
+    fn register_validators_and_assert_cgc(
+        custody_context: CustodyContext,
+        validators_and_expected_cgc: Vec<(Vec<(usize, u64)>, u64)>,
+        spec: &ChainSpec,
+    ) {
         for (idx, (validators_and_balance, expected_cgc)) in
             validators_and_expected_cgc.into_iter().enumerate()
         {
@@ -360,12 +400,5 @@ mod tests {
 
             assert_eq!(custody_context.custody_group_count(&spec), expected_cgc);
         }
-    }
-
-    #[test]
-    fn advertised_custody_group_count_should_not_change_after_registration() {
-        let custody_context = CustodyContext::new(false);
-        let spec = E::default_spec();
-        custody_context.register_validators::<E>(vec![(0, 1_024_000_000)], Slot::new(0), &spec);
     }
 }
