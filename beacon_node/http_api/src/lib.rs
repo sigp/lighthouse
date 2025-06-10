@@ -3773,37 +3773,22 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    let mut subscriptions: std::collections::BTreeSet<_> = Default::default();
-                    let mut registrations = Vec::new();
-                    let (finalized_beacon_state, _, _) =
-                        StateId(CoreStateId::Finalized).state(&chain)?;
-                    for subscription in committee_subscriptions.iter() {
-                        chain
-                            .validator_monitor
-                            .write()
-                            .auto_register_local_validator(subscription.validator_index);
-                        // Register the validator with the `CustodyContext`
-                        if let Ok(effective_balance) = finalized_beacon_state
-                            .get_effective_balance(subscription.validator_index as usize)
-                        {
-                            registrations
-                                .push((subscription.validator_index as usize, effective_balance));
-                        }
-                        subscriptions.insert(api_types::ValidatorSubscription {
-                            attestation_committee_index: subscription.committee_index,
-                            slot: subscription.slot,
-                            committee_count_at_slot: subscription.committees_at_slot,
-                            is_aggregator: subscription.is_aggregator,
-                        });
-                    }
-                    chain
-                        .data_availability_checker
-                        .custody_context()
-                        .register_validators::<T::EthSpec>(
-                            registrations,
-                            chain.slot().unwrap(),
-                            &chain.spec,
-                        );
+                    let subscriptions: std::collections::BTreeSet<_> = committee_subscriptions
+                        .iter()
+                        .map(|subscription| {
+                            chain
+                                .validator_monitor
+                                .write()
+                                .auto_register_local_validator(subscription.validator_index);
+                            api_types::ValidatorSubscription {
+                                attestation_committee_index: subscription.committee_index,
+                                slot: subscription.slot,
+                                committee_count_at_slot: subscription.committees_at_slot,
+                                is_aggregator: subscription.is_aggregator,
+                            }
+                        })
+                        .collect();
+
                     let message =
                         ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions };
                     if let Err(e) = validator_subscription_tx.try_send(message) {
@@ -3816,6 +3801,32 @@ pub fn serve<T: BeaconChainTypes>(
                             "unable to queue subscription, host may be overloaded or shutting down"
                                 .to_string(),
                         ));
+                    }
+
+                    if chain.spec.is_peer_das_scheduled() {
+                        let (finalized_beacon_state, _, _) =
+                            StateId(CoreStateId::Finalized).state(&chain)?;
+                        let validators_and_balances = committee_subscriptions
+                            .iter()
+                            .filter_map(|subscription| {
+                                if let Ok(effective_balance) = finalized_beacon_state
+                                    .get_effective_balance(subscription.validator_index as usize)
+                                {
+                                    Some((subscription.validator_index as usize, effective_balance))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>();
+
+                        chain
+                            .data_availability_checker
+                            .custody_context()
+                            .register_validators::<T::EthSpec>(
+                                validators_and_balances,
+                                chain.slot().unwrap(),
+                                &chain.spec,
+                            );
                     }
 
                     Ok(())

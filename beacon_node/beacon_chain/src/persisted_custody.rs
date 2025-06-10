@@ -29,13 +29,6 @@ pub fn persist_custody_context<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
     store.put_item(&CUSTODY_DB_KEY, &PersistedCustody(custody_context))
 }
 
-/// Attempts to clear any custody context entries.
-pub fn clear_custody_context<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
-    store: Arc<HotColdDB<E, Hot, Cold>>,
-) -> Result<(), store::Error> {
-    store.hot_db.delete::<PersistedCustody>(&CUSTODY_DB_KEY)
-}
-
 impl StoreItem for PersistedCustody {
     fn db_column() -> DBColumn {
         DBColumn::CustodyContext

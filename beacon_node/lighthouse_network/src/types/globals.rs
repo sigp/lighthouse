@@ -274,7 +274,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             trusted_peers,
             false,
             config,
-            spec.number_of_columns,
+            spec.number_of_custody_groups,
             spec,
         )
     }

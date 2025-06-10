@@ -23,6 +23,8 @@ struct ValidatorRegistrations {
     ///
     /// Note: Only stores the epoch value when there's a change in custody requirement.
     /// So if epoch 10 and 11 has the same custody requirement, only 10 is stored.
+    /// This map is never pruned, because currently we never decrease custody requirement, so this
+    /// map size is contained at 128.
     epoch_validator_custody_requirements: BTreeMap<Epoch, u64>,
 }
 
@@ -54,10 +56,10 @@ impl ValidatorRegistrations {
         self.validators.insert(validator_index, effective_balance);
 
         // Each `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP` effectively contributes one unit of "weight".
-        let validator_count_at_epoch =
+        let validator_custody_units =
             self.validators.values().sum::<u64>() / spec.balance_per_additional_custody_group;
         let validator_custody_requirement =
-            get_validators_custody_requirement(validator_count_at_epoch, spec);
+            get_validators_custody_requirement(validator_custody_units, spec);
 
         // If registering the new validator increased the total validator "units", then
         // add a new entry for the current epoch
@@ -69,26 +71,26 @@ impl ValidatorRegistrations {
         }
         tracing::debug!(
             %epoch,
-            validator_count = validator_count_at_epoch,
+            validator_custody_units,
             validator_custody_requirement,
             "Registered validators"
         );
     }
 }
 
-/// Given the `count` of validators, return the custody requirement based on
+/// Given the `validator_custody_units`, return the custody requirement based on
 /// the spec parameters.
 ///
-/// Note: a validator here represents a unit of 32 eth effective_balance
+/// Note: a `validator_custody_units` here represents the number of 32 eth effective_balance
 /// equivalent to `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP`.
 ///
 /// For e.g. a validator with eb 32 eth is 1 unit.
 /// a validator with eb 65 eth is 65 // 32 = 2 units.
 ///
 /// See https://github.com/ethereum/consensus-specs/blob/dev/specs/fulu/validator.md#validator-custody
-fn get_validators_custody_requirement(count: u64, spec: &ChainSpec) -> u64 {
+fn get_validators_custody_requirement(validator_custody_units: u64, spec: &ChainSpec) -> u64 {
     std::cmp::min(
-        std::cmp::max(count, spec.validator_custody_requirement),
+        std::cmp::max(validator_custody_units, spec.validator_custody_requirement),
         spec.number_of_custody_groups,
     )
 }
