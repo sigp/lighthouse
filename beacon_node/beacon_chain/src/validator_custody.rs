@@ -97,15 +97,13 @@ fn get_validators_custody_requirement(count: u64, spec: &ChainSpec) -> u64 {
 /// number of columns to be custodied when checking for DA.
 #[derive(Debug)]
 pub struct CustodyContext {
-    /// Columns to be custodied based on number of validators
+    /// The Number of custody groups required based on the number of validators
     /// that is attached to this node.
     ///
-    /// This is the number that we use to compute the cgc value that
-    /// we advertise to our peers in the metadata and enr values.
-    advertised_validator_custody_count: AtomicU64,
-    /// This is the validator custody count that we use to compute the number of columns we need to
-    /// custody at head (while syncing or when receiving gossip).
-    validator_custody_count_at_head: AtomicU64,
+    /// This is the number that we use to compute the custody group count that
+    /// we require for data availability check, and we use to advertise to our peers in the metadata
+    /// and enr values.
+    validator_custody_count: AtomicU64,
     /// Is the node run as a supernode based on current cli parameters.
     pub current_is_supernode: bool,
     /// The persisted value for `is_supernode` based on the previous run of this node.
@@ -129,8 +127,7 @@ impl CustodyContext {
         let (sender, _) = channel(CHANNEL_CAPACITY);
 
         Self {
-            advertised_validator_custody_count: AtomicU64::new(0),
-            validator_custody_count_at_head: AtomicU64::new(0),
+            validator_custody_count: AtomicU64::new(0),
             current_is_supernode: is_supernode,
             persisted_is_supernode: is_supernode,
             validator_registrations: Default::default(),
@@ -138,17 +135,13 @@ impl CustodyContext {
         }
     }
 
-    /// Deserialize a `CustodyContext` from SSZ bytes.
     pub fn new_from_persisted_custody_context(
         ssz_context: CustodyContextSsz,
         is_supernode: bool,
     ) -> Self {
         let (sender, _) = channel(CHANNEL_CAPACITY);
         CustodyContext {
-            advertised_validator_custody_count: AtomicU64::new(
-                ssz_context.advertised_validator_custody,
-            ),
-            validator_custody_count_at_head: AtomicU64::new(ssz_context.validator_custody_at_head),
+            validator_custody_count: AtomicU64::new(ssz_context.validator_custody_at_head),
             current_is_supernode: is_supernode,
             persisted_is_supernode: ssz_context.persisted_is_supernode,
             validator_registrations: Default::default(),
@@ -183,8 +176,7 @@ impl CustodyContext {
         };
 
         let current_cgc = self.custody_group_count(spec);
-        let validator_custody_count_at_head =
-            self.validator_custody_count_at_head.load(Ordering::Relaxed);
+        let validator_custody_count_at_head = self.validator_custody_count.load(Ordering::Relaxed);
 
         if new_validator_custody != validator_custody_count_at_head {
             tracing::debug!(
@@ -192,7 +184,7 @@ impl CustodyContext {
                 new_count = new_validator_custody,
                 "Validator count at head updated"
             );
-            self.validator_custody_count_at_head
+            self.validator_custody_count
                 .store(new_validator_custody, Ordering::Relaxed);
 
             let updated_cgc = self.custody_group_count(spec);
@@ -215,24 +207,6 @@ impl CustodyContext {
         }
     }
 
-    /// The custody count that we advertise to our peers in our metadata and
-    /// enr values.
-    pub fn advertised_custody_group_count(&self, spec: &ChainSpec) -> u64 {
-        if self.persisted_is_supernode {
-            return spec.number_of_custody_groups;
-        }
-        let advertised_validator_custody = self
-            .advertised_validator_custody_count
-            .load(Ordering::Relaxed);
-
-        // If there are no validators, return the minimum custody_requirement
-        if advertised_validator_custody > 0 {
-            advertised_validator_custody
-        } else {
-            spec.custody_requirement
-        }
-    }
-
     /// The custody count that we use to custody columns currently.
     ///
     /// This function should be called when figuring out how many columns we
@@ -241,8 +215,7 @@ impl CustodyContext {
         if self.current_is_supernode {
             return spec.number_of_custody_groups;
         }
-        let validator_custody_count_at_head =
-            self.validator_custody_count_at_head.load(Ordering::Relaxed);
+        let validator_custody_count_at_head = self.validator_custody_count.load(Ordering::Relaxed);
 
         // If there are no validators, return the minimum custody_requirement
         if validator_custody_count_at_head > 0 {
@@ -281,7 +254,6 @@ pub enum CustodyContextMessage {
 /// The custody information that gets persisted across runs.
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct CustodyContextSsz {
-    advertised_validator_custody: u64,
     validator_custody_at_head: u64,
     persisted_is_supernode: bool,
 }
@@ -289,12 +261,7 @@ pub struct CustodyContextSsz {
 impl From<&CustodyContext> for CustodyContextSsz {
     fn from(context: &CustodyContext) -> Self {
         CustodyContextSsz {
-            advertised_validator_custody: context
-                .advertised_validator_custody_count
-                .load(Ordering::Relaxed),
-            validator_custody_at_head: context
-                .validator_custody_count_at_head
-                .load(Ordering::Relaxed),
+            validator_custody_at_head: context.validator_custody_count.load(Ordering::Relaxed),
             persisted_is_supernode: context.persisted_is_supernode,
         }
     }
@@ -316,10 +283,6 @@ mod tests {
             custody_context.custody_group_count(&spec),
             spec.number_of_custody_groups
         );
-        assert_eq!(
-            custody_context.advertised_custody_group_count(&spec),
-            spec.number_of_custody_groups
-        );
     }
 
     #[test]
@@ -330,11 +293,6 @@ mod tests {
             custody_context.custody_group_count(&spec),
             spec.custody_requirement,
             "head custody count should be minimum spec custody requirement"
-        );
-        assert_eq!(
-            custody_context.advertised_custody_group_count(&spec),
-            spec.custody_requirement,
-            "advertised custody count should be minimum spec custody requirement"
         );
     }
 
@@ -409,19 +367,5 @@ mod tests {
         let custody_context = CustodyContext::new(false);
         let spec = E::default_spec();
         custody_context.register_validators::<E>(vec![(0, 1_024_000_000)], Slot::new(0), &spec);
-        assert_eq!(
-            custody_context.advertised_custody_group_count(&spec),
-            spec.custody_requirement,
-            "advertised custody count should not change"
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn advertised_custody_group_count_should_change_after_update_called() {
-        let custody_context = CustodyContext::new(false);
-        let spec = E::default_spec();
-        custody_context.register_validators::<E>(vec![(0, 1_024_000_000)], Slot::new(0), &spec);
-        unimplemented!();
     }
 }
