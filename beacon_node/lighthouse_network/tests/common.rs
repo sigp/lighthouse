@@ -118,6 +118,7 @@ pub async fn build_libp2p_instance(
     let (signal, exit) = async_channel::bounded(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     let executor = task_executor::TaskExecutor::new(rt, exit, shutdown_tx, service_name);
+    let custody_group_count = chain_spec.custody_requirement;
     let libp2p_context = lighthouse_network::Context {
         config,
         enr_fork_id: EnrForkId::default(),
@@ -126,7 +127,7 @@ pub async fn build_libp2p_instance(
         libp2p_registry: None,
     };
     Libp2pInstance(
-        LibP2PService::new(executor, libp2p_context)
+        LibP2PService::new(executor, libp2p_context, custody_group_count)
             .await
             .expect("should build libp2p instance")
             .0,

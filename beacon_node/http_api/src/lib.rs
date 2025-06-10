@@ -48,8 +48,8 @@ use directory::DEFAULT_ROOT_DIR;
 use either::Either;
 use eth2::types::{
     self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
-    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody,
-    ValidatorId, ValidatorStatus, ValidatorsRequestBody,
+    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, StateId as CoreStateId,
+    ValidatorBalancesRequestBody, ValidatorId, ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
@@ -3775,17 +3775,15 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let mut subscriptions: std::collections::BTreeSet<_> = Default::default();
                     let mut registrations = Vec::new();
+                    let (finalized_beacon_state, _, _) =
+                        StateId(CoreStateId::Finalized).state(&chain)?;
                     for subscription in committee_subscriptions.iter() {
                         chain
                             .validator_monitor
                             .write()
                             .auto_register_local_validator(subscription.validator_index);
                         // Register the validator with the `CustodyContext`
-                        if let Ok(effective_balance) = chain
-                            .canonical_head
-                            .cached_head()
-                            .snapshot
-                            .beacon_state
+                        if let Ok(effective_balance) = finalized_beacon_state
                             .get_effective_balance(subscription.validator_index as usize)
                         {
                             registrations

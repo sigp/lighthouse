@@ -703,7 +703,6 @@ mod test {
     use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
-    const DEFAULT_TEST_CUSTODY_COLUMN_COUNT: usize = 8;
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,

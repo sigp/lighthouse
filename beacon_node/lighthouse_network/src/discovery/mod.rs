@@ -1218,6 +1218,7 @@ mod tests {
             vec![],
             false,
             config.clone(),
+            spec.custody_requirement,
             spec.clone(),
         );
         let keypair = keypair.into();

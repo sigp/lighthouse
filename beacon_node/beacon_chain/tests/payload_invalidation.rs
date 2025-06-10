@@ -1382,8 +1382,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
-    let fork_rpc_block =
-        RpcBlock::new_without_blobs(None, fork_block.clone());
+    let fork_rpc_block = RpcBlock::new_without_blobs(None, fork_block.clone());
     rig.harness
         .chain
         .process_block(

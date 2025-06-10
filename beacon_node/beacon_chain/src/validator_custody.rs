@@ -304,7 +304,7 @@ mod tests {
         // One single node increases its balance over 3 epochs.
         let validators_and_expected_cgc = vec![
             (
-                vec![(0, 1 * bal_per_additional_group)],
+                vec![(0, bal_per_additional_group)],
                 min_val_custody_requirement,
             ),
             (
@@ -326,19 +326,19 @@ mod tests {
         // Add 3 validators over 3 epochs.
         let validators_and_expected_cgc = vec![
             (
-                vec![(0, 1 * bal_per_additional_group)],
+                vec![(0, bal_per_additional_group)],
                 min_val_custody_requirement,
             ),
             (
                 vec![
-                    (0, 1 * bal_per_additional_group),
+                    (0, bal_per_additional_group),
                     (1, 7 * bal_per_additional_group),
                 ],
                 min_val_custody_requirement,
             ),
             (
                 vec![
-                    (0, 1 * bal_per_additional_group),
+                    (0, bal_per_additional_group),
                     (1, 7 * bal_per_additional_group),
                     (2, 2 * bal_per_additional_group),
                 ],
@@ -358,19 +358,19 @@ mod tests {
         // Add 3 validators over 3 epochs.
         let validators_and_expected_cgc = vec![
             (
-                vec![(0, 1 * bal_per_additional_group)],
+                vec![(0, bal_per_additional_group)],
                 spec.number_of_custody_groups,
             ),
             (
                 vec![
-                    (0, 1 * bal_per_additional_group),
+                    (0, bal_per_additional_group),
                     (1, 7 * bal_per_additional_group),
                 ],
                 spec.number_of_custody_groups,
             ),
             (
                 vec![
-                    (0, 1 * bal_per_additional_group),
+                    (0, bal_per_additional_group),
                     (1, 7 * bal_per_additional_group),
                     (2, 2 * bal_per_additional_group),
                 ],
@@ -394,10 +394,10 @@ mod tests {
             custody_context.register_validators::<E>(
                 validators_and_balance,
                 epoch.start_slot(E::slots_per_epoch()),
-                &spec,
+                spec,
             );
 
-            assert_eq!(custody_context.custody_group_count(&spec), expected_cgc);
+            assert_eq!(custody_context.custody_group_count(spec), expected_cgc);
         }
     }
 }

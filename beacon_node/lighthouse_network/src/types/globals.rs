@@ -304,7 +304,7 @@ mod test {
             Arc::new(spec),
         );
         assert_eq!(
-            globals.sampling_subnets.len(),
+            globals.sampling_subnets.read().len(),
             subnet_sampling_size as usize
         );
     }
@@ -327,7 +327,7 @@ mod test {
             Arc::new(spec),
         );
         assert_eq!(
-            globals.sampling_columns.len(),
+            globals.sampling_columns.read().len(),
             subnet_sampling_size as usize
         );
     }

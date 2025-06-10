@@ -521,7 +521,7 @@ mod tests {
             enable_light_client_server: false,
             subscribe_all_subnets: false,
             subscribe_all_data_column_subnets: false,
-            sampling_subnets,
+            sampling_subnets: sampling_subnets.clone(),
         }
     }
 
