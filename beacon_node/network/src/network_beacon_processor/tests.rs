@@ -372,14 +372,6 @@ impl TestRig {
         }
     }
 
-    pub fn custody_columns_count(&self) -> usize {
-        self.network_beacon_processor
-            .network_globals
-            .sampling_columns
-            .read()
-            .len()
-    }
-
     pub fn enqueue_rpc_block(&self) {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
