@@ -230,7 +230,6 @@ impl TestRig {
             vec![],
             false,
             network_config,
-            spec.custody_requirement,
             spec,
         ));
 

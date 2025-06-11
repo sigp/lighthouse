@@ -215,7 +215,6 @@ impl<E: EthSpec> Network<E> {
             trusted_peers,
             config.disable_peer_scoring,
             config.clone(),
-            custody_group_count,
             ctx.chain_spec.clone(),
         );
         let network_globals = Arc::new(globals);

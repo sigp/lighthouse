@@ -177,7 +177,7 @@ impl CustodyContext {
             return None;
         };
 
-        let current_cgc = self.custody_group_count(spec);
+        let current_cgc = self.custody_group_count_at_head(spec);
         let validator_custody_count_at_head = self.validator_custody_count.load(Ordering::Relaxed);
 
         if new_validator_custody != validator_custody_count_at_head {
@@ -189,7 +189,7 @@ impl CustodyContext {
             self.validator_custody_count
                 .store(new_validator_custody, Ordering::Relaxed);
 
-            let updated_cgc = self.custody_group_count(spec);
+            let updated_cgc = self.custody_group_count_at_head(spec);
             // Send the message to network only if there are more columns subnets to subscribe to
             if updated_cgc > current_cgc {
                 tracing::debug!(
@@ -207,14 +207,10 @@ impl CustodyContext {
         None
     }
 
-    /// The custody count that we use to custody columns currently.
-    ///
-    /// This function should be called when figuring out how many columns we
-    /// need to custody when receiving blocks over gossip/rpc or during sync.
-    ///
-    /// NOTE: this function is intended for internal calculation only and
-    /// should **NOT** be exposed externally. Use `self.sampling_size_at_epoch` instead.
-    fn custody_group_count(&self, spec: &ChainSpec) -> u64 {
+    /// This function is used to determine the custody group count at head ONLY.
+    /// Do NOT use this directly for data availability check, use `self.sampling_size` instead as
+    /// CGC can change over epochs.
+    pub fn custody_group_count_at_head(&self, spec: &ChainSpec) -> u64 {
         if self.current_is_supernode {
             return spec.number_of_custody_groups;
         }
@@ -245,7 +241,7 @@ impl CustodyContext {
                 .custody_requirement_at_epoch(epoch)
                 .unwrap_or_else(|| self.default_custody_group_count(spec))
         } else {
-            self.custody_group_count(spec)
+            self.custody_group_count_at_head(spec)
         };
         spec.sampling_size(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
@@ -288,7 +284,7 @@ mod tests {
         let custody_context = CustodyContext::new(true);
         let spec = E::default_spec();
         assert_eq!(
-            custody_context.custody_group_count(&spec),
+            custody_context.custody_group_count_at_head(&spec),
             spec.number_of_custody_groups
         );
     }
@@ -298,7 +294,7 @@ mod tests {
         let custody_context = CustodyContext::new(false);
         let spec = E::default_spec();
         assert_eq!(
-            custody_context.custody_group_count(&spec),
+            custody_context.custody_group_count_at_head(&spec),
             spec.custody_requirement,
             "head custody count should be minimum spec custody requirement"
         );

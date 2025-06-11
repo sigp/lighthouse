@@ -164,7 +164,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         vec![],
         false,
         network_config,
-        chain.spec.custody_requirement,
         chain.spec.clone(),
     ));
 

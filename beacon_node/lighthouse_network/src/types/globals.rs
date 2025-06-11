@@ -7,6 +7,7 @@ use crate::{Client, Enr, EnrExt, GossipTopic, Multiaddr, NetworkConfig, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tracing::error;
 use types::data_column_custody_group::{
     compute_columns_for_custody_group, compute_subnets_from_custody_group, get_custody_groups,
 };
@@ -45,10 +46,22 @@ impl<E: EthSpec> NetworkGlobals<E> {
         trusted_peers: Vec<PeerId>,
         disable_peer_scoring: bool,
         config: Arc<NetworkConfig>,
-        custody_group_count: u64,
         spec: Arc<ChainSpec>,
     ) -> Self {
         let node_id = enr.node_id().raw();
+
+        let custody_group_count = match local_metadata.custody_group_count() {
+            Ok(&cgc) if cgc <= spec.number_of_custody_groups => cgc,
+            _ => {
+                if spec.is_peer_das_scheduled() {
+                    error!(
+                        info = "falling back to default custody requirement",
+                        "custody_group_count from metadata is either invalid or not set. This is a bug!"
+                    );
+                }
+                spec.custody_requirement
+            }
+        };
 
         // The below `expect` calls will panic on start up if the chain spec config values used
         // are invalid
@@ -268,15 +281,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
         let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
-        NetworkGlobals::new(
-            enr,
-            metadata,
-            trusted_peers,
-            false,
-            config,
-            spec.number_of_custody_groups,
-            spec,
-        )
+        NetworkGlobals::new(enr, metadata, trusted_peers, false, config, spec)
     }
 }
 
