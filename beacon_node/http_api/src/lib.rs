@@ -3765,11 +3765,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(validator_subscription_tx_filter.clone())
+        .and(network_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
             |committee_subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
@@ -3819,14 +3821,22 @@ pub fn serve<T: BeaconChainTypes>(
                             })
                             .collect::<Vec<_>>();
 
-                        chain
+                        if let Some(cgc_change) = chain
                             .data_availability_checker
                             .custody_context()
                             .register_validators::<T::EthSpec>(
-                                validators_and_balances,
-                                chain.slot().unwrap(),
-                                &chain.spec,
-                            );
+                            validators_and_balances,
+                            chain.slot().unwrap(),
+                            &chain.spec,
+                        ) {
+                            network_tx.send(NetworkMessage::CustodyCountChanged {
+                                new_custody_group_count: cgc_change.new_custody_group_count,
+                                sampling_count: cgc_change.sampling_count,
+                            }).unwrap_or_else(|e| {
+                                debug!(error = %e, "Could not send message to the network service. \
+                                Likely shutdown")
+                            });
+                        }
                     }
 
                     Ok(())

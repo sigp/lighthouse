@@ -5,7 +5,6 @@ use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
 use crate::NetworkConfig;
-use beacon_chain::validator_custody::CustodyContextMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
@@ -107,6 +106,12 @@ pub enum NetworkMessage<E: EthSpec> {
     ConnectTrustedPeer(Enr),
     /// Disconnect from a trusted peer and remove it from the `trusted_peers` mapping.
     DisconnectTrustedPeer(Enr),
+    /// Custody group count changed due to a change in validators' weight.
+    /// Subscribe to new subnets and update ENR metadata.
+    CustodyCountChanged {
+        new_custody_group_count: u64,
+        sampling_count: u64,
+    },
 }
 
 /// Messages triggered by validators that may trigger a subscription to a subnet.
@@ -197,8 +202,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     gossipsub_parameter_update: tokio::time::Interval,
     /// Provides fork specific info.
     fork_context: Arc<ForkContext>,
-    /// Receiver for custody context messages
-    custody_context_rx: tokio::sync::broadcast::Receiver<CustodyContextMessage>,
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
@@ -334,11 +337,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             validator_subscription_recv,
         } = network_receivers;
 
-        let custody_context_rx = beacon_chain
-            .data_availability_checker
-            .custody_context()
-            .subscribe();
-
         // create the network service and spawn the task
         let network_service = NetworkService {
             beacon_chain,
@@ -357,7 +355,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
-            custody_context_rx,
         };
 
         Ok((network_service, network_globals, network_senders))
@@ -448,20 +445,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
 
                     _ = self.gossipsub_parameter_update.tick() => self.update_gossipsub_parameters(),
-
-                    custody_message = Box::pin(self.custody_context_rx.recv()) => {
-                        match custody_message {
-                            Ok(CustodyContextMessage::HeadCustodyCountChanged{new_custody_count}) => {
-                                self.libp2p.subscribe_new_data_column_subnets(new_custody_count);
-                            }
-                            Ok(CustodyContextMessage::AdvertisedCustodyCountChanged{new_custody_count: _}) => {
-                                unimplemented!("update metadata and enr");
-                            }
-                            Err(e) => {
-                                error!("Error receiving custody context message: {:?}", e);
-                            }
-                        }
-                    },
 
                     // handle a message sent to the network
                     Some(msg) = self.network_recv.recv() => self.on_network_msg(msg, &mut shutdown_sender).await,
@@ -776,6 +759,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         "Subscribed to topics"
                     );
                 }
+            }
+            NetworkMessage::CustodyCountChanged {
+                new_custody_group_count: _,
+                sampling_count,
+            } => {
+                // TODO: update ENR and metadata
+                self.libp2p
+                    .subscribe_new_data_column_subnets(sampling_count)
             }
         }
     }

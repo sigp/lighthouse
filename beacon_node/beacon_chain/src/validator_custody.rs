@@ -6,10 +6,7 @@ use std::{
 use parking_lot::RwLock;
 
 use ssz_derive::{Decode, Encode};
-use tokio::sync::broadcast::{channel, Receiver, Sender};
 use types::{ChainSpec, Epoch, EthSpec, Slot};
-
-const CHANNEL_CAPACITY: usize = 10;
 
 /// TODO(pawan): this currently just registers increases in validator count.
 /// Does not handle decreasing validator counts
@@ -117,7 +114,6 @@ pub struct CustodyContext {
     persisted_is_supernode: bool,
     /// Maintains all the validators that this node is connected to currently
     validator_registrations: RwLock<ValidatorRegistrations>,
-    sender: Sender<CustodyContextMessage>,
 }
 
 impl CustodyContext {
@@ -126,14 +122,11 @@ impl CustodyContext {
     ///
     /// The `is_supernode` value is based on current cli parameters.
     pub fn new(is_supernode: bool) -> Self {
-        let (sender, _) = channel(CHANNEL_CAPACITY);
-
         Self {
             validator_custody_count: AtomicU64::new(0),
             current_is_supernode: is_supernode,
             persisted_is_supernode: is_supernode,
             validator_registrations: Default::default(),
-            sender,
         }
     }
 
@@ -141,30 +134,26 @@ impl CustodyContext {
         ssz_context: CustodyContextSsz,
         is_supernode: bool,
     ) -> Self {
-        let (sender, _) = channel(CHANNEL_CAPACITY);
         CustodyContext {
             validator_custody_count: AtomicU64::new(ssz_context.validator_custody_at_head),
             current_is_supernode: is_supernode,
             persisted_is_supernode: ssz_context.persisted_is_supernode,
             validator_registrations: Default::default(),
-            sender,
         }
-    }
-
-    pub fn subscribe(&self) -> Receiver<CustodyContextMessage> {
-        self.sender.subscribe()
     }
 
     /// Register a new validator index and updates the list of validators if required.
     ///
     /// Also modifies the internal structures if the validator custody has changed to
     /// update the `custody_column_count`.
+    ///
+    /// Returns `Some` along with the updated custody group count if it has changed, otherwise returns `None`.
     pub fn register_validators<E: EthSpec>(
         &self,
         validators_and_balance: Vec<(usize, u64)>,
         slot: Slot,
         spec: &ChainSpec,
-    ) {
+    ) -> Option<CustodyCountChanged> {
         let mut registrations = self.validator_registrations.write();
         for (validator_index, effective_balance) in validators_and_balance {
             registrations.register_validator::<E>(validator_index, effective_balance, slot, spec);
@@ -173,7 +162,7 @@ impl CustodyContext {
         // Completed registrations, now check if the validator custody requirement has changed
         let Some(new_validator_custody) = registrations.latest_validator_custody_requirement()
         else {
-            return;
+            return None;
         };
 
         let current_cgc = self.custody_group_count(spec);
@@ -196,23 +185,21 @@ impl CustodyContext {
                     updated_cgc,
                     "Custody group count updated"
                 );
-                if let Err(e) = self
-                    .sender
-                    .send(CustodyContextMessage::HeadCustodyCountChanged {
-                        new_custody_count: updated_cgc,
-                    })
-                {
-                    tracing::error!(error=?e, "Failed to send custody context message");
-                }
+                return Some(CustodyCountChanged {
+                    new_custody_group_count: updated_cgc,
+                    sampling_count: self.sampling_count(spec),
+                });
             }
         }
+
+        None
     }
 
     /// The custody count that we use to custody columns currently.
     ///
     /// This function should be called when figuring out how many columns we
     /// need to custody when receiving blocks over gossip/rpc or during sync.
-    pub fn custody_group_count(&self, spec: &ChainSpec) -> u64 {
+    pub(crate) fn custody_group_count(&self, spec: &ChainSpec) -> u64 {
         if self.current_is_supernode {
             return spec.number_of_custody_groups;
         }
@@ -234,22 +221,11 @@ impl CustodyContext {
     }
 }
 
-// write a service that emits events when internal values change
-#[derive(Debug, Clone)]
-pub enum CustodyContextMessage {
-    /// The custody count changed because of a change in the
-    /// number of validators being managed.
-    ///
-    /// This should trigger actions downstream like
-    /// subscribing/unsubscribing new subnets/
-    /// backfilling required columns.
-    HeadCustodyCountChanged { new_custody_count: u64 },
-    /// The advertised custody count has changed.
-    ///
-    /// This should trigger downstream actions like setting
-    /// a new cgc value in the enr and metadata fields and
-    /// performing any related cleanup actions.
-    AdvertisedCustodyCountChanged { new_custody_count: u64 },
+/// The custody count changed because of a change in the
+/// number of validators being managed.
+pub struct CustodyCountChanged {
+    pub new_custody_group_count: u64,
+    pub sampling_count: u64,
 }
 
 /// The custody information that gets persisted across runs.

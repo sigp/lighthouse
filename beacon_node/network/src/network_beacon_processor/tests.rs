@@ -230,6 +230,7 @@ impl TestRig {
             vec![],
             false,
             network_config,
+            spec.custody_requirement,
             spec,
         ));
 
@@ -374,7 +375,9 @@ impl TestRig {
     pub fn custody_columns_count(&self) -> usize {
         self.network_beacon_processor
             .network_globals
-            .custody_columns_count() as usize
+            .sampling_columns
+            .read()
+            .len()
     }
 
     pub fn enqueue_rpc_block(&self) {
