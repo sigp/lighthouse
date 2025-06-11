@@ -518,10 +518,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn reconstruct_data_columns(
         &self,
         block_root: &Hash256,
+        is_retry: bool,
     ) -> Result<DataColumnReconstructionResult<T::EthSpec>, AvailabilityCheckError> {
         let verified_data_columns = match self
             .availability_cache
-            .check_and_set_reconstruction_started(block_root)
+            .check_and_set_reconstruction_started(block_root, is_retry)
         {
             ReconstructColumnsDecision::Yes(verified_data_columns) => verified_data_columns,
             ReconstructColumnsDecision::Wait => {

@@ -558,6 +558,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn check_and_set_reconstruction_started(
         &self,
         block_root: &Hash256,
+        is_retry: bool,
     ) -> ReconstructColumnsDecision<T::EthSpec> {
         let mut write_lock = self.critical.write();
         let Some(pending_components) = write_lock.get_mut(block_root) else {
@@ -579,7 +580,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let descision = match pending_components.reconstruction_state {
             ReconstructionState::NotStarted => ReconstructColumnsDecision::Wait,
             ReconstructionState::WaitingForColumns { num_last } => {
-                if num_last < received_column_count {
+                if !is_retry || num_last < received_column_count {
                     // We got more columns, let's wait more
                     ReconstructColumnsDecision::Wait
                 } else {

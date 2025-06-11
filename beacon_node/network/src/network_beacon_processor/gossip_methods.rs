@@ -1174,7 +1174,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
 
                     Arc::clone(self)
-                        .attempt_data_column_reconstruction(block_root, true)
+                        .attempt_data_column_reconstruction(block_root, true, false)
                         .await;
                 }
             },

@@ -3249,6 +3249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn reconstruct_data_columns(
         self: &Arc<Self>,
         block_root: Hash256,
+        is_retry: bool,
     ) -> Result<ReconstructionOutcome<T::EthSpec>, BlockError> {
         // As of now we only reconstruct data columns on supernodes, so if the block is already
         // available on a supernode, there's no need to reconstruct as the node must already have
@@ -3266,7 +3267,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let result = self
             .task_executor
             .spawn_blocking_handle(
-                move || data_availability_checker.reconstruct_data_columns(&block_root),
+                move || data_availability_checker.reconstruct_data_columns(&block_root, is_retry),
                 "reconstruct_data_columns",
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?

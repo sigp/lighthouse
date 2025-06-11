@@ -933,6 +933,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         block_root: Hash256,
         publish_columns: bool,
+        is_retry: bool,
     ) -> impl Future<Output = Option<AvailabilityProcessingStatus>> + Send + Sync {
         async move {
             // Only supernodes attempt reconstruction
@@ -940,7 +941,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return None;
             }
 
-            let result = self.chain.reconstruct_data_columns(block_root).await;
+            let result = self
+                .chain
+                .reconstruct_data_columns(block_root, is_retry)
+                .await;
             match result {
                 Ok(ReconstructionOutcome::Reconstructed {
                     availability_processing_status,
@@ -981,6 +985,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         .attempt_data_column_reconstruction(
                                             block_root,
                                             publish_columns,
+                                            true,
                                         )
                                         .await;
                                 }),
