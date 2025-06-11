@@ -669,7 +669,8 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
             &chain.spec,
         )?;
 
-        let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+        let epoch = state.current_epoch();
+        let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
         // Prime the proposer shuffling cache with the newly-learned value.
         Ok::<_, GossipDataColumnError>(EpochBlockProposers {
             epoch: column_epoch,
