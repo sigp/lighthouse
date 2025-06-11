@@ -13,8 +13,10 @@ use crate::metadata::{
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
-    get_data_column_key, metrics, parse_data_column_key, BlobSidecarListFromRoot, DBColumn,
-    DatabaseBlock, Error, ItemStore, KeyValueStoreOp, StoreItem, StoreOp,
+    get_data_column_key,
+    metrics::{self, COLD_METRIC, HOT_METRIC},
+    parse_data_column_key, BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error, ItemStore,
+    KeyValueStoreOp, StoreItem, StoreOp,
 };
 use itertools::{process_results, Itertools};
 use lru::LruCache;
@@ -1567,15 +1569,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         from_root: Hash256,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        let base_buffer = self.load_hot_hdiff_buffer(from_root).map_err(|e| {
-            Error::LoadingHotHdiffBufferError(
-                format!("store state as diff {state_root:?} {}", state.slot()),
-                from_root,
-                e.into(),
-            )
-        })?;
+        let base_buffer = {
+            let _t = metrics::start_timer_vec(
+                &metrics::BEACON_HDIFF_BUFFER_LOAD_BEFORE_STORE_TIME,
+                HOT_METRIC,
+            );
+            self.load_hot_hdiff_buffer(from_root).map_err(|e| {
+                Error::LoadingHotHdiffBufferError(
+                    format!("store state as diff {state_root:?} {}", state.slot()),
+                    from_root,
+                    e.into(),
+                )
+            })?
+        };
         let target_buffer = HDiffBuffer::from_state(state.clone());
-        let diff = HDiff::compute(&base_buffer, &target_buffer, &self.config)?;
+        let diff = {
+            let _timer = metrics::start_timer_vec(&metrics::BEACON_HDIFF_COMPUTE_TIME, HOT_METRIC);
+            HDiff::compute(&base_buffer, &target_buffer, &self.config)?
+        };
         let diff_bytes = diff.as_ssz_bytes();
         ops.push(KeyValueStoreOp::PutKeyValue(
             DBColumn::BeaconStateHotDiff,
@@ -1669,7 +1680,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     )
                 })?;
                 let diff = self.load_hot_hdiff(state_root)?;
-                diff.apply(&mut buffer, &self.config)?;
+                {
+                    let _timer =
+                        metrics::start_timer_vec(&metrics::BEACON_HDIFF_APPLY_TIME, HOT_METRIC);
+                    diff.apply(&mut buffer, &self.config)?;
+                }
                 Ok(buffer)
             }
             StorageStrategy::ReplayFrom(from_slot) => {
@@ -1687,13 +1702,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     fn load_hot_hdiff(&self, state_root: Hash256) -> Result<HDiff, Error> {
         let bytes = {
-            let _t = metrics::start_timer(&metrics::BEACON_HOT_HDIFF_READ_TIMES);
+            let _t = metrics::start_timer_vec(&metrics::BEACON_HDIFF_READ_TIME, HOT_METRIC);
             self.hot_db
                 .get_bytes(DBColumn::BeaconStateHotDiff, state_root.as_slice())?
                 .ok_or(HotColdDBError::MissingHotHDiff(state_root))?
         };
         let hdiff = {
-            let _t = metrics::start_timer(&metrics::BEACON_HOT_HDIFF_DECODE_TIMES);
+            let _t = metrics::start_timer_vec(&metrics::BEACON_HDIFF_DECODE_TIME, HOT_METRIC);
             HDiff::from_ssz_bytes(&bytes)?
         };
         Ok(hdiff)
@@ -1721,6 +1736,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         {
             let mut state = match self.hot_storage_strategy(slot)? {
                 strat @ StorageStrategy::Snapshot | strat @ StorageStrategy::DiffFrom(_) => {
+                    let buffer_timer = metrics::start_timer_vec(
+                        &metrics::BEACON_HDIFF_BUFFER_LOAD_TIME,
+                        HOT_METRIC,
+                    );
                     let buffer = self.load_hot_hdiff_buffer(*state_root).map_err(|e| {
                         Error::LoadingHotHdiffBufferError(
                             format!("load state {strat:?} {slot}"),
@@ -1728,6 +1747,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                             e.into(),
                         )
                     })?;
+                    drop(buffer_timer);
                     let mut state = buffer.as_state(&self.spec)?;
 
                     // Immediately rebase the state from diffs on the finalized state so that we
@@ -2006,12 +2026,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         // Load diff base state bytes.
         let (_, base_buffer) = {
-            let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_FOR_STORE_TIME);
+            let _t = metrics::start_timer_vec(
+                &metrics::BEACON_HDIFF_BUFFER_LOAD_BEFORE_STORE_TIME,
+                COLD_METRIC,
+            );
             self.load_hdiff_buffer_for_slot(from_slot)?
         };
         let target_buffer = HDiffBuffer::from_state(state.clone());
         let diff = {
-            let _timer = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_COMPUTE_TIME);
+            let _timer = metrics::start_timer_vec(&metrics::BEACON_HDIFF_COMPUTE_TIME, COLD_METRIC);
             HDiff::compute(&base_buffer, &target_buffer, &self.config)?
         };
         let diff_bytes = diff.as_ssz_bytes();
@@ -2070,7 +2093,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         match self.cold_storage_strategy(slot)? {
             StorageStrategy::Snapshot | StorageStrategy::DiffFrom(_) => {
                 let buffer_timer =
-                    metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_TIME);
+                    metrics::start_timer_vec(&metrics::BEACON_HDIFF_BUFFER_LOAD_TIME, COLD_METRIC);
                 let (_, buffer) = self.load_hdiff_buffer_for_slot(slot)?;
                 drop(buffer_timer);
                 let state = buffer.as_state(&self.spec)?;
@@ -2139,13 +2162,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     fn load_hdiff_for_slot(&self, slot: Slot) -> Result<HDiff, Error> {
         let bytes = {
-            let _t = metrics::start_timer(&metrics::BEACON_COLD_HDIFF_READ_TIMES);
+            let _t = metrics::start_timer_vec(&metrics::BEACON_HDIFF_READ_TIME, COLD_METRIC);
             self.cold_db
                 .get_bytes(DBColumn::BeaconStateDiff, &slot.as_u64().to_be_bytes())?
                 .ok_or(HotColdDBError::MissingHDiff(slot))?
         };
         let hdiff = {
-            let _t = metrics::start_timer(&metrics::BEACON_COLD_HDIFF_DECODE_TIMES);
+            let _t = metrics::start_timer_vec(&metrics::BEACON_HDIFF_DECODE_TIME, COLD_METRIC);
             HDiff::from_ssz_bytes(&bytes)?
         };
         Ok(hdiff)
@@ -2196,7 +2219,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let diff = self.load_hdiff_for_slot(slot)?;
                 {
                     let _timer =
-                        metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_APPLY_TIME);
+                        metrics::start_timer_vec(&metrics::BEACON_HDIFF_APPLY_TIME, COLD_METRIC);
                     diff.apply(&mut buffer, &self.config)?;
                 }
 

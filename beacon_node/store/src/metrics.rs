@@ -4,6 +4,10 @@ use directory::size_of_dir;
 use std::path::Path;
 use std::sync::LazyLock;
 
+// Labels used for histogram timer vecs that are tracked per DB (hot and cold).
+pub const HOT_METRIC: &[&str] = &["hot"];
+pub const COLD_METRIC: &[&str] = &["cold"];
+
 /*
  * General
  */
@@ -142,35 +146,59 @@ pub static BEACON_STATE_HOT_GET_COUNT: LazyLock<Result<IntCounter>> = LazyLock::
         "Total number of hot beacon states requested from the store (cache or DB)",
     )
 });
-pub static BEACON_HOT_HDIFF_READ_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "store_hot_hdiff_read_seconds",
-        "Time required to read hierarchical diff bytes from the hot database",
+
+/*
+ * HDiffs
+ */
+pub static BEACON_HDIFF_READ_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "store_hdiff_read_seconds",
+        "Time taken to read hdiff bytes from disk",
+        &["db"],
     )
 });
-pub static BEACON_HOT_HDIFF_DECODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "store_hot_hdiff_decode_seconds",
-        "Time required to decode hierarchical diff bytes from the hot database",
+pub static BEACON_HDIFF_DECODE_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "store_hdiff_decode_seconds",
+        "Time taken to decode hdiff bytes",
+        &["db"],
     )
 });
-pub static BEACON_COLD_HDIFF_READ_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "store_cold_hdiff_read_seconds",
-        "Time required to read the hierarchical diff bytes from the database",
+pub static BEACON_HDIFF_APPLY_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "store_hdiff_apply_seconds",
+        "Time taken to apply an hdiff to a buffer",
+        &["db"],
     )
 });
-pub static BEACON_COLD_HDIFF_DECODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "store_cold_hdiff_decode_seconds",
-        "Time required to decode hierarchical diff bytes",
+pub static BEACON_HDIFF_COMPUTE_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "store_hdiff_compute_seconds",
+        "Time taken to compute an hdiff for a state",
+        &["db"],
     )
 });
-pub static BEACON_COLD_HDIFF_BUFFER_CLONE_TIMES: LazyLock<Result<Histogram>> =
+pub static BEACON_HDIFF_BUFFER_LOAD_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "store_hdiff_buffer_load_seconds",
+        "Time taken to load an hdiff buffer for a state",
+        &["db"],
+    )
+});
+// NB: the `hot` version of this metric doesn't currently exist as we don't cache hot buffers
+pub static BEACON_HDIFF_BUFFER_CLONE_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "store_hdiff_buffer_clone_seconds",
+        "Time taken to clone an hdiff buffer from a cache",
+        &["db"],
+    )
+});
+pub static BEACON_HDIFF_BUFFER_LOAD_BEFORE_STORE_TIME: LazyLock<Result<HistogramVec>> =
     LazyLock::new(|| {
-        try_create_histogram(
-            "store_cold_hdiff_buffer_clone_seconds",
-            "Time required to clone hierarchical diff buffer bytes",
+        try_create_histogram_vec(
+            "store_hdiff_buffer_load_before_store_seconds",
+            "Time taken to load the hdiff buffer required for the storage of a new state",
+            &["db"],
         )
     });
 // This metric is not split hot/cold because it is recorded in a place where that info is not known.
@@ -256,33 +284,6 @@ pub static STORE_BEACON_STATE_FREEZER_DECOMPRESS_TIME: LazyLock<Result<Histogram
         try_create_histogram(
             "store_beacon_state_decompress_seconds",
             "Time taken to decompress a state snapshot for the freezer DB",
-        )
-    });
-pub static STORE_BEACON_HDIFF_BUFFER_APPLY_TIME: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "store_beacon_hdiff_buffer_apply_seconds",
-            "Time taken to apply hdiff buffer to a state buffer",
-        )
-    });
-pub static STORE_BEACON_HDIFF_BUFFER_COMPUTE_TIME: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "store_beacon_hdiff_buffer_compute_seconds",
-            "Time taken to compute hdiff buffer to a state buffer",
-        )
-    });
-pub static STORE_BEACON_HDIFF_BUFFER_LOAD_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "store_beacon_hdiff_buffer_load_seconds",
-        "Time taken to load an hdiff buffer",
-    )
-});
-pub static STORE_BEACON_HDIFF_BUFFER_LOAD_FOR_STORE_TIME: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "store_beacon_hdiff_buffer_load_for_store_seconds",
-            "Time taken to load an hdiff buffer to store another hdiff",
         )
     });
 pub static STORE_BEACON_HISTORIC_STATE_CACHE_HIT: LazyLock<Result<IntCounter>> =
