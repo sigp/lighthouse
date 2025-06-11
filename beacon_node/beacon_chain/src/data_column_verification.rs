@@ -215,8 +215,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
     }
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
-    #[cfg(test)]
-    pub(crate) fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
+    pub fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
         Self {
             block_root: column_sidecar.block_root(),
             data_column: KzgVerifiedDataColumn::__new_for_testing(column_sidecar),
@@ -268,7 +267,6 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 
     /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
-    #[cfg(test)]
     pub(crate) fn __new_for_testing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
         Self { data: data_column }
     }
