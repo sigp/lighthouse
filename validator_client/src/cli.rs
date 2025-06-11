@@ -153,10 +153,10 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
-        value_name = "GRAFFITI",
         requires = "graffiti",
         help = "When used, client version info will be automatically appended to user custom graffiti.",
-        display_order = 0
+        display_order = 0,
+        help_heading = FLAG_HEADER
     )]
     pub graffiti_client: bool,
 
