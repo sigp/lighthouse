@@ -576,8 +576,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         pending_components.reconstruction_started = true;
 
+        debug!(received_column_count, "Starting wait for more cols...");
+
         // Instead of starting to reconstruct immediately, wait for more columns to arrive
         drop(write_lock);
+        let mut iter = 1;
         loop {
             sleep(Duration::from_millis(25));
             let mut write_lock = self.critical.write();
@@ -589,16 +592,21 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
             // Check if there is still a need to reconstruct.
             if new_received_column_count >= total_column_count {
+                debug!(iter, new_received_column_count, "Got all!");
                 return ReconstructColumnsDecision::No("all columns received");
             }
 
             // Check if no new column arrived.
             if new_received_column_count == received_column_count {
+                debug!(iter, new_received_column_count, "No new cols :/");
                 return ReconstructColumnsDecision::Yes(pending_components.verified_data_columns.clone());
             }
 
+            debug!(iter, new_received_column_count, "Waiting for more cols...");
+
             // Update count for next check.
             received_column_count = new_received_column_count;
+            iter += 1;
         }
     }
 
