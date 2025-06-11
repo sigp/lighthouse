@@ -889,7 +889,6 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Subscribe to all data columns determined by the cgc.
-    /// TODO(pawan): unsubscribe if count reduces
     #[instrument(parent = None,
         level = "trace",
         fields(service = "libp2p"),
@@ -1275,6 +1274,21 @@ impl<E: EthSpec> Network<E> {
         self.update_metadata_bitfields();
     }
 
+    /// Updates the cgc value in the ENR.
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    pub fn update_enr_cgc(&mut self, new_custody_group_count: u64) {
+        if let Err(e) = self.discovery_mut().update_enr_cgc(new_custody_group_count) {
+            crit!(error = e, "Could not update cgc in ENR");
+        }
+        // update the local meta data which informs our peers of the update during PINGS
+        self.update_metadata_cgc(new_custody_group_count);
+    }
+
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
     /// would like to retain the peers for.
     #[instrument(parent = None,
@@ -1379,6 +1393,28 @@ impl<E: EthSpec> Network<E> {
         *meta_data_w.attnets_mut() = local_attnets;
         if let Ok(syncnets) = meta_data_w.syncnets_mut() {
             *syncnets = local_syncnets;
+        }
+        let seq_number = *meta_data_w.seq_number();
+        let meta_data = meta_data_w.clone();
+
+        drop(meta_data_w);
+        self.eth2_rpc_mut().update_seq_number(seq_number);
+        // Save the updated metadata to disk
+        utils::save_metadata_to_disk(&self.network_dir, meta_data);
+    }
+
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    fn update_metadata_cgc(&mut self, custody_group_count: u64) {
+        let mut meta_data_w = self.network_globals.local_metadata.write();
+
+        *meta_data_w.seq_number_mut() += 1;
+        if let Ok(cgc) = meta_data_w.custody_group_count_mut() {
+            *cgc = custody_group_count;
         }
         let seq_number = *meta_data_w.seq_number();
         let meta_data = meta_data_w.clone();

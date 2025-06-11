@@ -3821,12 +3821,14 @@ pub fn serve<T: BeaconChainTypes>(
                             })
                             .collect::<Vec<_>>();
 
+                        let current_slot =
+                            chain.slot().map_err(warp_utils::reject::unhandled_error)?;
                         if let Some(cgc_change) = chain
                             .data_availability_checker
                             .custody_context()
                             .register_validators::<T::EthSpec>(
                             validators_and_balances,
-                            chain.slot().unwrap(),
+                            current_slot,
                             &chain.spec,
                         ) {
                             network_tx.send(NetworkMessage::CustodyCountChanged {

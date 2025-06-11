@@ -49,6 +49,7 @@ use tracing::{debug, error, info, trace, warn};
 use types::{ChainSpec, EnrForkId, EthSpec};
 
 mod subnet_predicate;
+use crate::discovery::enr::PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY;
 pub use subnet_predicate::subnet_predicate;
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -472,6 +473,15 @@ impl<E: EthSpec> Discovery<E> {
             // persist modified enr to disk
             enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
         }
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        Ok(())
+    }
+
+    pub fn update_enr_cgc(&mut self, custody_group_count: u64) -> Result<(), String> {
+        self.discv5
+            .enr_insert(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY, &custody_group_count)
+            .map_err(|e| format!("{:?}", e))?;
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
         Ok(())
     }

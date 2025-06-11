@@ -74,7 +74,8 @@ impl ValidatorRegistrations {
         // add a new entry for the current epoch
         if Some(validator_custody_requirement) != self.latest_validator_custody_requirement() {
             // Apply the change from the next epoch after adding some delay buffer to ensure
-            // the node has enough time to subscribe to subnets etc.
+            // the node has enough time to subscribe to subnets etc, and to avoid having
+            // inconsistent column counts within an epoch.
             let effective_delay_slots =
                 CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / spec.seconds_per_slot;
             let effective_epoch = (slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;

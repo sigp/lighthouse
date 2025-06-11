@@ -761,12 +761,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
             }
             NetworkMessage::CustodyCountChanged {
-                new_custody_group_count: _,
+                new_custody_group_count,
                 sampling_count,
             } => {
-                // TODO: update ENR and metadata
+                // subscribe to `sampling_count` subnets
                 self.libp2p
-                    .subscribe_new_data_column_subnets(sampling_count)
+                    .subscribe_new_data_column_subnets(sampling_count);
+                self.libp2p.update_enr_cgc(new_custody_group_count);
             }
         }
     }
