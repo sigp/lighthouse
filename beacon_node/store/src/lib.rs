@@ -339,7 +339,7 @@ pub enum DBColumn {
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
     DhtEnrs,
-    #[strum(serialize = "custody")]
+    #[strum(serialize = "cus")]
     CustodyContext,
     /// DEPRECATED. For Optimistically Imported Merge Transition Blocks
     #[strum(serialize = "otb")]

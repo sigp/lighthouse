@@ -13,7 +13,7 @@ const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
 
 type ValidatorsAndBalances = Vec<(usize, u64)>;
 
-/// TODO(pawan): this currently just registers increases in validator count.
+/// This currently just registers increases in validator count.
 /// Does not handle decreasing validator counts
 #[derive(Default, Debug)]
 struct ValidatorRegistrations {

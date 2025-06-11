@@ -308,13 +308,21 @@ impl<E: EthSpec> PendingComponents<E> {
             })
     }
 
-    pub fn status_str(&self, block_epoch: Epoch, spec: &ChainSpec) -> String {
+    pub fn status_str(
+        &self,
+        block_epoch: Epoch,
+        num_expected_columns: Option<u64>,
+        spec: &ChainSpec,
+    ) -> String {
         let block_count = if self.executed_block.is_some() { 1 } else { 0 };
         if spec.is_peer_das_enabled_for_epoch(block_epoch) {
             format!(
-                "block {} data_columns {}",
+                "block {} data_columns {}/{}",
                 block_count,
                 self.verified_data_columns.len(),
+                num_expected_columns
+                    .map(|c| c.to_string())
+                    .unwrap_or("?".into())
             )
         } else {
             let num_expected_blobs = if let Some(block) = self.get_cached_block() {
@@ -467,7 +475,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         debug!(
             component = "blobs",
             ?block_root,
-            status = pending_components.status_str(epoch, &self.spec),
+            status = pending_components.status_str(epoch, None, &self.spec),
             "Component added to data availability checker"
         );
 
@@ -518,18 +526,19 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
 
+        let num_expected_columns = self.custody_context.sampling_size(Some(epoch), &self.spec);
         debug!(
             component = "data_columns",
             ?block_root,
-            status = pending_components.status_str(epoch, &self.spec),
+            status = pending_components.status_str(epoch, Some(num_expected_columns), &self.spec),
             "Component added to data availability checker"
         );
 
-        if let Some(available_block) = pending_components.make_available(
-            &self.spec,
-            self.custody_context.sampling_size(Some(epoch), &self.spec),
-            |block| self.state_cache.recover_pending_executed_block(block),
-        )? {
+        if let Some(available_block) =
+            pending_components.make_available(&self.spec, num_expected_columns, |block| {
+                self.state_cache.recover_pending_executed_block(block)
+            })?
+        {
             // We keep the pending components in the availability cache during block import (#5845).
             write_lock.put(block_root, pending_components);
             drop(write_lock);
@@ -613,10 +622,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the block.
         pending_components.merge_block(diet_executed_block);
 
+        let num_expected_columns = self.custody_context.sampling_size(Some(epoch), &self.spec);
         debug!(
             component = "block",
             ?block_root,
-            status = pending_components.status_str(epoch, &self.spec),
+            status = pending_components.status_str(epoch, Some(num_expected_columns), &self.spec),
             "Component added to data availability checker"
         );
 
@@ -1246,7 +1256,6 @@ mod pending_components_tests {
                 payload_verification_status: PayloadVerificationStatus::Verified,
                 is_valid_merge_transition_block: false,
             },
-            // Default custody columns count, doesn't matter here
         };
         (block.into(), blobs, invalid_blobs)
     }

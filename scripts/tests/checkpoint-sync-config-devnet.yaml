@@ -3,18 +3,18 @@ participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
     el_type: geth
-    el_image: ethpandaops/geth:fusaka-devnet-0
+    el_image: ethpandaops/geth:fusaka-devnet-1
     supernode: true
   - cl_type: lighthouse
     cl_image: lighthouse:local
     el_type: geth
-    el_image: ethpandaops/geth:fusaka-devnet-0
+    el_image: ethpandaops/geth:fusaka-devnet-1
     supernode: false
 
 checkpoint_sync_enabled: true
-checkpoint_sync_url: "https://checkpoint-sync.fusaka-devnet-0.ethpandaops.io"
+checkpoint_sync_url: "https://checkpoint-sync.fusaka-devnet-1.ethpandaops.io"
 
 global_log_level: debug
 
 network_params:
-  network: fusaka-devnet-0
+  network: fusaka-devnet-1
