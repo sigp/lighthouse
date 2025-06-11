@@ -4780,6 +4780,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::BlobSidecar => {
                                     event_handler.subscribe_blob_sidecar()
                                 }
+                                api_types::EventTopic::DataColumnSidecar => {
+                                    event_handler.subscribe_data_column_sidecar()
+                                }
                                 api_types::EventTopic::Attestation => {
                                     event_handler.subscribe_attestation()
                                 }

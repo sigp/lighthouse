@@ -72,7 +72,7 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 
 // Pre-computed data column sidecar using a single static blob from:
 // `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
-const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
+pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
     include_bytes!("test_utils/fixtures/test_data_column_sidecars.ssz");
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
