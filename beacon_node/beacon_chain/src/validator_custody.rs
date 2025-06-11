@@ -224,25 +224,20 @@ impl CustodyContext {
         }
     }
 
-    fn default_custody_group_count(&self, spec: &ChainSpec) -> u64 {
-        if self.current_is_supernode {
-            spec.number_of_custody_groups
-        } else {
-            spec.custody_requirement
-        }
-    }
-
     /// Returns the count of custody columns this node must sample for a block at `epoch` to import.
     /// If an `epoch` is not specified, returns the *current* validator custody requirement.
     pub fn sampling_size(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> u64 {
-        let custody_group_count = if let Some(epoch) = epoch_opt {
+        let custody_group_count = if self.current_is_supernode {
+            spec.number_of_custody_groups
+        } else if let Some(epoch) = epoch_opt {
             self.validator_registrations
                 .read()
                 .custody_requirement_at_epoch(epoch)
-                .unwrap_or_else(|| self.default_custody_group_count(spec))
+                .unwrap_or(spec.custody_requirement)
         } else {
             self.custody_group_count_at_head(spec)
         };
+
         spec.sampling_size(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
     }
@@ -287,6 +282,10 @@ mod tests {
             custody_context.custody_group_count_at_head(&spec),
             spec.number_of_custody_groups
         );
+        assert_eq!(
+            custody_context.sampling_size(None, &spec),
+            spec.number_of_custody_groups
+        );
     }
 
     #[test]
@@ -297,6 +296,10 @@ mod tests {
             custody_context.custody_group_count_at_head(&spec),
             spec.custody_requirement,
             "head custody count should be minimum spec custody requirement"
+        );
+        assert_eq!(
+            custody_context.sampling_size(None, &spec),
+            spec.samples_per_slot
         );
     }
 
@@ -318,7 +321,7 @@ mod tests {
         ];
 
         register_validators_and_assert_cgc(
-            custody_context,
+            &custody_context,
             validators_and_expected_cgc_change,
             &spec,
         );
@@ -354,7 +357,7 @@ mod tests {
             ),
         ];
 
-        register_validators_and_assert_cgc(custody_context, validators_and_expected_cgc, &spec);
+        register_validators_and_assert_cgc(&custody_context, validators_and_expected_cgc, &spec);
     }
 
     #[test]
@@ -383,7 +386,11 @@ mod tests {
             ),
         ];
 
-        register_validators_and_assert_cgc(custody_context, validators_and_expected_cgc, &spec);
+        register_validators_and_assert_cgc(&custody_context, validators_and_expected_cgc, &spec);
+        assert_eq!(
+            custody_context.sampling_size(None, &spec),
+            spec.number_of_custody_groups
+        );
     }
 
     #[test]
@@ -418,7 +425,7 @@ mod tests {
 
     /// Update validator every epoch and assert cgc against expected values.
     fn register_validators_and_assert_cgc(
-        custody_context: CustodyContext,
+        custody_context: &CustodyContext,
         validators_and_expected_cgc_changed: Vec<(ValidatorsAndBalances, Option<u64>)>,
         spec: &ChainSpec,
     ) {
