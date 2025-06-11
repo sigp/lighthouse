@@ -609,12 +609,6 @@ where
 
         let chain = builder.build().expect("should build");
 
-        let sampling_column_count = if self.import_all_data_columns {
-            chain.spec.number_of_custody_groups as usize
-        } else {
-            chain.spec.custody_requirement as usize
-        };
-
         BeaconChainHarness {
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
@@ -625,7 +619,6 @@ where
             mock_execution_layer: self.mock_execution_layer,
             mock_builder: None,
             rng: make_rng(),
-            sampling_column_count,
         }
     }
 }
@@ -682,7 +675,6 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
-    pub sampling_column_count: usize,
 
     pub rng: Mutex<StdRng>,
 }
@@ -785,7 +777,10 @@ where
     }
 
     pub fn get_sampling_column_count(&self) -> usize {
-        self.sampling_column_count
+        self.chain
+            .data_availability_checker
+            .custody_context()
+            .sampling_size(None, &self.chain.spec) as usize
     }
 
     pub fn slots_per_epoch(&self) -> u64 {
