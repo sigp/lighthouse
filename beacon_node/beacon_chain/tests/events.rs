@@ -62,7 +62,7 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
     let event_handler = harness.chain.event_handler.as_ref().unwrap();
     let mut data_column_event_receiver = event_handler.subscribe_data_column_sidecar();
 
-    // build and process a gossip verified blob
+    // build and process a gossip verified data column
     let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
     let sidecar = Arc::new(DataColumnSidecar::random_for_test(&mut rng));
     let gossip_verified_data_column = GossipVerifiedDataColumn::__new_for_testing(sidecar);
