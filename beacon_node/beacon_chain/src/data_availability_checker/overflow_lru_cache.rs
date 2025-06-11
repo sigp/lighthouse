@@ -473,7 +473,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
-            self.custody_context.sampling_count(&self.spec),
+            self.custody_context.sampling_size(Some(epoch), &self.spec),
             |block| self.state_cache.recover_pending_executed_block(block),
         )? {
             // We keep the pending components in the availability cache during block import (#5845).
@@ -527,7 +527,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
-            self.custody_context.sampling_count(&self.spec),
+            self.custody_context.sampling_size(Some(epoch), &self.spec),
             |block| self.state_cache.recover_pending_executed_block(block),
         )? {
             // We keep the pending components in the availability cache during block import (#5845).
@@ -623,7 +623,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Check if we have all components and entire set is consistent.
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
-            self.custody_context.sampling_count(&self.spec),
+            self.custody_context.sampling_size(Some(epoch), &self.spec),
             |block| self.state_cache.recover_pending_executed_block(block),
         )? {
             // We keep the pending components in the availability cache during block import (#5845).

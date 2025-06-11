@@ -8,6 +8,11 @@ use parking_lot::RwLock;
 use ssz_derive::{Decode, Encode};
 use types::{ChainSpec, Epoch, EthSpec, Slot};
 
+/// A delay before making the CGC change effective to the data availability checker.
+const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
+
+type ValidatorsAndBalances = Vec<(usize, u64)>;
+
 /// TODO(pawan): this currently just registers increases in validator count.
 /// Does not handle decreasing validator counts
 #[derive(Default, Debug)]
@@ -27,30 +32,31 @@ struct ValidatorRegistrations {
 
 impl ValidatorRegistrations {
     /// Returns the validator custody requirement at the latest epoch.
-    pub fn latest_validator_custody_requirement(&self) -> Option<u64> {
+    fn latest_validator_custody_requirement(&self) -> Option<u64> {
         self.epoch_validator_custody_requirements
             .last_key_value()
             .map(|(_, v)| *v)
     }
 
-    /// Returns the latest epoch at which the validator count changed.
-    #[allow(dead_code)]
-    pub fn latest_epoch(&self) -> Option<Epoch> {
+    /// Lookup the active custody requirement at the given epoch.
+    fn custody_requirement_at_epoch(&self, epoch: Epoch) -> Option<u64> {
         self.epoch_validator_custody_requirements
-            .last_key_value()
-            .map(|(k, _)| *k)
+            .range(..=epoch)
+            .last()
+            .map(|(_, custody_count)| *custody_count)
     }
 
     /// Register a new validator index and updates the list of validators if required.
-    pub fn register_validator<E: EthSpec>(
+    /// Returns `Some((effective_epoch, new_cgc))` if the registration results in a CGC update.
+    pub(crate) fn register_validators<E: EthSpec>(
         &mut self,
-        validator_index: usize,
-        effective_balance: u64,
+        validators_and_balance: ValidatorsAndBalances,
         slot: Slot,
         spec: &ChainSpec,
-    ) {
-        let epoch = slot.epoch(E::slots_per_epoch());
-        self.validators.insert(validator_index, effective_balance);
+    ) -> Option<(Epoch, u64)> {
+        for (validator_index, effective_balance) in validators_and_balance {
+            self.validators.insert(validator_index, effective_balance);
+        }
 
         // Each `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP` effectively contributes one unit of "weight".
         let validator_custody_units =
@@ -58,20 +64,28 @@ impl ValidatorRegistrations {
         let validator_custody_requirement =
             get_validators_custody_requirement(validator_custody_units, spec);
 
-        // If registering the new validator increased the total validator "units", then
-        // add a new entry for the current epoch
-        if Some(validator_custody_requirement) != self.latest_validator_custody_requirement() {
-            self.epoch_validator_custody_requirements
-                .entry(epoch)
-                .and_modify(|old_custody| *old_custody = validator_custody_requirement)
-                .or_insert(validator_custody_requirement);
-        }
         tracing::debug!(
-            %epoch,
             validator_custody_units,
             validator_custody_requirement,
             "Registered validators"
         );
+
+        // If registering the new validator increased the total validator "units", then
+        // add a new entry for the current epoch
+        if Some(validator_custody_requirement) != self.latest_validator_custody_requirement() {
+            // Apply the change from the next epoch after adding some delay buffer to ensure
+            // the node has enough time to subscribe to subnets etc.
+            let effective_delay_slots =
+                CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / spec.seconds_per_slot;
+            let effective_epoch = (slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
+            self.epoch_validator_custody_requirements
+                .entry(effective_epoch)
+                .and_modify(|old_custody| *old_custody = validator_custody_requirement)
+                .or_insert(validator_custody_requirement);
+            Some((effective_epoch, validator_custody_requirement))
+        } else {
+            None
+        }
     }
 }
 
@@ -150,17 +164,14 @@ impl CustodyContext {
     /// Returns `Some` along with the updated custody group count if it has changed, otherwise returns `None`.
     pub fn register_validators<E: EthSpec>(
         &self,
-        validators_and_balance: Vec<(usize, u64)>,
+        validators_and_balance: ValidatorsAndBalances,
         slot: Slot,
         spec: &ChainSpec,
     ) -> Option<CustodyCountChanged> {
-        let mut registrations = self.validator_registrations.write();
-        for (validator_index, effective_balance) in validators_and_balance {
-            registrations.register_validator::<E>(validator_index, effective_balance, slot, spec);
-        }
-
-        // Completed registrations, now check if the validator custody requirement has changed
-        let Some(new_validator_custody) = registrations.latest_validator_custody_requirement()
+        let Some((effective_epoch, new_validator_custody)) = self
+            .validator_registrations
+            .write()
+            .register_validators::<E>(validators_and_balance, slot, spec)
         else {
             return None;
         };
@@ -187,7 +198,7 @@ impl CustodyContext {
                 );
                 return Some(CustodyCountChanged {
                     new_custody_group_count: updated_cgc,
-                    sampling_count: self.sampling_count(spec),
+                    sampling_count: self.sampling_size(Some(effective_epoch), spec),
                 });
             }
         }
@@ -199,7 +210,10 @@ impl CustodyContext {
     ///
     /// This function should be called when figuring out how many columns we
     /// need to custody when receiving blocks over gossip/rpc or during sync.
-    pub(crate) fn custody_group_count(&self, spec: &ChainSpec) -> u64 {
+    ///
+    /// NOTE: this function is intended for internal calculation only and
+    /// should **NOT** be exposed externally. Use `self.sampling_size_at_epoch` instead.
+    fn custody_group_count(&self, spec: &ChainSpec) -> u64 {
         if self.current_is_supernode {
             return spec.number_of_custody_groups;
         }
@@ -213,10 +227,26 @@ impl CustodyContext {
         }
     }
 
-    /// Returns the count of custody columns this node must sample for block import.
-    pub fn sampling_count(&self, spec: &ChainSpec) -> u64 {
-        // This only panics if the chain spec contains invalid values
-        spec.sampling_size(self.custody_group_count(spec))
+    fn default_custody_group_count(&self, spec: &ChainSpec) -> u64 {
+        if self.current_is_supernode {
+            spec.number_of_custody_groups
+        } else {
+            spec.custody_requirement
+        }
+    }
+
+    /// Returns the count of custody columns this node must sample for a block at `epoch` to import.
+    /// If an `epoch` is not specified, returns the *current* validator custody requirement.
+    pub fn sampling_size(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> u64 {
+        let custody_group_count = if let Some(epoch) = epoch_opt {
+            self.validator_registrations
+                .read()
+                .custody_requirement_at_epoch(epoch)
+                .unwrap_or_else(|| self.default_custody_group_count(spec))
+        } else {
+            self.custody_group_count(spec)
+        };
+        spec.sampling_size(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
     }
 }
@@ -280,19 +310,21 @@ mod tests {
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
         let min_val_custody_requirement = spec.validator_custody_requirement;
         // One single node increases its balance over 3 epochs.
-        let validators_and_expected_cgc = vec![
+        let validators_and_expected_cgc_change = vec![
             (
                 vec![(0, bal_per_additional_group)],
-                min_val_custody_requirement,
+                Some(min_val_custody_requirement),
             ),
-            (
-                vec![(0, 8 * bal_per_additional_group)],
-                min_val_custody_requirement,
-            ),
-            (vec![(0, 10 * bal_per_additional_group)], 10),
+            // No CGC change at 8 custody units, as it's the minimum requirement
+            (vec![(0, 8 * bal_per_additional_group)], None),
+            (vec![(0, 10 * bal_per_additional_group)], Some(10)),
         ];
 
-        register_validators_and_assert_cgc(custody_context, validators_and_expected_cgc, &spec);
+        register_validators_and_assert_cgc(
+            custody_context,
+            validators_and_expected_cgc_change,
+            &spec,
+        );
     }
 
     #[test]
@@ -305,14 +337,15 @@ mod tests {
         let validators_and_expected_cgc = vec![
             (
                 vec![(0, bal_per_additional_group)],
-                min_val_custody_requirement,
+                Some(min_val_custody_requirement),
             ),
             (
                 vec![
                     (0, bal_per_additional_group),
                     (1, 7 * bal_per_additional_group),
                 ],
-                min_val_custody_requirement,
+                // No CGC change at 8 custody units, as it's the minimum requirement
+                None,
             ),
             (
                 vec![
@@ -320,7 +353,7 @@ mod tests {
                     (1, 7 * bal_per_additional_group),
                     (2, 2 * bal_per_additional_group),
                 ],
-                10,
+                Some(10),
             ),
         ];
 
@@ -335,16 +368,13 @@ mod tests {
 
         // Add 3 validators over 3 epochs.
         let validators_and_expected_cgc = vec![
-            (
-                vec![(0, bal_per_additional_group)],
-                spec.number_of_custody_groups,
-            ),
+            (vec![(0, bal_per_additional_group)], None),
             (
                 vec![
                     (0, bal_per_additional_group),
                     (1, 7 * bal_per_additional_group),
                 ],
-                spec.number_of_custody_groups,
+                None,
             ),
             (
                 vec![
@@ -352,30 +382,62 @@ mod tests {
                     (1, 7 * bal_per_additional_group),
                     (2, 2 * bal_per_additional_group),
                 ],
-                spec.number_of_custody_groups,
+                None,
             ),
         ];
 
         register_validators_and_assert_cgc(custody_context, validators_and_expected_cgc, &spec);
     }
 
+    #[test]
+    fn cgc_change_should_be_effective_to_sampling_after_delay() {
+        let custody_context = CustodyContext::new(false);
+        let spec = E::default_spec();
+        let current_slot = Slot::new(10);
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let default_sampling_size = custody_context.sampling_size(None, &spec);
+        let validator_custody_units = 10;
+
+        let _cgc_changed = custody_context.register_validators::<E>(
+            vec![(
+                0,
+                validator_custody_units * spec.balance_per_additional_custody_group,
+            )],
+            current_slot,
+            &spec,
+        );
+
+        // CGC update is not applied for `current_epoch`.
+        assert_eq!(
+            custody_context.sampling_size(Some(current_epoch), &spec),
+            default_sampling_size
+        );
+        // CGC update is applied for the next epoch.
+        assert_eq!(
+            custody_context.sampling_size(Some(current_epoch + 1), &spec),
+            validator_custody_units
+        );
+    }
+
     /// Update validator every epoch and assert cgc against expected values.
     fn register_validators_and_assert_cgc(
         custody_context: CustodyContext,
-        validators_and_expected_cgc: Vec<(Vec<(usize, u64)>, u64)>,
+        validators_and_expected_cgc_changed: Vec<(ValidatorsAndBalances, Option<u64>)>,
         spec: &ChainSpec,
     ) {
-        for (idx, (validators_and_balance, expected_cgc)) in
-            validators_and_expected_cgc.into_iter().enumerate()
+        for (idx, (validators_and_balance, expected_cgc_change)) in
+            validators_and_expected_cgc_changed.into_iter().enumerate()
         {
             let epoch = Epoch::new(idx as u64);
-            custody_context.register_validators::<E>(
-                validators_and_balance,
-                epoch.start_slot(E::slots_per_epoch()),
-                spec,
-            );
+            let updated_custody_count_opt = custody_context
+                .register_validators::<E>(
+                    validators_and_balance,
+                    epoch.start_slot(E::slots_per_epoch()),
+                    spec,
+                )
+                .map(|c| c.new_custody_group_count);
 
-            assert_eq!(custody_context.custody_group_count(spec), expected_cgc);
+            assert_eq!(updated_custody_count_opt, expected_cgc_change);
         }
     }
 }
