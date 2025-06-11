@@ -145,7 +145,6 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "GRAFFITI",
-        conflicts_with = "graffiti_client",
         help = "Specify your custom graffiti to be included in blocks.",
         display_order = 0
     )]
