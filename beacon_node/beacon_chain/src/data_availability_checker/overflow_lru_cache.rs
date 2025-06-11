@@ -582,7 +582,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         drop(write_lock);
         let mut iter = 1;
         loop {
-            sleep(Duration::from_millis(25));
+            sleep(Duration::from_millis(100));
             let mut write_lock = self.critical.write();
             let Some(pending_components) = write_lock.get(block_root) else {
                 // Block may have been imported as it does not exist in availability cache.
