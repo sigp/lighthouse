@@ -576,31 +576,41 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             return ReconstructColumnsDecision::No("not enough columns");
         }
 
-        match pending_components.reconstruction_state {
-            ReconstructionState::NotStarted => {
-                pending_components.reconstruction_state = ReconstructionState::WaitingForColumns {
-                    num_last: received_column_count,
-                };
-                ReconstructColumnsDecision::Wait
-            }
+        let descision = match pending_components.reconstruction_state {
+            ReconstructionState::NotStarted => ReconstructColumnsDecision::Wait,
             ReconstructionState::WaitingForColumns { num_last } => {
                 if num_last < received_column_count {
                     // We got more columns, let's wait more
-                    pending_components.reconstruction_state =
-                        ReconstructionState::WaitingForColumns {
-                            num_last: received_column_count,
-                        };
                     ReconstructColumnsDecision::Wait
                 } else {
                     // We made no progress waiting for columns, let's start.
-                    pending_components.reconstruction_state = ReconstructionState::Started;
                     ReconstructColumnsDecision::Yes(
                         pending_components.verified_data_columns.clone(),
                     )
                 }
             }
             ReconstructionState::Started => ReconstructColumnsDecision::No("already started"),
+        };
+
+        match descision {
+            ReconstructColumnsDecision::Yes(_) => {
+                pending_components.reconstruction_state = ReconstructionState::Started;
+                debug!(block_root, received_column_count, "Starting reconstruction");
+            }
+            ReconstructColumnsDecision::Wait => {
+                pending_components.reconstruction_state = ReconstructionState::WaitingForColumns {
+                    num_last: received_column_count,
+                };
+                debug!(
+                    block_root,
+                    received_column_count,
+                    "Waiting for more columns to arrive before reconstruction"
+                );
+            }
+            ReconstructColumnsDecision::No(_) => {}
         }
+
+        descision
     }
 
     /// This could mean some invalid data columns made it through to the `DataAvailabilityChecker`.
