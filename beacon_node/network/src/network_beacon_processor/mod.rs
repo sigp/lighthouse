@@ -970,7 +970,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
                 Ok(ReconstructionOutcome::Delay) => {
                     let cloned_self = Arc::clone(&self);
-                    let send_result = self.reprocess_tx
+                    let send_result = self
+                        .reprocess_tx
                         .send(ReprocessQueueMessage::DelayColumnReconstruction(
                             QueuedColumnReconstruction(Box::pin(async move {
                                 cloned_self

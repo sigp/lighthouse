@@ -357,7 +357,9 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
 
         match self.column_reconstructions_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(reconstruction)) => {
-                return Poll::Ready(Some(InboundEvent::ReadyColumnReconstruction(reconstruction.into_inner())));
+                return Poll::Ready(Some(InboundEvent::ReadyColumnReconstruction(
+                    reconstruction.into_inner(),
+                )));
             }
             Poll::Ready(None) | Poll::Pending => (),
         }
@@ -967,7 +969,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
             InboundEvent::ReadyColumnReconstruction(column_reconstruction) => {
                 if self
                     .ready_work_tx
-                    .try_send(ReadyWork::ColumnReconstruction(column_reconstruction)).is_err()
+                    .try_send(ReadyWork::ColumnReconstruction(column_reconstruction))
+                    .is_err()
                 {
                     error!(
                         hint = "system may be overloaded",

@@ -1173,7 +1173,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    Arc::clone(self).attempt_data_column_reconstruction(block_root, true)
+                    Arc::clone(self)
+                        .attempt_data_column_reconstruction(block_root, true)
                         .await;
                 }
             },

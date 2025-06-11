@@ -595,14 +595,14 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         match descision {
             ReconstructColumnsDecision::Yes(_) => {
                 pending_components.reconstruction_state = ReconstructionState::Started;
-                debug!(block_root, received_column_count, "Starting reconstruction");
+                debug!(%block_root, received_column_count, "Starting reconstruction");
             }
             ReconstructColumnsDecision::Wait => {
                 pending_components.reconstruction_state = ReconstructionState::WaitingForColumns {
                     num_last: received_column_count,
                 };
                 debug!(
-                    block_root,
+                    %block_root,
                     received_column_count,
                     "Waiting for more columns to arrive before reconstruction"
                 );
