@@ -19,6 +19,7 @@ use itertools::Itertools;
 use logging::crit;
 use logging::TimeLatch;
 use slot_clock::SlotClock;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
@@ -182,7 +183,10 @@ pub struct IgnoredRpcBlock {
 /// A backfill batch work that has been queued for processing later.
 pub struct QueuedBackfillBatch(pub AsyncFn);
 
-pub struct QueuedColumnReconstruction(pub AsyncFn);
+pub struct QueuedColumnReconstruction {
+    pub block_root: Hash256,
+    pub process_fn: AsyncFn,
+}
 
 impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
     type Error = WorkEvent<E>;
@@ -264,6 +268,8 @@ struct ReprocessQueue<S> {
     queued_sampling_requests: FnvHashMap<usize, (QueuedSamplingRequest, DelayKey)>,
     /// Sampling requests per block root.
     awaiting_sampling_requests_per_block_root: HashMap<Hash256, Vec<QueuedSamplingRequestId>>,
+    /// Column reconstruction per block root.
+    queued_column_reconstructions: HashMap<Hash256, DelayKey>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
 
@@ -441,6 +447,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             awaiting_sampling_requests_per_block_root: <_>::default(),
             queued_backfill_batches: Vec::new(),
+            queued_column_reconstructions: HashMap::new(),
             next_attestation: 0,
             next_lc_update: 0,
             next_sampling_request_update: 0,
@@ -840,8 +847,19 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::Msg(DelayColumnReconstruction(request)) => {
-                self.column_reconstructions_delay_queue
-                    .insert(request, QUEUED_RECONSTRUCTION_DELAY);
+                match self.queued_column_reconstructions.entry(request.block_root) {
+                    Entry::Occupied(key) => {
+                        // Push back the reattempted reconstruction
+                        self.column_reconstructions_delay_queue
+                            .reset(key.get(), QUEUED_RECONSTRUCTION_DELAY)
+                    }
+                    Entry::Vacant(vacant) => {
+                        let delay_key = self
+                            .column_reconstructions_delay_queue
+                            .insert(request, QUEUED_RECONSTRUCTION_DELAY);
+                        vacant.insert(delay_key);
+                    }
+                }
             }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
@@ -967,6 +985,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::ReadyColumnReconstruction(column_reconstruction) => {
+                self.queued_column_reconstructions
+                    .remove(&column_reconstruction.block_root);
                 if self
                     .ready_work_tx
                     .try_send(ReadyWork::ColumnReconstruction(column_reconstruction))

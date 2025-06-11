@@ -12,6 +12,7 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
     ReconstructionOutcome,
 };
+use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
     GossipAggregatePackage, GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
@@ -973,11 +974,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     let send_result = self
                         .reprocess_tx
                         .send(ReprocessQueueMessage::DelayColumnReconstruction(
-                            QueuedColumnReconstruction(Box::pin(async move {
-                                cloned_self
-                                    .attempt_data_column_reconstruction(block_root, publish_columns)
-                                    .await;
-                            })),
+                            QueuedColumnReconstruction {
+                                block_root,
+                                process_fn: Box::pin(async move {
+                                    cloned_self
+                                        .attempt_data_column_reconstruction(
+                                            block_root,
+                                            publish_columns,
+                                        )
+                                        .await;
+                                }),
+                            },
                         ))
                         .await;
 
@@ -1167,7 +1174,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
-use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 #[cfg(test)]
 use {
     beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend},

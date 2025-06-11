@@ -500,10 +500,12 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                 drop_during_sync: false,
                 work: Work::ChainSegmentBackfill(process_fn),
             },
-            ReadyWork::ColumnReconstruction(QueuedColumnReconstruction(process_fn)) => Self {
-                drop_during_sync: true,
-                work: Work::ColumnReconstruction(process_fn),
-            },
+            ReadyWork::ColumnReconstruction(QueuedColumnReconstruction { process_fn, .. }) => {
+                Self {
+                    drop_during_sync: true,
+                    work: Work::ColumnReconstruction(process_fn),
+                }
+            }
         }
     }
 }
