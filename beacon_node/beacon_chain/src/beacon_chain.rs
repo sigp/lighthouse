@@ -181,6 +181,15 @@ pub enum AvailabilityProcessingStatus {
     Imported(Hash256),
 }
 
+pub enum ReconstructionOutcome<E: EthSpec> {
+    Reconstructed {
+        availability_processing_status: AvailabilityProcessingStatus,
+        data_columns_to_publish: DataColumnSidecarList<E>,
+    },
+    Delay,
+    NoReconstruction,
+}
+
 impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
     type Error = ();
 
@@ -3240,13 +3249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn reconstruct_data_columns(
         self: &Arc<Self>,
         block_root: Hash256,
-    ) -> Result<
-        Option<(
-            AvailabilityProcessingStatus,
-            DataColumnSidecarList<T::EthSpec>,
-        )>,
-        BlockError,
-    > {
+    ) -> Result<ReconstructionOutcome<T::EthSpec>, BlockError> {
         // As of now we only reconstruct data columns on supernodes, so if the block is already
         // available on a supernode, there's no need to reconstruct as the node must already have
         // all columns.
@@ -3255,7 +3258,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Ok(None);
+            return Ok(ReconstructionOutcome::NoReconstruction);
         }
 
         let data_availability_checker = self.data_availability_checker.clone();
@@ -3274,17 +3277,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             DataColumnReconstructionResult::Success((availability, data_columns_to_publish)) => {
                 let Some(slot) = data_columns_to_publish.first().map(|d| d.slot()) else {
                     // This should be unreachable because empty result would return `RecoveredColumnsNotImported` instead of success.
-                    return Ok(None);
+                    return Err(BlockError::InternalError("should have columns".to_string()));
                 };
 
                 let r = self
                     .process_availability(slot, availability, || Ok(()))
                     .await;
                 self.remove_notified(&block_root, r)
-                    .map(|availability_processing_status| {
-                        Some((availability_processing_status, data_columns_to_publish))
-                    })
+                    .map(
+                        |availability_processing_status| ReconstructionOutcome::Reconstructed {
+                            availability_processing_status,
+                            data_columns_to_publish,
+                        },
+                    )
             }
+            DataColumnReconstructionResult::Reattempt => Ok(ReconstructionOutcome::Delay),
             DataColumnReconstructionResult::NotStarted(reason)
             | DataColumnReconstructionResult::RecoveredColumnsNotImported(reason) => {
                 // We use metric here because logging this would be *very* noisy.
@@ -3292,7 +3299,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &metrics::KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL,
                     &[reason],
                 );
-                Ok(None)
+                Ok(ReconstructionOutcome::NoReconstruction)
             }
         }
     }

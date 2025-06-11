@@ -66,7 +66,7 @@ pub use self::beacon_chain::{
     AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconBlockResponse,
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus,
     ChainSegmentResult, ForkChoiceError, LightClientProducerEvent, OverrideForkchoiceUpdate,
-    ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
+    ProduceBlockVerification, ReconstructionOutcome, StateSkipConfig, WhenSlotSkipped,
     INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };

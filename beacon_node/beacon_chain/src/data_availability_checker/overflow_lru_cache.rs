@@ -13,8 +13,6 @@ use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use std::thread::sleep;
-use std::time::Duration;
 use tracing::debug;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
@@ -31,7 +29,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_blobs: RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
-    pub reconstruction_started: bool,
+    pub reconstruction_state: ReconstructionState,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -280,7 +278,7 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_blobs: RuntimeFixedVector::new(vec![None; max_len]),
             verified_data_columns: vec![],
             executed_block: None,
-            reconstruction_started: false,
+            reconstruction_state: ReconstructionState::NotStarted,
         }
     }
 
@@ -340,6 +338,12 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 }
 
+pub enum ReconstructionState {
+    NotStarted,
+    WaitingForColumns { num_last: usize },
+    Started,
+}
+
 /// This is the main struct for this module. Outside methods should
 /// interact with the cache through this.
 pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
@@ -357,6 +361,7 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
     Yes(Vec<KzgVerifiedCustodyDataColumn<E>>),
+    Wait,
     No(&'static str),
 }
 
@@ -562,11 +567,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // If we're sampling all columns, it means we must be custodying all columns.
         let total_column_count = self.spec.number_of_columns as usize;
-        let mut received_column_count = pending_components.verified_data_columns.len();
+        let received_column_count = pending_components.verified_data_columns.len();
 
-        if pending_components.reconstruction_started {
-            return ReconstructColumnsDecision::No("already started");
-        }
         if received_column_count >= total_column_count {
             return ReconstructColumnsDecision::No("all columns received");
         }
@@ -574,39 +576,30 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             return ReconstructColumnsDecision::No("not enough columns");
         }
 
-        pending_components.reconstruction_started = true;
-
-        debug!(received_column_count, "Starting wait for more cols...");
-
-        // Instead of starting to reconstruct immediately, wait for more columns to arrive
-        drop(write_lock);
-        let mut iter = 1;
-        loop {
-            sleep(Duration::from_millis(100));
-            let mut write_lock = self.critical.write();
-            let Some(pending_components) = write_lock.get(block_root) else {
-                // Block may have been imported as it does not exist in availability cache.
-                return ReconstructColumnsDecision::No("block already imported");
-            };
-            let new_received_column_count = pending_components.verified_data_columns.len();
-
-            // Check if there is still a need to reconstruct.
-            if new_received_column_count >= total_column_count {
-                debug!(iter, new_received_column_count, "Got all!");
-                return ReconstructColumnsDecision::No("all columns received");
+        match pending_components.reconstruction_state {
+            ReconstructionState::NotStarted => {
+                pending_components.reconstruction_state = ReconstructionState::WaitingForColumns {
+                    num_last: received_column_count,
+                };
+                ReconstructColumnsDecision::Wait
             }
-
-            // Check if no new column arrived.
-            if new_received_column_count == received_column_count {
-                debug!(iter, new_received_column_count, "No new cols :/");
-                return ReconstructColumnsDecision::Yes(pending_components.verified_data_columns.clone());
+            ReconstructionState::WaitingForColumns { num_last } => {
+                if num_last < received_column_count {
+                    // We got more columns, let's wait more
+                    pending_components.reconstruction_state =
+                        ReconstructionState::WaitingForColumns {
+                            num_last: received_column_count,
+                        };
+                    ReconstructColumnsDecision::Wait
+                } else {
+                    // We made no progress waiting for columns, let's start.
+                    pending_components.reconstruction_state = ReconstructionState::Started;
+                    ReconstructColumnsDecision::Yes(
+                        pending_components.verified_data_columns.clone(),
+                    )
+                }
             }
-
-            debug!(iter, new_received_column_count, "Waiting for more cols...");
-
-            // Update count for next check.
-            received_column_count = new_received_column_count;
-            iter += 1;
+            ReconstructionState::Started => ReconstructColumnsDecision::No("already started"),
         }
     }
 
@@ -616,7 +609,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn handle_reconstruction_failure(&self, block_root: &Hash256) {
         if let Some(pending_components_mut) = self.critical.write().get_mut(block_root) {
             pending_components_mut.verified_data_columns = vec![];
-            pending_components_mut.reconstruction_started = false;
+            pending_components_mut.reconstruction_state = ReconstructionState::NotStarted;
         }
     }
 

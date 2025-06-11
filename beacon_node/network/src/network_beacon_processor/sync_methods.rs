@@ -386,7 +386,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // We don't publish columns reconstructed from rpc columns to the gossip network,
                     // as these are likely historic columns.
                     let publish_columns = false;
-                    if let Some(availability) = self
+                    if let Some(availability) = Arc::clone(&self)
                         .attempt_data_column_reconstruction(block_root, publish_columns)
                         .await
                     {

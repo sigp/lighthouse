@@ -10,6 +10,7 @@ use beacon_chain::fetch_blobs::{
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
+    ReconstructionOutcome,
 };
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
@@ -25,6 +26,7 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
 };
 use rand::prelude::SliceRandom;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -924,57 +926,81 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// The `publish_columns` parameter controls whether reconstructed columns should be published
     /// to the gossip network.
-    async fn attempt_data_column_reconstruction(
-        self: &Arc<Self>,
+    // rustc can't figure out `Send + Sync` on its own
+    #[allow(clippy::manual_async_fn)]
+    fn attempt_data_column_reconstruction(
+        self: Arc<Self>,
         block_root: Hash256,
         publish_columns: bool,
-    ) -> Option<AvailabilityProcessingStatus> {
-        // Only supernodes attempt reconstruction
-        if !self.network_globals.is_supernode() {
-            return None;
-        }
-
-        let result = self.chain.reconstruct_data_columns(block_root).await;
-        match result {
-            Ok(Some((availability_processing_status, data_columns_to_publish))) => {
-                if publish_columns {
-                    self.publish_data_columns_gradually(data_columns_to_publish, block_root);
-                }
-                match &availability_processing_status {
-                    AvailabilityProcessingStatus::Imported(hash) => {
-                        debug!(
-                            result = "imported block and custody columns",
-                            block_hash = %hash,
-                            "Block components available via reconstruction"
-                        );
-                        self.chain.recompute_head_at_current_slot().await;
-                    }
-                    AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                        debug!(
-                            result = "imported all custody columns",
-                            block_hash = %block_root,
-                            "Block components still missing block after reconstruction"
-                        );
-                    }
-                }
-
-                Some(availability_processing_status)
+    ) -> impl Future<Output = Option<AvailabilityProcessingStatus>> + Send + Sync {
+        async move {
+            // Only supernodes attempt reconstruction
+            if !self.network_globals.is_supernode() {
+                return None;
             }
-            Ok(None) => {
-                // reason is tracked via the `KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL` metric
-                trace!(
-                    block_hash = %block_root,
-                    "Reconstruction not required for block"
-                );
-                None
-            }
-            Err(e) => {
-                error!(
-                    %block_root,
-                    error = ?e,
-                    "Error during data column reconstruction"
-                );
-                None
+
+            let result = self.chain.reconstruct_data_columns(block_root).await;
+            match result {
+                Ok(ReconstructionOutcome::Reconstructed {
+                    availability_processing_status,
+                    data_columns_to_publish,
+                }) => {
+                    if publish_columns {
+                        self.publish_data_columns_gradually(data_columns_to_publish, block_root);
+                    }
+                    match &availability_processing_status {
+                        AvailabilityProcessingStatus::Imported(hash) => {
+                            debug!(
+                                result = "imported block and custody columns",
+                                block_hash = %hash,
+                                "Block components available via reconstruction"
+                            );
+                            self.chain.recompute_head_at_current_slot().await;
+                        }
+                        AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                            debug!(
+                                result = "imported all custody columns",
+                                block_hash = %block_root,
+                                "Block components still missing block after reconstruction"
+                            );
+                        }
+                    }
+
+                    Some(availability_processing_status)
+                }
+                Ok(ReconstructionOutcome::Delay) => {
+                    let cloned_self = Arc::clone(&self);
+                    let send_result = self.reprocess_tx
+                        .send(ReprocessQueueMessage::DelayColumnReconstruction(
+                            QueuedColumnReconstruction(Box::pin(async move {
+                                cloned_self
+                                    .attempt_data_column_reconstruction(block_root, publish_columns)
+                                    .await;
+                            })),
+                        ))
+                        .await;
+
+                    if send_result.is_err() {
+                        warn!("Unable to send reconstruction to reprocessing");
+                    }
+                    None
+                }
+                Ok(ReconstructionOutcome::NoReconstruction) => {
+                    // reason is tracked via the `KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL` metric
+                    trace!(
+                        block_hash = %block_root,
+                        "Reconstruction not required for block"
+                    );
+                    None
+                }
+                Err(e) => {
+                    error!(
+                        %block_root,
+                        error = ?e,
+                        "Error during data column reconstruction"
+                    );
+                    None
+                }
             }
         }
     }
@@ -1140,6 +1166,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
+use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 #[cfg(test)]
 use {
     beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend},
