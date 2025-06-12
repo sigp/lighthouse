@@ -375,8 +375,9 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                 }
 
                 // Only consider columns that are not already known to data availability.
-                if let Some(known_columns) = chain_adapter_cloned.cached_data_column_indexes(&block_root
-                ) {
+                if let Some(known_columns) =
+                    chain_adapter_cloned.cached_data_column_indexes(&block_root)
+                {
                     custody_columns.retain(|col| !known_columns.contains(&col.index));
                     if custody_columns.is_empty() {
                         return Ok(vec![]);
