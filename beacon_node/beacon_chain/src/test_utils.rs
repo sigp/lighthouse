@@ -72,7 +72,7 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 
 // Pre-computed data column sidecar using a single static blob from:
 // `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
-const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
+pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
     include_bytes!("test_utils/fixtures/test_data_column_sidecars.ssz");
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
@@ -609,12 +609,6 @@ where
 
         let chain = builder.build().expect("should build");
 
-        let sampling_column_count = if self.import_all_data_columns {
-            chain.spec.number_of_custody_groups as usize
-        } else {
-            chain.spec.custody_requirement as usize
-        };
-
         BeaconChainHarness {
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
@@ -625,7 +619,6 @@ where
             mock_execution_layer: self.mock_execution_layer,
             mock_builder: None,
             rng: make_rng(),
-            sampling_column_count,
         }
     }
 }
@@ -682,7 +675,6 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
-    pub sampling_column_count: usize,
 
     pub rng: Mutex<StdRng>,
 }
@@ -785,7 +777,10 @@ where
     }
 
     pub fn get_sampling_column_count(&self) -> usize {
-        self.sampling_column_count
+        self.chain
+            .data_availability_checker
+            .custody_context()
+            .sampling_size(None, &self.chain.spec) as usize
     }
 
     pub fn slots_per_epoch(&self) -> u64 {
@@ -2360,7 +2355,7 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new_without_blobs(Some(block_root), block, 0);
+            return RpcBlock::new_without_blobs(Some(block_root), block);
         }
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
@@ -2370,14 +2365,8 @@ where
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_with_custody_columns(
-                Some(block_root),
-                block,
-                custody_columns,
-                self.get_sampling_column_count(),
-                &self.spec,
-            )
-            .unwrap()
+            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
+                .unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             RpcBlock::new(Some(block_root), block, blobs).unwrap()
@@ -2403,15 +2392,9 @@ where
                     .take(sampling_column_count)
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                RpcBlock::new_with_custody_columns(
-                    Some(block_root),
-                    block,
-                    columns,
-                    sampling_column_count,
-                    &self.spec,
-                )?
+                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
             } else {
-                RpcBlock::new_without_blobs(Some(block_root), block, 0)
+                RpcBlock::new_without_blobs(Some(block_root), block)
             }
         } else {
             let blobs = blob_items

@@ -58,12 +58,14 @@ use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
+use crate::validator_custody::CustodyContextSsz;
 use crate::validator_monitor::{
     get_slot_delay_ms, timestamp_now, ValidatorMonitor,
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
@@ -73,7 +75,9 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes};
+use eth2::types::{
+    EventKind, SseBlobSidecar, SseBlock, SseDataColumnSidecar, SseExtendedPayloadAttributes,
+};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
     FailedCondition, PayloadAttributes, PayloadStatus,
@@ -664,6 +668,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.store
                 .put_item(&ETH1_CACHE_DB_KEY, &eth1_chain.as_ssz_container())?;
         }
+
+        Ok(())
+    }
+
+    /// Persists the custody information to disk.
+    pub fn persist_custody_context(&self) -> Result<(), Error> {
+        let custody_context: CustodyContextSsz = self
+            .data_availability_checker
+            .custody_context()
+            .as_ref()
+            .into();
+        debug!(?custody_context, "Persisting custody context to store");
+
+        persist_custody_context::<T::EthSpec, T::HotStore, T::ColdStore>(
+            self.store.clone(),
+            custody_context,
+        )?;
 
         Ok(())
     }
@@ -2988,7 +3009,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         let chain = self.clone();
         self.task_executor
@@ -2998,7 +3018,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
-                    match GossipVerifiedBlock::new(block, &chain, custody_columns_count) {
+                    match GossipVerifiedBlock::new(block, &chain) {
                         Ok(verified) => {
                             let commitments_formatted = verified.block.commitments_formatted();
                             debug!(
@@ -3087,6 +3107,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
+        self.emit_sse_data_column_sidecar_events(
+            &block_root,
+            data_columns.iter().map(|column| column.as_data_column()),
+        );
+
         let r = self
             .check_gossip_data_columns_availability_and_import(
                 slot,
@@ -3158,10 +3183,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        // process_engine_blobs is called for both pre and post PeerDAS. However, post PeerDAS
-        // consumers don't expect the blobs event to fire erratically.
-        if let EngineGetBlobsOutput::Blobs(blobs) = &engine_get_blobs_output {
-            self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().map(|b| b.as_blob()));
+        match &engine_get_blobs_output {
+            EngineGetBlobsOutput::Blobs(blobs) => {
+                self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().map(|b| b.as_blob()));
+            }
+            EngineGetBlobsOutput::CustodyColumns(columns) => {
+                self.emit_sse_data_column_sidecar_events(
+                    &block_root,
+                    columns.iter().map(|column| column.as_data_column()),
+                );
+            }
         }
 
         let r = self
@@ -3185,6 +3216,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 for blob in new_blobs {
                     event_handler.register(EventKind::BlobSidecar(
                         SseBlobSidecar::from_blob_sidecar(blob),
+                    ));
+                }
+            }
+        }
+    }
+
+    fn emit_sse_data_column_sidecar_events<'a, I>(
+        self: &Arc<Self>,
+        block_root: &Hash256,
+        data_columns_iter: I,
+    ) where
+        I: Iterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
+    {
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_data_column_sidecar_subscribers() {
+                let imported_data_columns = self
+                    .data_availability_checker
+                    .cached_data_column_indexes(block_root)
+                    .unwrap_or_default();
+                let new_data_columns =
+                    data_columns_iter.filter(|b| !imported_data_columns.contains(&b.index));
+
+                for data_column in new_data_columns {
+                    event_handler.register(EventKind::DataColumnSidecar(
+                        SseDataColumnSidecar::from_data_column_sidecar(data_column),
                     ));
                 }
             }
@@ -3230,6 +3286,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(BlockError::ParentUnknown { parent_root });
             }
         }
+
+        self.emit_sse_data_column_sidecar_events(
+            &block_root,
+            custody_columns.iter().map(|column| column.as_ref()),
+        );
 
         let r = self
             .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
@@ -7189,7 +7250,8 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
         let drop = || -> Result<(), Error> {
             self.persist_fork_choice()?;
             self.persist_op_pool()?;
-            self.persist_eth1_cache()
+            self.persist_eth1_cache()?;
+            self.persist_custody_context()
         };
 
         if let Err(e) = drop() {

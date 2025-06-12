@@ -1243,6 +1243,7 @@ mod tests {
                         head_root: Hash256::random(),
                         finalized_epoch,
                         finalized_root: Hash256::random(),
+                        earliest_available_slot: None,
                     },
                 },
             );
