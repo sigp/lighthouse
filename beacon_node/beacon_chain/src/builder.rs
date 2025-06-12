@@ -13,10 +13,12 @@ use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
+use crate::CustodyContext;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, ServerSentEventHandler,
@@ -926,6 +928,20 @@ where
             }
         };
 
+        // Load the persisted custody context from the db and initialize
+        // the context for this run
+        let custody_context = if let Some(custody) =
+            load_custody_context::<E, THotStore, TColdStore>(store.clone())
+        {
+            Arc::new(CustodyContext::new_from_persisted_custody_context(
+                custody,
+                self.import_all_data_columns,
+            ))
+        } else {
+            Arc::new(CustodyContext::new(self.import_all_data_columns))
+        };
+        debug!(?custody_context, "Loading persisted custody context");
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -999,8 +1015,14 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, self.spec)
-                    .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(
+                    slot_clock,
+                    self.kzg.clone(),
+                    store,
+                    custody_context,
+                    self.spec,
+                )
+                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),

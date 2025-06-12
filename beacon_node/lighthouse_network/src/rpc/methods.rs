@@ -63,7 +63,11 @@ impl Display for ErrorType {
 /* Requests */
 
 /// The STATUS request/response handshake message.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq),)
+)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
     pub fork_digest: [u8; 4],
@@ -79,6 +83,43 @@ pub struct StatusMessage {
 
     /// The slot associated with the latest block root.
     pub head_slot: Slot,
+
+    /// The slot after which we guarantee to have all the blocks
+    /// and blobs/data columns that we currently advertise.
+    #[superstruct(only(V2))]
+    pub earliest_available_slot: Slot,
+}
+
+impl StatusMessage {
+    pub fn status_v1(&self) -> StatusMessageV1 {
+        match &self {
+            Self::V1(status) => status.clone(),
+            Self::V2(status) => StatusMessageV1 {
+                fork_digest: status.fork_digest,
+                finalized_root: status.finalized_root,
+                finalized_epoch: status.finalized_epoch,
+                head_root: status.head_root,
+                head_slot: status.head_slot,
+            },
+        }
+    }
+
+    pub fn status_v2(&self) -> StatusMessageV2 {
+        match &self {
+            Self::V1(status) => StatusMessageV2 {
+                fork_digest: status.fork_digest,
+                finalized_root: status.finalized_root,
+                finalized_epoch: status.finalized_epoch,
+                head_root: status.head_root,
+                head_slot: status.head_slot,
+                // Note: we always produce a V2 message as our local
+                // status message, so this match arm should ideally never
+                // be invoked in lighthouse.
+                earliest_available_slot: Slot::new(0),
+            },
+            Self::V2(status) => status.clone(),
+        }
+    }
 }
 
 /// The PING request/response message.
@@ -726,7 +767,7 @@ impl std::fmt::Display for RpcErrorResponse {
 
 impl std::fmt::Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_digest, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
+        write!(f, "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}, Earliest available slot: {:?}", self.fork_digest(), self.finalized_root(), self.finalized_epoch(), self.head_root(), self.head_slot(), self.earliest_available_slot())
     }
 }
 

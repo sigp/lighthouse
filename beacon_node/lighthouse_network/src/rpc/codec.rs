@@ -67,7 +67,13 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
     ) -> Result<(), RPCError> {
         let bytes = match &item {
             RpcResponse::Success(resp) => match &resp {
-                RpcSuccessResponse::Status(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::Status(res) => match self.protocol.versioned_protocol {
+                    SupportedProtocol::StatusV1 => res.status_v1().as_ssz_bytes(),
+                    SupportedProtocol::StatusV2 => res.status_v2().as_ssz_bytes(),
+                    _ => {
+                        unreachable!("We only send status responses on negotiating status protocol")
+                    }
+                },
                 RpcSuccessResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRange(res) => res.as_ssz_bytes(),
@@ -329,7 +335,16 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
 
     fn encode(&mut self, item: RequestType<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
-            RequestType::Status(req) => req.as_ssz_bytes(),
+            RequestType::Status(req) => {
+                // Send the status message based on the negotiated protocol
+                match self.protocol.versioned_protocol {
+                    SupportedProtocol::StatusV1 => req.status_v1().as_ssz_bytes(),
+                    SupportedProtocol::StatusV2 => req.status_v2().as_ssz_bytes(),
+                    _ => {
+                        unreachable!("We only send status requests on negotiating status protocol")
+                    }
+                }
+            }
             RequestType::Goodbye(req) => req.as_ssz_bytes(),
             RequestType::BlocksByRange(r) => match r {
                 OldBlocksByRangeRequest::V1(req) => req.as_ssz_bytes(),
@@ -553,9 +568,12 @@ fn handle_rpc_request<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Option<RequestType<E>>, RPCError> {
     match versioned_protocol {
-        SupportedProtocol::StatusV1 => Ok(Some(RequestType::Status(
-            StatusMessage::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::StatusV1 => Ok(Some(RequestType::Status(StatusMessage::V1(
+            StatusMessageV1::from_ssz_bytes(decoded_buffer)?,
+        )))),
+        SupportedProtocol::StatusV2 => Ok(Some(RequestType::Status(StatusMessage::V2(
+            StatusMessageV2::from_ssz_bytes(decoded_buffer)?,
+        )))),
         SupportedProtocol::GoodbyeV1 => Ok(Some(RequestType::Goodbye(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
@@ -666,9 +684,12 @@ fn handle_rpc_response<E: EthSpec>(
     fork_name: Option<ForkName>,
 ) -> Result<Option<RpcSuccessResponse<E>>, RPCError> {
     match versioned_protocol {
-        SupportedProtocol::StatusV1 => Ok(Some(RpcSuccessResponse::Status(
-            StatusMessage::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::StatusV1 => Ok(Some(RpcSuccessResponse::Status(StatusMessage::V1(
+            StatusMessageV1::from_ssz_bytes(decoded_buffer)?,
+        )))),
+        SupportedProtocol::StatusV2 => Ok(Some(RpcSuccessResponse::Status(StatusMessage::V2(
+            StatusMessageV2::from_ssz_bytes(decoded_buffer)?,
+        )))),
         // This case should be unreachable as `Goodbye` has no response.
         SupportedProtocol::GoodbyeV1 => Err(RPCError::InvalidData(
             "Goodbye RPC message has no valid response".to_string(),
@@ -1036,14 +1057,25 @@ mod tests {
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
 
-    fn status_message() -> StatusMessage {
-        StatusMessage {
+    fn status_message_v1() -> StatusMessage {
+        StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::zero(),
             head_slot: Slot::new(1),
-        }
+        })
+    }
+
+    fn status_message_v2() -> StatusMessage {
+        StatusMessage::V2(StatusMessageV2 {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::zero(),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::zero(),
+            head_slot: Slot::new(1),
+            earliest_available_slot: Slot::new(0),
+        })
     }
 
     fn bbrange_request_v1() -> OldBlocksByRangeRequest {
@@ -1284,11 +1316,22 @@ mod tests {
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::StatusV1,
-                RpcResponse::Success(RpcSuccessResponse::Status(status_message())),
+                RpcResponse::Success(RpcSuccessResponse::Status(status_message_v1())),
                 ForkName::Base,
                 &chain_spec,
             ),
-            Ok(Some(RpcSuccessResponse::Status(status_message())))
+            Ok(Some(RpcSuccessResponse::Status(status_message_v1())))
+        );
+
+        // A StatusV2 still encodes as a StatusV1 since version is Version::V1
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::StatusV1,
+                RpcResponse::Success(RpcSuccessResponse::Status(status_message_v2())),
+                ForkName::Fulu,
+                &chain_spec,
+            ),
+            Ok(Some(RpcSuccessResponse::Status(status_message_v1())))
         );
 
         assert_eq!(
@@ -1716,6 +1759,27 @@ mod tests {
             ),
             Ok(Some(RpcSuccessResponse::MetaData(metadata_v2())))
         );
+
+        // A StatusV1 still encodes as a StatusV2 since version is Version::V2
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::StatusV2,
+                RpcResponse::Success(RpcSuccessResponse::Status(status_message_v1())),
+                ForkName::Fulu,
+                &chain_spec,
+            ),
+            Ok(Some(RpcSuccessResponse::Status(status_message_v2())))
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::StatusV2,
+                RpcResponse::Success(RpcSuccessResponse::Status(status_message_v2())),
+                ForkName::Fulu,
+                &chain_spec,
+            ),
+            Ok(Some(RpcSuccessResponse::Status(status_message_v2())))
+        );
     }
 
     // Test RPCResponse encoding/decoding for V2 messages
@@ -1901,7 +1965,8 @@ mod tests {
 
         let requests: &[RequestType<Spec>] = &[
             RequestType::Ping(ping_message()),
-            RequestType::Status(status_message()),
+            RequestType::Status(status_message_v1()),
+            RequestType::Status(status_message_v2()),
             RequestType::Goodbye(GoodbyeReason::Fault),
             RequestType::BlocksByRange(bbrange_request_v1()),
             RequestType::BlocksByRange(bbrange_request_v2()),
@@ -1948,7 +2013,7 @@ mod tests {
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
 
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
-        let status_message_bytes = StatusMessage {
+        let status_message_bytes = StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
@@ -2071,7 +2136,7 @@ mod tests {
         assert_eq!(stream_identifier.len(), 10);
 
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
-        let status_message_bytes = StatusMessage {
+        let status_message_bytes = StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),

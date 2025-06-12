@@ -961,6 +961,35 @@ impl SseBlobSidecar {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseDataColumnSidecar {
+    pub block_root: Hash256,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub slot: Slot,
+    pub kzg_commitments: Vec<KzgCommitment>,
+    pub versioned_hashes: Vec<VersionedHash>,
+}
+
+impl SseDataColumnSidecar {
+    pub fn from_data_column_sidecar<E: EthSpec>(
+        data_column_sidecar: &DataColumnSidecar<E>,
+    ) -> SseDataColumnSidecar {
+        let kzg_commitments = data_column_sidecar.kzg_commitments.to_vec();
+        let versioned_hashes = kzg_commitments
+            .iter()
+            .map(|c| c.calculate_versioned_hash())
+            .collect();
+        SseDataColumnSidecar {
+            block_root: data_column_sidecar.block_root(),
+            index: data_column_sidecar.index,
+            slot: data_column_sidecar.slot(),
+            kzg_commitments,
+            versioned_hashes,
+        }
+    }
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseFinalizedCheckpoint {
     pub block: Hash256,
     pub state: Hash256,
@@ -1110,6 +1139,7 @@ pub enum EventKind<E: EthSpec> {
     SingleAttestation(Box<SingleAttestation>),
     Block(SseBlock),
     BlobSidecar(SseBlobSidecar),
+    DataColumnSidecar(SseDataColumnSidecar),
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
     VoluntaryExit(SignedVoluntaryExit),
@@ -1133,6 +1163,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::Head(_) => "head",
             EventKind::Block(_) => "block",
             EventKind::BlobSidecar(_) => "blob_sidecar",
+            EventKind::DataColumnSidecar(_) => "data_column_sidecar",
             EventKind::Attestation(_) => "attestation",
             EventKind::SingleAttestation(_) => "single_attestation",
             EventKind::VoluntaryExit(_) => "voluntary_exit",
@@ -1168,6 +1199,11 @@ impl<E: EthSpec> EventKind<E> {
             "blob_sidecar" => Ok(EventKind::BlobSidecar(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Blob Sidecar: {:?}", e)),
             )?)),
+            "data_column_sidecar" => Ok(EventKind::DataColumnSidecar(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Data Column Sidecar: {:?}", e))
+                })?,
+            )),
             "chain_reorg" => Ok(EventKind::ChainReorg(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Chain Reorg: {:?}", e)),
             )?)),
@@ -1257,6 +1293,7 @@ pub enum EventTopic {
     Head,
     Block,
     BlobSidecar,
+    DataColumnSidecar,
     Attestation,
     SingleAttestation,
     VoluntaryExit,
@@ -1283,6 +1320,7 @@ impl FromStr for EventTopic {
             "head" => Ok(EventTopic::Head),
             "block" => Ok(EventTopic::Block),
             "blob_sidecar" => Ok(EventTopic::BlobSidecar),
+            "data_column_sidecar" => Ok(EventTopic::DataColumnSidecar),
             "attestation" => Ok(EventTopic::Attestation),
             "single_attestation" => Ok(EventTopic::SingleAttestation),
             "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
@@ -1310,6 +1348,7 @@ impl fmt::Display for EventTopic {
             EventTopic::Head => write!(f, "head"),
             EventTopic::Block => write!(f, "block"),
             EventTopic::BlobSidecar => write!(f, "blob_sidecar"),
+            EventTopic::DataColumnSidecar => write!(f, "data_column_sidecar"),
             EventTopic::Attestation => write!(f, "attestation"),
             EventTopic::SingleAttestation => write!(f, "single_attestation"),
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),

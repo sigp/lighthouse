@@ -1273,10 +1273,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_block_for_gossip(
-                block.clone(),
-                self.network_globals.custody_columns_count() as usize,
-            )
+            .verify_block_for_gossip(block.clone())
             .await;
 
         if verification_result.is_ok() {

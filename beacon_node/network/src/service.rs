@@ -10,6 +10,7 @@ use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconPro
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
+
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::Network;
@@ -105,6 +106,12 @@ pub enum NetworkMessage<E: EthSpec> {
     ConnectTrustedPeer(Enr),
     /// Disconnect from a trusted peer and remove it from the `trusted_peers` mapping.
     DisconnectTrustedPeer(Enr),
+    /// Custody group count changed due to a change in validators' weight.
+    /// Subscribe to new subnets and update ENR metadata.
+    CustodyCountChanged {
+        new_custody_group_count: u64,
+        sampling_count: u64,
+    },
 }
 
 /// Messages triggered by validators that may trigger a subscription to a subnet.
@@ -270,7 +277,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         };
 
         // launch libp2p service
-        let (mut libp2p, network_globals) = Network::new(executor.clone(), service_context).await?;
+        let (mut libp2p, network_globals) = Network::new(
+            executor.clone(),
+            service_context,
+            beacon_chain
+                .data_availability_checker
+                .custody_context()
+                .custody_group_count_at_head(&beacon_chain.spec),
+        )
+        .await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {
@@ -744,6 +759,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         "Subscribed to topics"
                     );
                 }
+            }
+            NetworkMessage::CustodyCountChanged {
+                new_custody_group_count,
+                sampling_count,
+            } => {
+                // subscribe to `sampling_count` subnets
+                self.libp2p
+                    .subscribe_new_data_column_subnets(sampling_count);
+                self.libp2p.update_enr_cgc(new_custody_group_count);
             }
         }
     }
