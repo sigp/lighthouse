@@ -279,7 +279,7 @@ impl BlockId {
             warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
         })?;
 
-        if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+        if !chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             return Err(warp_utils::reject::custom_bad_request(
                 "block is pre-Fulu and has no data columns".to_string(),
             ));
@@ -290,11 +290,11 @@ impl BlockId {
                 .iter()
                 .filter_map(|index| chain.get_data_column(&root, index).transpose())
                 .collect::<Result<DataColumnSidecarList<T::EthSpec>, _>>()
-                .map_err(|e| warp_utils::reject::unhandled_error(e))?
+                .map_err(warp_utils::reject::unhandled_error)?
         } else {
             chain
                 .get_data_columns(&root)
-                .map_err(|e| warp_utils::reject::unhandled_error(e))?
+                .map_err(warp_utils::reject::unhandled_error)?
                 .unwrap_or_default()
         };
 
