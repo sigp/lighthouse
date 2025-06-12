@@ -203,8 +203,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
 
         let inclusion_list_duties = self.duties_service.inclusion_list_duties(current_slot);
 
-        error!(?current_slot, "PRODUCING INCLUSION LIST");
-
         let executor = self.executor.clone();
 
         // TODO(focil) remove this clone
@@ -363,6 +361,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
         {
             Ok(()) => info!(
                 il_count = inclusion_lists.len(),
+                tx_count = inclusion_lists.iter().map(|i| i.message.transactions.len()).sum::<usize>(),
                 ?validator_indices,
                 ?slot,
                 "Successfully published inclusion lists",
