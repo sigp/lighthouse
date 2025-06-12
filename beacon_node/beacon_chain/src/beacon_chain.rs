@@ -2141,7 +2141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // NOTE: not sure how to handle scenario where head hash is `None` i.e. pre-bellatrix, which
         // is pre-electra.
         let Some(parent_hash) = parent_hash else {
-            debug!("Failed to fetch parent_hash");
+            info!("Failed to fetch parent_hash");
             return Ok(None);
         };
 
@@ -2152,7 +2152,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // This prevents the routine from running during sync.
         if head_slot != current_slot {
-            debug!(?head_slot, ?current_slot, "Head too old for inclusion list");
+            info!(?head_slot, ?current_slot, "Head too old for inclusion list");
             return Ok(None);
         }
 
@@ -2161,16 +2161,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // NOTE: does this represent a critical error? should we return an error here or log crit?
         // is this check redundant?
-        if request_slot != next_slot {
-            debug!(
-                ?request_slot,
-                ?next_slot,
-                "Inclusion list request slot not equal to next slot"
-            );
-            return Ok(None);
-        }
+        // if request_slot != next_slot {
+        //     info!(
+        //         ?request_slot,
+        //         ?next_slot,
+        //         "Inclusion list request slot not equal to next slot"
+        //     );
+        //     return Ok(None);
+        // }
 
-        debug!(
+        info!(
             %parent_hash,
             ?current_slot,
             "Attempt to fetch IL from EL"
@@ -2181,7 +2181,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))?;
 
-        debug!(
+        info!(
             tx_count = inclusion_list.len(),
             "Inclusion list fetched from EL"
         );
@@ -7355,6 +7355,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.inclusion_list_cache
             .write()
             .on_inclusion_list(signed_il);
+    }
+
+    pub fn inclusion_list_seen(&self, signed_il: &SignedInclusionList<T::EthSpec>) -> bool {
+        self.inclusion_list_cache
+            .read()
+            .inclusion_list_seen(signed_il)
     }
 
     pub fn metrics(&self) -> BeaconChainMetrics {

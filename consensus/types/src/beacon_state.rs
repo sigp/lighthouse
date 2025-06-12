@@ -874,44 +874,38 @@ impl<E: EthSpec> BeaconState<E> {
             return Err(Error::SlotOutOfBounds);
         }
 
-        let seed = self.get_inclusion_list_seed(slot, spec)?;
-        let indices = self.get_active_validator_indices(epoch, spec)?;
+        let seed = self.get_seed(epoch, Domain::InclusionListCommittee, spec)?;
+        let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
+        let active_validator_count = active_validator_indices.len();
 
         let start = (slot.safe_rem(E::slots_per_epoch())?)
             .as_usize()
             .safe_mul(E::InclusionListCommitteeSize::to_usize())?;
         let end = start.safe_add(E::InclusionListCommitteeSize::to_usize())?;
 
+        println!("start {:?}", start);
+        println!("end {:?}", end);
+        println!("slot {:?}", slot);
+
         let mut i = start;
         let mut il_committee_indices =
             Vec::with_capacity(E::InclusionListCommitteeSize::to_usize());
         while i < end {
             let shuffled_index = compute_shuffled_index(
-                i.safe_rem(indices.len())?,
-                indices.len(),
-                &seed,
+                i.safe_rem(active_validator_count)?,
+                active_validator_count,
+                seed.as_slice(),
                 spec.shuffle_round_count,
             )
             .ok_or(Error::UnableToShuffle)?;
-            il_committee_indices.push(shuffled_index as u64);
+            let validator_index = *active_validator_indices
+                .get(shuffled_index)
+                .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
+            il_committee_indices.push(validator_index as u64);
             i.safe_add_assign(1)?;
         }
 
         Ok(InclusionListCommittee::<E>::from(il_committee_indices))
-    }
-
-    /// Compute the seed to use for the beacon inclusion list committee selection at the given
-    /// `slot`.
-    ///
-    /// Spec v0.12.1
-    pub fn get_inclusion_list_seed(&self, slot: Slot, spec: &ChainSpec) -> Result<Vec<u8>, Error> {
-        let epoch = slot.epoch(E::slots_per_epoch());
-        let mut preimage = self
-            .get_seed(epoch, Domain::InclusionListCommittee, spec)?
-            .as_slice()
-            .to_vec();
-        preimage.append(&mut int_to_bytes8(slot.as_u64()));
-        Ok(hash(&preimage))
     }
 
     /// Returns the block root which decided the proposer shuffling for the epoch passed in parameter. This root

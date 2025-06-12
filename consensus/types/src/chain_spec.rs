@@ -975,7 +975,7 @@ impl ChainSpec {
             /*
              * FOCIL params
              */
-            domain_inclusion_list_committee: 13,
+            domain_inclusion_list_committee: 12,
             inclusion_list_committee_size: 16,
             eip7805_fork_epoch: None,
             eip7805_fork_version: [0x06, 0x00, 0x00, 0x00],
@@ -1320,7 +1320,7 @@ impl ChainSpec {
             /*
              * FOCIL params
              */
-            domain_inclusion_list_committee: 13,
+            domain_inclusion_list_committee: 12,
             inclusion_list_committee_size: 16,
             eip7805_fork_epoch: None,
             eip7805_fork_version: [0x06, 0x00, 0x00, 0x00],

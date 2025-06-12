@@ -8,7 +8,9 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info, trace, warn};
-use types::{ChainSpec, EthSpec, InclusionList, InclusionListDuty, Slot};
+use types::{
+    inclusion_list, ChainSpec, EthSpec, InclusionList, InclusionListDuty, Slot, VariableList,
+};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
@@ -184,11 +186,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
         _slot_duration: Duration,
         spec: &ChainSpec,
     ) -> Result<(), String> {
-        debug!("Spawning inclusion list task");
+        info!("Spawning inclusion list task");
 
-        let next_slot = self.slot_clock.now().ok_or("Failed to read slot clock")? + 1;
+        let current_slot: Slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
 
-        if !spec.is_focil_enabled_for_epoch(next_slot.epoch(S::E::slots_per_epoch())) {
+        if !spec.is_focil_enabled_for_epoch(current_slot.epoch(S::E::slots_per_epoch())) {
             debug!("FOCIL not enabled");
             return Ok(());
         }
@@ -199,7 +201,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
             .duration_to_next_slot()
             .ok_or("Unable to determine duration to next slot")?;
 
-        let inclusion_list_duties = self.duties_service.inclusion_list_duties(next_slot);
+        let inclusion_list_duties = self.duties_service.inclusion_list_duties(current_slot);
+
+        error!(?current_slot, "PRODUCING INCLUSION LIST");
 
         let executor = self.executor.clone();
 
@@ -207,7 +211,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
         let this = self.clone();
         let interval_fut = async move {
             if let Err(e) = this
-                .produce_and_publish_inclusion_lists(next_slot, inclusion_list_duties)
+                .produce_and_publish_inclusion_lists(current_slot, inclusion_list_duties)
                 .await
             {
                 error!(error = e, "Failed to produce and publish inclusion list")
@@ -269,11 +273,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
                 format!("{}", e)
             })?;
 
+        let mut trimmed_il = vec![];
+        let mut total_bytes = 0;
+
+        for transaction in inclusion_list_transactions.into_iter() {
+            total_bytes += transaction.len();
+            if total_bytes <= 8192 {
+                trimmed_il.push(transaction);
+            }
+        }
+
         // Create futures to produce signed `InclusionList` objects.
         let signing_futures = validator_duties.iter().map(|duty| {
             let inclusion_list = InclusionList {
                 slot,
-                transactions: inclusion_list_transactions.clone(),
+                transactions: trimmed_il.clone().into(),
                 inclusion_list_committee_root: duty.committee_root,
                 validator_index: duty.validator_index,
             };

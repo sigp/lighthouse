@@ -112,7 +112,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 .get_inclusion_list_transactions(block.slot())
                 .unwrap_or(vec![].into());
 
-            debug!(
+            info!(
                 tx_count =  inclusion_list_transactions.len(),
                 slot = ?block.slot(),
                 "Adding inclusion list transactions in the Payload Notifier"

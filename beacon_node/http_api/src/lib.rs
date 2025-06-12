@@ -3716,6 +3716,7 @@ pub fn serve<T: BeaconChainTypes>(
                             return Err(warp_utils::reject::unhandled_error(e));
                         }
                     };
+
                     Ok::<_, warp::reject::Rejection>(warp::reply::json(&data).into_response())
                 })
             },

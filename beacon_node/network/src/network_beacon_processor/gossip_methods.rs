@@ -2239,6 +2239,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | GossipInclusionListError::ValidatorNotInCommittee
                 | GossipInclusionListError::TooManyTransactions
                 | GossipInclusionListError::InvalidSignature
+                | GossipInclusionListError::InclusionListSeen
                 | GossipInclusionListError::PriorInclusionListKnown => {
                     debug!(
                         error = ?err,

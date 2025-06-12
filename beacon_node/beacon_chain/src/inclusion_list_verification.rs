@@ -1,8 +1,14 @@
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use std::time::Duration;
+
+use crate::{
+    validator_monitor::{get_slot_delay_ms, timestamp_now},
+    BeaconChain, BeaconChainError, BeaconChainTypes,
+};
 
 use slot_clock::SlotClock;
 use strum::AsRefStr;
-use types::{Domain, EthSpec, SignedInclusionList, SignedRoot, Slot};
+use tree_hash::TreeHash;
+use types::{Domain, SignedInclusionList, SignedRoot, Slot};
 
 #[derive(Debug, AsRefStr)]
 pub enum GossipInclusionListError {
@@ -16,6 +22,7 @@ pub enum GossipInclusionListError {
     InvalidSignature,
     BeaconChainError(Box<BeaconChainError>),
     PriorInclusionListKnown,
+    InclusionListSeen,
     // TODO: equivocation e.g. PriorInclusionListKnown
 }
 
@@ -42,6 +49,18 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             .now()
             .ok_or(BeaconChainError::UnableToReadSlot)?;
 
+        // TODO(focil) move 8192 to config
+        if signed_il
+            .message
+            .transactions
+            .iter()
+            .map(|v| v.len())
+            .sum::<usize>()
+            > 8192
+        {
+            return Err(GossipInclusionListError::TooManyTransactions);
+        }
+
         if message_slot != current_slot && message_slot != current_slot - 1 {
             return Err(GossipInclusionListError::InvalidSlot {
                 message_slot,
@@ -49,23 +68,35 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             });
         }
 
-        // TODO(focil): the slot is equal to the current slot or the previous slot and the current time is
-        // not past the attestation deadline
+        let attestation_deadline = Duration::from_secs(chain.spec.seconds_per_slot / 3);
 
-        // TODO(focil): the IL committee root is equal to the hash tree root of the expected committee
+        let inclusion_list_delay_total =
+            get_slot_delay_ms(timestamp_now(), message_slot, &chain.slot_clock);
 
-        // TODO(focil): the validator index is contained in the committee corresponding to the committee
-        // root
+        let exceeds_attestation_deadline = attestation_deadline >= inclusion_list_delay_total;
 
-        // the transaction length is less than or equal to the specified maximum
-        // TODO(focil) review this
-        // if signed_il.message.transactions.len() > T::EthSpec::max_bytes_per_inclusion_list()
-        // {
-        //     return Err(GossipInclusionListError::TooManyTransactions);
-        // }
+        if exceeds_attestation_deadline {
+            return Err(GossipInclusionListError::InvalidSlot {
+                message_slot,
+                current_slot,
+            });
+        }
 
-        // TODO: the message is the first or second valid message received from the validator
-        // corresponding to the validator index
+        let head_snapshot = chain.head_snapshot();
+
+        let il_committee = head_snapshot
+            .beacon_state
+            .get_inclusion_list_committee(message_slot, &chain.spec)
+            .map_err(|_| GossipInclusionListError::InvalidCommitteeRoot)?;
+
+        if signed_il.message.inclusion_list_committee_root != il_committee.tree_hash_root() {
+            tracing::error!("INVALID COMMITTEE ROOT");
+            return Err(GossipInclusionListError::InvalidCommitteeRoot);
+        }
+
+        if !il_committee.contains(&signed_il.message.validator_index) {
+            return Err(GossipInclusionListError::ValidatorNotInCommittee);
+        }
 
         // the signature is valid w.r.t. the validator index
         let epoch = chain.epoch()?;
@@ -85,9 +116,13 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
                 BeaconChainError::ValidatorIndexUnknown(validator_index),
             )));
         };
-        // TODO(focil) fix inclusion list verify
+
         if !signed_il.signature.verify(&pubkey, message) {
             return Err(GossipInclusionListError::InvalidSignature);
+        }
+
+        if chain.inclusion_list_seen(&signed_il) {
+            return Err(GossipInclusionListError::InclusionListSeen);
         }
 
         Ok(Self {
