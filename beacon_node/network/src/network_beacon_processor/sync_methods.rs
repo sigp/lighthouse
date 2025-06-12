@@ -387,7 +387,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // as these are likely historic columns.
                     let publish_columns = false;
                     if let Some(availability) = Arc::clone(&self)
-                        .attempt_data_column_reconstruction(block_root, publish_columns, false)
+                        .attempt_data_column_reconstruction(block_root, publish_columns)
                         .await
                     {
                         result = Ok(availability)

@@ -30,7 +30,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_blobs: RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
-    pub reconstruction_state: ReconstructionState,
+    pub reconstruction_started: bool,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -278,7 +278,7 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_blobs: RuntimeFixedVector::new(vec![None; max_len]),
             verified_data_columns: vec![],
             executed_block: None,
-            reconstruction_state: ReconstructionState::NotStarted,
+            reconstruction_started: false,
         }
     }
 
@@ -340,12 +340,6 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 }
 
-pub enum ReconstructionState {
-    NotStarted,
-    WaitingForColumns { num_last: usize },
-    Started,
-}
-
 /// This is the main struct for this module. Outside methods should
 /// interact with the cache through this.
 pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
@@ -364,7 +358,6 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
     Yes(Vec<KzgVerifiedCustodyDataColumn<E>>),
-    Wait,
     No(&'static str),
 }
 
@@ -568,7 +561,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn check_and_set_reconstruction_started(
         &self,
         block_root: &Hash256,
-        is_retry: bool,
     ) -> ReconstructColumnsDecision<T::EthSpec> {
         let mut write_lock = self.critical.write();
         let Some(pending_components) = write_lock.get_mut(block_root) else {
@@ -580,6 +572,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let total_column_count = self.spec.number_of_columns as usize;
         let received_column_count = pending_components.verified_data_columns.len();
 
+        if pending_components.reconstruction_started {
+            return ReconstructColumnsDecision::No("already started");
+        }
         if received_column_count >= total_column_count {
             return ReconstructColumnsDecision::No("all columns received");
         }
@@ -587,41 +582,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             return ReconstructColumnsDecision::No("not enough columns");
         }
 
-        let descision = match pending_components.reconstruction_state {
-            ReconstructionState::NotStarted => ReconstructColumnsDecision::Wait,
-            ReconstructionState::WaitingForColumns { num_last } => {
-                if !is_retry || num_last < received_column_count {
-                    // We got more columns, let's wait more
-                    ReconstructColumnsDecision::Wait
-                } else {
-                    // We made no progress waiting for columns, let's start.
-                    ReconstructColumnsDecision::Yes(
-                        pending_components.verified_data_columns.clone(),
-                    )
-                }
-            }
-            ReconstructionState::Started => ReconstructColumnsDecision::No("already started"),
-        };
-
-        match descision {
-            ReconstructColumnsDecision::Yes(_) => {
-                pending_components.reconstruction_state = ReconstructionState::Started;
-                debug!(%block_root, received_column_count, "Starting reconstruction");
-            }
-            ReconstructColumnsDecision::Wait => {
-                pending_components.reconstruction_state = ReconstructionState::WaitingForColumns {
-                    num_last: received_column_count,
-                };
-                debug!(
-                    %block_root,
-                    received_column_count,
-                    "Waiting for more columns to arrive before reconstruction"
-                );
-            }
-            ReconstructColumnsDecision::No(_) => {}
-        }
-
-        descision
+        pending_components.reconstruction_started = true;
+        ReconstructColumnsDecision::Yes(pending_components.verified_data_columns.clone())
     }
 
     /// This could mean some invalid data columns made it through to the `DataAvailabilityChecker`.
@@ -630,7 +592,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn handle_reconstruction_failure(&self, block_root: &Hash256) {
         if let Some(pending_components_mut) = self.critical.write().get_mut(block_root) {
             pending_components_mut.verified_data_columns = vec![];
-            pending_components_mut.reconstruction_state = ReconstructionState::NotStarted;
+            pending_components_mut.reconstruction_started = false;
         }
     }
 

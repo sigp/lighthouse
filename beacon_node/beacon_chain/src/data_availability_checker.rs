@@ -83,7 +83,6 @@ pub type AvailabilityAndReconstructedColumns<E> = (Availability<E>, DataColumnSi
 #[derive(Debug)]
 pub enum DataColumnReconstructionResult<E: EthSpec> {
     Success(AvailabilityAndReconstructedColumns<E>),
-    Reattempt,
     NotStarted(&'static str),
     RecoveredColumnsNotImported(&'static str),
 }
@@ -512,16 +511,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn reconstruct_data_columns(
         &self,
         block_root: &Hash256,
-        is_retry: bool,
     ) -> Result<DataColumnReconstructionResult<T::EthSpec>, AvailabilityCheckError> {
         let verified_data_columns = match self
             .availability_cache
-            .check_and_set_reconstruction_started(block_root, is_retry)
+            .check_and_set_reconstruction_started(block_root)
         {
             ReconstructColumnsDecision::Yes(verified_data_columns) => verified_data_columns,
-            ReconstructColumnsDecision::Wait => {
-                return Ok(DataColumnReconstructionResult::Reattempt)
-            }
             ReconstructColumnsDecision::No(reason) => {
                 return Ok(DataColumnReconstructionResult::NotStarted(reason));
             }
