@@ -938,11 +938,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         async move {
             // Only supernodes attempt reconstruction
             if !self
-            .chain
-            .data_availability_checker
-            .custody_context()
-            .current_is_supernode
-        {
+                .chain
+                .data_availability_checker
+                .custody_context()
+                .current_is_supernode
+            {
                 return None;
             }
 
