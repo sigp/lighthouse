@@ -398,10 +398,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // ensure the beacon chain still exists
         let status = self.chain.status_message();
         let local = SyncInfo {
-            head_slot: status.head_slot,
-            head_root: status.head_root,
-            finalized_epoch: status.finalized_epoch,
-            finalized_root: status.finalized_root,
+            head_slot: *status.head_slot(),
+            head_root: *status.head_root(),
+            finalized_epoch: *status.finalized_epoch(),
+            finalized_root: *status.finalized_root(),
+            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
         };
 
         let sync_type = remote_sync_type(&local, &remote, &self.chain);
@@ -450,10 +451,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         let status = self.chain.status_message();
         let local = SyncInfo {
-            head_slot: status.head_slot,
-            head_root: status.head_root,
-            finalized_epoch: status.finalized_epoch,
-            finalized_root: status.finalized_root,
+            head_slot: *status.head_slot(),
+            head_root: *status.head_root(),
+            finalized_epoch: *status.finalized_epoch(),
+            finalized_root: *status.finalized_root(),
+            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
         };
 
         let head_slot = head_slot.unwrap_or_else(|| {
@@ -471,6 +473,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // Set finalized to same as local to trigger Head sync
             finalized_epoch: local.finalized_epoch,
             finalized_root: local.finalized_root,
+            earliest_available_slot: local.earliest_available_slot,
         };
 
         for peer_id in peers {

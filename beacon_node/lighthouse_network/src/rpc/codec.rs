@@ -67,7 +67,13 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
     ) -> Result<(), RPCError> {
         let bytes = match &item {
             RpcResponse::Success(resp) => match &resp {
-                RpcSuccessResponse::Status(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::Status(res) => match self.protocol.versioned_protocol {
+                    SupportedProtocol::StatusV1 => res.status_v1().as_ssz_bytes(),
+                    SupportedProtocol::StatusV2 => res.status_v2().as_ssz_bytes(),
+                    _ => {
+                        unreachable!("We only send status responses on negotiating status protocol")
+                    }
+                },
                 RpcSuccessResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::BlobsByRange(res) => res.as_ssz_bytes(),
@@ -329,7 +335,16 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
 
     fn encode(&mut self, item: RequestType<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
-            RequestType::Status(req) => req.as_ssz_bytes(),
+            RequestType::Status(req) => {
+                // Send the status message based on the negotiated protocol
+                match self.protocol.versioned_protocol {
+                    SupportedProtocol::StatusV1 => req.status_v1().as_ssz_bytes(),
+                    SupportedProtocol::StatusV2 => req.status_v2().as_ssz_bytes(),
+                    _ => {
+                        unreachable!("We only send status requests on negotiating status protocol")
+                    }
+                }
+            }
             RequestType::Goodbye(req) => req.as_ssz_bytes(),
             RequestType::BlocksByRange(r) => match r {
                 OldBlocksByRangeRequest::V1(req) => req.as_ssz_bytes(),
@@ -553,9 +568,12 @@ fn handle_rpc_request<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Option<RequestType<E>>, RPCError> {
     match versioned_protocol {
-        SupportedProtocol::StatusV1 => Ok(Some(RequestType::Status(
-            StatusMessage::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::StatusV1 => Ok(Some(RequestType::Status(StatusMessage::V1(
+            StatusMessageV1::from_ssz_bytes(decoded_buffer)?,
+        )))),
+        SupportedProtocol::StatusV2 => Ok(Some(RequestType::Status(StatusMessage::V2(
+            StatusMessageV2::from_ssz_bytes(decoded_buffer)?,
+        )))),
         SupportedProtocol::GoodbyeV1 => Ok(Some(RequestType::Goodbye(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
@@ -666,9 +684,12 @@ fn handle_rpc_response<E: EthSpec>(
     fork_name: Option<ForkName>,
 ) -> Result<Option<RpcSuccessResponse<E>>, RPCError> {
     match versioned_protocol {
-        SupportedProtocol::StatusV1 => Ok(Some(RpcSuccessResponse::Status(
-            StatusMessage::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::StatusV1 => Ok(Some(RpcSuccessResponse::Status(StatusMessage::V1(
+            StatusMessageV1::from_ssz_bytes(decoded_buffer)?,
+        )))),
+        SupportedProtocol::StatusV2 => Ok(Some(RpcSuccessResponse::Status(StatusMessage::V2(
+            StatusMessageV2::from_ssz_bytes(decoded_buffer)?,
+        )))),
         // This case should be unreachable as `Goodbye` has no response.
         SupportedProtocol::GoodbyeV1 => Err(RPCError::InvalidData(
             "Goodbye RPC message has no valid response".to_string(),
