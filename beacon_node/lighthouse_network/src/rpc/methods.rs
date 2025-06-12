@@ -749,6 +749,23 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             RpcSuccessResponse::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
+
+    pub fn slot(&self) -> Option<Slot> {
+        match self {
+            Self::BlocksByRange(r) | Self::BlocksByRoot(r) => Some(r.slot()),
+            Self::BlobsByRange(r) | Self::BlobsByRoot(r) => {
+                Some(r.signed_block_header.message().slot())
+            }
+            Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => {
+                Some(r.signed_block_header.message().slot())
+            }
+            Self::LightClientBootstrap(r) => Some(r.get_slot()),
+            Self::LightClientFinalityUpdate(r) => Some(r.get_attested_header_slot()),
+            Self::LightClientOptimisticUpdate(r) => Some(r.get_slot()),
+            Self::LightClientUpdatesByRange(r) => Some(r.attested_header_slot()),
+            Self::MetaData(_) | Self::Status(_) | Self::Pong(_) => None,
+        }
+    }
 }
 
 impl std::fmt::Display for RpcErrorResponse {
