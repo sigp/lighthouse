@@ -3809,6 +3809,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
+        let remove_from_da = !matches!(block.data(), AvailableBlockData::PartialDataColumns(_));
+
         // TODO(das) record custody column available timestamp
 
         // import
@@ -3840,8 +3842,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // If `import_block` errors (only errors with internal errors), the pending components will
         // be pruned on data_availability_checker maintenance as finality advances.
-        self.data_availability_checker
-            .remove_pending_components(block_root);
+        if remove_from_da {
+            self.data_availability_checker
+                .remove_pending_components(block_root);
+        }
 
         Ok(AvailabilityProcessingStatus::Imported(block_root))
     }
@@ -7208,7 +7212,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
                 Ok(Some(StoreOp::PutBlobs(block_root, blobs)))
             }
-            AvailableBlockData::DataColumns(data_columns) => {
+            AvailableBlockData::DataColumns(data_columns)
+            | AvailableBlockData::PartialDataColumns(data_columns) => {
                 debug!(
                     %block_root,
                     count = data_columns.len(),

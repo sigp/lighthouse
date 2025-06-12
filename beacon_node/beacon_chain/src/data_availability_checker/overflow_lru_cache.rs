@@ -31,6 +31,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
+    pub eagerly_imported: bool,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -196,7 +197,21 @@ impl<E: EthSpec> PendingComponents<E> {
                 }
                 Ordering::Less => {
                     // Not enough data columns received yet
-                    None
+                    // If we have more than half of all columns, we can reconstruct all -> make
+                    // available eagerly if we haven't done so yet
+                    if !self.eagerly_imported
+                        && num_received_columns >= spec.number_of_columns as usize / 2
+                    {
+                        self.eagerly_imported = true;
+                        let data_columns = self
+                            .verified_data_columns
+                            .iter()
+                            .map(|d| d.clone().into_inner())
+                            .collect::<Vec<_>>();
+                        Some(AvailableBlockData::PartialDataColumns(data_columns))
+                    } else {
+                        None
+                    }
                 }
             }
         } else {
@@ -249,6 +264,7 @@ impl<E: EthSpec> PendingComponents<E> {
                 .max(),
             // TODO(das): To be fixed with https://github.com/sigp/lighthouse/pull/6850
             AvailableBlockData::DataColumns(_) => None,
+            AvailableBlockData::PartialDataColumns(_) => None,
         };
 
         let AvailabilityPendingExecutedBlock {
@@ -279,6 +295,7 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_data_columns: vec![],
             executed_block: None,
             reconstruction_started: false,
+            eagerly_imported: false,
         }
     }
 

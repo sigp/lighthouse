@@ -699,8 +699,11 @@ pub enum AvailableBlockData<E: EthSpec> {
     NoData,
     /// Block is post-Deneb, pre-PeerDAS and has more than zero blobs
     Blobs(BlobSidecarList<E>),
-    /// Block is post-PeerDAS and has more than zero blobs
+    /// Block is post-PeerDAS and has more than zero blobs. We have all columns that we custody.
     DataColumns(DataColumnSidecarList<E>),
+    /// Block is post-PeerDAS and has more than zero blobs. We do not have all columns yet, but are
+    /// able to reconstruct the rest.
+    PartialDataColumns(DataColumnSidecarList<E>),
 }
 
 /// A fully available block that is ready to be imported into fork choice.
@@ -745,14 +748,6 @@ impl<E: EthSpec> AvailableBlock<E> {
         &self.blob_data
     }
 
-    pub fn has_blobs(&self) -> bool {
-        match self.blob_data {
-            AvailableBlockData::NoData => false,
-            AvailableBlockData::Blobs(..) => true,
-            AvailableBlockData::DataColumns(_) => false,
-        }
-    }
-
     #[allow(clippy::type_complexity)]
     pub fn deconstruct(self) -> (Hash256, Arc<SignedBeaconBlock<E>>, AvailableBlockData<E>) {
         let AvailableBlock {
@@ -774,6 +769,9 @@ impl<E: EthSpec> AvailableBlock<E> {
                 AvailableBlockData::Blobs(blobs) => AvailableBlockData::Blobs(blobs.clone()),
                 AvailableBlockData::DataColumns(data_columns) => {
                     AvailableBlockData::DataColumns(data_columns.clone())
+                }
+                AvailableBlockData::PartialDataColumns(data_columns) => {
+                    AvailableBlockData::PartialDataColumns(data_columns.clone())
                 }
             },
             blobs_available_timestamp: self.blobs_available_timestamp,
