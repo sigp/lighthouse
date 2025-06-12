@@ -454,65 +454,9 @@ fn context_bytes<E: EthSpec>(
     // Add the context bytes if required
     if protocol.has_context_bytes() {
         if let RpcResponse::Success(rpc_variant) = resp {
-            match rpc_variant {
-                RpcSuccessResponse::BlocksByRange(ref_box_block)
-                | RpcSuccessResponse::BlocksByRoot(ref_box_block) => {
-                    return match **ref_box_block {
-                        // NOTE: If you are adding another fork type here, be sure to modify the
-                        //       `fork_context.to_context_bytes()` function to support it as well!
-                        SignedBeaconBlock::Fulu { .. } => {
-                            fork_context.to_context_bytes(ForkName::Fulu)
-                        }
-                        SignedBeaconBlock::Electra { .. } => {
-                            fork_context.to_context_bytes(ForkName::Electra)
-                        }
-                        SignedBeaconBlock::Deneb { .. } => {
-                            fork_context.to_context_bytes(ForkName::Deneb)
-                        }
-                        SignedBeaconBlock::Capella { .. } => {
-                            fork_context.to_context_bytes(ForkName::Capella)
-                        }
-                        SignedBeaconBlock::Bellatrix { .. } => {
-                            fork_context.to_context_bytes(ForkName::Bellatrix)
-                        }
-                        SignedBeaconBlock::Altair { .. } => {
-                            fork_context.to_context_bytes(ForkName::Altair)
-                        }
-                        SignedBeaconBlock::Base { .. } => {
-                            Some(fork_context.genesis_context_bytes())
-                        }
-                    };
-                }
-                RpcSuccessResponse::BlobsByRange(_) | RpcSuccessResponse::BlobsByRoot(_) => {
-                    return fork_context.to_context_bytes(ForkName::Deneb);
-                }
-                RpcSuccessResponse::DataColumnsByRoot(_)
-                | RpcSuccessResponse::DataColumnsByRange(_) => {
-                    return fork_context.to_context_bytes(ForkName::Fulu);
-                }
-                RpcSuccessResponse::LightClientBootstrap(lc_bootstrap) => {
-                    return lc_bootstrap
-                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
-                }
-                RpcSuccessResponse::LightClientOptimisticUpdate(lc_optimistic_update) => {
-                    return lc_optimistic_update
-                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
-                }
-                RpcSuccessResponse::LightClientFinalityUpdate(lc_finality_update) => {
-                    return lc_finality_update
-                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
-                }
-                RpcSuccessResponse::LightClientUpdatesByRange(lc_update) => {
-                    return lc_update
-                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
-                }
-                // These will not pass the has_context_bytes() check
-                RpcSuccessResponse::Status(_)
-                | RpcSuccessResponse::Pong(_)
-                | RpcSuccessResponse::MetaData(_) => {
-                    return None;
-                }
-            }
+            rpc_variant
+                .slot()
+                .map(|slot| fork_context.context_bytes(slot))
         }
     }
     None

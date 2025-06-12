@@ -181,6 +181,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// A delay that expires when a new fork takes place.
     next_fork_update: Pin<Box<OptionFuture<Sleep>>>,
+    /// A delay the expires when the next digest update takes place.
+    next_digest_update: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to subscribe to a new fork's topics.
     next_fork_subscriptions: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to unsubscribe from old fork topics.
@@ -879,6 +881,11 @@ fn next_fork_delay<T: BeaconChainTypes>(
     beacon_chain
         .duration_to_next_fork()
         .map(|(_, until_fork)| tokio::time::sleep(until_fork))
+}
+
+fn next_digest_delay<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+) -> Option<tokio::time::Sleep> {
 }
 
 /// Returns a `Sleep` that triggers `SUBSCRIBE_DELAY_SLOTS` before the next fork.
