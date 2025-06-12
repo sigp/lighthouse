@@ -371,6 +371,7 @@ impl SupportedProtocol {
 
     fn currently_supported(fork_context: &ForkContext) -> Vec<ProtocolId> {
         let mut supported = vec![
+            ProtocolId::new(Self::StatusV2, Encoding::SSZSnappy),
             ProtocolId::new(Self::StatusV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::GoodbyeV1, Encoding::SSZSnappy),
             // V2 variants have higher preference then V1
@@ -401,7 +402,6 @@ impl SupportedProtocol {
         }
         if fork_context.spec.is_peer_das_scheduled() {
             supported.extend_from_slice(&[
-                ProtocolId::new(SupportedProtocol::StatusV2, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
             ]);
@@ -763,7 +763,10 @@ impl<E: EthSpec> RequestType<E> {
     /// Gives the corresponding `SupportedProtocol` to this request.
     pub fn versioned_protocol(&self) -> SupportedProtocol {
         match self {
-            RequestType::Status(_) => SupportedProtocol::StatusV1,
+            RequestType::Status(req) => match req {
+                StatusMessage::V1(_) => SupportedProtocol::StatusV1,
+                StatusMessage::V2(_) => SupportedProtocol::StatusV2,
+            },
             RequestType::Goodbye(_) => SupportedProtocol::GoodbyeV1,
             RequestType::BlocksByRange(req) => match req {
                 OldBlocksByRangeRequest::V1(_) => SupportedProtocol::BlocksByRangeV1,
@@ -822,10 +825,10 @@ impl<E: EthSpec> RequestType<E> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RequestType::Status(_) => vec![ProtocolId::new(
-                SupportedProtocol::StatusV1,
-                Encoding::SSZSnappy,
-            )],
+            RequestType::Status(_) => vec![
+                ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::StatusV2, Encoding::SSZSnappy),
+            ],
             RequestType::Goodbye(_) => vec![ProtocolId::new(
                 SupportedProtocol::GoodbyeV1,
                 Encoding::SSZSnappy,
