@@ -853,7 +853,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     EngineGetBlobsOutput::CustodyColumns(columns) => {
                         self_cloned.publish_data_columns_gradually(
-                            columns.into_iter().map(|c| c.clone_data_column()).collect(),
+                            columns.into_iter().map(|c| c.clone_arc()).collect(),
                             block_root,
                         );
                     }

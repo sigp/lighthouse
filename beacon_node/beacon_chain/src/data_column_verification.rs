@@ -274,6 +274,17 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn from_batch(
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
+    ) -> Result<Vec<Self>, KzgError> {
+        verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
+        Ok(data_columns
+            .into_iter()
+            .map(|column| Self { data: column })
+            .collect())
+    }
+
+    pub fn from_batch_with_scoring(
+        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+        kzg: &Kzg,
     ) -> Result<Vec<Self>, Vec<(ColumnIndex, KzgError)>> {
         verify_kzg_for_data_column_list_with_scoring(data_columns.iter(), kzg)?;
         Ok(data_columns

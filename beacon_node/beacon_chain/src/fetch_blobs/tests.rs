@@ -1,4 +1,4 @@
-use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use crate::data_column_verification::KzgVerifiedDataColumn;
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
 use crate::fetch_blobs::{
     fetch_and_process_engine_blobs_inner, EngineGetBlobsOutput, FetchEngineBlobError,
@@ -156,14 +156,8 @@ mod get_blobs_v2 {
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         // All data columns already seen on gossip
         mock_adapter
-            .expect_verify_data_column_for_gossip()
-            .returning(|c| {
-                Err(GossipDataColumnError::PriorKnown {
-                    proposer: c.block_proposer_index(),
-                    slot: c.slot(),
-                    index: c.index,
-                })
-            });
+            .expect_known_for_proposal()
+            .returning(|_| Some(hashset![0, 1, 2]));
         // No blobs should be processed
         mock_adapter.expect_process_engine_blobs().times(0);
 
@@ -198,9 +192,17 @@ mod get_blobs_v2 {
         // All blobs returned, fork choice doesn't contain block
         mock_get_blobs_v2_response(&mut mock_adapter, Some(blobs_and_proofs));
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
+        mock_adapter.expect_known_for_proposal().returning(|_| None);
         mock_adapter
-            .expect_verify_data_column_for_gossip()
-            .returning(|c| Ok(GossipVerifiedDataColumn::__new_for_testing(c)));
+            .expect_cached_data_column_indexes()
+            .returning(|_| None);
+        mock_adapter
+            .expect_verify_data_columns_kzg()
+            .returning(|c| {
+                Ok(c.into_iter()
+                    .map(KzgVerifiedDataColumn::__new_for_testing)
+                    .collect())
+            });
         mock_process_engine_blobs_result(
             &mut mock_adapter,
             Ok(AvailabilityProcessingStatus::Imported(block_root)),

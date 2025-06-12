@@ -3699,7 +3699,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     data_columns.iter().map(|c| c.as_data_column()),
                 )?;
                 self.data_availability_checker
-                    .put_gossip_verified_data_columns(block_root, data_columns)?
+                    .put_kzg_verified_custody_data_columns(block_root, data_columns)?
             }
         };
 

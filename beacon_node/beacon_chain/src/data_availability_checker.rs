@@ -234,8 +234,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         // Attributes fault to the specific peer that sent an invalid column
-        let kzg_verified_columns = KzgVerifiedDataColumn::from_batch(custody_columns, &self.kzg)
-            .map_err(AvailabilityCheckError::InvalidColumn)?;
+        let kzg_verified_columns =
+            KzgVerifiedDataColumn::from_batch_with_scoring(custody_columns, &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
 
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
@@ -281,6 +282,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, custody_columns)
+    }
+
+    pub fn put_kzg_verified_custody_data_columns<
+        I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
+    >(
+        &self,
+        block_root: Hash256,
+        custody_columns: I,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
