@@ -1400,8 +1400,7 @@ impl ChainSpec {
 
 impl Default for ChainSpec {
     fn default() -> Self {
-        Self::mainnet()
-    }
+        Self::mainnet()    }
 }
 
 /// Exact implementation of the *config* object from the Ethereum spec (YAML/JSON).

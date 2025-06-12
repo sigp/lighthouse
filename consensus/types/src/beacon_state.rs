@@ -883,10 +883,6 @@ impl<E: EthSpec> BeaconState<E> {
             .safe_mul(E::InclusionListCommitteeSize::to_usize())?;
         let end = start.safe_add(E::InclusionListCommitteeSize::to_usize())?;
 
-        println!("start {:?}", start);
-        println!("end {:?}", end);
-        println!("slot {:?}", slot);
-
         let mut i = start;
         let mut il_committee_indices =
             Vec::with_capacity(E::InclusionListCommitteeSize::to_usize());
