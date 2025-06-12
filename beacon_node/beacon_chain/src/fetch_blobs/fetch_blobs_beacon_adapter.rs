@@ -19,8 +19,6 @@ pub(crate) struct FetchBlobsBeaconAdapter<T: BeaconChainTypes> {
     spec: Arc<ChainSpec>,
 }
 
-type KzgErrors = Vec<(ColumnIndex, KzgError)>;
-
 #[cfg_attr(test, automock, allow(dead_code))]
 impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
     pub(crate) fn new(chain: Arc<BeaconChain<T>>) -> Self {
@@ -82,7 +80,7 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
     pub(crate) fn verify_data_columns_kzg(
         &self,
         data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) -> Result<Vec<KzgVerifiedDataColumn<T::EthSpec>>, KzgErrors> {
+    ) -> Result<Vec<KzgVerifiedDataColumn<T::EthSpec>>, KzgError> {
         KzgVerifiedDataColumn::from_batch(data_columns, &self.chain.kzg)
     }
 

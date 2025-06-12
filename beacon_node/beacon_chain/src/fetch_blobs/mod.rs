@@ -295,6 +295,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     let chain_adapter = Arc::new(chain_adapter);
     let custody_columns_to_import = compute_custody_columns_to_import(
         &chain_adapter,
+        block_root,
         block.clone(),
         blobs,
         proofs,
@@ -328,6 +329,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
 /// Offload the data column computation to a blocking task to avoid holding up the async runtime.
 async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     chain_adapter: &Arc<FetchBlobsBeaconAdapter<T>>,
+    block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: Vec<Blob<T::EthSpec>>,
     proofs: Vec<KzgProofs<T::EthSpec>>,
@@ -373,8 +375,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                 }
 
                 // Only consider columns that are not already known to data availability.
-                if let Some(known_columns) = chain_adapter_cloned.cached_data_column_indexes(
-                    &block.signed_block_header().message.canonical_root(),
+                if let Some(known_columns) = chain_adapter_cloned.cached_data_column_indexes(&block_root
                 ) {
                     custody_columns.retain(|col| !known_columns.contains(&col.index));
                     if custody_columns.is_empty() {
@@ -390,15 +391,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                 // and only proceed with publishing if they are not yet seen.
                 let verified = chain_adapter_cloned
                     .verify_data_columns_kzg(custody_columns)
-                    .map_err(|list| {
-                        if let Some((_, err)) = list.into_iter().next() {
-                            FetchEngineBlobError::KzgError(err)
-                        } else {
-                            FetchEngineBlobError::InternalError(
-                                "Verify data columns failed but returned no errors".to_string(),
-                            )
-                        }
-                    })?;
+                    .map_err(FetchEngineBlobError::KzgError)?;
 
                 Ok(verified
                     .into_iter()

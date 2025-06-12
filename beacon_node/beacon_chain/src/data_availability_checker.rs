@@ -222,7 +222,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         // Attributes fault to the specific peer that sent an invalid column
-        let kzg_verified_columns = KzgVerifiedDataColumn::from_batch(custody_columns, &self.kzg)
+        let kzg_verified_columns = KzgVerifiedDataColumn::from_batch_with_scoring(custody_columns, &self.kzg)
             .map_err(AvailabilityCheckError::InvalidColumn)?;
 
         let verified_custody_columns = kzg_verified_columns
