@@ -1057,14 +1057,25 @@ mod tests {
         SignedBeaconBlock::from_block(block, Signature::empty())
     }
 
-    fn status_message() -> StatusMessage {
-        StatusMessage {
+    fn status_message_v1() -> StatusMessage {
+        StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::zero(),
             head_slot: Slot::new(1),
-        }
+        })
+    }
+
+    fn status_message_v2() -> StatusMessage {
+        StatusMessage::V2(StatusMessageV2 {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::zero(),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::zero(),
+            head_slot: Slot::new(1),
+            earliest_available_slot: Slot::new(0),
+        })
     }
 
     fn bbrange_request_v1() -> OldBlocksByRangeRequest {
@@ -1305,11 +1316,22 @@ mod tests {
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::StatusV1,
-                RpcResponse::Success(RpcSuccessResponse::Status(status_message())),
+                RpcResponse::Success(RpcSuccessResponse::Status(status_message_v1())),
                 ForkName::Base,
                 &chain_spec,
             ),
-            Ok(Some(RpcSuccessResponse::Status(status_message())))
+            Ok(Some(RpcSuccessResponse::Status(status_message_v1())))
+        );
+
+        // A StatusV2 still encodes as a StatusV1 since version is Version::V1
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::StatusV1,
+                RpcResponse::Success(RpcSuccessResponse::Status(status_message_v2())),
+                ForkName::Fulu,
+                &chain_spec,
+            ),
+            Ok(Some(RpcSuccessResponse::Status(status_message_v1())))
         );
 
         assert_eq!(
@@ -1737,6 +1759,27 @@ mod tests {
             ),
             Ok(Some(RpcSuccessResponse::MetaData(metadata_v2())))
         );
+
+        // A StatusV1 still encodes as a StatusV2 since version is Version::V2
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::StatusV2,
+                RpcResponse::Success(RpcSuccessResponse::Status(status_message_v1())),
+                ForkName::Fulu,
+                &chain_spec,
+            ),
+            Ok(Some(RpcSuccessResponse::Status(status_message_v2())))
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::StatusV2,
+                RpcResponse::Success(RpcSuccessResponse::Status(status_message_v2())),
+                ForkName::Fulu,
+                &chain_spec,
+            ),
+            Ok(Some(RpcSuccessResponse::Status(status_message_v2())))
+        );
     }
 
     // Test RPCResponse encoding/decoding for V2 messages
@@ -1922,7 +1965,8 @@ mod tests {
 
         let requests: &[RequestType<Spec>] = &[
             RequestType::Ping(ping_message()),
-            RequestType::Status(status_message()),
+            RequestType::Status(status_message_v1()),
+            RequestType::Status(status_message_v2()),
             RequestType::Goodbye(GoodbyeReason::Fault),
             RequestType::BlocksByRange(bbrange_request_v1()),
             RequestType::BlocksByRange(bbrange_request_v2()),
@@ -1969,7 +2013,7 @@ mod tests {
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
 
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
-        let status_message_bytes = StatusMessage {
+        let status_message_bytes = StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
@@ -2092,7 +2136,7 @@ mod tests {
         assert_eq!(stream_identifier.len(), 10);
 
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
-        let status_message_bytes = StatusMessage {
+        let status_message_bytes = StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),

@@ -11,9 +11,9 @@ use beacon_chain::{block_verification_types::RpcBlock, EngineState, NotifyExecut
 use beacon_processor::WorkType;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, DataColumnsByRangeRequest, OldBlocksByRangeRequest,
-    OldBlocksByRangeRequestV2,
+    OldBlocksByRangeRequestV2, StatusMessageV2,
 };
-use lighthouse_network::rpc::{RequestType, StatusMessage};
+use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     SyncRequestId,
@@ -98,6 +98,7 @@ impl TestRig {
             finalized_root,
             head_slot: finalized_epoch.start_slot(E::slots_per_epoch()),
             head_root: Hash256::random(),
+            earliest_available_slot: None,
         })
     }
 
@@ -109,22 +110,25 @@ impl TestRig {
             finalized_root: Hash256::random(),
             head_slot: finalized_epoch.start_slot(E::slots_per_epoch()),
             head_root: Hash256::random(),
+            earliest_available_slot: None,
         }
     }
 
     fn local_info(&self) -> SyncInfo {
-        let StatusMessage {
+        let StatusMessageV2 {
             fork_digest: _,
             finalized_root,
             finalized_epoch,
             head_root,
             head_slot,
-        } = self.harness.chain.status_message();
+            earliest_available_slot,
+        } = self.harness.chain.status_message().status_v2();
         SyncInfo {
             head_slot,
             head_root,
             finalized_epoch,
             finalized_root,
+            earliest_available_slot: Some(earliest_available_slot),
         }
     }
 
