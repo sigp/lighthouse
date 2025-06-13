@@ -138,16 +138,17 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         kzg_verified_data_columns: I,
     ) -> Result<(), AvailabilityCheckError> {
-        self.verified_column_indices.send_if_modified(|set_column_indices| {
-            let mut modified = false;
-            for data_column in kzg_verified_data_columns {
-                if set_column_indices.insert(data_column.index()) {
-                    self.verified_data_columns.push(data_column);
-                    modified = true;
+        self.verified_column_indices
+            .send_if_modified(|set_column_indices| {
+                let mut modified = false;
+                for data_column in kzg_verified_data_columns {
+                    if set_column_indices.insert(data_column.index()) {
+                        self.verified_data_columns.push(data_column);
+                        modified = true;
+                    }
                 }
-            }
-            modified
-        });
+                modified
+            });
         Ok(())
     }
 
@@ -460,8 +461,14 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         f(self.critical.read().peek(block_root))
     }
 
-    pub fn get_data_column_watcher(&self, block_root: &Hash256) -> Option<watch::Receiver<HashSet<ColumnIndex>>> {
-        self.critical.read().peek(block_root).map(|components| components.verified_column_indices.subscribe())
+    pub fn get_data_column_watcher(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<watch::Receiver<HashSet<ColumnIndex>>> {
+        self.critical
+            .read()
+            .peek(block_root)
+            .map(|components| components.verified_column_indices.subscribe())
     }
 
     /// Puts the KZG verified blobs into the availability cache as pending components.
@@ -622,7 +629,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn handle_reconstruction_failure(&self, block_root: &Hash256) {
         if let Some(pending_components_mut) = self.critical.write().get_mut(block_root) {
             pending_components_mut.verified_data_columns = vec![];
-            let _ = pending_components_mut.verified_column_indices.send(HashSet::new());
+            let _ = pending_components_mut
+                .verified_column_indices
+                .send(HashSet::new());
             pending_components_mut.reconstruction_started = false;
         }
     }

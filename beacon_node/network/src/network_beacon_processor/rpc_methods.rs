@@ -348,7 +348,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
-            self.handle_data_columns_by_root_request_inner(peer_id, inbound_request_id, request).await,
+            self.handle_data_columns_by_root_request_inner(peer_id, inbound_request_id, request)
+                .await,
             Response::DataColumnsByRoot,
         );
     }
@@ -363,10 +364,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let mut send_data_column_count = 0;
 
         for data_column_ids_by_root in request.data_column_ids.as_slice() {
-            match self.chain.get_data_columns_checking_all_caches(
-                data_column_ids_by_root.block_root,
-                data_column_ids_by_root.columns.as_slice(),
-            ).await {
+            match self
+                .chain
+                .get_data_columns_checking_all_caches(
+                    data_column_ids_by_root.block_root,
+                    data_column_ids_by_root.columns.as_slice(),
+                )
+                .await
+            {
                 Ok(data_columns) => {
                     send_data_column_count += data_columns.len();
                     for data_column in data_columns {

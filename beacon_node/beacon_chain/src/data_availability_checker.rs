@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
@@ -9,16 +8,20 @@ use crate::data_availability_checker::overflow_lru_cache::{
 use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext};
 use kzg::Kzg;
 use slot_clock::SlotClock;
+use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::watch;
 use task_executor::TaskExecutor;
+use tokio::sync::watch;
 use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::{BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock};
+use types::{
+    BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch,
+    EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock,
+};
 
 mod error;
 mod overflow_lru_cache;
