@@ -773,7 +773,6 @@ pub struct ValidatorBlocksQuery {
     pub graffiti: Option<Graffiti>,
     pub skip_randao_verification: SkipRandaoVerification,
     pub builder_boost_factor: Option<u64>,
-    #[serde(default)]
     pub graffiti_policy: GraffitiPolicy,
 }
 
