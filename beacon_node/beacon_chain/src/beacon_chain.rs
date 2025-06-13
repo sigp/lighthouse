@@ -121,6 +121,8 @@ use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::{pin, select};
+use tokio::time::sleep;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
     BlobSidecarListFromRoot, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
@@ -1127,11 +1129,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
-    pub fn get_data_columns_checking_all_caches(
+    pub async fn get_data_columns_checking_all_caches(
         &self,
         block_root: Hash256,
         indices: &[ColumnIndex],
     ) -> Result<DataColumnSidecarList<T::EthSpec>, Error> {
+        // If this is in the DA checker, wait until all columns requested are available, up to a
+        // certain timeout
+        if let Some(mut cols) = self.data_availability_checker.get_data_column_watcher(block_root) {
+            let timeout = sleep(Duration::from_secs(3));
+            pin!(timeout);
+            // Wait until we have one of:
+            // 1. time out
+            // 2. all needed columns in DA (wait_for returns Ok)
+            // 3. block no longer in DA (wait_for returns Err)
+            select! {
+                _ = &mut timeout => (),
+                _ = cols.wait_for(|cols| indices.iter().all(|index| cols.contains(index))) => (),
+            }
+        }
+        
+
         let all_cached_columns_opt = self
             .data_availability_checker
             .get_data_columns(block_root)

@@ -339,7 +339,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
-    pub fn handle_data_columns_by_root_request(
+    pub async fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -348,13 +348,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
-            self.handle_data_columns_by_root_request_inner(peer_id, inbound_request_id, request),
+            self.handle_data_columns_by_root_request_inner(peer_id, inbound_request_id, request).await,
             Response::DataColumnsByRoot,
         );
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
-    pub fn handle_data_columns_by_root_request_inner(
+    pub async fn handle_data_columns_by_root_request_inner(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -366,7 +366,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             match self.chain.get_data_columns_checking_all_caches(
                 data_column_ids_by_root.block_root,
                 data_column_ids_by_root.columns.as_slice(),
-            ) {
+            ).await {
                 Ok(data_columns) => {
                     send_data_column_count += data_columns.len();
                     for data_column in data_columns {

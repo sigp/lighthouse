@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
@@ -13,13 +14,11 @@ use std::fmt::Debug;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::watch;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock,
-};
+use types::{BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock};
 
 mod error;
 mod overflow_lru_cache;
@@ -197,6 +196,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
     ) -> Option<DataColumnSidecarList<T::EthSpec>> {
         self.availability_cache.peek_data_columns(block_root)
+    }
+
+    pub fn get_data_column_watcher(
+        &self,
+        block_root: Hash256,
+    ) -> Option<watch::Receiver<HashSet<ColumnIndex>>> {
+        self.availability_cache.get_data_column_watcher(&block_root)
     }
 
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG

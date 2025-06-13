@@ -629,7 +629,7 @@ pub enum Work<E: EthSpec> {
     BlocksByRootsRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
-    DataColumnsByRootsRequest(BlockingFn),
+    DataColumnsByRootsRequest(AsyncFn),
     DataColumnsByRangeRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
@@ -1611,13 +1611,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }),
             Work::BlobsByRangeRequest(process_fn)
             | Work::BlobsByRootsRequest(process_fn)
-            | Work::DataColumnsByRootsRequest(process_fn)
             | Work::DataColumnsByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
-            Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
-                task_spawner.spawn_async(work)
-            }
+            Work::BlocksByRangeRequest(work)
+            | Work::BlocksByRootsRequest(work)
+            | Work::DataColumnsByRootsRequest(work) => task_spawner.spawn_async(work),
+
             Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
             Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
                 BlockingOrAsync::Blocking(process_fn) => task_spawner.spawn_blocking(process_fn),

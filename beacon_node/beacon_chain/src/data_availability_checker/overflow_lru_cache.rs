@@ -12,8 +12,10 @@ use crate::CustodyContext;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use tokio::sync::watch;
 use tracing::debug;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
@@ -29,6 +31,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
+    pub verified_column_indices: watch::Sender<HashSet<ColumnIndex>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
     pub eagerly_imported: bool,
@@ -135,11 +138,16 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         kzg_verified_data_columns: I,
     ) -> Result<(), AvailabilityCheckError> {
-        for data_column in kzg_verified_data_columns {
-            if self.get_cached_data_column(data_column.index()).is_none() {
-                self.verified_data_columns.push(data_column);
+        self.verified_column_indices.send_if_modified(|set_column_indices| {
+            let mut modified = false;
+            for data_column in kzg_verified_data_columns {
+                if set_column_indices.insert(data_column.index()) {
+                    self.verified_data_columns.push(data_column);
+                    modified = true;
+                }
             }
-        }
+            modified
+        });
         Ok(())
     }
 
@@ -293,6 +301,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block_root,
             verified_blobs: RuntimeFixedVector::new(vec![None; max_len]),
             verified_data_columns: vec![],
+            verified_column_indices: watch::channel(HashSet::new()).0,
             executed_block: None,
             reconstruction_started: false,
             eagerly_imported: false,
@@ -449,6 +458,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         f: F,
     ) -> R {
         f(self.critical.read().peek(block_root))
+    }
+
+    pub fn get_data_column_watcher(&self, block_root: &Hash256) -> Option<watch::Receiver<HashSet<ColumnIndex>>> {
+        self.critical.read().peek(block_root).map(|components| components.verified_column_indices.subscribe())
     }
 
     /// Puts the KZG verified blobs into the availability cache as pending components.
@@ -609,6 +622,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn handle_reconstruction_failure(&self, block_root: &Hash256) {
         if let Some(pending_components_mut) = self.critical.write().get_mut(block_root) {
             pending_components_mut.verified_data_columns = vec![];
+            let _ = pending_components_mut.verified_column_indices.send(HashSet::new());
             pending_components_mut.reconstruction_started = false;
         }
     }
