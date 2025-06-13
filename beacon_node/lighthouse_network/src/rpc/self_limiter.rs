@@ -107,9 +107,11 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         ) {
             Err((rate_limited_req, wait_time)) => {
                 metrics::inc_counter_vec(
-                    &crate::metrics::QUEUED_OUTBOUND_REQUESTS_COUNT,
+                    &crate::metrics::QUEUED_OUTBOUND_REQUESTS_TOTAL_PER_PROTOCOL,
                     &[protocol.as_ref()],
                 );
+                self.update_metrics();
+
                 let key = (peer_id, protocol);
                 self.next_peer_request.insert(key, wait_time);
                 self.delayed_requests
@@ -271,6 +273,25 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                 }
             }
         }
+    }
+
+    pub fn update_metrics(&self) {
+        let mut count_per_protocol = HashMap::new();
+        let mut sum = 0;
+
+        for ((_peer_id, protocol), queue) in &self.delayed_requests {
+            *count_per_protocol.entry(*protocol).or_insert(0) += queue.len();
+            sum += queue.len();
+        }
+
+        for (protocol, count) in count_per_protocol {
+            metrics::observe_vec(
+                &crate::metrics::OUTBOUND_REQUESTS_COUNT_PER_PROTOCOL,
+                &[protocol.as_ref()],
+                count as f64,
+            );
+        }
+        metrics::set_gauge(&crate::metrics::OUTBOUND_REQUESTS_SUM, sum as i64);
     }
 
     pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, E>> {

@@ -215,12 +215,24 @@ pub static OUTBOUND_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(
         "The time our own request remained idle in the self-limiter",
     )
 });
-pub static QUEUED_OUTBOUND_REQUESTS_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "queued_outbound_requests_total",
-        "Total count of queued requests",
-        &["protocol"],
-    )
+pub static QUEUED_OUTBOUND_REQUESTS_TOTAL_PER_PROTOCOL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "queued_outbound_requests_total_per_protocol",
+            "Total of queued requests per protocol",
+            &["protocol"],
+        )
+    });
+pub static OUTBOUND_REQUESTS_COUNT_PER_PROTOCOL: LazyLock<Result<HistogramVec>> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "outbound_requests_count_per_protocol",
+            "Count of outbound requests per protocol",
+            &["protocol"],
+        )
+    });
+pub static OUTBOUND_REQUESTS_SUM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("outbound_requests_sum", "Current sum of outbound requests")
 });
 
 /*
@@ -235,7 +247,7 @@ pub static RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
 pub static QUEUED_RESPONSES_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "queued_responses_total",
-        "Total count of queued responses",
+        "Total count of queued responses per protocol",
         &["protocol"],
     )
 });
