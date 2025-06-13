@@ -730,7 +730,8 @@ async fn import_gossip_block_acceptably_early() {
             .await;
     }
     if num_data_columns > 0 {
-        rig.assert_event_journal_completes(&[WorkType::ColumnReconstruction]).await;
+        rig.assert_event_journal_completes(&[WorkType::ColumnReconstruction])
+            .await;
     }
 
     // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
