@@ -22,7 +22,6 @@ pub enum GossipInclusionListError {
     InvalidSignature,
     BeaconChainError(Box<BeaconChainError>),
     PriorInclusionListKnown,
-    InclusionListSeen,
     // TODO: equivocation e.g. PriorInclusionListKnown
 }
 
@@ -90,7 +89,6 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
             .map_err(|_| GossipInclusionListError::InvalidCommitteeRoot)?;
 
         if signed_il.message.inclusion_list_committee_root != il_committee.tree_hash_root() {
-            tracing::error!("INVALID COMMITTEE ROOT");
             return Err(GossipInclusionListError::InvalidCommitteeRoot);
         }
 
@@ -122,7 +120,7 @@ impl<T: BeaconChainTypes> GossipVerifiedInclusionList<T> {
         }
 
         if chain.inclusion_list_seen(&signed_il) {
-            return Err(GossipInclusionListError::InclusionListSeen);
+            return Err(GossipInclusionListError::PriorInclusionListKnown);
         }
 
         Ok(Self {

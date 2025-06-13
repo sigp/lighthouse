@@ -361,7 +361,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> InclusionListService<S
         {
             Ok(()) => info!(
                 il_count = inclusion_lists.len(),
-                tx_count = inclusion_lists.iter().map(|i| i.message.transactions.len()).sum::<usize>(),
+                tx_count = inclusion_lists
+                    .iter()
+                    .map(|i| i.message.transactions.len())
+                    .sum::<usize>(),
                 ?validator_indices,
                 ?slot,
                 "Successfully published inclusion lists",

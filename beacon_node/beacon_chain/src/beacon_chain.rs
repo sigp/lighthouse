@@ -2095,6 +2095,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?)
     }
 
+    // TODO(focil) rename function
     /// Produce an `InclusionList` that is valid for the given `slot`.
     ///
     /// The produced `InclusionList` will not be valid until it has been signed by exactly one
@@ -2146,7 +2147,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let current_slot = self.slot()?;
-        let next_slot = current_slot.safe_add(1)?;
+        let _next_slot = current_slot.safe_add(1)?;
 
         // Don't bother with the inclusion list if the head is not the current slot.
         //

@@ -4,6 +4,7 @@ mod bellatrix;
 mod block_verification;
 mod capella;
 mod events;
+mod inclusion_list_verification;
 mod op_verification;
 mod payload_invalidation;
 mod rewards;
