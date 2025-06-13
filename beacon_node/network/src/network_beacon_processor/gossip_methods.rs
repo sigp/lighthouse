@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::SendError;
 use tracing::{debug, error, info, trace, warn};
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationData, AttestationRef,
@@ -42,6 +43,7 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
+use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
     work_reprocessing_queue::{
         QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
@@ -1173,8 +1175,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    self.attempt_data_column_reconstruction(block_root, true)
+                    // Instead of triggering reconstruction immediately, schedule it to be run. If
+                    // another column arrives it either completes availability or pushes
+                    // reconstruction back a bit.
+                    let cloned_self = Arc::clone(self);
+                    let send_result = self
+                        .reprocess_tx
+                        .send(ReprocessQueueMessage::DelayColumnReconstruction(
+                            QueuedColumnReconstruction {
+                                block_root,
+                                process_fn: Box::pin(async move {
+                                    cloned_self
+                                        .attempt_data_column_reconstruction(block_root, true)
+                                        .await;
+                                }),
+                            },
+                        ))
                         .await;
+                    if let Err(SendError(ReprocessQueueMessage::DelayColumnReconstruction(
+                        reconstruction,
+                    ))) = send_result
+                    {
+                        warn!("Unable to send reconstruction to reprocessing");
+                        // Execute it immediately instead.
+                        reconstruction.process_fn.await;
+                    }
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {

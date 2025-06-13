@@ -729,6 +729,10 @@ async fn import_gossip_block_acceptably_early() {
         rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
             .await;
     }
+    if num_data_columns > 0 {
+        rig.assert_event_journal_completes(&[WorkType::ColumnReconstruction])
+            .await;
+    }
 
     // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
     // and check the head in the time between the block arrived early and when its due for
