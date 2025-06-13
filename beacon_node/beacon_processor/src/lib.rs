@@ -1085,6 +1085,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 Some(item)
                             } else if let Some(item) = gossip_data_column_queue.pop() {
                                 Some(item)
+                            } else if let Some(item) = column_reconstruction_queue.pop() {
+                                Some(item)
                             // Check the priority 0 API requests after blocks and blobs, but before attestations.
                             } else if let Some(item) = api_request_p0_queue.pop() {
                                 Some(item)
