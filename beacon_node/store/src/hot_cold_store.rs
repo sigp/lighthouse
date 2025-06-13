@@ -1,7 +1,7 @@
 use crate::config::{OnDiskStoreConfig, StoreConfig};
 use crate::database::interface::BeaconNodeBackend;
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
-use crate::hdiff::{HDiff, HDiffBuffer, HierarchyModuli, StorageStrategy};
+use crate::hdiff::{HDiff, HDiffBuffer, HierarchyConfig, HierarchyModuli, StorageStrategy};
 use crate::historic_state_cache::HistoricStateCache;
 use crate::iter::{BlockRootsIterator, ParentRootBlockIterator, RootsIterator};
 use crate::memory_store::MemoryStore;
@@ -1588,6 +1588,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             HDiff::compute(&base_buffer, &target_buffer, &self.config)?
         };
         let diff_bytes = diff.as_ssz_bytes();
+        let layer = HierarchyConfig::exponent_for_slot(state.slot());
+        metrics::observe_vec(
+            &metrics::BEACON_HDIFF_SIZES,
+            &[&layer.to_string()],
+            diff_bytes.len() as f64,
+        );
         ops.push(KeyValueStoreOp::PutKeyValue(
             DBColumn::BeaconStateHotDiff,
             state_root.as_slice().to_vec(),
@@ -2038,6 +2044,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             HDiff::compute(&base_buffer, &target_buffer, &self.config)?
         };
         let diff_bytes = diff.as_ssz_bytes();
+        let layer = HierarchyConfig::exponent_for_slot(state.slot());
+        metrics::observe_vec(
+            &metrics::BEACON_HDIFF_SIZES,
+            &[&layer.to_string()],
+            diff_bytes.len() as f64,
+        );
 
         ops.push(KeyValueStoreOp::PutKeyValue(
             DBColumn::BeaconStateDiff,

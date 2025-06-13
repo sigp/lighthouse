@@ -649,6 +649,10 @@ impl HierarchyConfig {
             Err(Error::InvalidHierarchy)
         }
     }
+
+    pub fn exponent_for_slot(slot: Slot) -> u32 {
+        slot.as_u64().trailing_zeros()
+    }
 }
 
 impl HierarchyModuli {

@@ -209,6 +209,24 @@ pub static BEACON_HDIFF_BUFFER_APPLY_RESIZES: LazyLock<Result<Histogram>> = Lazy
         Ok(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0])
     )
 });
+// This metric is not split hot/cold because both databases use the same hierarchy config anyway
+// and that's all that affects diff sizes.
+pub static BEACON_HDIFF_SIZES: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec_with_buckets(
+        "store_hdiff_sizes",
+        "Size of hdiffs in bytes by layer (exponent)",
+        Ok(vec![
+            0.0,
+            2_000.0,
+            20_000.0,
+            200_000.0,
+            500_000.0,
+            2_000_000.0,
+            10_000_000.0,
+        ]),
+        &["exponent"],
+    )
+});
 /*
  * Beacon Block
  */
