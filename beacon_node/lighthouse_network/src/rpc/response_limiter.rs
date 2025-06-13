@@ -77,9 +77,11 @@ impl<E: EthSpec> ResponseLimiter<E> {
             Self::try_limiter(&mut self.limiter, peer_id, response.clone(), protocol)
         {
             metrics::inc_counter_vec(
-                &crate::metrics::QUEUED_RESPONSES_COUNT,
+                &crate::metrics::QUEUED_RESPONSES_TOTAL_PER_PROTOCOL,
                 &[protocol.as_ref()],
             );
+            self.update_metrics();
+
             self.delayed_responses
                 .entry((peer_id, protocol))
                 .or_default()
@@ -130,6 +132,25 @@ impl<E: EthSpec> ResponseLimiter<E> {
     pub fn peer_disconnected(&mut self, peer_id: PeerId) {
         self.delayed_responses
             .retain(|(map_peer_id, _protocol), _queue| map_peer_id != &peer_id);
+    }
+
+    fn update_metrics(&self) {
+        let mut count_per_protocol = HashMap::new();
+        let mut sum = 0;
+
+        for ((_peer_id, protocol), queue) in &self.delayed_responses {
+            *count_per_protocol.entry(*protocol).or_insert(0) += queue.len();
+            sum += queue.len();
+        }
+
+        for (protocol, count) in count_per_protocol {
+            metrics::observe_vec(
+                &crate::metrics::RESPONSE_QUEUE_LENGTH_PER_PROTOCOL,
+                &[protocol.as_ref()],
+                count as f64,
+            );
+        }
+        metrics::set_gauge(&crate::metrics::RESPONSE_QUEUE_LENGTH_SUM, sum as i64);
     }
 
     /// When a peer and protocol are allowed to send a next response, this function checks the

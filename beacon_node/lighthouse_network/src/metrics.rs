@@ -247,11 +247,26 @@ pub static RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
         "The time our response remained idle in the response limiter",
     )
 });
-pub static QUEUED_RESPONSES_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "queued_responses_total",
-        "Total count of queued responses per protocol",
-        &["protocol"],
+pub static QUEUED_RESPONSES_TOTAL_PER_PROTOCOL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "queued_responses_total",
+            "Total count of queued responses per protocol",
+            &["protocol"],
+        )
+    });
+pub static RESPONSE_QUEUE_LENGTH_PER_PROTOCOL: LazyLock<Result<HistogramVec>> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "response_queue_length_per_protocol",
+            "Length of response queue per protocol",
+            &["protocol"],
+        )
+    });
+pub static RESPONSE_QUEUE_LENGTH_SUM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "response_queue_length_sum",
+        "Current total length of response queues",
     )
 });
 
