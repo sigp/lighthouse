@@ -206,17 +206,37 @@ pub static REPORT_PEER_MSGS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| 
     )
 });
 
+/*
+ * Self Limiter
+ */
 pub static OUTBOUND_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "outbound_request_idling_seconds",
         "The time our own request remained idle in the self-limiter",
     )
 });
+pub static QUEUED_OUTBOUND_REQUESTS_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "queued_outbound_requests_total",
+        "Total count of queued requests",
+        &["protocol"],
+    )
+});
 
+/*
+ * Response Limiter
+ */
 pub static RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "response_idling_seconds",
         "The time our response remained idle in the response limiter",
+    )
+});
+pub static QUEUED_RESPONSES_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "queued_responses_total",
+        "Total count of queued responses",
+        &["protocol"],
     )
 });
 

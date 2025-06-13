@@ -106,6 +106,10 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
             req,
         ) {
             Err((rate_limited_req, wait_time)) => {
+                metrics::inc_counter_vec(
+                    &crate::metrics::QUEUED_OUTBOUND_REQUESTS_COUNT,
+                    &[protocol.as_ref()],
+                );
                 let key = (peer_id, protocol);
                 self.next_peer_request.insert(key, wait_time);
                 self.delayed_requests

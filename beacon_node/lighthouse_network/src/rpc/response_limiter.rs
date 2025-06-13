@@ -76,6 +76,10 @@ impl<E: EthSpec> ResponseLimiter<E> {
         if let Err(wait_time) =
             Self::try_limiter(&mut self.limiter, peer_id, response.clone(), protocol)
         {
+            metrics::inc_counter_vec(
+                &crate::metrics::QUEUED_RESPONSES_COUNT,
+                &[protocol.as_ref()],
+            );
             self.delayed_responses
                 .entry((peer_id, protocol))
                 .or_default()
