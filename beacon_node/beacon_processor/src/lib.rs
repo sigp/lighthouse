@@ -39,7 +39,7 @@
 //! task.
 
 use crate::work_reprocessing_queue::{
-    QueuedBackfillBatch, QueuedGossipBlock, ReprocessQueueMessage,
+    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -117,6 +117,7 @@ pub struct BeaconProcessorQueueLengths {
     rpc_custody_column_queue: usize,
     rpc_verify_data_column_queue: usize,
     sampling_result_queue: usize,
+    column_reconstruction_queue: usize,
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
@@ -184,6 +185,7 @@ impl BeaconProcessorQueueLengths {
             rpc_verify_data_column_queue: 1000,
             unknown_block_sampling_request_queue: 16384,
             sampling_result_queue: 1000,
+            column_reconstruction_queue: 64,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
@@ -498,6 +500,12 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                 drop_during_sync: false,
                 work: Work::ChainSegmentBackfill(process_fn),
             },
+            ReadyWork::ColumnReconstruction(QueuedColumnReconstruction { process_fn, .. }) => {
+                Self {
+                    drop_during_sync: true,
+                    work: Work::ColumnReconstruction(process_fn),
+                }
+            }
         }
     }
 }
@@ -619,6 +627,7 @@ pub enum Work<E: EthSpec> {
     RpcCustodyColumn(AsyncFn),
     RpcVerifyDataColumn(AsyncFn),
     SamplingResult(AsyncFn),
+    ColumnReconstruction(AsyncFn),
     IgnoredRpcBlock {
         process_fn: BlockingFn,
     },
@@ -674,6 +683,7 @@ pub enum WorkType {
     RpcCustodyColumn,
     RpcVerifyDataColumn,
     SamplingResult,
+    ColumnReconstruction,
     IgnoredRpcBlock,
     ChainSegment,
     ChainSegmentBackfill,
@@ -725,6 +735,7 @@ impl<E: EthSpec> Work<E> {
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
             Work::RpcVerifyDataColumn { .. } => WorkType::RpcVerifyDataColumn,
             Work::SamplingResult { .. } => WorkType::SamplingResult,
+            Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
             Work::ChainSegmentBackfill(_) => WorkType::ChainSegmentBackfill,
@@ -891,6 +902,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             FifoQueue::new(queue_lengths.rpc_verify_data_column_queue);
         // TODO(das): the sampling_request_queue is never read
         let mut sampling_result_queue = FifoQueue::new(queue_lengths.sampling_result_queue);
+        let mut column_reconstruction_queue =
+            FifoQueue::new(queue_lengths.column_reconstruction_queue);
         let mut unknown_block_sampling_request_queue =
             FifoQueue::new(queue_lengths.unknown_block_sampling_request_queue);
         let mut chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
@@ -1071,6 +1084,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             } else if let Some(item) = gossip_blob_queue.pop() {
                                 Some(item)
                             } else if let Some(item) = gossip_data_column_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = column_reconstruction_queue.pop() {
                                 Some(item)
                             // Check the priority 0 API requests after blocks and blobs, but before attestations.
                             } else if let Some(item) = api_request_p0_queue.pop() {
@@ -1371,6 +1386,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 rpc_verify_data_column_queue.push(work, work_id)
                             }
                             Work::SamplingResult(_) => sampling_result_queue.push(work, work_id),
+                            Work::ColumnReconstruction(_) => {
+                                column_reconstruction_queue.push(work, work_id)
+                            }
                             Work::ChainSegment { .. } => chain_segment_queue.push(work, work_id),
                             Work::ChainSegmentBackfill { .. } => {
                                 backfill_chain_segment.push(work, work_id)
@@ -1460,6 +1478,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::RpcCustodyColumn => rpc_custody_column_queue.len(),
                         WorkType::RpcVerifyDataColumn => rpc_verify_data_column_queue.len(),
                         WorkType::SamplingResult => sampling_result_queue.len(),
+                        WorkType::ColumnReconstruction => column_reconstruction_queue.len(),
                         WorkType::ChainSegment => chain_segment_queue.len(),
                         WorkType::ChainSegmentBackfill => backfill_chain_segment.len(),
                         WorkType::Status => status_queue.len(),
@@ -1602,7 +1621,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::RpcBlobs { process_fn }
             | Work::RpcCustodyColumn(process_fn)
             | Work::RpcVerifyDataColumn(process_fn)
-            | Work::SamplingResult(process_fn) => task_spawner.spawn_async(process_fn),
+            | Work::SamplingResult(process_fn)
+            | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
             | Work::GossipBlobSidecar(work)
