@@ -286,12 +286,15 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
 
         for (protocol, count) in count_per_protocol {
             metrics::observe_vec(
-                &crate::metrics::OUTBOUND_REQUESTS_COUNT_PER_PROTOCOL,
+                &crate::metrics::OUTBOUND_REQUEST_QUEUE_LENGTH_PER_PROTOCOL,
                 &[protocol.as_ref()],
                 count as f64,
             );
         }
-        metrics::set_gauge(&crate::metrics::OUTBOUND_REQUESTS_SUM, sum as i64);
+        metrics::set_gauge(
+            &crate::metrics::OUTBOUND_REQUEST_QUEUE_LENGTH_SUM,
+            sum as i64,
+        );
     }
 
     pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, E>> {

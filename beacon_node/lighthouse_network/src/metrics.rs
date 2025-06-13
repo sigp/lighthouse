@@ -223,16 +223,19 @@ pub static QUEUED_OUTBOUND_REQUESTS_TOTAL_PER_PROTOCOL: LazyLock<Result<IntCount
             &["protocol"],
         )
     });
-pub static OUTBOUND_REQUESTS_COUNT_PER_PROTOCOL: LazyLock<Result<HistogramVec>> =
+pub static OUTBOUND_REQUEST_QUEUE_LENGTH_PER_PROTOCOL: LazyLock<Result<HistogramVec>> =
     LazyLock::new(|| {
         try_create_histogram_vec(
-            "outbound_requests_count_per_protocol",
-            "Count of outbound requests per protocol",
+            "outbound_request_queue_length_per_protocol",
+            "Length of outbound request queue per protocol",
             &["protocol"],
         )
     });
-pub static OUTBOUND_REQUESTS_SUM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge("outbound_requests_sum", "Current sum of outbound requests")
+pub static OUTBOUND_REQUEST_QUEUE_LENGTH_SUM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "outbound_request_queue_length_sum",
+        "Current total length of outbound request queues",
+    )
 });
 
 /*
