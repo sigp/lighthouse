@@ -11,7 +11,11 @@ use types::{ChainSpec, Epoch, EthSpec, Slot};
 /// A delay before making the CGC change effective to the data availability checker.
 const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
 
+/// Number of slots after which a validator's registration is removed if it has not re-registered.
+const VALIDATOR_REGISTRATION_EXPIRY_SLOTS: Slot = Slot::new(256);
+
 type ValidatorsAndBalances = Vec<(usize, u64)>;
+type SlotAndEffectiveBalance = (Slot, u64);
 
 /// This currently just registers increases in validator count.
 /// Does not handle decreasing validator counts
@@ -20,7 +24,7 @@ struct ValidatorRegistrations {
     /// Set of all validators that is registered to this node along with its effective balance
     ///
     /// Key is validator index and value is effective_balance.
-    validators: HashMap<usize, u64>,
+    validators: HashMap<usize, SlotAndEffectiveBalance>,
     /// Maintains the validator custody requirement at a given epoch.
     ///
     /// Note: Only stores the epoch value when there's a change in custody requirement.
@@ -51,16 +55,21 @@ impl ValidatorRegistrations {
     pub(crate) fn register_validators<E: EthSpec>(
         &mut self,
         validators_and_balance: ValidatorsAndBalances,
-        slot: Slot,
+        current_slot: Slot,
         spec: &ChainSpec,
     ) -> Option<(Epoch, u64)> {
         for (validator_index, effective_balance) in validators_and_balance {
-            self.validators.insert(validator_index, effective_balance);
+            self.validators
+                .insert(validator_index, (current_slot, effective_balance));
         }
 
+        // Drop validators that haven't re-registered with the node for `VALIDATOR_REGISTRATION_EXPIRY_SLOTS`.
+        self.validators
+            .retain(|_, (slot, _)| *slot >= current_slot - VALIDATOR_REGISTRATION_EXPIRY_SLOTS);
+
         // Each `BALANCE_PER_ADDITIONAL_CUSTODY_GROUP` effectively contributes one unit of "weight".
-        let validator_custody_units =
-            self.validators.values().sum::<u64>() / spec.balance_per_additional_custody_group;
+        let validator_custody_units = self.validators.values().map(|(_, eb)| eb).sum::<u64>()
+            / spec.balance_per_additional_custody_group;
         let validator_custody_requirement =
             get_validators_custody_requirement(validator_custody_units, spec);
 
@@ -72,13 +81,14 @@ impl ValidatorRegistrations {
 
         // If registering the new validator increased the total validator "units", then
         // add a new entry for the current epoch
-        if Some(validator_custody_requirement) != self.latest_validator_custody_requirement() {
+        if Some(validator_custody_requirement) > self.latest_validator_custody_requirement() {
             // Apply the change from the next epoch after adding some delay buffer to ensure
             // the node has enough time to subscribe to subnets etc, and to avoid having
             // inconsistent column counts within an epoch.
             let effective_delay_slots =
                 CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / spec.seconds_per_slot;
-            let effective_epoch = (slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
+            let effective_epoch =
+                (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
             self.epoch_validator_custody_requirements
                 .entry(effective_epoch)
                 .and_modify(|old_custody| *old_custody = validator_custody_requirement)
@@ -166,13 +176,13 @@ impl CustodyContext {
     pub fn register_validators<E: EthSpec>(
         &self,
         validators_and_balance: ValidatorsAndBalances,
-        slot: Slot,
+        current_slot: Slot,
         spec: &ChainSpec,
     ) -> Option<CustodyCountChanged> {
         let Some((effective_epoch, new_validator_custody)) = self
             .validator_registrations
             .write()
-            .register_validators::<E>(validators_and_balance, slot, spec)
+            .register_validators::<E>(validators_and_balance, current_slot, spec)
         else {
             return None;
         };
@@ -420,6 +430,98 @@ mod tests {
         assert_eq!(
             custody_context.sampling_size(Some(current_epoch + 1), &spec),
             validator_custody_units
+        );
+    }
+
+    #[test]
+    fn validator_dropped_after_no_registrations_within_expiry_should_not_reduce_cgc() {
+        let custody_context = CustodyContext::new(false);
+        let spec = E::default_spec();
+        let current_slot = Slot::new(10);
+        let val_custody_units_1 = 10;
+        let val_custody_units_2 = 5;
+
+        // GIVEN val_1 and val_2 registered at `current_slot`
+        let _ = custody_context.register_validators::<E>(
+            vec![
+                (
+                    1,
+                    val_custody_units_1 * spec.balance_per_additional_custody_group,
+                ),
+                (
+                    2,
+                    val_custody_units_2 * spec.balance_per_additional_custody_group,
+                ),
+            ],
+            current_slot,
+            &spec,
+        );
+
+        // WHEN val_1 re-registered, but val_2 did not re-register after `VALIDATOR_REGISTRATION_EXPIRY_SLOTS + 1` slots
+        let cgc_changed_opt = custody_context.register_validators::<E>(
+            vec![(
+                1,
+                val_custody_units_1 * spec.balance_per_additional_custody_group,
+            )],
+            current_slot + VALIDATOR_REGISTRATION_EXPIRY_SLOTS + 1,
+            &spec,
+        );
+
+        // THEN the reduction from dropping val_2 balance should NOT result in a CGC reduction
+        assert!(cgc_changed_opt.is_none(), "CGC should remain unchanged");
+        assert_eq!(
+            custody_context.custody_group_count_at_head(&spec),
+            val_custody_units_1 + val_custody_units_2
+        )
+    }
+
+    #[test]
+    fn validator_dropped_after_no_registrations_within_expiry() {
+        let custody_context = CustodyContext::new(false);
+        let spec = E::default_spec();
+        let current_slot = Slot::new(10);
+        let val_custody_units_1 = 10;
+        let val_custody_units_2 = 5;
+        let val_custody_units_3 = 6;
+
+        // GIVEN val_1 and val_2 registered at `current_slot`
+        let _ = custody_context.register_validators::<E>(
+            vec![
+                (
+                    1,
+                    val_custody_units_1 * spec.balance_per_additional_custody_group,
+                ),
+                (
+                    2,
+                    val_custody_units_2 * spec.balance_per_additional_custody_group,
+                ),
+            ],
+            current_slot,
+            &spec,
+        );
+
+        // WHEN val_1 and val_3 registered, but val_3 did not re-register after `VALIDATOR_REGISTRATION_EXPIRY_SLOTS + 1` slots
+        let cgc_changed = custody_context.register_validators::<E>(
+            vec![
+                (
+                    1,
+                    val_custody_units_1 * spec.balance_per_additional_custody_group,
+                ),
+                (
+                    3,
+                    val_custody_units_3 * spec.balance_per_additional_custody_group,
+                ),
+            ],
+            current_slot + VALIDATOR_REGISTRATION_EXPIRY_SLOTS + 1,
+            &spec,
+        );
+
+        // THEN CGC should increase, BUT val_2 balance should NOT be included in CGC
+        assert_eq!(
+            cgc_changed
+                .expect("CGC should change")
+                .new_custody_group_count,
+            val_custody_units_1 + val_custody_units_3
         );
     }
 
