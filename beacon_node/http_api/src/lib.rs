@@ -48,8 +48,8 @@ use directory::DEFAULT_ROOT_DIR;
 use either::Either;
 use eth2::types::{
     self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
-    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody,
-    ValidatorId, ValidatorStatus, ValidatorsRequestBody,
+    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, StateId as CoreStateId,
+    ValidatorBalancesRequestBody, ValidatorId, ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
@@ -3765,15 +3765,17 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(validator_subscription_tx_filter.clone())
+        .and(network_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
-            |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
+            |committee_subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    let subscriptions: std::collections::BTreeSet<_> = subscriptions
+                    let subscriptions: std::collections::BTreeSet<_> = committee_subscriptions
                         .iter()
                         .map(|subscription| {
                             chain
@@ -3788,6 +3790,7 @@ pub fn serve<T: BeaconChainTypes>(
                             }
                         })
                         .collect();
+
                     let message =
                         ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions };
                     if let Err(e) = validator_subscription_tx.try_send(message) {
@@ -3800,6 +3803,42 @@ pub fn serve<T: BeaconChainTypes>(
                             "unable to queue subscription, host may be overloaded or shutting down"
                                 .to_string(),
                         ));
+                    }
+
+                    if chain.spec.is_peer_das_scheduled() {
+                        let (finalized_beacon_state, _, _) =
+                            StateId(CoreStateId::Finalized).state(&chain)?;
+                        let validators_and_balances = committee_subscriptions
+                            .iter()
+                            .filter_map(|subscription| {
+                                if let Ok(effective_balance) = finalized_beacon_state
+                                    .get_effective_balance(subscription.validator_index as usize)
+                                {
+                                    Some((subscription.validator_index as usize, effective_balance))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>();
+
+                        let current_slot =
+                            chain.slot().map_err(warp_utils::reject::unhandled_error)?;
+                        if let Some(cgc_change) = chain
+                            .data_availability_checker
+                            .custody_context()
+                            .register_validators::<T::EthSpec>(
+                            validators_and_balances,
+                            current_slot,
+                            &chain.spec,
+                        ) {
+                            network_tx.send(NetworkMessage::CustodyCountChanged {
+                                new_custody_group_count: cgc_change.new_custody_group_count,
+                                sampling_count: cgc_change.sampling_count,
+                            }).unwrap_or_else(|e| {
+                                debug!(error = %e, "Could not send message to the network service. \
+                                Likely shutdown")
+                            });
+                        }
                     }
 
                     Ok(())
@@ -4740,6 +4779,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
                                 api_types::EventTopic::BlobSidecar => {
                                     event_handler.subscribe_blob_sidecar()
+                                }
+                                api_types::EventTopic::DataColumnSidecar => {
+                                    event_handler.subscribe_data_column_sidecar()
                                 }
                                 api_types::EventTopic::Attestation => {
                                     event_handler.subscribe_attestation()

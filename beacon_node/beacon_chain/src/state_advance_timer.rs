@@ -377,7 +377,7 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
                 state.current_epoch(),
                 head_block_root,
                 state
-                    .get_beacon_proposer_indices(&beacon_chain.spec)
+                    .get_beacon_proposer_indices(state.current_epoch(), &beacon_chain.spec)
                     .map_err(BeaconChainError::from)?,
                 state.fork(),
             )

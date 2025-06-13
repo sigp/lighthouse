@@ -843,7 +843,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         publish_blobs: bool,
     ) {
-        let custody_columns = self.network_globals.sampling_columns.clone();
+        let custody_columns = self.network_globals.sampling_columns();
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {
@@ -853,7 +853,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     EngineGetBlobsOutput::CustodyColumns(columns) => {
                         self_cloned.publish_data_columns_gradually(
-                            columns.into_iter().map(|c| c.clone_data_column()).collect(),
+                            columns.into_iter().map(|c| c.clone_arc()).collect(),
                             block_root,
                         );
                     }
@@ -930,7 +930,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         publish_columns: bool,
     ) -> Option<AvailabilityProcessingStatus> {
         // Only supernodes attempt reconstruction
-        if !self.network_globals.is_supernode() {
+        if !self
+            .chain
+            .data_availability_checker
+            .custody_context()
+            .current_is_supernode
+        {
             return None;
         }
 

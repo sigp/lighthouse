@@ -13,10 +13,12 @@ use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
+use crate::CustodyContext;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, ServerSentEventHandler,
@@ -486,24 +488,36 @@ where
 
         // Verify that blobs (if provided) match the block.
         if let Some(blobs) = &weak_subj_blobs {
-            let commitments = weak_subj_block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .map_err(|e| format!("Blobs provided but block does not reference them: {e:?}"))?;
-            if blobs.len() != commitments.len() {
-                return Err(format!(
-                    "Wrong number of blobs, expected: {}, got: {}",
-                    commitments.len(),
-                    blobs.len()
-                ));
-            }
-            if commitments
-                .iter()
-                .zip(blobs.iter())
-                .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
-            {
-                return Err("Checkpoint blob does not match block commitment".into());
+            let fulu_enabled = weak_subj_block.fork_name_unchecked().fulu_enabled();
+            if fulu_enabled && blobs.is_empty() {
+                // Blobs expected for this block, but the checkpoint server is not able to serve them.
+                // This is expected from Fulu, as only supernodes are able to serve blobs.
+                // We can consider using backfill to retrieve the data columns from the p2p network,
+                // but we can ignore this fow now until we have validator custody backfill
+                // implemented as we'll likely be able to reuse the logic.
+                // https://github.com/sigp/lighthouse/issues/6837
+            } else {
+                let commitments = weak_subj_block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .map_err(|e| {
+                        format!("Blobs provided but block does not reference them: {e:?}")
+                    })?;
+                if blobs.len() != commitments.len() {
+                    return Err(format!(
+                        "Wrong number of blobs, expected: {}, got: {}",
+                        commitments.len(),
+                        blobs.len()
+                    ));
+                }
+                if commitments
+                    .iter()
+                    .zip(blobs.iter())
+                    .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
+                {
+                    return Err("Checkpoint blob does not match block commitment".into());
+                }
             }
         }
 
@@ -914,6 +928,20 @@ where
             }
         };
 
+        // Load the persisted custody context from the db and initialize
+        // the context for this run
+        let custody_context = if let Some(custody) =
+            load_custody_context::<E, THotStore, TColdStore>(store.clone())
+        {
+            Arc::new(CustodyContext::new_from_persisted_custody_context(
+                custody,
+                self.import_all_data_columns,
+            ))
+        } else {
+            Arc::new(CustodyContext::new(self.import_all_data_columns))
+        };
+        debug!(?custody_context, "Loading persisted custody context");
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -987,8 +1015,14 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, self.spec)
-                    .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(
+                    slot_clock,
+                    self.kzg.clone(),
+                    store,
+                    custody_context,
+                    self.spec,
+                )
+                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),

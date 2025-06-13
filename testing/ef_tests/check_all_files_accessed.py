@@ -45,13 +45,13 @@ excluded_paths = [
     "bls12-381-tests/deserialization_G1",
     "bls12-381-tests/deserialization_G2",
     "bls12-381-tests/hash_to_G2",
-    "tests/.*/eip6110",
-    "tests/.*/whisk",
-    # TODO(das): Fulu tests are ignored for now
-    "tests/.*/fulu",
-    "tests/.*/fulu/ssz_static/MatrixEntry",
-    "tests/.*/eip7441",
     "tests/.*/eip7732",
+    "tests/.*/eip7805",
+    # Ignore MatrixEntry SSZ tests for now.
+    "tests/.*/fulu/ssz_static/MatrixEntry/.*",
+    # Ignore full epoch tests for now (just test the sub-transitions).
+    "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
+    "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
 ]
 
 

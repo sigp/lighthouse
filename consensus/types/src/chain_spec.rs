@@ -203,6 +203,8 @@ pub struct ChainSpec {
     pub data_column_sidecar_subnet_count: u64,
     pub samples_per_slot: u64,
     pub custody_requirement: u64,
+    pub validator_custody_requirement: u64,
+    pub balance_per_additional_custody_group: u64,
 
     /*
      * Networking
@@ -731,14 +733,6 @@ impl ChainSpec {
         Ok(std::cmp::max(custody_column_count, self.samples_per_slot))
     }
 
-    pub fn custody_group_count(&self, is_supernode: bool) -> u64 {
-        if is_supernode {
-            self.number_of_custody_groups
-        } else {
-            self.custody_requirement
-        }
-    }
-
     pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
         (0..self.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
     }
@@ -975,6 +969,8 @@ impl ChainSpec {
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
             samples_per_slot: 8,
+            validator_custody_requirement: 8,
+            balance_per_additional_custody_group: 32000000000,
 
             /*
              * Network specific
@@ -1309,6 +1305,8 @@ impl ChainSpec {
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
             samples_per_slot: 8,
+            validator_custody_requirement: 8,
+            balance_per_additional_custody_group: 32000000000,
 
             /*
              * Network specific
@@ -1650,6 +1648,12 @@ pub struct Config {
     #[serde(default = "BlobSchedule::default")]
     #[serde(skip_serializing_if = "BlobSchedule::is_empty")]
     blob_schedule: BlobSchedule,
+    #[serde(default = "default_validator_custody_requirement")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    validator_custody_requirement: u64,
+    #[serde(default = "default_balance_per_additional_custody_group")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    balance_per_additional_custody_group: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1813,6 +1817,14 @@ const fn default_number_of_custody_groups() -> u64 {
 
 const fn default_samples_per_slot() -> u64 {
     8
+}
+
+const fn default_validator_custody_requirement() -> u64 {
+    8
+}
+
+const fn default_balance_per_additional_custody_group() -> u64 {
+    32000000000
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -2024,6 +2036,8 @@ impl Config {
             samples_per_slot: spec.samples_per_slot,
             custody_requirement: spec.custody_requirement,
             blob_schedule: spec.blob_schedule.clone(),
+            validator_custody_requirement: spec.validator_custody_requirement,
+            balance_per_additional_custody_group: spec.balance_per_additional_custody_group,
         }
     }
 
@@ -2103,6 +2117,8 @@ impl Config {
             samples_per_slot,
             custody_requirement,
             ref blob_schedule,
+            validator_custody_requirement,
+            balance_per_additional_custody_group,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2187,6 +2203,8 @@ impl Config {
             samples_per_slot,
             custody_requirement,
             blob_schedule: blob_schedule.clone(),
+            validator_custody_requirement,
+            balance_per_additional_custody_group,
 
             ..chain_spec.clone()
         })

@@ -3,7 +3,9 @@
 use super::*;
 use crate::cases::common::{DecimalU128, DecimalU256, SszStaticType};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
-use crate::decode::{log_file_access, snappy_decode_file, yaml_decode_file};
+use crate::decode::{context_yaml_decode_file, log_file_access, snappy_decode_file};
+use context_deserialize::ContextDeserialize;
+use context_deserialize_derive::context_deserialize;
 use serde::{de::Error as SerdeError, Deserialize, Deserializer};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
@@ -12,6 +14,7 @@ use types::typenum::*;
 use types::{BitList, BitVector, FixedVector, ForkName, VariableList, Vector};
 
 #[derive(Debug, Clone, Deserialize)]
+#[context_deserialize(ForkName)]
 struct Metadata {
     root: String,
     #[serde(rename(deserialize = "signing_root"))]
@@ -118,7 +121,7 @@ macro_rules! type_dispatch {
 }
 
 impl Case for SszGeneric {
-    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let parts = self.case_name.split('_').collect::<Vec<_>>();
 
         match self.handler_name.as_str() {
@@ -134,7 +137,7 @@ impl Case for SszGeneric {
 
                 type_dispatch!(
                     ssz_generic_test,
-                    (&self.path),
+                    (&self.path, fork_name),
                     Vector,
                     <>,
                     [elem_ty => primitive_type]
@@ -142,7 +145,7 @@ impl Case for SszGeneric {
                 )?;
                 type_dispatch!(
                     ssz_generic_test,
-                    (&self.path),
+                    (&self.path, fork_name),
                     FixedVector,
                     <>,
                     [elem_ty => primitive_type]
@@ -159,7 +162,7 @@ impl Case for SszGeneric {
 
                 type_dispatch!(
                     ssz_generic_test,
-                    (&self.path),
+                    (&self.path, fork_name),
                     BitList,
                     <>,
                     [limit => typenum]
@@ -170,21 +173,21 @@ impl Case for SszGeneric {
 
                 type_dispatch!(
                     ssz_generic_test,
-                    (&self.path),
+                    (&self.path, fork_name),
                     BitVector,
                     <>,
                     [length => typenum]
                 )?;
             }
             "boolean" => {
-                ssz_generic_test::<bool>(&self.path)?;
+                ssz_generic_test::<bool>(&self.path, fork_name)?;
             }
             "uints" => {
                 let type_name = "uint".to_owned() + parts[1];
 
                 type_dispatch!(
                     ssz_generic_test,
-                    (&self.path),
+                    (&self.path, fork_name),
                     _,
                     <>,
                     [type_name.as_str() => primitive_type]
@@ -195,7 +198,7 @@ impl Case for SszGeneric {
 
                 type_dispatch!(
                     ssz_generic_test,
-                    (&self.path),
+                    (&self.path, fork_name),
                     _,
                     <>,
                     [type_name => test_container]
@@ -207,10 +210,15 @@ impl Case for SszGeneric {
     }
 }
 
-fn ssz_generic_test<T: SszStaticType + TreeHash + ssz::Decode>(path: &Path) -> Result<(), Error> {
+fn ssz_generic_test<
+    T: SszStaticType + for<'de> ContextDeserialize<'de, ForkName> + TreeHash + ssz::Decode,
+>(
+    path: &Path,
+    fork_name: ForkName,
+) -> Result<(), Error> {
     let meta_path = path.join("meta.yaml");
     let meta: Option<Metadata> = if meta_path.is_file() {
-        Some(yaml_decode_file(&meta_path)?)
+        Some(context_yaml_decode_file(&meta_path, fork_name)?)
     } else {
         None
     };
@@ -220,7 +228,7 @@ fn ssz_generic_test<T: SszStaticType + TreeHash + ssz::Decode>(path: &Path) -> R
 
     let value_path = path.join("value.yaml");
     let value: Option<T> = if value_path.is_file() {
-        Some(yaml_decode_file(&value_path)?)
+        Some(context_yaml_decode_file(&value_path, fork_name)?)
     } else {
         None
     };
@@ -246,17 +254,20 @@ fn ssz_generic_test<T: SszStaticType + TreeHash + ssz::Decode>(path: &Path) -> R
 
 // Containers for SSZ generic tests
 #[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
 struct SingleFieldTestStruct {
     A: u8,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
 struct SmallTestStruct {
     A: u16,
     B: u16,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
 struct FixedTestStruct {
     A: u8,
     B: u64,
@@ -264,6 +275,7 @@ struct FixedTestStruct {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
 struct VarTestStruct {
     A: u16,
     B: VariableList<u16, U1024>,
@@ -271,6 +283,7 @@ struct VarTestStruct {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
 struct ComplexTestStruct {
     A: u16,
     B: VariableList<u16, U128>,
@@ -283,6 +296,7 @@ struct ComplexTestStruct {
 }
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
 struct BitsStruct {
     A: BitList<U5>,
     B: BitVector<U2>,

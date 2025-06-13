@@ -1,15 +1,17 @@
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
-use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use crate::data_column_verification::KzgVerifiedDataColumn;
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
+use crate::observed_block_producers::ProposalKey;
 use crate::observed_data_sidecars::DoNotObserve;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
 use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
-use kzg::Kzg;
+use kzg::{Error as KzgError, Kzg};
 #[cfg(test)]
 use mockall::automock;
+use std::collections::HashSet;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{BlobSidecar, ChainSpec, DataColumnSidecar, Hash256, Slot};
+use types::{BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, Hash256, Slot};
 
 /// An adapter to the `BeaconChain` functionalities to remove `BeaconChain` from direct dependency to enable testing fetch blobs logic.
 pub(crate) struct FetchBlobsBeaconAdapter<T: BeaconChainTypes> {
@@ -75,12 +77,28 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
         GossipVerifiedBlob::<T, DoNotObserve>::new(blob.clone(), blob.index, &self.chain)
     }
 
-    pub(crate) fn verify_data_column_for_gossip(
+    pub(crate) fn verify_data_columns_kzg(
         &self,
-        data_column: Arc<DataColumnSidecar<T::EthSpec>>,
-    ) -> Result<GossipVerifiedDataColumn<T, DoNotObserve>, GossipDataColumnError> {
-        let index = data_column.index;
-        GossipVerifiedDataColumn::<T, DoNotObserve>::new(data_column, index, &self.chain)
+        data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) -> Result<Vec<KzgVerifiedDataColumn<T::EthSpec>>, KzgError> {
+        KzgVerifiedDataColumn::from_batch(data_columns, &self.chain.kzg)
+    }
+
+    pub(crate) fn known_for_proposal(
+        &self,
+        proposal_key: ProposalKey,
+    ) -> Option<HashSet<ColumnIndex>> {
+        self.chain
+            .observed_column_sidecars
+            .read()
+            .known_for_proposal(&proposal_key)
+            .cloned()
+    }
+
+    pub(crate) fn cached_data_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+        self.chain
+            .data_availability_checker
+            .cached_data_column_indexes(block_root)
     }
 
     pub(crate) async fn process_engine_blobs(
