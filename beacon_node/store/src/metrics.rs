@@ -216,13 +216,13 @@ pub static BEACON_HDIFF_SIZES: LazyLock<Result<HistogramVec>> = LazyLock::new(||
         "store_hdiff_sizes",
         "Size of hdiffs in bytes by layer (exponent)",
         Ok(vec![
-            0.0,
-            2_000.0,
-            20_000.0,
-            200_000.0,
             500_000.0,
             2_000_000.0,
+            5_000_000.0,
             10_000_000.0,
+            15_000_000.0,
+            20_000_000.0,
+            50_000_000.0,
         ]),
         &["exponent"],
     )
