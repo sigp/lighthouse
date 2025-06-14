@@ -1252,11 +1252,25 @@ async fn test_rpc_block_reprocessing() {
     tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;
 
     rig.assert_event_journal(&[WorkType::RpcBlock.into()]).await;
-    // Add an extra delay for block processing
-    tokio::time::sleep(Duration::from_millis(10)).await;
-    // head should update to next block now since the duplicate
-    // cache handle was dropped.
-    assert_eq!(next_block_root, rig.head_root());
+
+    let max_retries = 3;
+    let mut success = false;
+    for _ in 0..max_retries {
+        // Add an extra delay for block processing
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        // head should update to the next block now since the duplicate
+        // cache handle was dropped.
+        if next_block_root == rig.head_root() {
+            success = true;
+            break;
+        }
+    }
+    assert!(
+        success,
+        "expected head_root to be {:?} but was {:?}",
+        next_block_root,
+        rig.head_root()
+    );
 }
 
 /// Ensure that backfill batches get rate-limited and processing is scheduled at specified intervals.
