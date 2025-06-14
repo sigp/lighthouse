@@ -195,6 +195,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
         let _ = self.limiter.poll_unpin(cx);
 
         if !responses.is_empty() {
+            self.update_metrics();
             return Poll::Ready(responses);
         }
         Poll::Pending

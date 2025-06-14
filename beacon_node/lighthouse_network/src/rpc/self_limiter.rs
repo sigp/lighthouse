@@ -304,6 +304,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         if let Poll::Ready(Some(expired)) = self.next_peer_request.poll_expired(cx) {
             let (peer_id, protocol) = expired.into_inner();
             self.next_peer_request_ready(peer_id, protocol);
+            self.update_metrics();
         }
 
         // Prune the rate limiter.
