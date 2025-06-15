@@ -277,17 +277,20 @@ pub static STORE_BEACON_HISTORIC_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> =
             "Current count of states in the historic state cache",
         )
     });
-pub static STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "store_beacon_hdiff_buffer_cache_size",
-        "Current count of hdiff buffers in the historic state cache",
-    )
-});
-pub static STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE: LazyLock<Result<IntGauge>> =
+pub static STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
-        try_create_int_gauge(
+        try_create_int_gauge_vec(
+            "store_beacon_hdiff_buffer_cache_size",
+            "Current count of hdiff buffers in the historic state cache",
+            &["db"],
+        )
+    });
+pub static STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE: LazyLock<Result<IntGaugeVec>> =
+    LazyLock::new(|| {
+        try_create_int_gauge_vec(
             "store_beacon_hdiff_buffer_cache_byte_size",
             "Memory consumed by hdiff buffers in the historic state cache",
+            &["db"],
         )
     });
 pub static STORE_BEACON_STATE_FREEZER_COMPRESS_TIME: LazyLock<Result<Histogram>> =
@@ -318,18 +321,20 @@ pub static STORE_BEACON_HISTORIC_STATE_CACHE_MISS: LazyLock<Result<IntCounter>> 
             "Total count of historic state cache misses for full states",
         )
     });
-pub static STORE_BEACON_HDIFF_BUFFER_CACHE_HIT: LazyLock<Result<IntCounter>> =
+pub static STORE_BEACON_HDIFF_BUFFER_CACHE_HIT: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
-        try_create_int_counter(
+        try_create_int_counter_vec(
             "store_beacon_hdiff_buffer_cache_hit_total",
             "Total count of hdiff buffer cache hits",
+            &["db"],
         )
     });
-pub static STORE_BEACON_HDIFF_BUFFER_CACHE_MISS: LazyLock<Result<IntCounter>> =
+pub static STORE_BEACON_HDIFF_BUFFER_CACHE_MISS: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
-        try_create_int_counter(
+        try_create_int_counter_vec(
             "store_beacon_hdiff_buffer_cache_miss_total",
             "Total count of hdiff buffer cache miss",
+            &["db"],
         )
     });
 pub static STORE_BEACON_HDIFF_BUFFER_INTO_STATE_TIME: LazyLock<Result<Histogram>> =

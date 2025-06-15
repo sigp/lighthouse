@@ -1,4 +1,8 @@
-use crate::Error;
+use crate::hdiff::HDiffBuffer;
+use crate::{
+    metrics::{self, HOT_METRIC},
+    Error,
+};
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -37,6 +41,10 @@ pub struct StateCache<E: EthSpec> {
     // the state_root
     states: LruCache<Hash256, (Hash256, BeaconState<E>)>,
     block_map: BlockMap,
+    /// Cache of HDiffBuffers for states *prior* to the `finalized_state`.
+    ///
+    /// Maps state_root -> (slot, buffer).
+    hdiff_buffers: LruCache<Hash256, (Slot, HDiffBuffer)>,
     max_epoch: Epoch,
     head_block_root: Hash256,
     headroom: NonZeroUsize,
@@ -44,8 +52,8 @@ pub struct StateCache<E: EthSpec> {
 
 #[derive(Debug)]
 pub enum PutStateOutcome {
-    /// State is prior to the cache's finalized state (lower slot) and was not inserted.
-    PreFinalizedIgnored,
+    /// State is prior to the cache's finalized state (lower slot) and was cached as an HDiffBuffer.
+    PreFinalizedHDiffBuffer,
     /// State is equal to the cache's finalized state and was not inserted.
     Finalized,
     /// State was already present in the cache.
@@ -63,6 +71,7 @@ impl<E: EthSpec> StateCache<E> {
             finalized_state: None,
             states: LruCache::new(capacity),
             block_map: BlockMap::default(),
+            hdiff_buffers: LruCache::new(NonZeroUsize::new(16).unwrap()),
             max_epoch: Epoch::new(0),
             head_block_root: Hash256::ZERO,
             headroom,
@@ -77,11 +86,23 @@ impl<E: EthSpec> StateCache<E> {
         self.states.cap().get()
     }
 
+    pub fn num_hdiff_buffers(&self) -> usize {
+        self.hdiff_buffers.len()
+    }
+
+    pub fn hdiff_buffer_mem_usage(&self) -> usize {
+        self.hdiff_buffers
+            .iter()
+            .map(|(_, (_, buffer))| buffer.size())
+            .sum()
+    }
+
     pub fn update_finalized_state(
         &mut self,
         state_root: Hash256,
         block_root: Hash256,
         state: BeaconState<E>,
+        pre_finalized_slots_to_retain: &[Slot],
     ) -> Result<(), Error> {
         if state.slot() % E::slots_per_epoch() != 0 {
             return Err(Error::FinalizedStateUnaligned);
@@ -103,7 +124,25 @@ impl<E: EthSpec> StateCache<E> {
 
         // Delete states.
         for state_root in state_roots_to_prune {
-            self.states.pop(&state_root);
+            if let Some((_, state)) = self.states.pop(&state_root) {
+                // Copy hdiff buffers for states that are now aligned to the grid.
+                let slot = state.slot();
+                if pre_finalized_slots_to_retain.contains(&slot) {
+                    let hdiff_buffer = HDiffBuffer::from_state(state);
+                    self.hdiff_buffers.put(state_root, (slot, hdiff_buffer));
+                }
+            }
+        }
+
+        // Prune HDiffBuffers that are no longer required by the hdiff grid of the finalized state.
+        // NOTE: This isn't perfect as it prunes by slot: there could be multiple buffers
+        // at some slots in the case of long forks without finality.
+        let new_hdiff_cache = LruCache::new(self.hdiff_buffers.cap());
+        let old_hdiff_cache = std::mem::replace(&mut self.hdiff_buffers, new_hdiff_cache);
+        for (state_root, (slot, buffer)) in old_hdiff_cache {
+            if pre_finalized_slots_to_retain.contains(&slot) {
+                self.hdiff_buffers.put(state_root, (slot, buffer));
+            }
         }
 
         // Update finalized state.
@@ -146,7 +185,14 @@ impl<E: EthSpec> StateCache<E> {
             if finalized_state.state_root == state_root {
                 return Ok(PutStateOutcome::Finalized);
             } else if state.slot() <= finalized_state.state.slot() {
-                return Ok(PutStateOutcome::PreFinalizedIgnored);
+                // We assume any state being inserted into the cache is grid-aligned (it is the
+                // caller's responsibility to not feed us garbage) as we don't want to thread the
+                // hierarchy config through here. So any state received is converted to an
+                // HDiffBuffer and saved.
+                let hdiff_buffer = HDiffBuffer::from_state(state.clone());
+                self.hdiff_buffers
+                    .put(state_root, (state.slot(), hdiff_buffer));
+                return Ok(PutStateOutcome::PreFinalizedHDiffBuffer);
             }
         }
 
@@ -196,6 +242,16 @@ impl<E: EthSpec> StateCache<E> {
             }
         }
         self.states.get(&state_root).map(|(_, state)| state.clone())
+    }
+
+    pub fn get_hdiff_buffer_by_state_root(&mut self, state_root: Hash256) -> Option<HDiffBuffer> {
+        if let Some((_, buffer)) = self.hdiff_buffers.get(&state_root) {
+            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
+            return Some(buffer.clone());
+        }
+        metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
+        self.get_by_state_root(state_root)
+            .map(HDiffBuffer::from_state)
     }
 
     pub fn get_by_block_root(

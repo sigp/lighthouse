@@ -456,9 +456,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block_root: Hash256,
         state: BeaconState<E>,
     ) -> Result<(), Error> {
-        self.state_cache
-            .lock()
-            .update_finalized_state(state_root, block_root, state)
+        let start_slot = self.get_anchor_info().anchor_slot;
+        let pre_finalized_slots_to_retain = self
+            .hierarchy
+            .closest_layer_points(state.slot(), start_slot);
+        self.state_cache.lock().update_finalized_state(
+            state_root,
+            block_root,
+            state,
+            &pre_finalized_slots_to_retain,
+        )
     }
 
     pub fn state_cache_len(&self) -> usize {
@@ -476,20 +483,34 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &metrics::STORE_BEACON_BLOB_CACHE_SIZE,
             self.block_cache.lock().blob_cache.len() as i64,
         );
+        let state_cache = self.state_cache.lock();
         metrics::set_gauge(
             &metrics::STORE_BEACON_STATE_CACHE_SIZE,
-            self.state_cache.lock().len() as i64,
+            state_cache.len() as i64,
         );
+        metrics::set_gauge_vec(
+            &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE,
+            HOT_METRIC,
+            state_cache.num_hdiff_buffers() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE,
+            HOT_METRIC,
+            state_cache.hdiff_buffer_mem_usage() as i64,
+        );
+        drop(state_cache);
         metrics::set_gauge(
             &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
             hsc_metrics.num_state as i64,
         );
-        metrics::set_gauge(
+        metrics::set_gauge_vec(
             &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE,
+            COLD_METRIC,
             hsc_metrics.num_hdiff as i64,
         );
-        metrics::set_gauge(
+        metrics::set_gauge_vec(
             &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE,
+            COLD_METRIC,
             hsc_metrics.hdiff_byte_size as i64,
         );
 
@@ -1455,9 +1476,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        // Avoid storing states in the database if they already exist in the state cache.
-        // The exception to this is the finalized state, which must exist in the cache before it
-        // is stored on disk.
         match self.state_cache.lock().put_state(
             *state_root,
             state.get_latest_block_root(*state_root),
@@ -1483,7 +1501,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // the state summary below and rely on that instead.
             }
             // Continue to store.
-            PutStateOutcome::Finalized | PutStateOutcome::PreFinalizedIgnored => {}
+            PutStateOutcome::Finalized | PutStateOutcome::PreFinalizedHDiffBuffer => {}
         }
 
         // Computing diffs is expensive so we avoid it if we already have this state stored on
@@ -1653,6 +1671,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     fn load_hot_hdiff_buffer(&self, state_root: Hash256) -> Result<HDiffBuffer, Error> {
+        if let Some(buffer) = self
+            .state_cache
+            .lock()
+            .get_hdiff_buffer_by_state_root(state_root)
+        {
+            return Ok(buffer);
+        }
+
         let Some(HotStateSummary {
             slot,
             diff_base_state,
@@ -2194,10 +2220,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 %slot,
                 "Hit hdiff buffer cache"
             );
-            metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT);
+            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, COLD_METRIC);
             return Ok((slot, buffer));
         }
-        metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS);
+        metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, COLD_METRIC);
 
         // Load buffer for the previous state.
         // This amount of recursion (<10 levels) should be OK.
