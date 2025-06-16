@@ -120,7 +120,7 @@ fn get_harness_capella_spec(
 /// Also returns some info about who created it.
 fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-) -> (SingleAttestation, usize, usize, SecretKey, SubnetId) {
+) -> (SingleAttestation, SecretKey, SubnetId) {
     let head = chain.head_snapshot();
     let current_slot = chain.slot().expect("should get slot");
 
@@ -170,13 +170,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     )
     .expect("should get subnet_id");
 
-    (
-        single_attestation,
-        validator_index,
-        validator_committee_index,
-        validator_sk,
-        subnet_id,
-    )
+    (single_attestation, validator_sk, subnet_id)
 }
 
 fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
@@ -281,9 +275,6 @@ struct GossipTester {
      * Valid unaggregated attestation
      */
     valid_attestation: SingleAttestation,
-    attester_validator_index: usize,
-    #[allow(dead_code)]
-    attester_committee_index: usize,
     attester_sk: SecretKey,
     attestation_subnet_id: SubnetId,
     /*
@@ -318,13 +309,8 @@ impl GossipTester {
         // Advance into a slot where there have not been blocks or attestations produced.
         harness.advance_slot();
 
-        let (
-            valid_attestation,
-            attester_validator_index,
-            attester_committee_index,
-            attester_sk,
-            attestation_subnet_id,
-        ) = get_valid_unaggregated_attestation(&harness.chain);
+        let (valid_attestation, attester_sk, attestation_subnet_id) =
+            get_valid_unaggregated_attestation(&harness.chain);
 
         let head = harness.chain.head_snapshot();
         let state = &head.beacon_state;
@@ -363,8 +349,6 @@ impl GossipTester {
         Self {
             harness,
             valid_attestation,
-            attester_validator_index,
-            attester_committee_index,
             attester_sk,
             attestation_subnet_id,
             invalid_attestation,
@@ -1106,7 +1090,7 @@ async fn unaggregated_gossip_verification() {
                         validator_index,
                         epoch,
                     }
-                    if validator_index == tester.attester_validator_index as u64 && epoch == tester.epoch()
+                    if validator_index == tester.valid_attestation.attester_index && epoch == tester.epoch()
                 ))
             },
         );
@@ -1393,8 +1377,7 @@ async fn verify_aggregate_for_gossip_doppelganger_detection() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, _attester_index, _attester_committee_index, _, _) =
-        get_valid_unaggregated_attestation(&harness.chain);
+    let (valid_attestation, _, _) = get_valid_unaggregated_attestation(&harness.chain);
 
     let head = harness.chain.head_snapshot();
     let state = &head.beacon_state;
@@ -1468,8 +1451,9 @@ async fn verify_attestation_for_gossip_doppelganger_detection() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, index, _attester_committee_index, _, subnet_id) =
-        get_valid_unaggregated_attestation(&harness.chain);
+    let (valid_attestation, _, subnet_id) = get_valid_unaggregated_attestation(&harness.chain);
+
+    let index = valid_attestation.attester_index as usize;
 
     harness
         .chain
