@@ -1,0 +1,178 @@
+name: reproducible-build
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Run every 2 days at 1 AM UTC
+    - cron: "0 1 */2 * *"
+  pull_request:
+    # Also run on PRs that might affect reproducible builds
+    paths:
+      - "Makefile"
+      - "Dockerfile.reproducible"
+      - ".github/workflows/reproducible-build.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+jobs:
+  build-x86_64:
+    name: test reproducible builds (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: x86_64-unknown-linux-gnu
+          
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake
+          
+      - name: Install cargo-cache
+        run: cargo install cargo-cache
+        
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          key: reproducible-build-x86_64
+
+      - name: Build Lighthouse (first build)
+        run: |
+          make build-reproducible RUST_TARGET=x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-gnu/release/lighthouse lighthouse-build-1
+          sha256sum lighthouse-build-1 > lighthouse-build-1.sha256
+          
+      - name: Clean build artifacts and cache
+        run: |
+          make clean
+          cargo cache -a
+          rm -rf target/
+          
+      - name: Build Lighthouse (second build)
+        run: |
+          make build-reproducible RUST_TARGET=x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-gnu/release/lighthouse lighthouse-build-2
+          sha256sum lighthouse-build-2 > lighthouse-build-2.sha256
+          
+      - name: Compare binaries
+        run: |
+          echo "=== Build 1 SHA256 ==="
+          cat lighthouse-build-1.sha256
+          echo "=== Build 2 SHA256 ==="
+          cat lighthouse-build-2.sha256
+          echo "=== Binary Comparison ==="
+          if cmp lighthouse-build-1 lighthouse-build-2; then
+            echo "✅ Binaries are identical - reproducible build PASSED"
+          else
+            echo "❌ Binaries differ - reproducible build FAILED"
+            exit 1
+          fi
+          
+      - name: Upload build artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-reproducible-builds-x86_64
+          path: |
+            lighthouse-build-1
+            lighthouse-build-2
+            lighthouse-build-1.sha256
+            lighthouse-build-2.sha256
+
+  build-aarch64:
+    name: test reproducible builds (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: aarch64-unknown-linux-gnu
+          
+      - name: Install build dependencies and cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake gcc-aarch64-linux-gnu
+          
+      - name: Install cargo-cache
+        run: cargo install cargo-cache
+        
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          key: reproducible-build-aarch64
+
+      - name: Build Lighthouse (first build)
+        run: |
+          make build-reproducible RUST_TARGET=aarch64-unknown-linux-gnu
+          cp target/aarch64-unknown-linux-gnu/release/lighthouse lighthouse-build-1-arm64
+          sha256sum lighthouse-build-1-arm64 > lighthouse-build-1-arm64.sha256
+          
+      - name: Clean build artifacts and cache
+        run: |
+          make clean
+          cargo cache -a
+          rm -rf target/
+          
+      - name: Build Lighthouse (second build)
+        run: |
+          make build-reproducible RUST_TARGET=aarch64-unknown-linux-gnu
+          cp target/aarch64-unknown-linux-gnu/release/lighthouse lighthouse-build-2-arm64
+          sha256sum lighthouse-build-2-arm64 > lighthouse-build-2-arm64.sha256
+          
+      - name: Compare binaries
+        run: |
+          echo "=== Build 1 SHA256 (ARM64) ==="
+          cat lighthouse-build-1-arm64.sha256
+          echo "=== Build 2 SHA256 (ARM64) ==="
+          cat lighthouse-build-2-arm64.sha256
+          echo "=== Binary Comparison ==="
+          if cmp lighthouse-build-1-arm64 lighthouse-build-2-arm64; then
+            echo "✅ ARM64 binaries are identical - reproducible build PASSED"
+          else
+            echo "❌ ARM64 binaries differ - reproducible build FAILED"
+            exit 1
+          fi
+          
+      - name: Upload build artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-reproducible-builds-aarch64
+          path: |
+            lighthouse-build-1-arm64
+            lighthouse-build-2-arm64
+            lighthouse-build-1-arm64.sha256
+            lighthouse-build-2-arm64.sha256
+
+  summary:
+    name: reproducible build summary
+    runs-on: ubuntu-latest
+    needs: [build-x86_64, build-aarch64]
+    if: always()
+    steps:
+      - name: Report results
+        run: |
+          echo "## 🔄 Reproducible Build Test Results"
+          echo ""
+          if [[ "${{ needs.build-x86_64.result }}" == "success" ]]; then
+            echo "✅ **x86_64**: Reproducible builds PASSED"
+          else
+            echo "❌ **x86_64**: Reproducible builds FAILED"
+          fi
+          
+          if [[ "${{ needs.build-aarch64.result }}" == "success" ]]; then
+            echo "✅ **aarch64**: Reproducible builds PASSED"
+          else
+            echo "❌ **aarch64**: Reproducible builds FAILED"
+          fi
+          
+          echo ""
+          if [[ "${{ needs.build-x86_64.result }}" == "success" ]] && [[ "${{ needs.build-aarch64.result }}" == "success" ]]; then
+            echo "🎉 **Overall**: All reproducible builds are working correctly!"
+          else
+            echo "⚠️  **Overall**: Some reproducible builds failed - check the logs above"
+            exit 1
+          fi
