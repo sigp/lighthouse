@@ -215,8 +215,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
     }
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
-    #[cfg(test)]
-    pub(crate) fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
+    pub fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
         Self {
             block_root: column_sidecar.block_root(),
             data_column: KzgVerifiedDataColumn::__new_for_testing(column_sidecar),
@@ -268,12 +267,22 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 
     /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
-    #[cfg(test)]
     pub(crate) fn __new_for_testing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
         Self { data: data_column }
     }
 
     pub fn from_batch(
+        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+        kzg: &Kzg,
+    ) -> Result<Vec<Self>, KzgError> {
+        verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
+        Ok(data_columns
+            .into_iter()
+            .map(|column| Self { data: column })
+            .collect())
+    }
+
+    pub fn from_batch_with_scoring(
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
     ) -> Result<Vec<Self>, Vec<(ColumnIndex, KzgError)>> {
@@ -669,7 +678,8 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
             &chain.spec,
         )?;
 
-        let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+        let epoch = state.current_epoch();
+        let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
         // Prime the proposer shuffling cache with the newly-learned value.
         Ok::<_, GossipDataColumnError>(EpochBlockProposers {
             epoch: column_epoch,

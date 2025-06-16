@@ -1296,7 +1296,9 @@ impl BeaconNodeHttpClient {
         }
 
         self.get_fork_contextual(path, |fork| {
-            (fork, spec.max_blobs_per_block_by_fork(fork) as usize)
+            // TODO(EIP-7892): this will overestimate the max number of blobs
+            // It would be better if we could get an epoch passed into this function
+            (fork, spec.max_blobs_per_block_within_fork(fork) as usize)
         })
         .await
         .map(|opt| opt.map(BeaconResponse::ForkVersioned))

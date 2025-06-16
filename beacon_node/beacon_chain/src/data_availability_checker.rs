@@ -5,7 +5,7 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore};
+use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext};
 use kzg::Kzg;
 use slot_clock::SlotClock;
 use std::fmt;
@@ -74,6 +74,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
+    custody_context: Arc<CustodyContext>,
     spec: Arc<ChainSpec>,
 }
 
@@ -111,15 +112,26 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
+        custody_context: Arc<CustodyContext>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
-        let inner = DataAvailabilityCheckerInner::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
+        let inner = DataAvailabilityCheckerInner::new(
+            OVERFLOW_LRU_CAPACITY,
+            store,
+            custody_context.clone(),
+            spec.clone(),
+        )?;
         Ok(Self {
             availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
+            custody_context,
             spec,
         })
+    }
+
+    pub fn custody_context(&self) -> Arc<CustodyContext> {
+        self.custody_context.clone()
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -222,8 +234,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         // Attributes fault to the specific peer that sent an invalid column
-        let kzg_verified_columns = KzgVerifiedDataColumn::from_batch(custody_columns, &self.kzg)
-            .map_err(AvailabilityCheckError::InvalidColumn)?;
+        let kzg_verified_columns =
+            KzgVerifiedDataColumn::from_batch_with_scoring(custody_columns, &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidColumn)?;
 
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
@@ -273,6 +286,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
+    pub fn put_kzg_verified_custody_data_columns<
+        I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
+    >(
+        &self,
+        block_root: Hash256,
+        custody_columns: I,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, custody_columns)
+    }
+
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
     /// about whether all components have been received or more are required.
     pub fn put_pending_executed_block(
@@ -297,7 +321,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
-        let custody_columns_count = block.custody_columns_count();
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs {
@@ -311,11 +334,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     spec: self.spec.clone(),
                 }))
             } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending {
-                    block_root,
-                    block,
-                    custody_columns_count,
-                })
+                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
             };
         }
         if self.data_columns_required_for_block(&block) {
@@ -340,11 +359,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     spec: self.spec.clone(),
                 }))
             } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending {
-                    block_root,
-                    block,
-                    custody_columns_count,
-                })
+                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
             };
         }
 
@@ -401,7 +416,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
 
         for block in blocks {
-            let custody_columns_count = block.custody_columns_count();
             let (block_root, block, blobs, data_columns) = block.deconstruct();
 
             let maybe_available_block = if self.blobs_required_for_block(&block) {
@@ -414,11 +428,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         spec: self.spec.clone(),
                     })
                 } else {
-                    MaybeAvailableBlock::AvailabilityPending {
-                        block_root,
-                        block,
-                        custody_columns_count,
-                    }
+                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
                 }
             } else if self.data_columns_required_for_block(&block) {
                 if let Some(data_columns) = data_columns {
@@ -432,11 +442,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         spec: self.spec.clone(),
                     })
                 } else {
-                    MaybeAvailableBlock::AvailabilityPending {
-                        block_root,
-                        block,
-                        custody_columns_count,
-                    }
+                    MaybeAvailableBlock::AvailabilityPending { block_root, block }
                 }
             } else {
                 MaybeAvailableBlock::Available(AvailableBlock {
@@ -786,7 +792,6 @@ pub enum MaybeAvailableBlock<E: EthSpec> {
     AvailabilityPending {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
-        custody_columns_count: usize,
     },
 }
 

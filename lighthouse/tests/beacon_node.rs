@@ -699,8 +699,6 @@ fn test_builder_disable_ssz_flag() {
 }
 
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
-    use sensitive_url::SensitiveUrl;
-
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let execution_endpoint = "http://meow.cats";
     let jwt_file = "jwt-file";
