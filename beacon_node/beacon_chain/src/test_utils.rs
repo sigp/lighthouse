@@ -2480,8 +2480,6 @@ where
             }
         }
 
-        //TODO(single-attestation) convert to single attn
-
         for result in self
             .chain
             .batch_verify_unaggregated_attestations_for_gossip(
