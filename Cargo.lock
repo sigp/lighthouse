@@ -3705,17 +3705,12 @@ dependencies = [
 name = "genesis"
 version = "0.2.0"
 dependencies = [
- "environment",
  "ethereum_hashing",
  "ethereum_ssz",
- "futures",
  "int_to_bytes",
- "logging",
  "merkle_proof",
  "rayon",
- "sensitive_url",
  "state_processing",
- "tokio",
  "tracing",
  "tree_hash",
  "types",
