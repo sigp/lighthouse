@@ -32,6 +32,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
+use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, info, trace, warn};
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationData, AttestationRef,
@@ -42,6 +43,7 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
+use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
     work_reprocessing_queue::{
         QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
@@ -806,6 +808,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
+                    GossipDataColumnError::PriorKnownUnpublished => {
+                        debug!(
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Gossip data column already processed via the EL. Accepting the column sidecar without re-processing."
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Accept,
+                        );
+                    }
                     GossipDataColumnError::ParentUnknown { parent_root } => {
                         debug!(
                             action = "requesting parent",
@@ -1169,8 +1184,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    self.attempt_data_column_reconstruction(block_root, true)
-                        .await;
+                    // Instead of triggering reconstruction immediately, schedule it to be run. If
+                    // another column arrives it either completes availability or pushes
+                    // reconstruction back a bit.
+                    let cloned_self = Arc::clone(self);
+                    let send_result = self.beacon_processor_send.try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
+                            QueuedColumnReconstruction {
+                                block_root,
+                                process_fn: Box::pin(async move {
+                                    cloned_self
+                                        .attempt_data_column_reconstruction(block_root, true)
+                                        .await;
+                                }),
+                            },
+                        )),
+                    });
+                    if let Err(TrySendError::Full(WorkEvent {
+                        work:
+                            Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
+                                reconstruction,
+                            )),
+                        ..
+                    })) = send_result
+                    {
+                        warn!("Unable to send reconstruction to reprocessing");
+                        // Execute it immediately instead.
+                        reconstruction.process_fn.await;
+                    }
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {
@@ -1264,10 +1306,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_block_for_gossip(
-                block.clone(),
-                self.network_globals.custody_columns_count() as usize,
-            )
+            .verify_block_for_gossip(block.clone())
             .await;
 
         if verification_result.is_ok() {
@@ -2786,6 +2825,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             message_id,
                             peer_id,
                             MessageAcceptance::Ignore,
+                        );
+                    }
+                    BeaconChainError::AttestationValidationError(e) => {
+                        // Failures from `get_attesting_indices` end up here.
+                        debug!(
+                            %peer_id,
+                            block_root = ?beacon_block_root,
+                            attestation_slot = %failed_att.attestation_data().slot,
+                            error = ?e,
+                            "Rejecting attestation that failed validation"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::MidToleranceError,
+                            "attn_validation_error",
                         );
                     }
                     _ => {

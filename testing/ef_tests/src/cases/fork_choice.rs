@@ -520,7 +520,7 @@ impl<E: EthSpec> Tester<E> {
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
-                RpcBlock::new_without_blobs(Some(block_root), block.clone(), 0),
+                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),

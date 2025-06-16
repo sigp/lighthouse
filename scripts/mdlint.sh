@@ -5,8 +5,7 @@
 # Run `make mdlint` from the root of the repository instead.
 
 # use markdownlint-cli to check for markdown files
-# NOTE: we disable MD059 (descriptive-link-text) because it is too strict
-docker run --rm -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/*.md' --ignore node_modules --disable MD059
+docker run --rm -v ./book:/workdir ghcr.io/igorshubovych/markdownlint-cli:latest '**/*.md' --ignore node_modules
 
 # exit code
 exit_code=$(echo $?)
