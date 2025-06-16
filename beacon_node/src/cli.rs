@@ -69,6 +69,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            // TODO(das): remove this before PeerDAS release
+            Arg::new("advertise-false-custody-group-count")
+                .long("advertise-false-custody-group-count")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("Advertises a false CGC for testing PeerDAS. Do NOT use in production.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("enable-sampling")
                 .long("enable-sampling")
                 .action(ArgAction::SetTrue)

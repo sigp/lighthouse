@@ -767,7 +767,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 // subscribe to `sampling_count` subnets
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
-                self.libp2p.update_enr_cgc(new_custody_group_count);
+                if self
+                    .network_globals
+                    .config
+                    .advertise_false_custody_group_count
+                    .is_none()
+                {
+                    self.libp2p.update_enr_cgc(new_custody_group_count);
+                }
             }
         }
     }
