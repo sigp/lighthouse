@@ -761,8 +761,8 @@ pub enum GraffitiPolicy {
 impl fmt::Display for GraffitiPolicy {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            GraffitiPolicy::PreserveUserGraffiti => write!(f, "preserve_user_graffiti"),
-            GraffitiPolicy::AppendClientVersions => write!(f, "append_client_versions"),
+            GraffitiPolicy::PreserveUserGraffiti => write!(f, "preserve-user-graffiti"),
+            GraffitiPolicy::AppendClientVersions => write!(f, "append-client-versions"),
         }
     }
 }
