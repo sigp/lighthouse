@@ -944,7 +944,7 @@ where
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
         let graffiti_settings =
-            GraffitiSettings::new(Some(graffiti), GraffitiPolicy::PreserveUserGraffiti);
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1005,7 +1005,7 @@ where
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
         let graffiti_settings =
-            GraffitiSettings::new(Some(graffiti), GraffitiPolicy::PreserveUserGraffiti);
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 

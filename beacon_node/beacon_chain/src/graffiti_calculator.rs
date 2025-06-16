@@ -58,9 +58,12 @@ pub enum GraffitiSettings {
 }
 
 impl GraffitiSettings {
-    pub fn new(validator_graffiti: Option<Graffiti>, policy: GraffitiPolicy) -> Self {
+    pub fn new(validator_graffiti: Option<Graffiti>, policy: Option<GraffitiPolicy>) -> Self {
         validator_graffiti
-            .map(|graffiti| Self::Specified { graffiti, policy })
+            .map(|graffiti| Self::Specified {
+                graffiti,
+                policy: policy.unwrap_or(GraffitiPolicy::PreserveUserGraffiti),
+            })
             .unwrap_or(Self::Unspecified)
     }
 }
@@ -391,7 +394,7 @@ mod tests {
             .graffiti_calculator
             .get_graffiti(GraffitiSettings::new(
                 Some(Graffiti::from(graffiti_bytes)),
-                GraffitiPolicy::PreserveUserGraffiti,
+                Some(GraffitiPolicy::PreserveUserGraffiti),
             ))
             .await;
 
