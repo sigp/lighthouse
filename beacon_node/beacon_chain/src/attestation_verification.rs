@@ -38,7 +38,7 @@ use crate::{
     metrics,
     observed_aggregates::{ObserveOutcome, ObservedAttestationKey},
     observed_attesters::Error as ObservedAttestersError,
-    test_utils::single_attestation_to_attestation,
+    single_attestation::single_attestation_to_attestation,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
@@ -203,12 +203,6 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     NoCommitteeForSlotAndIndex { slot: Slot, index: CommitteeIndex },
-    /// The unaggregated attestation doesn't have only one aggregation bit set.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer has sent an invalid message.
-    NotExactlyOneAggregationBitSet(usize),
     /// The attestation doesn't have only one aggregation bit set.
     ///
     /// ## Peer scoring
@@ -307,7 +301,7 @@ struct IndexedAggregatedAttestation<'a, T: BeaconChainTypes> {
 struct IndexedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
     attestation: &'a SingleAttestation,
     indexed_attestation: IndexedAttestation<T::EthSpec>,
-    subnet_id: SubnetId,
+    subnet_id: Option<SubnetId>,
     validator_index: u64,
 }
 
@@ -881,31 +875,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
     /// Run the checks that apply to the indexed attestation before the signature is checked.
     pub fn verify_middle_checks(
         attestation: &'a SingleAttestation,
-        indexed_attestation: &IndexedAttestation<T::EthSpec>,
-        committees_per_slot: u64,
-        subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<(u64, SubnetId), Error> {
-        let expected_subnet_id = SubnetId::compute_subnet_for_single_attestation::<T::EthSpec>(
-            attestation,
-            committees_per_slot,
-            &chain.spec,
-        )
-        .map_err(BeaconChainError::from)?;
-
-        // If a subnet was specified, ensure that subnet is correct.
-        if let Some(subnet_id) = subnet_id {
-            if subnet_id != expected_subnet_id {
-                return Err(Error::InvalidSubnetId {
-                    received: subnet_id,
-                    expected: expected_subnet_id,
-                });
-            }
-        };
-
-        let validator_index = *indexed_attestation
-            .attesting_indices_first()
-            .ok_or(Error::NotExactlyOneAggregationBitSet(0))?;
+    ) -> Result<u64, Error> {
+        let validator_index = attestation.attester_index;
 
         /*
          * The attestation is the first valid attestation received for the participating validator
@@ -923,7 +895,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             });
         }
 
-        Ok((validator_index, expected_subnet_id))
+        Ok(validator_index)
     }
 
     /// Returns `Ok(Self)` if the `attestation` is valid to be (re)published on the gossip
@@ -957,42 +929,13 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             return Err(SignatureNotCheckedSingle(attestation, e));
         }
 
-        let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
-
         let fork_name = chain
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
         let indexed_attestation = attestation.to_indexed(fork_name);
 
-        let committees_per_slot = chain
-            .with_committee_cache(
-                attestation.data.target.root,
-                attestation_epoch,
-                |committee_cache, _| {
-                    if committee_cache
-                        .get_beacon_committee(attestation.data.slot, attestation.committee_index)
-                        .is_none()
-                    {
-                        return Ok(Err(Error::NoCommitteeForSlotAndIndex {
-                            slot: attestation.data.slot,
-                            index: attestation.committee_index,
-                        }));
-                    }
-
-                    Ok(Ok(committee_cache.committees_per_slot()))
-                },
-            )
-            .map_err(|e| SignatureNotCheckedSingle(attestation, e.into()))?
-            .map_err(|e| SignatureNotCheckedSingle(attestation, e))?;
-
-        let (validator_index, expected_subnet_id) = match Self::verify_middle_checks(
-            attestation,
-            &indexed_attestation,
-            committees_per_slot,
-            subnet_id,
-            chain,
-        ) {
+        let validator_index = match Self::verify_middle_checks(attestation, chain) {
             Ok(t) => t,
             Err(e) => return Err(SignatureNotCheckedIndexed(indexed_attestation, e)),
         };
@@ -1000,7 +943,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         Ok(Self {
             attestation,
             indexed_attestation,
-            subnet_id: expected_subnet_id,
+            subnet_id,
             validator_index,
         })
     }
@@ -1019,8 +962,53 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
     fn verify_late_checks(
         attestation: &'a SingleAttestation,
         validator_index: u64,
+        subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<(), Error> {
+    ) -> Result<(Attestation<T::EthSpec>, SubnetId), Error> {
+        // Check that the attester is a member of the committee
+        let (committee_opt, committees_per_slot) = chain.with_committee_cache(
+            attestation.data.target.root,
+            attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
+            |committee_cache, _| {
+                let committee_opt = committee_cache
+                    .get_beacon_committee(attestation.data.slot, attestation.committee_index)
+                    .map(|beacon_committee| beacon_committee.committee.to_vec());
+
+                Ok((committee_opt, committee_cache.committees_per_slot()))
+            },
+        )?;
+
+        let Some(committee) = committee_opt else {
+            return Err(Error::NoCommitteeForSlotAndIndex {
+                slot: attestation.data.slot,
+                index: attestation.committee_index,
+            });
+        };
+
+        if !committee.contains(&(attestation.attester_index as usize)) {
+            return Err(Error::AttesterNotInCommittee {
+                attester_index: attestation.attester_index,
+                committee_index: attestation.committee_index,
+                slot: attestation.data.slot,
+            });
+        }
+
+        let expected_subnet_id = SubnetId::compute_subnet_for_single_attestation::<T::EthSpec>(
+            attestation,
+            committees_per_slot,
+            &chain.spec,
+        )
+        .map_err(BeaconChainError::from)?;
+
+        // If a subnet was specified, ensure that subnet is correct.
+        if let Some(subnet_id) = subnet_id {
+            if subnet_id != expected_subnet_id {
+                return Err(Error::InvalidSubnetId {
+                    received: subnet_id,
+                    expected: expected_subnet_id,
+                });
+            }
+        };
         // Now that the attestation has been fully verified, store that we have received a valid
         // attestation from this validator.
         //
@@ -1038,7 +1026,15 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
                 epoch: attestation.data.target.epoch,
             });
         }
-        Ok(())
+
+        let fork_name = chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
+
+        let unaggregated_attestation =
+            single_attestation_to_attestation(attestation, &committee, fork_name)?;
+
+        Ok((unaggregated_attestation, expected_subnet_id))
     }
 
     /// Verify the `unaggregated_attestation`.
@@ -1094,37 +1090,11 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             CheckAttestationSignature::No => (),
         };
 
-        if let Err(e) = Self::verify_late_checks(attestation, validator_index, chain) {
-            return Err(SignatureValid(indexed_attestation, e));
-        }
-
-        let fork_name = chain
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
-
-        let unaggregated_attestation = chain
-            .with_committee_cache(
-                attestation.data.target.root,
-                attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
-                |committee_cache, _| {
-                    let Some(committee) = committee_cache
-                        .get_beacon_committee(attestation.data.slot, attestation.committee_index)
-                    else {
-                        return Ok(Err(Error::NoCommitteeForSlotAndIndex {
-                            slot: attestation.data.slot,
-                            index: attestation.committee_index,
-                        }));
-                    };
-
-                    Ok(single_attestation_to_attestation(
-                        attestation,
-                        committee.committee,
-                        fork_name,
-                    ))
-                },
-            )
-            .map_err(|e| SignatureValid(indexed_attestation.clone(), e.into()))?
-            .map_err(|e| SignatureValid(indexed_attestation.clone(), e))?;
+        let (unaggregated_attestation, subnet_id) =
+            match Self::verify_late_checks(attestation, validator_index, subnet_id, chain) {
+                Ok(a) => a,
+                Err(e) => return Err(SignatureValid(indexed_attestation, e)),
+            };
 
         Ok(Self {
             single_attestation: attestation,
