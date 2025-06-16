@@ -125,9 +125,10 @@ impl<E: EthSpec> StateCache<E> {
         // Delete states.
         for state_root in state_roots_to_prune {
             if let Some((_, state)) = self.states.pop(&state_root) {
-                // Copy hdiff buffers for states that are now aligned to the grid.
+                // Copy the hdiff buffer for the new snapshot if it is moving from after
+                // finalization to before.
                 let slot = state.slot();
-                if pre_finalized_slots_to_retain.contains(&slot) && slot != state.slot() {
+                if pre_finalized_slots_to_retain.last() == Some(&slot) {
                     let hdiff_buffer = HDiffBuffer::from_state(state);
                     self.hdiff_buffers.put(state_root, (slot, hdiff_buffer));
                 }
@@ -140,7 +141,7 @@ impl<E: EthSpec> StateCache<E> {
         let new_hdiff_cache = LruCache::new(self.hdiff_buffers.cap());
         let old_hdiff_cache = std::mem::replace(&mut self.hdiff_buffers, new_hdiff_cache);
         for (state_root, (slot, buffer)) in old_hdiff_cache {
-            if pre_finalized_slots_to_retain.contains(&slot) {
+            if pre_finalized_slots_to_retain.last() == Some(&slot) {
                 self.hdiff_buffers.put(state_root, (slot, buffer));
             }
         }

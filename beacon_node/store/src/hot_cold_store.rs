@@ -1699,7 +1699,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     );
                     return Err(Error::MissingHotStateSnapshot(state_root, slot));
                 };
-                HDiffBuffer::from_state(state)
+                let buffer = HDiffBuffer::from_state(state);
+                // Add buffer to cache for future calls.
+                self.state_cache
+                    .lock()
+                    .put_hdiff_buffer(state_root, slot, &buffer);
+                buffer
             }
             StorageStrategy::DiffFrom(from_slot) => {
                 let from_state_root = diff_base_state.get_root(from_slot)?;
@@ -1729,11 +1734,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 })?
             }
         };
-
-        // Add buffer to cache for future calls.
-        self.state_cache
-            .lock()
-            .put_hdiff_buffer(state_root, slot, &buffer);
 
         Ok(buffer)
     }
