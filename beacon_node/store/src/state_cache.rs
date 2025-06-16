@@ -260,9 +260,15 @@ impl<E: EthSpec> StateCache<E> {
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
             return Some(buffer.clone());
         }
-        metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
-        self.get_by_state_root(state_root)
+        if let Some(buffer) = self
+            .get_by_state_root(state_root)
             .map(HDiffBuffer::from_state)
+        {
+            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
+            return Some(buffer.clone());
+        }
+        metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
+        None
     }
 
     pub fn get_by_block_root(
