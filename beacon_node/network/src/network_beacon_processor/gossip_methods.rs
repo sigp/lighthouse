@@ -2463,19 +2463,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_no_committee",
                 );
             }
-            AttnError::NotExactlyOneAggregationBitSet(_) => {
-                /*
-                 * The unaggregated attestation doesn't have only one signature.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::LowToleranceError,
-                    "attn_too_many_agg_bits",
-                );
-            }
             AttnError::NotExactlyOneCommitteeBitSet(_) => {
                 /*
                  * The attestation doesn't have only one committee bit set.

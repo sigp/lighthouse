@@ -203,12 +203,6 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     NoCommitteeForSlotAndIndex { slot: Slot, index: CommitteeIndex },
-    /// The unaggregated attestation doesn't have only one aggregation bit set.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer has sent an invalid message.
-    NotExactlyOneAggregationBitSet(usize),
     /// The attestation doesn't have only one aggregation bit set.
     ///
     /// ## Peer scoring
@@ -881,12 +875,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
     /// Run the checks that apply to the indexed attestation before the signature is checked.
     pub fn verify_middle_checks(
         attestation: &'a SingleAttestation,
-        indexed_attestation: &IndexedAttestation<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<u64, Error> {
-        let validator_index = *indexed_attestation
-            .attesting_indices_first()
-            .ok_or(Error::NotExactlyOneAggregationBitSet(0))?;
+        let validator_index = attestation.attester_index;
 
         /*
          * The attestation is the first valid attestation received for the participating validator
@@ -944,11 +935,10 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
         let indexed_attestation = attestation.to_indexed(fork_name);
 
-        let validator_index =
-            match Self::verify_middle_checks(attestation, &indexed_attestation, chain) {
-                Ok(t) => t,
-                Err(e) => return Err(SignatureNotCheckedIndexed(indexed_attestation, e)),
-            };
+        let validator_index = match Self::verify_middle_checks(attestation, chain) {
+            Ok(t) => t,
+            Err(e) => return Err(SignatureNotCheckedIndexed(indexed_attestation, e)),
+        };
 
         Ok(Self {
             attestation,
