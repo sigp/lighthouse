@@ -127,7 +127,7 @@ build-reproducible-x86_64: ## Build reproducible x86_64 Docker image
 	DOCKER_BUILDKIT=1 docker build \
 		--build-arg RUST_TARGET="x86_64-unknown-linux-gnu" \
 		--build-arg RUST_IMAGE=$(RUST_IMAGE_AMD64) \
-		-f Dockerfile.test \
+		-f Dockerfile.reproducible \
 		-t lighthouse:reproducible-amd64 .
 
 .PHONY: build-reproducible-aarch64
