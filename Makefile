@@ -82,36 +82,65 @@ build-lcli-aarch64:
 build-lcli-riscv64:
 	cross build --bin lcli --target riscv64gc-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
 
-# extracts the current source date for reproducible builds
-SOURCE_DATE := $(shell git log -1 --pretty=%ct)
+# Environment variables for reproducible builds
+# Initialize RUSTFLAGS
+RUST_BUILD_FLAGS =
+# Remove build ID from the binary to ensure reproducibility across builds
+RUST_BUILD_FLAGS += -C link-arg=-Wl,--build-id=none
+# Remove metadata hash from symbol names to ensure reproducible builds
+RUST_BUILD_FLAGS += -C metadata=''
 
-# Default image for x86_64
-RUST_IMAGE_AMD64 ?= rust:1.82-bullseye@sha256:ac7fe7b0c9429313c0fe87d3a8993998d1fe2be9e3e91b5e2ec05d3a09d87128
+# Set timestamp from last git commit for reproducible builds
+SOURCE_DATE ?= $(shell git log -1 --pretty=%ct)
 
-# Reproducible build for x86_64
-build-reproducible-x86_64:
+# Disable incremental compilation to avoid non-deterministic artifacts
+CARGO_INCREMENTAL_VAL = 0
+# Set C locale for consistent string handling and sorting
+LOCALE_VAL = C
+# Set UTC timezone for consistent time handling across builds
+TZ_VAL = UTC
+
+# Default features for lighthouse
+FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc
+
+# Default profile 
+PROFILE ?= release
+
+# Default target architecture
+RUST_TARGET ?= x86_64-unknown-linux-gnu
+
+# Default images for different architectures
+RUST_IMAGE_AMD64 ?= rust:1.86-bullseye@sha256:1110399f568f1dbe838e58f15b4162d899cb95f450f5f0ffa739614f3a4c32f1
+RUST_IMAGE_ARM64 ?= rust:1.86-bullseye@sha256:36053eabadeb701e3e0406610a2ce72ccfa10b7828963cd08cffdcf660518b27
+
+.PHONY: build-reproducible
+build-reproducible: ## Build the lighthouse binary into `target` directory with reproducible builds
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE) \
+	RUSTFLAGS="${RUST_BUILD_FLAGS} --remap-path-prefix $$(pwd)=." \
+	CARGO_INCREMENTAL=${CARGO_INCREMENTAL_VAL} \
+	LC_ALL=${LOCALE_VAL} \
+	TZ=${TZ_VAL} \
+	cargo build --bin lighthouse --features "$(FEATURES)" --profile "$(PROFILE)" --locked --target $(RUST_TARGET)
+
+.PHONY: build-reproducible-x86_64
+build-reproducible-x86_64: ## Build reproducible x86_64 Docker image
 	DOCKER_BUILDKIT=1 docker build \
 		--build-arg RUST_TARGET="x86_64-unknown-linux-gnu" \
 		--build-arg RUST_IMAGE=$(RUST_IMAGE_AMD64) \
-		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
-		-f Dockerfile.reproducible \
+		-f Dockerfile.test \
 		-t lighthouse:reproducible-amd64 .
 
-# Default image for arm64
-RUST_IMAGE_ARM64 ?= rust:1.82-bullseye@sha256:3c1b8b6487513ad4e753d008b960260f5bcc81bf110883460f6ed3cd72bf439b
-
-# Reproducible build for aarch64
-build-reproducible-aarch64:
+.PHONY: build-reproducible-aarch64
+build-reproducible-aarch64: ## Build reproducible aarch64 Docker image
 	DOCKER_BUILDKIT=1 docker build \
 		--platform linux/arm64 \
 		--build-arg RUST_TARGET="aarch64-unknown-linux-gnu" \
 		--build-arg RUST_IMAGE=$(RUST_IMAGE_ARM64) \
-		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
 		-f Dockerfile.reproducible \
 		-t lighthouse:reproducible-arm64 .
 
-# Build both architectures
-build-reproducible-all: build-reproducible-x86_64 build-reproducible-aarch64
+.PHONY: build-reproducible-all
+build-reproducible-all: build-reproducible-x86_64 build-reproducible-aarch64 ## Build both x86_64 and aarch64 reproducible Docker images
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
