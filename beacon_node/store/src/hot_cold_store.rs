@@ -1688,7 +1688,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Err(Error::MissingHotStateSummary(state_root));
         };
 
-        match self.hot_storage_strategy(slot)? {
+        let buffer = match self.hot_storage_strategy(slot)? {
             StorageStrategy::Snapshot => {
                 let Some(state) = self.load_hot_state_as_snapshot(state_root)? else {
                     let existing_snapshots = self.load_hot_state_snapshot_roots()?;
@@ -1699,8 +1699,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     );
                     return Err(Error::MissingHotStateSnapshot(state_root, slot));
                 };
-                let buffer = HDiffBuffer::from_state(state);
-                Ok(buffer)
+                HDiffBuffer::from_state(state)
             }
             StorageStrategy::DiffFrom(from_slot) => {
                 let from_state_root = diff_base_state.get_root(from_slot)?;
@@ -1717,7 +1716,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         metrics::start_timer_vec(&metrics::BEACON_HDIFF_APPLY_TIME, HOT_METRIC);
                     diff.apply(&mut buffer, &self.config)?;
                 }
-                Ok(buffer)
+                buffer
             }
             StorageStrategy::ReplayFrom(from_slot) => {
                 let from_state_root = diff_base_state.get_root(from_slot)?;
@@ -1727,9 +1726,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         from_state_root,
                         e.into(),
                     )
-                })
+                })?
             }
-        }
+        };
+
+        // Add buffer to cache for future calls.
+        self.state_cache
+            .lock()
+            .put_hdiff_buffer(state_root, slot, &buffer);
+
+        Ok(buffer)
     }
 
     fn load_hot_hdiff(&self, state_root: Hash256) -> Result<HDiff, Error> {

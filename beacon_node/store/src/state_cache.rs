@@ -127,7 +127,7 @@ impl<E: EthSpec> StateCache<E> {
             if let Some((_, state)) = self.states.pop(&state_root) {
                 // Copy hdiff buffers for states that are now aligned to the grid.
                 let slot = state.slot();
-                if pre_finalized_slots_to_retain.contains(&slot) {
+                if pre_finalized_slots_to_retain.contains(&slot) && slot != state.slot() {
                     let hdiff_buffer = HDiffBuffer::from_state(state);
                     self.hdiff_buffers.put(state_root, (slot, hdiff_buffer));
                 }
@@ -242,6 +242,17 @@ impl<E: EthSpec> StateCache<E> {
             }
         }
         self.states.get(&state_root).map(|(_, state)| state.clone())
+    }
+
+    pub fn put_hdiff_buffer(&mut self, state_root: Hash256, slot: Slot, buffer: &HDiffBuffer) {
+        // Only accept HDiffBuffers prior to finalization. Later states should be stored as proper
+        // states, not HDiffBuffers.
+        if let Some(finalized_state) = &self.finalized_state {
+            if slot >= finalized_state.state.slot() {
+                return;
+            }
+        }
+        self.hdiff_buffers.put(state_root, (slot, buffer.clone()));
     }
 
     pub fn get_hdiff_buffer_by_state_root(&mut self, state_root: Hash256) -> Option<HDiffBuffer> {
