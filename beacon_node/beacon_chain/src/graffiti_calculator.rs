@@ -98,7 +98,7 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
             GraffitiSettings::Specified { graffiti, policy } => match policy {
                 GraffitiPolicy::PreserveUserGraffiti => graffiti,
                 GraffitiPolicy::AppendClientVersions => {
-                    self.calculate_combined_graffiti(Some(graffiti)).await
+                    self.calculate_combined_graffiti(None).await
                 }
             },
             GraffitiSettings::Unspecified => self.calculate_combined_graffiti(None).await,
