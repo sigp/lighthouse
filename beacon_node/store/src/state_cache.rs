@@ -41,13 +41,25 @@ pub struct StateCache<E: EthSpec> {
     // the state_root
     states: LruCache<Hash256, (Hash256, BeaconState<E>)>,
     block_map: BlockMap,
+    hdiff_buffers: HotHDiffBufferCache,
+    max_epoch: Epoch,
+    head_block_root: Hash256,
+    headroom: NonZeroUsize,
+}
+
+/// Cache of hdiff buffers for hot states.
+///
+/// This cache only keeps buffers prior to the finalized state, which are required by the
+/// hierarchical state diff scheme to construct newer unfinalized states.
+///
+/// The cache always retains the hdiff buffer for the most recent snapshot so that even if the
+/// cache capacity is 1, this snapshot never needs to be loaded from disk.
+#[derive(Debug)]
+pub struct HotHDiffBufferCache {
     /// Cache of HDiffBuffers for states *prior* to the `finalized_state`.
     ///
     /// Maps state_root -> (slot, buffer).
     hdiff_buffers: LruCache<Hash256, (Slot, HDiffBuffer)>,
-    max_epoch: Epoch,
-    head_block_root: Hash256,
-    headroom: NonZeroUsize,
 }
 
 #[derive(Debug)]
@@ -71,7 +83,7 @@ impl<E: EthSpec> StateCache<E> {
             finalized_state: None,
             states: LruCache::new(capacity),
             block_map: BlockMap::default(),
-            hdiff_buffers: LruCache::new(NonZeroUsize::new(16).unwrap()),
+            hdiff_buffers: HotHDiffBufferCache::new(NonZeroUsize::new(16).unwrap()),
             max_epoch: Epoch::new(0),
             head_block_root: Hash256::ZERO,
             headroom,
@@ -91,10 +103,7 @@ impl<E: EthSpec> StateCache<E> {
     }
 
     pub fn hdiff_buffer_mem_usage(&self) -> usize {
-        self.hdiff_buffers
-            .iter()
-            .map(|(_, (_, buffer))| buffer.size())
-            .sum()
+        self.hdiff_buffers.mem_usage()
     }
 
     pub fn update_finalized_state(
@@ -122,27 +131,30 @@ impl<E: EthSpec> StateCache<E> {
         // Prune block map.
         let state_roots_to_prune = self.block_map.prune(state.slot());
 
-        // Delete states.
-        for state_root in state_roots_to_prune {
-            if let Some((_, state)) = self.states.pop(&state_root) {
-                // Copy the hdiff buffer for the new snapshot if it is moving from after
-                // finalization to before.
-                let slot = state.slot();
-                if pre_finalized_slots_to_retain.last() == Some(&slot) {
-                    let hdiff_buffer = HDiffBuffer::from_state(state);
-                    self.hdiff_buffers.put(state_root, (slot, hdiff_buffer));
-                }
+        // Prune HDiffBuffers that are no longer required by the hdiff grid of the finalized state.
+        // We need to do this prior to copying in any new hdiff buffers, because the cache
+        // preferences older slots.
+        // NOTE: This isn't perfect as it prunes by slot: there could be multiple buffers
+        // at some slots in the case of long forks without finality.
+        let new_hdiff_cache = HotHDiffBufferCache::new(self.hdiff_buffers.cap());
+        let old_hdiff_cache = std::mem::replace(&mut self.hdiff_buffers, new_hdiff_cache);
+        for (state_root, (slot, buffer)) in old_hdiff_cache.hdiff_buffers {
+            if pre_finalized_slots_to_retain.contains(&slot) {
+                self.hdiff_buffers.put(state_root, slot, buffer);
             }
         }
 
-        // Prune HDiffBuffers that are no longer required by the hdiff grid of the finalized state.
-        // NOTE: This isn't perfect as it prunes by slot: there could be multiple buffers
-        // at some slots in the case of long forks without finality.
-        let new_hdiff_cache = LruCache::new(self.hdiff_buffers.cap());
-        let old_hdiff_cache = std::mem::replace(&mut self.hdiff_buffers, new_hdiff_cache);
-        for (state_root, (slot, buffer)) in old_hdiff_cache {
-            if pre_finalized_slots_to_retain.last() == Some(&slot) {
-                self.hdiff_buffers.put(state_root, (slot, buffer));
+        // Delete states.
+        for state_root in state_roots_to_prune {
+            if let Some((_, state)) = self.states.pop(&state_root) {
+                // Add the hdiff buffer for this state to the hdiff cache if it is now part of
+                // the pre-finalized grid. The `put` method will take care of keeping the most
+                // useful buffers.
+                let slot = state.slot();
+                if pre_finalized_slots_to_retain.contains(&slot) {
+                    let hdiff_buffer = HDiffBuffer::from_state(state);
+                    self.hdiff_buffers.put(state_root, slot, hdiff_buffer);
+                }
             }
         }
 
@@ -192,7 +204,7 @@ impl<E: EthSpec> StateCache<E> {
                 // HDiffBuffer and saved.
                 let hdiff_buffer = HDiffBuffer::from_state(state.clone());
                 self.hdiff_buffers
-                    .put(state_root, (state.slot(), hdiff_buffer));
+                    .put(state_root, state.slot(), hdiff_buffer);
                 return Ok(PutStateOutcome::PreFinalizedHDiffBuffer);
             }
         }
@@ -253,11 +265,11 @@ impl<E: EthSpec> StateCache<E> {
                 return;
             }
         }
-        self.hdiff_buffers.put(state_root, (slot, buffer.clone()));
+        self.hdiff_buffers.put(state_root, slot, buffer.clone());
     }
 
     pub fn get_hdiff_buffer_by_state_root(&mut self, state_root: Hash256) -> Option<HDiffBuffer> {
-        if let Some((_, buffer)) = self.hdiff_buffers.get(&state_root) {
+        if let Some(buffer) = self.hdiff_buffers.get(&state_root) {
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
             return Some(buffer.clone());
         }
@@ -403,5 +415,82 @@ impl BlockMap {
 
     fn delete_block_states(&mut self, block_root: &Hash256) -> Option<SlotMap> {
         self.blocks.remove(block_root)
+    }
+}
+
+impl HotHDiffBufferCache {
+    pub fn new(capacity: NonZeroUsize) -> Self {
+        Self {
+            hdiff_buffers: LruCache::new(capacity),
+        }
+    }
+
+    pub fn get(&mut self, state_root: &Hash256) -> Option<HDiffBuffer> {
+        self.hdiff_buffers
+            .get(state_root)
+            .map(|(_, buffer)| buffer.clone())
+    }
+
+    /// Put a value in the cache, making room for it if necessary.
+    ///
+    /// If the value was inserted then `true` is returned.
+    pub fn put(&mut self, state_root: Hash256, slot: Slot, buffer: HDiffBuffer) -> bool {
+        // If the cache is not full, simply insert the value.
+        if self.hdiff_buffers.len() != self.hdiff_buffers.cap().get() {
+            self.hdiff_buffers.put(state_root, (slot, buffer));
+            return true;
+        }
+
+        // If the cache is full, it has room for this new entry if:
+        //
+        // - The capacity is greater than 1: we can retain the snapshot and the new entry, or
+        // - The capacity is 1 and the slot of the new entry is older than the min_slot in the
+        //   cache. This is a simplified way of retaining the snapshot in the cache. We don't need
+        //   to worry about inserting/retaining states older than the snapshot because these are
+        //   pruned on finalization and never reinserted.
+        let Some(min_slot) = self.hdiff_buffers.iter().map(|(_, (slot, _))| *slot).min() else {
+            // Unreachable: cache is full so should have >0 entries.
+            return false;
+        };
+
+        if self.hdiff_buffers.cap().get() > 1 || slot < min_slot {
+            // Remove LRU value. Cache is now at size `cap - 1`.
+            let Some((removed_state_root, (removed_slot, removed_buffer))) =
+                self.hdiff_buffers.pop_lru()
+            else {
+                // Unreachable: cache is full so should have at least one entry to pop.
+                return false;
+            };
+
+            // Insert new value. Cache size is now at size `cap`.
+            self.hdiff_buffers.put(state_root, (slot, buffer));
+
+            // If the removed value had the min slot and we didn't intend to replace it (cap=1)
+            // then we reinsert it.
+            if removed_slot == min_slot && slot >= min_slot {
+                self.hdiff_buffers
+                    .put(removed_state_root, (removed_slot, removed_buffer));
+            }
+            true
+        } else {
+            // No room.
+            false
+        }
+    }
+
+    pub fn cap(&self) -> NonZeroUsize {
+        self.hdiff_buffers.cap()
+    }
+
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        self.hdiff_buffers.len()
+    }
+
+    pub fn mem_usage(&self) -> usize {
+        self.hdiff_buffers
+            .iter()
+            .map(|(_, (_, buffer))| buffer.size())
+            .sum()
     }
 }
